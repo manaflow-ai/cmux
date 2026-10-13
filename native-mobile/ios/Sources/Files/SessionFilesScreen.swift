@@ -85,7 +85,7 @@ struct SessionFilesScreen: View {
     }
 
     private var noDirectory: some View {
-        DiffEmptyState(symbol: "folder.badge.questionmark", title: String(localized: "No working directory"),
+        StateMessageView(systemImage: "folder.badge.questionmark", title: String(localized: "No working directory"),
                        message: String(localized: "This terminal hasn't reported its current folder yet."))
     }
 
@@ -167,14 +167,14 @@ private struct ReferencedFilesView: View {
     var body: some View {
         Group {
             if let failure {
-                DiffFailureState(title: String(localized: "Couldn't load references"), message: failure) {
+                LoadFailedView(title: String(localized: "Couldn't load references"), message: failure) {
                     Task { await load() }
                 }
             } else if let refs {
                 let groups = SessionRefGroup.make(refs, query: query)
                 if groups.isEmpty {
-                    DiffEmptyState(
-                        symbol: query.isEmpty ? "doc.text.magnifyingglass" : "magnifyingglass",
+                    StateMessageView(
+                        systemImage: query.isEmpty ? "doc.text.magnifyingglass" : "magnifyingglass",
                         title: query.isEmpty ? String(localized: "No references yet") : String(localized: "No results"),
                         message: query.isEmpty
                             ? String(localized: "Files, folders and links mentioned in this session appear here.")
@@ -201,7 +201,7 @@ private struct ReferencedFilesView: View {
                     .refreshable { await load() }
                 }
             } else {
-                DiffLoadingState(label: String(localized: "Finding references"))
+                LoadingSkeleton(label: String(localized: "Finding references"))
             }
         }
         .task { if refs == nil { await load() } }
@@ -288,14 +288,14 @@ private struct ChangedFilesView: View {
     var body: some View {
         Group {
             if let failure {
-                DiffFailureState(title: String(localized: "Couldn't load changes"), message: failure) {
+                LoadFailedView(title: String(localized: "Couldn't load changes"), message: failure) {
                     Task { await load() }
                 }
             } else if files == nil {
-                DiffLoadingState(label: String(localized: "Loading changes"))
+                LoadingSkeleton(label: String(localized: "Loading changes"))
             } else if visible.isEmpty {
-                DiffEmptyState(
-                    symbol: query.isEmpty ? "checkmark.circle" : "magnifyingglass",
+                StateMessageView(
+                    systemImage: query.isEmpty ? "checkmark.circle" : "magnifyingglass",
                     title: query.isEmpty ? String(localized: "No changes") : String(localized: "No results"),
                     message: query.isEmpty ? String(localized: "The working tree is clean.") : String(localized: "No changed files match \u{201C}\(query)\u{201D}.")
                 )

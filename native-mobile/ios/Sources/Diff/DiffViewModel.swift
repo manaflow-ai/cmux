@@ -16,6 +16,9 @@ final class DiffViewModel {
     nonisolated static let largeFileLines = 2000
 
     private(set) var phase: Phase = .loading
+    /// The Mac cut the diff; `shownLines` is how many diff lines arrived.
+    private(set) var truncated = false
+    private(set) var shownLines = 0
     private(set) var files: [DiffFile] = []
     private(set) var rendered: [Int: RenderedDiffFile] = [:]
     private(set) var collapsed: Set<Int> = []
@@ -25,11 +28,11 @@ final class DiffViewModel {
     private var expandedGaps: [Int: Set<Int>] = [:]
     private var contents: [Int: [String]] = [:]
 
-    private let loader: @Sendable () async throws -> String
+    private let loader: @Sendable () async throws -> DiffPayload
     let contextLoader: (@Sendable (String) async throws -> String)?
     private var generation = 0
 
-    init(loader: @escaping @Sendable () async throws -> String, contextLoader: (@Sendable (String) async throws -> String)?) {
+    init(loader: @escaping @Sendable () async throws -> DiffPayload, contextLoader: (@Sendable (String) async throws -> String)?) {
         self.loader = loader
         self.contextLoader = contextLoader
     }
@@ -62,7 +65,8 @@ final class DiffViewModel {
         let token = generation
         if files.isEmpty { phase = .loading }
         do {
-            let text = try await loader()
+            let payload = try await loader()
+            let text = payload.text
             let canExpand = contextLoader != nil
             let result = await Task.detached(priority: .userInitiated) { () -> ([DiffFile], [Int: RenderedDiffFile]) in
                 let files = UnifiedDiffParser.parse(text)
@@ -74,6 +78,8 @@ final class DiffViewModel {
             }.value
             guard token == generation else { return }
             files = result.0
+            truncated = payload.truncated
+            shownLines = payload.truncated ? DiffPayload.lineCount(text) : 0
             rendered = result.1
             collapsed = []
             viewed = []

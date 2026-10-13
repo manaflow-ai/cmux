@@ -31,14 +31,14 @@ struct DirectoryBrowserView: View {
     var body: some View {
         Group {
             if let failure {
-                DiffFailureState(title: String(localized: "Couldn't load folder"), message: failure) {
+                LoadFailedView(title: String(localized: "Couldn't load folder"), message: failure) {
                     Task { await load() }
                 }
             } else if entries == nil {
-                DiffLoadingState(label: String(localized: "Loading folder"))
+                LoadingSkeleton(label: String(localized: "Loading folder"))
             } else if visible.isEmpty {
-                DiffEmptyState(
-                    symbol: query.isEmpty ? "folder" : "magnifyingglass",
+                StateMessageView(
+                    systemImage: query.isEmpty ? "folder" : "magnifyingglass",
                     title: query.isEmpty ? String(localized: "Empty folder") : String(localized: "No results"),
                     message: query.isEmpty ? String(localized: "This folder has no files.") : String(localized: "No files match \u{201C}\(query)\u{201D}.")
                 )

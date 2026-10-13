@@ -261,6 +261,40 @@ struct SkeletonRow: View {
     }
 }
 
+/// Shimmering placeholder for a screen's first load: list rows (folders,
+/// changed files, references) or code lines (diffs, file previews).
+struct LoadingSkeleton: View {
+    enum Shape { case list, code }
+    var shape: Shape = .list
+    let label: String
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: shape == .list ? 10 : 9) {
+                switch shape {
+                case .list:
+                    ForEach(0..<7, id: \.self) { index in
+                        SkeletonRow(titleWidth: [170, 120, 200, 140, 90, 160, 110][index],
+                                    subtitleWidth: [110, 80, 130, 70, 100, 90, 60][index], leading: 28)
+                    }
+                case .code:
+                    SkeletonBar(width: 180, height: 14).padding(.bottom, 8)
+                    ForEach(0..<16, id: \.self) { index in
+                        SkeletonBar(width: CGFloat([280, 220, 310, 160, 250, 90, 300, 200, 130, 270, 240, 110, 290, 180, 230, 150][index]), height: 10)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .shimmer()
+        }
+        .scrollDisabled(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+    }
+}
+
 /// Skeleton of the Home list while the first tree loads.
 struct HomeSkeleton: View {
     let hostName: String?

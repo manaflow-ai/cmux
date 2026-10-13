@@ -190,13 +190,16 @@ struct SettingsScreen: View {
             Toggle(isOn: $showComposer) {
                 Label(String(localized: "Composer bar"), systemImage: "keyboard")
             }
+            .tint(Theme.switchOn)
             Toggle(isOn: $dismissAfterSend) {
                 Label(String(localized: "Dismiss keyboard after sending"), systemImage: "keyboard.chevron.compact.down")
             }
+            .tint(Theme.switchOn)
             .disabled(!showComposer)
             Toggle(isOn: $haptics) {
                 Label(String(localized: "Haptic feedback"), systemImage: "iphone.radiowaves.left.and.right")
             }
+            .tint(Theme.switchOn)
         } header: {
             Text(String(localized: "Terminal"))
         }
@@ -236,6 +239,7 @@ struct SettingsScreen: View {
             Toggle(isOn: Binding(get: { requireUnlock }, set: setRequireUnlock)) {
                 Label(String(localized: "Require \(AppLock.biometryName)"), systemImage: AppLock.biometrySymbol)
             }
+            .tint(Theme.switchOn)
             .accessibilityIdentifier("settings.requireFaceID")
         } header: {
             Text(String(localized: "Security"))

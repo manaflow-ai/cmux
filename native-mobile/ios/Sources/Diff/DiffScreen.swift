@@ -94,6 +94,31 @@ struct DiffScreen: View {
     }
 }
 
+/// A diff as the Mac sent it: the unified text and whether the Mac cut it
+/// (its size cap, or too many untracked files).
+struct DiffPayload: Sendable, Equatable {
+    var text: String
+    var truncated = false
+
+    init(text: String, truncated: Bool = false) {
+        self.text = text
+        self.truncated = truncated
+    }
+
+    /// Lines in diff text (a cut last line counts).
+    static func lineCount(_ text: String) -> Int {
+        var count = 0
+        for byte in text.utf8 where byte == 0x0A { count += 1 }
+        if let last = text.utf8.last, last != 0x0A { count += 1 }
+        return count
+    }
+
+    init(reply: JSONValue) {
+        text = reply["diff"]?.string ?? reply["text"]?.string ?? reply.string ?? ""
+        truncated = reply["truncated"]?.bool ?? false
+    }
+}
+
 struct DiffPreviewTarget: Hashable, Identifiable {
     var path: String
     var id: String { path }
@@ -108,7 +133,7 @@ enum DiffPaths {
 
 extension ServiceClient {
     /// `git.diff` with an optional path filter and scope.
-    func gitDiffText(cwd: String, path: String?, scope: DiffScope) async throws -> String {
+    func gitDiffText(cwd: String, path: String?, scope: DiffScope) async throws -> DiffPayload {
         var params: [String: JSONValue] = ["cwd": .string(cwd)]
         switch scope {
         case .workingTree: params["staged"] = .bool(false)
@@ -116,8 +141,7 @@ extension ServiceClient {
         case .base(let ref): params["base"] = .string(ref)
         }
         if let path { params["path"] = .string(path) }
-        let reply = try await call("git.diff", params)
-        return reply["diff"]?.string ?? reply["text"]?.string ?? reply.string ?? ""
+        return DiffPayload(reply: try await call("git.diff", params))
     }
 
     /// The repository root for `cwd` (diff paths are root-relative); falls

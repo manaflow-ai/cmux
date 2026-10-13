@@ -30,12 +30,12 @@ struct DiffView: View {
     @State private var jumpTarget: Int?
 
     /// - Parameters:
-    ///   - loader: returns unified diff text (`git diff` output).
+    ///   - loader: returns unified diff text (`git diff` output) and whether the Mac cut it.
     ///   - contextLoader: returns the new-side contents of a diff path, which
     ///     enables "Expand N hidden lines"; nil shows the counts only.
     ///   - onOpenFile: "View file" action for a diff path.
     init(
-        loader: @escaping @Sendable () async throws -> String,
+        loader: @escaping @Sendable () async throws -> DiffPayload,
         title: String,
         contextLoader: (@Sendable (String) async throws -> String)? = nil,
         onOpenFile: ((String) -> Void)? = nil
@@ -77,18 +77,15 @@ struct DiffView: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .loading:
-            DiffLoadingState()
+            LoadingSkeleton(shape: .code, label: String(localized: "Loading diff"))
         case .failed(let message):
-            DiffFailureState(title: String(localized: "Couldn't load diff"), message: message) {
+            LoadFailedView(title: String(localized: "Couldn't load diff"), message: message) {
                 Task { await model.load() }
             }
         case .loaded where model.files.isEmpty:
-            ScrollView {
-                DiffEmptyState(symbol: "checkmark.circle", title: String(localized: "No changes"),
-                               message: String(localized: "The working tree matches. Nothing to review."))
-                    .containerRelativeFrame(.vertical)
-            }
-            .refreshable { await model.load() }
+            StateMessageView(systemImage: "checkmark.circle", title: String(localized: "No changes"),
+                             message: String(localized: "The working tree matches. Nothing to review."))
+                .refreshable { await model.load() }
         case .loaded:
             diffList
         }
@@ -98,6 +95,11 @@ struct DiffView: View {
         ScrollViewReader { proxy in
             ScrollView(wrap ? .vertical : [.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    if model.truncated {
+                        DiffPinnedWidth(offset: offset, width: viewportWidth) {
+                            DiffTruncatedBanner(lines: model.shownLines)
+                        }
+                    }
                     DiffPinnedWidth(offset: offset, width: viewportWidth) {
                         DiffSummaryView(
                             files: model.files,

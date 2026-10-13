@@ -48,7 +48,7 @@ struct FilePreviewScreen: View {
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .checking:
-            DiffLoadingState(label: String(localized: "Opening file"))
+            LoadingSkeleton(shape: .code, label: String(localized: "Opening file"))
         case .downloading:
             VStack(spacing: 14) {
                 Image(systemName: FileSymbol.symbol(path: path))
@@ -70,32 +70,19 @@ struct FilePreviewScreen: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(String(localized: "Downloading \(model.fileName)"))
         case .confirmLarge(let size):
-            VStack(spacing: 10) {
-                Image(systemName: "arrow.down.circle")
-                    .font(.system(size: 40))
-                    .foregroundStyle(Theme.secondaryInk)
-                    .padding(.bottom, 4)
-                Text(String(localized: "Download \(FileFormat.size(size) ?? "")?"))
-                    .font(.title3.weight(.semibold))
-                Text(String(localized: "This file is large. Downloading it from your Mac may take a while and use data."))
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.secondaryInk)
-                    .multilineTextAlignment(.center)
-                Button {
+            StateMessageView(
+                systemImage: "arrow.down.circle",
+                title: String(localized: "Download \(FileFormat.size(size) ?? "")?"),
+                message: String(localized: "This file is large. Downloading it from your Mac may take a while and use data.")
+            ) {
+                Button(String(localized: "Download")) {
                     Task { await model.confirmDownload() }
-                } label: {
-                    Text(String(localized: "Download"))
-                        .font(.body.weight(.semibold))
-                        .padding(.horizontal, 28)
-                        .padding(.vertical, 12)
                 }
-                .buttonStyle(CapsuleCTAStyle())
-                .padding(.top, 8)
+                .buttonStyle(.primaryCapsule)
+                .accessibilityIdentifier("file.download")
             }
-            .padding(32)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message):
-            DiffFailureState(title: String(localized: "Couldn't load file"), message: message) {
+            LoadFailedView(title: String(localized: "Couldn't load file"), message: message) {
                 Task { await model.retry() }
             }
         case .ready(let content):

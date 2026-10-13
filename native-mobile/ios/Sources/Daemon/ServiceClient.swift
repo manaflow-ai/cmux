@@ -128,13 +128,6 @@ extension ServiceClient {
         return (result, mime)
     }
 
-    func gitDiff(cwd: String, staged: Bool = false, base: String? = nil) async throws -> String {
-        var params: [String: JSONValue] = ["cwd": .string(cwd), "staged": .bool(staged)]
-        if let base { params["base"] = .string(base) }
-        let reply = try await call("git.diff", params)
-        return reply["diff"]?.string ?? reply["text"]?.string ?? reply.string ?? ""
-    }
-
     func gitStatus(cwd: String) async throws -> JSONValue { try await call("git.status", ["cwd": .string(cwd)]) }
 
     /// Uploads an attachment and returns its path on the Mac.

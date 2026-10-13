@@ -28,6 +28,10 @@ enum Theme {
     static let danger = Color(red: 0.94, green: 0.33, blue: 0.31)
     static let success = Color(red: 0.36, green: 0.80, blue: 0.47)
     static let working = Color(red: 0.55, green: 0.70, blue: 0.98)
+    /// Switches: system green when on (Claude, ChatGPT and Codex all keep
+    /// iOS's green). The near-white accent made an ON switch in dark mode
+    /// read as gray, so every Toggle uses this.
+    static let switchOn = Color(uiColor: .systemGreen)
 
     /// iMessage-style bubbles in the feed.
     static let bubbleOutgoing = Color(uiColor: UIColor { trait in

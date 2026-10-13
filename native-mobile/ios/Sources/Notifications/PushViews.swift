@@ -104,7 +104,7 @@ struct PushPrePromptSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .tint(Color(white: 0.45))
+            .tint(Theme.switchOn)
             .onChange(of: liveActivities) { _, on in push.liveActivitiesEnabled = on }
             Spacer(minLength: 0)
             VStack(spacing: 10) {
@@ -163,7 +163,7 @@ struct LiveActivitiesToggle: View {
 
     var body: some View {
         Toggle(String(localized: "Live Activities"), isOn: $on)
-            .tint(Color(white: 0.45))
+            .tint(Theme.switchOn)
             .onChange(of: on) { _, value in PushManager.shared.liveActivitiesEnabled = value }
             .accessibilityIdentifier("settings.liveActivities")
     }
