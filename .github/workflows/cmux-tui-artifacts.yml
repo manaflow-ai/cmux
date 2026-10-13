@@ -1740,7 +1740,9 @@ jobs:
   macos-cross-runtime-x86_64:
     name: macOS cross-compile run-time check (Intel, compare only)
     needs: [macos-cross-shadow]
-    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
+    # The same-repository gate is on every job of this pull_request_target workflow (the fork runner
+    # routing guard reads it per job): always() alone would let a fork-started run reach this runner.
+    if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image
     timeout-minutes: 20
     continue-on-error: true
