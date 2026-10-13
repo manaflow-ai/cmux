@@ -22,6 +22,8 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// The server's refusal code for a failed create, carried from the
     /// launcher apart from the display text. Failure actions key on it alone.
     var refusalCode: String? = nil
+    /// The team named by a Team-plan refusal, if the server supplied one.
+    var refusalTeamID: String? = nil
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -64,6 +66,11 @@ struct MachineCreateOperation: Identifiable, Equatable {
         refusalCode == CloudPlanRefusal.resourcePoolExceededCode
     }
 
+    /// The create was refused because this team has no Team plan of its own.
+    var requiresTeamPlan: Bool {
+        refusalCode == CloudPlanRefusal.requiresTeamPlanCode
+    }
+
     /// The one-line status beside the name: the sheet's progress wording
     /// while running, the failure headline once it failed.
     var statusLabel: String {
@@ -73,6 +80,12 @@ struct MachineCreateOperation: Identifiable, Equatable {
         case .reconciling:
             return String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…")
         case .failed:
+            if requiresTeamPlan {
+                return String(
+                    localized: "machines.pending.failed.teamPlan",
+                    defaultValue: "Team plan required"
+                )
+            }
             if !request.isBaseSetup, createdMachineID != nil {
                 return String(format: String(localized: "machines.notification.createdOpenFailed.title", defaultValue: "%@ was created, but opening it failed"), request.displayName)
             }

@@ -34,11 +34,14 @@ struct CloudMachineCreateCoordinatorTests {
         _ = owner.finish(CloudMachineCreateCompletion(
             succeeded: false, wasCancelled: false, output: "",
             failureOutput: "Shown text (HTTP 402: vm_active_limit_exceeded)",
-            machineID: nil, workspaceID: nil, refusalCode: "vm_resource_pool_exceeded"
+            machineID: nil, workspaceID: nil, refusalCode: "vm_resource_pool_exceeded",
+            refusalTeamID: "team-trollol"
         ), from: attempt)
         #expect(owner.projection.operations.first?.refusalCode == "vm_resource_pool_exceeded")
+        #expect(owner.projection.operations.first?.refusalTeamID == "team-trollol")
         let retry = try #require(owner.retry(id))
         #expect(owner.projection.operations.first?.refusalCode == nil)
+        #expect(owner.projection.operations.first?.refusalTeamID == nil)
         _ = owner.finish(CloudMachineCreateCompletion(
             succeeded: false, wasCancelled: false, output: "", failureOutput: "Limit",
             machineID: nil, workspaceID: nil, refusalCode: "vm_active_limit_exceeded"

@@ -277,6 +277,31 @@ public enum AuthEnvironment: Sendable {
         billingWebsiteOrigin(environment: environment).appendingPathComponent("api/billing/portal")
     }
 
+    /// Billing page scoped to one Stack team. The team id is encoded as a
+    /// query item so the page cannot accidentally fall back to personal billing.
+    public static func teamBillingURL(teamID: String) -> URL? {
+        resolvedTeamBillingURL(teamID: teamID, environment: runtimeEnvironment)
+    }
+
+    /// Builds a team billing URL with the same development and release origin
+    /// rules as the other billing entrypoints.
+    public static func resolvedTeamBillingURL(
+        teamID: String,
+        environment: [String: String]
+    ) -> URL? {
+        let trimmed = teamID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.count <= 128,
+              trimmed.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" })
+        else { return nil }
+        var components = URLComponents(
+            url: billingWebsiteOrigin(environment: environment).appendingPathComponent("dashboard/billing"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [URLQueryItem(name: "team", value: trimmed)]
+        return components?.url
+    }
+
     static var signInWebsiteOrigin: URL {
         resolvedAuthWebOrigin(environment: runtimeEnvironment)
     }

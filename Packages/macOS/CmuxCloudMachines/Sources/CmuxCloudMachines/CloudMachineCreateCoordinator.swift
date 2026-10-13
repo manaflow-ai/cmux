@@ -67,6 +67,7 @@ public final class CloudMachineCreateCoordinator {
         let attempt = CloudMachineCreateAttempt(operationID: id, canAllocateMachine: !projection.operations[index].request.isBaseSetup && projection.operations[index].createdMachineID == nil)
         projection.operations[index].phase = .running
         projection.operations[index].refusalCode = nil
+        projection.operations[index].refusalTeamID = nil
         attempts[id] = attempt
         carries[id] = nil
         return attempt
@@ -86,6 +87,7 @@ public final class CloudMachineCreateCoordinator {
         if let retryFailure {
             projection.operations[index].phase = .failed(output: retryFailure)
             projection.operations[index].refusalCode = nil
+            projection.operations[index].refusalTeamID = nil
         } else {
             projection.operations.remove(at: index)
         }
@@ -169,6 +171,7 @@ public final class CloudMachineCreateCoordinator {
                 // The machine exists and a retry only opens it, so a create
                 // refusal's actions (pause, upgrade) do not apply to this row.
                 projection.operations[index].refusalCode = nil
+                projection.operations[index].refusalTeamID = nil
             } else {
                 projection.operations.remove(at: index)
             }
@@ -176,6 +179,7 @@ public final class CloudMachineCreateCoordinator {
             outcome = .failed(output: completion.failureOutput)
             projection.operations[index].phase = .failed(output: completion.failureOutput)
             projection.operations[index].refusalCode = completion.refusalCode
+            projection.operations[index].refusalTeamID = completion.refusalTeamID
         }
         transition.finished = .init(operation: operation, outcome: outcome)
         return transition

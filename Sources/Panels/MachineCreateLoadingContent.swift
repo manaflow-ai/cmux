@@ -63,21 +63,30 @@ struct MachineCreateLoadingContent: View {
     }
 
     private var upgradeButton: some View {
-        Button(String(localized: "machines.pending.upgrade", defaultValue: "Upgrade Plan")) {
-            ProUpgradePresenter.present(source: .createFailedAtLimit)
+        Button(upgradeLabel) {
+            actions.upgrade(operation.id)
         }
         .accessibilityIdentifier("MachineCreateUpgradeButton")
+    }
+
+    private var upgradeLabel: String {
+        operation.requiresTeamPlan
+            ? String(localized: "machines.pending.upgradeTeam", defaultValue: "Upgrade to Team")
+            : String(localized: "machines.pending.upgrade", defaultValue: "Upgrade Plan")
     }
 
     /// The create hit the plan's machine limit or its shared vCPU and memory
     /// pool, and a larger plan exists. At the machine limit an unloaded plan
     /// still offers it; a full pool waits for the plan, so Max never sees it.
     private var offersUpgrade: Bool {
-        CloudPlanRefusal.offersUpgrade(
+        let planUpgrade = CloudPlanRefusal.offersUpgrade(
             for: operation.refusalCode,
             plan: NewMachineSheetDataCache.shared?.currentData?.plan
         )
+        return operation.requiresTeamPlan ? operation.refusalTeamID != nil : planUpgrade
     }
 
-    private var upgradeIsPrimary: Bool { offersUpgrade && operation.hitMachineLimit }
+    private var upgradeIsPrimary: Bool {
+        offersUpgrade && (operation.hitMachineLimit || operation.requiresTeamPlan)
+    }
 }

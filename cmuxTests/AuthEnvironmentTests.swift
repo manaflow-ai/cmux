@@ -798,4 +798,19 @@ struct CheckoutAttributionTests {
         #expect(properties["client"] as? String == "mac")
         #expect(properties["channel"] as? String == "stable")
     }
+
+    @Test
+    func teamBillingURLKeepsTheTeamScopeAndRejectsUnsafeIDs() throws {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "development",
+            "CMUX_BILLING_WWW_ORIGIN": "http://localhost:3777",
+        ]
+        let url = try #require(AuthEnvironment.resolvedTeamBillingURL(
+            teamID: "team-trollol", environment: environment
+        ))
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.path == "/dashboard/billing")
+        #expect(components.queryItems == [URLQueryItem(name: "team", value: "team-trollol")])
+        #expect(AuthEnvironment.resolvedTeamBillingURL(teamID: "team/other", environment: environment) == nil)
+    }
 }

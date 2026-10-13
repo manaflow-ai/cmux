@@ -39,6 +39,9 @@ final class CloudVMActionLauncher {
         /// The server's refusal code, read from the error the request threw
         /// (in process) or the CLI's own error header; never from a message.
         var refusalCode: String? = nil
+        /// The team named by a Team-plan refusal, carried separately from the
+        /// display text so billing cannot drift to a newly selected team.
+        var refusalTeamID: String? = nil
 
         var succeeded: Bool {
             terminationStatus == 0
@@ -356,7 +359,8 @@ final class CloudVMActionLauncher {
                     workspaceId: Self.createdWorkspaceId(from: output),
                     machineId: Self.createdMachineId(from: output),
                     wasCancelled: wasCancelled,
-                    refusalCode: terminationStatus == 0 ? nil : CloudPlanRefusal.code(inCLIFailureOutput: output)
+                    refusalCode: terminationStatus == 0 ? nil : CloudPlanRefusal.code(inCLIFailureOutput: output),
+                    refusalTeamID: terminationStatus == 0 ? nil : CloudPlanRefusal.teamID(inCLIFailureOutput: output)
                 )
                 if let operationContext {
                     let diagnosticError: Error? = wasCancelled ? CancellationError()

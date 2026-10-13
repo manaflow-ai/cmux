@@ -26,4 +26,6 @@ public struct CloudMachineCreateOperation: Identifiable, Equatable, Sendable {
     /// from its display text so no message can change which actions a failed
     /// row offers. Nil while running, after success, or for other failures.
     public internal(set) var refusalCode: String?
+    /// The team named by a Team-plan refusal, if the server supplied one.
+    public internal(set) var refusalTeamID: String?
 }

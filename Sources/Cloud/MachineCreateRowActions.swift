@@ -10,6 +10,7 @@ struct MachineCreateRowActions {
     let retry: @MainActor (UUID) -> Void
     let cancel: @MainActor (UUID) -> Void
     let dismiss: @MainActor (UUID) -> Void
+    let upgrade: @MainActor (UUID) -> Void
     let showFailure: @MainActor (UUID) -> Void
     let copyFailure: @MainActor (UUID) -> Void
 
@@ -18,6 +19,7 @@ struct MachineCreateRowActions {
         retry: { _ in },
         cancel: { _ in },
         dismiss: { _ in },
+        upgrade: { _ in },
         showFailure: { _ in },
         copyFailure: { _ in }
     )
@@ -33,6 +35,16 @@ struct MachineCreateRowActions {
             },
             dismiss: { [weak coordinator] id in
                 coordinator?.dismiss(id)
+            },
+            upgrade: { [weak coordinator] id in
+                guard let operation = coordinator?.operation(id: id),
+                      operation.requiresTeamPlan,
+                      let teamID = operation.refusalTeamID
+                else {
+                    ProUpgradePresenter.present(source: .createFailedAtLimit)
+                    return
+                }
+                ProUpgradePresenter.presentTeamBilling(teamID: teamID)
             },
             showFailure: { [weak coordinator] id in
                 guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }

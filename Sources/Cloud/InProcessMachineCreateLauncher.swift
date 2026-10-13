@@ -291,7 +291,8 @@ enum InProcessMachineCreateLauncher {
                 output: output + failureText(for: error),
                 workspaceId: nil,
                 machineId: machineID,
-                refusalCode: CloudPlanRefusal(error)?.code
+                refusalCode: CloudPlanRefusal(error)?.code,
+                refusalTeamID: CloudPlanRefusal(error)?.teamID
             )
         }
     }

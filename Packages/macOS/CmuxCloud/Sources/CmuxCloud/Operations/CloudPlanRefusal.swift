@@ -18,6 +18,8 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         case createCredits
         /// `vm_memory_requires_plan`: the size needs a larger plan.
         case memoryRequiresPlan
+        /// `vm_requires_team_plan`: this created team needs its own Team plan.
+        case teamPlan
         /// Any other code; the server's own message explains it.
         case other
     }
@@ -29,6 +31,8 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     public let serverMessage: String?
     /// The plan the answer offers as an upgrade (`upgradePlanId`), if any.
     public let upgradePlanId: String?
+    /// The team that must be upgraded, when the refusal is team-scoped.
+    public let teamID: String?
 
     /// Reads a `402` answer; nil for other statuses or a body without a code.
     /// - Parameters:
@@ -43,6 +47,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         self.code = code
         self.serverMessage = Self.string(ui?["message"]) ?? Self.string(object["message"])
         self.upgradePlanId = Self.string(object["upgradePlanId"])
+        self.teamID = Self.string(object["teamId"])
         switch code {
         case Self.resourcePoolExceededCode:
             kind = .resourcePool(Self.shortfall(object))
@@ -54,6 +59,8 @@ public struct CloudPlanRefusal: Equatable, Sendable {
             kind = .createCredits
         case "vm_memory_requires_plan":
             kind = .memoryRequiresPlan
+        case Self.requiresTeamPlanCode:
+            kind = .teamPlan
         default:
             kind = .other
         }
@@ -77,7 +84,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     public var diagnosticFailure: CloudDiagnosticFailure {
         switch kind {
         case .resourcePool, .activeLimit: return .resourceLimit
-        case .createCredits, .memoryRequiresPlan, .other: return .plan
+        case .createCredits, .memoryRequiresPlan, .teamPlan, .other: return .plan
         }
     }
 
@@ -92,6 +99,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     /// - Returns: Whether the row should show its upgrade action.
     public static func offersUpgrade(for code: String?, plan: MachinePlanSnapshot?) -> Bool {
         if code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
+        if code == requiresTeamPlanCode { return true }
         return code == resourcePoolExceededCode && plan?.hasHigherResourcePoolPlan == true
     }
 
@@ -124,6 +132,11 @@ public struct CloudPlanRefusal: Equatable, Sendable {
                 localized: "cloud.operation.failure.memoryRequiresPlan",
                 defaultValue: "This size is larger than your plan includes. Choose a smaller size, or upgrade the plan."
             )
+        case .teamPlan:
+            return String(
+                localized: "cloud.operation.failure.teamPlan",
+                defaultValue: "This team needs the cmux Team plan to run Cloud VMs. Personal plans apply only to your personal team."
+            )
         case .other:
             return serverMessage ?? CloudDiagnosticFailure.plan.label
         }
@@ -133,6 +146,8 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     public static let resourcePoolExceededCode = "vm_resource_pool_exceeded"
     /// `vm_active_limit_exceeded`: every active-machine slot is taken.
     public static let activeLimitExceededCode = "vm_active_limit_exceeded"
+    /// `vm_requires_team_plan`: a created team needs its own Team plan.
+    public static let requiresTeamPlanCode = "vm_requires_team_plan"
 
     /// The stable reference a failure transcript carries for a refusal, as
     /// both the CLI and the in-process create print it.
@@ -153,6 +168,24 @@ public struct CloudPlanRefusal: Equatable, Sendable {
             return nil
         }
         return String(line[match].dropFirst("(HTTP 402: ".count).dropLast())
+    }
+
+    /// The team identifier in the upgrade URL emitted by the CLI's formatted
+    /// server error. The URL is accepted only from cmux.com and the value is
+    /// validated before the app uses it to build its own billing destination.
+    /// - Parameter output: The CLI's failure transcript.
+    public static func teamID(inCLIFailureOutput output: String) -> String? {
+        let pattern = #"https://cmux\.com/dashboard/billing\?[^\s)]+"#
+        guard let range = output.range(of: pattern, options: .regularExpression),
+              let url = URL(string: String(output[range])),
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.host == "cmux.com",
+              let teamID = components.queryItems?.first(where: { $0.name == "team" })?.value,
+              !teamID.isEmpty,
+              teamID.count <= 128,
+              teamID.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" })
+        else { return nil }
+        return teamID
     }
 
     /// A full pool whose answer did not name the numbers.

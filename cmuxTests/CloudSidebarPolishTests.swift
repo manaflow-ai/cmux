@@ -70,6 +70,7 @@ struct CloudSidebarPolishTests {
         operation.refusalTeamID = "team-trollol"
         #expect(operation.requiresTeamPlan)
         #expect(operation.refusalTeamID == "team-trollol")
+        #expect(operation.statusLabel == "Team plan required")
         #expect(!operation.hitMachineLimit)
         #expect(!operation.hitResourcePool)
     }

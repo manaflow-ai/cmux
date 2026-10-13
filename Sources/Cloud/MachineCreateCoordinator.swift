@@ -216,7 +216,8 @@ final class MachineCreateCoordinator {
                 succeeded: result.succeeded, wasCancelled: result.wasCancelled, output: result.output,
                 failureOutput: Self.displayableFailureOutput(result.output),
                 machineID: result.machineId, workspaceID: result.workspaceId,
-                refusalCode: result.refusalCode
+                refusalCode: result.refusalCode,
+                refusalTeamID: result.refusalTeamID
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
@@ -304,7 +305,8 @@ final class MachineCreateCoordinator {
         return MachineCreateOperation(
             id: operation.id, request: request, startedAt: operation.startedAt,
             createdMachineID: operation.createdMachineID, phase: operation.phase,
-            refusalCode: operation.refusalCode
+            refusalCode: operation.refusalCode,
+            refusalTeamID: operation.refusalTeamID
         )
     }
 

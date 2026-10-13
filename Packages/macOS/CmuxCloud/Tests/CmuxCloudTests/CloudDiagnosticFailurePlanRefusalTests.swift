@@ -174,4 +174,11 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(CloudPlanRefusal.code(inCLIFailureOutput: "Error: Refused (HTTP 402: vm_resource_pool_exceeded) later") == nil)
         #expect(CloudPlanRefusal.reference(code: "vm_x") == "(HTTP 402: vm_x)")
     }
+
+    @Test("The CLI team target is accepted only from the cmux billing URL")
+    func cliFailureTeamIDComesFromBillingURL() {
+        #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team-trollol") == "team-trollol")
+        #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "See https://evil.example/dashboard/billing?team=wrong") == nil)
+        #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team%20bad") == nil)
+    }
 }
