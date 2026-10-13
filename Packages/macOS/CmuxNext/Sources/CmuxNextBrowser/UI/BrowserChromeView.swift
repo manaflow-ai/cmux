@@ -44,7 +44,8 @@ public final class BrowserChromeView: NSView {
         }
     }
 
-    let toolbar = NSView()
+    /// The arrow over the whole row (`OmnibarPointer`).
+    let toolbar = ArrowCursorView()
     let separator = NSView()
     /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
     let accessoryBar = NSView()
@@ -78,6 +79,8 @@ public final class BrowserChromeView: NSView {
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
+        // With no extension pinned the Extensions menu opens from More.
+        toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
 

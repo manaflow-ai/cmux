@@ -3664,6 +3664,9 @@ mod all_sessions_scope;
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
+#[path = "cli/browser_devices.rs"]
+mod browser_devices;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]
@@ -3685,6 +3688,8 @@ mod ws_conversations;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_branches.rs"]
+mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]

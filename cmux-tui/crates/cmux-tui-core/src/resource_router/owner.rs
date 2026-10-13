@@ -127,6 +127,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitBranches
         | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
@@ -153,6 +154,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate
+        | ResourceOperation::BrowserDevicesList
+        | ResourceOperation::BrowserDevicesAddCustom
+        | ResourceOperation::BrowserDevicesRemoveCustom
+        | ResourceOperation::BrowserTabEmulate
+        | ResourceOperation::BrowserTabEmulateClear
         | ResourceOperation::TabGroupList
         | ResourceOperation::TabGroupGet
         | ResourceOperation::TabGroupCreate

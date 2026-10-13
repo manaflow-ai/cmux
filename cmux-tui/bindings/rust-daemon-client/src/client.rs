@@ -1,10 +1,10 @@
 //! The connection worker: one owned thread that ensures the daemon, connects
 //! with the SDK, identifies, loads a snapshot, follows `session.events`, and
 //! reports each step to a caller callback. When the daemon advertises
-//! `bookmarks-v1`, `profiles-v1` or `history-v1`, a second thread per
-//! connection follows `bookmarks-changed`, `personal-changed` and
-//! `history-changed` on a protocol-12 `subscribe` stream (the resource API
-//! has none of them). With an install key the worker hands it to a daemon it
+//! `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1`, a second
+//! thread per connection follows `bookmarks-changed`, `personal-changed`,
+//! `history-changed` and `keybindings-changed` on a protocol-12 `subscribe`
+//! stream (the resource API has none of them). With an install key the worker hands it to a daemon it
 //! starts and checks on each connect that the daemon accepts the app's
 //! `client-hello` proof ([`ConnectionInfo::verified_app`]).
 //! See the crate docs for the thread contract.
@@ -32,6 +32,8 @@ pub const DEFAULT_SESSION: &str = "cmux2-gpui";
 pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
 /// The capability of the `history.*` operations and `history-changed`.
 pub const HISTORY_CAPABILITY: &str = "history-v1";
+/// The capability of the `keybindings.*` operations and `keybindings-changed`.
+pub const KEYBINDINGS_CAPABILITY: &str = "keybindings-v1";
 /// How long the subscribe stream waits for one event before it waits again
 /// (a quiet stream is healthy; `stop` closes it at once).
 const SUBSCRIBE_EVENTS_IDLE: Duration = Duration::from_secs(3600);
@@ -73,6 +75,10 @@ pub struct DaemonConfig {
     /// same extra connection, while connected to a daemon with
     /// `history-v1`).
     pub history_events: bool,
+    /// Report `keybindings-changed` as [`DaemonEvent::KeybindingsChanged`]
+    /// (the same extra connection, while connected to a daemon with
+    /// `keybindings-v1`).
+    pub keybinding_events: bool,
     /// Additive capabilities the mirror's connections declare (for example
     /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
     /// and the event stream read those tabs in their canonical form). Only
@@ -98,6 +104,7 @@ impl DaemonConfig {
             bookmark_events: true,
             personal_events: true,
             history_events: true,
+            keybinding_events: true,
             capabilities: Vec::new(),
         }
     }
@@ -171,6 +178,15 @@ pub enum DaemonEvent {
     HistoryChanged {
         kinds: Vec<String>,
         history_revision: u64,
+    },
+    /// The user's keybindings.json changed (`keybindings-changed`): read it
+    /// again with `keybindings.get`. `origin` names the writer (`user`,
+    /// `cli`, `mcp`, `script`, `remote`, `app`, or `file` for a hand edit).
+    /// Reported after `Connected` and before the connection's
+    /// `Disconnected`, while the daemon has `keybindings-v1`.
+    KeybindingsChanged {
+        origin: String,
+        keybindings_revision: u64,
     },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
@@ -440,14 +456,16 @@ fn follow(
         bookmarks: config.bookmark_events && advertised(BOOKMARKS_CAPABILITY),
         personal: config.personal_events && advertised(PROFILES_CAPABILITY),
         history: config.history_events && advertised(HISTORY_CAPABILITY),
+        keybindings: config.keybinding_events && advertised(KEYBINDINGS_CAPABILITY),
     };
     let socket = info.socket.clone();
     emit(shared, on_event, &DaemonEvent::Connected(info));
     emit(shared, on_event, &DaemonEvent::Reset);
     // Ends (closed and joined) when this function returns, so no
-    // BookmarksChanged, PersonalChanged or HistoryChanged follows the connection's
-    // Disconnected.
-    let _subscribed = if follow.bookmarks || follow.personal || follow.history {
+    // BookmarksChanged, PersonalChanged, HistoryChanged or KeybindingsChanged follows
+    // the connection's Disconnected.
+    let _subscribed = if follow.bookmarks || follow.personal || follow.history || follow.keybindings
+    {
         let follower = SubscribeEvents::start(
             &socket,
             config,
@@ -497,9 +515,11 @@ struct Follow {
     bookmarks: bool,
     personal: bool,
     history: bool,
+    keybindings: bool,
 }
 
-/// The `bookmarks-changed`, `personal-changed` and `history-changed` follower of one
+/// The `bookmarks-changed`, `personal-changed`, `history-changed` and
+/// `keybindings-changed` follower of one
 /// connection: a protocol-12 `subscribe` stream read on its own thread.
 /// Dropping it closes the stream and joins the thread.
 struct SubscribeEvents {
@@ -552,6 +572,13 @@ impl SubscribeEvents {
                             };
                             emit(&shared, &on_event, &event);
                         }
+                        Ok(cmux::raw::Event::KeybindingsChanged(changed)) if follow.keybindings => {
+                            let event = DaemonEvent::KeybindingsChanged {
+                                origin: keybindings_origin(changed.origin).to_owned(),
+                                keybindings_revision: changed.revision,
+                            };
+                            emit(&shared, &on_event, &event);
+                        }
                         Ok(cmux::raw::Event::Overflow(_)) => break "overflow".to_string(),
                         Ok(_) | Err(cmux::raw::Error::Timeout(_)) => {}
                         Err(cmux::raw::Error::Closed) => return,
@@ -566,6 +593,20 @@ impl SubscribeEvents {
             })
             .map_err(|e| format!("thread: {e}"))?;
         Ok(Self { closer, thread: Some(thread) })
+    }
+}
+
+/// The wire name of a `keybindings-changed` origin.
+fn keybindings_origin(origin: cmux::raw::KeybindingsChangedEventOrigin) -> &'static str {
+    use cmux::raw::KeybindingsChangedEventOrigin as Origin;
+    match origin {
+        Origin::User => "user",
+        Origin::Cli => "cli",
+        Origin::Mcp => "mcp",
+        Origin::Script => "script",
+        Origin::Remote => "remote",
+        Origin::App => "app",
+        Origin::File => "file",
     }
 }
 
