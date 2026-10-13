@@ -2,12 +2,12 @@ import Foundation
 
 extension AppStore {
     /// Sample data for previews, UI verification and first-run demos.
-    public static func mock(now: Date = Date()) -> AppStore {
+    public static func mock(now: Date = Date(), tabMemory: TabMemory = .standard) -> AppStore {
         let teams = [
             Team(id: "team-manaflow", name: "Manaflow", macs: [
                 MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
                 MacDevice(id: "mac-mini-2", name: "cmux mini 2", isOnline: true),
-                MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false),
+                MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
             ]),
             Team(id: "team-personal", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
@@ -22,9 +22,11 @@ extension AppStore {
                 tabs: [
                     WorkspaceTab(id: "t-claude", kind: .agent, title: "Claude", subtitle: "Refactor transport layer", harness: "claude"),
                     WorkspaceTab(id: "t-zsh", kind: .terminal, title: "zsh", subtitle: "~/Development/cmux"),
-                    WorkspaceTab(id: "t-docs", kind: .browser, title: "Swift docs", subtitle: "developer.apple.com"),
+                    WorkspaceTab(id: "t-docs", kind: .browser, title: "Swift docs", subtitle: "developer.apple.com",
+                                 url: URL(string: "https://developer.apple.com/documentation/swiftui")),
                 ],
-                lastActivityAt: now.addingTimeInterval(-60), needsAttention: true
+                lastActivityAt: now.addingTimeInterval(-60), needsAttention: true, hasUnread: true,
+                colorHex: "#0A84FF", icon: "terminal"
             ),
             Workspace(
                 id: "ws-web", macID: "mac-studio", title: "cmux.com", directory: "~/Development/web", branch: "main",
@@ -32,12 +34,25 @@ extension AppStore {
                     WorkspaceTab(id: "t-codex", kind: .agent, title: "Codex", subtitle: "Fix pricing page", harness: "codex"),
                     WorkspaceTab(id: "t-dev", kind: .terminal, title: "bun dev", subtitle: "localhost:3000"),
                 ],
-                lastActivityAt: now.addingTimeInterval(-900)
+                lastActivityAt: now.addingTimeInterval(-900), isWorking: true, colorHex: "#BF5AF2", icon: "globe"
             ),
             Workspace(
                 id: "ws-infra", macID: "mac-mini-2", title: "fleet", directory: "~/fleet", branch: nil,
                 tabs: [WorkspaceTab(id: "t-htop", kind: .terminal, title: "htop", subtitle: "TUI")],
-                lastActivityAt: now.addingTimeInterval(-7200)
+                lastActivityAt: now.addingTimeInterval(-7200), colorHex: "#FF9F0A", icon: "server.rack"
+            ),
+            Workspace(
+                id: "ws-ios", macID: "mac-mini-2", title: "cnx-ios", directory: "~/Development/cmux/cnx-ios", branch: "feat-cnx-ios-ws",
+                tabs: [
+                    WorkspaceTab(id: "t-ios-claude", kind: .agent, title: "Claude", subtitle: "Workspaces navigation", harness: "claude"),
+                    WorkspaceTab(id: "t-ios-build", kind: .terminal, title: "xcodebuild", subtitle: "~/Development/cmux/cnx-ios"),
+                ],
+                lastActivityAt: now.addingTimeInterval(-3 * 3600), colorHex: "#30D158", icon: "iphone"
+            ),
+            Workspace(
+                id: "ws-notes", macID: "mbp", title: "notes", directory: "~/notes", branch: "main",
+                tabs: [WorkspaceTab(id: "t-notes", kind: .terminal, title: "nvim", subtitle: "~/notes")],
+                lastActivityAt: now.addingTimeInterval(-26 * 3600)
             ),
         ]
         let feed = [
@@ -67,6 +82,6 @@ extension AppStore {
                 quotedPrompt: "run the tests", createdAt: now.addingTimeInterval(-1200)
             ),
         ]
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces, feed: feed)
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: workspaces, feed: feed, tabMemory: tabMemory)
     }
 }

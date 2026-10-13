@@ -19,6 +19,8 @@ let package = Package(
         .library(name: "CnxAuth", targets: ["CnxAuth"]),
         .library(name: "CnxOnboarding", targets: ["CnxOnboarding"]),
         .library(name: "CnxSettings", targets: ["CnxSettings"]),
+        .library(name: "CnxWorkspaces", targets: ["CnxWorkspaces"]),
+        .library(name: "CnxChief", targets: ["CnxChief"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
@@ -26,6 +28,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
+        .package(path: "../../Packages/iOS/CmuxTabsKit"),
+        .package(path: "../../Packages/iOS/CmuxConversation"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -68,16 +73,32 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth"]),
+        // Workspaces list and the per-workspace TabsKit navigation (last tab first).
+        .target(name: "CnxWorkspaces", dependencies: [
+            "CnxDesign", "CnxModel", "CnxAgentChat",
+            .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
+        ]),
+        // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
+        .target(name: "CnxChief", dependencies: [
+            "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat",
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
+        ]),
         .target(
             name: "CnxShell",
             dependencies: [
                 "CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding", "CnxSettings",
-                "CnxAgentChat", "CnxFeed", "CnxTransport",
+                "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief",
             ]
         ),
         .testTarget(name: "CnxModelTests", dependencies: ["CnxModel"]),
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown"]),
+        .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
+        .testTarget(name: "CnxChiefTests", dependencies: [
+            "CnxChief", "CnxTransport",
+            .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+        ]),
     ],
     swiftLanguageModes: [.v6]
 )

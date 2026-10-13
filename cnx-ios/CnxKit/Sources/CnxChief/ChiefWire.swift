@@ -1,0 +1,124 @@
+import CmuxConversationCore
+import Foundation
+
+/// Maps the cmux-tui local conversation owner's JSON (spec/commands.md,
+/// `conversation-list`: Summary, Message, Part, Reaction) to the
+/// CmuxConversation model, and back for ops.
+struct ChiefWire {
+    let identity: ChiefIdentity
+
+    // MARK: Dates
+
+    func date(_ value: Any?) -> Date? {
+        guard let text = value as? String else { return nil }
+        let precise = ISO8601DateFormatter()
+        precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = precise.date(from: text) { return date }
+        return ISO8601DateFormatter().date(from: text)
+    }
+
+    // MARK: Tapbacks
+
+    /// Wire tapback names are Messages' internal names; the model uses the glyph names.
+    static let tapbacks: [(wire: String, reaction: ConversationReaction)] = [
+        ("love", .heart), ("like", .thumbsup), ("dislike", .thumbsdown),
+        ("laugh", .haha), ("emphasize", .exclamation), ("question", .question),
+    ]
+
+    func reaction(kind: Any?) -> ConversationReaction? {
+        guard let kind = kind as? [String: Any] else { return nil }
+        if let tapback = kind["tapback"] as? String {
+            return Self.tapbacks.first { $0.wire == tapback }?.reaction
+        }
+        if let emoji = kind["emoji"] as? String { return ConversationReaction(rawValue: emoji) }
+        return nil
+    }
+
+    func wireKind(_ reaction: ConversationReaction) -> [String: Any] {
+        if let emoji = reaction.emoji { return ["emoji": emoji] }
+        let name = Self.tapbacks.first { $0.reaction == reaction }?.wire ?? "love"
+        return ["tapback": name]
+    }
+
+    // MARK: Messages
+
+    /// Text of a message: its text parts, and a line for each work card and question.
+    func text(parts: [[String: Any]]) -> String {
+        parts.compactMap { part -> String? in
+            switch part["type"] as? String {
+            case "text": return part["text"] as? String
+            case "work":
+                let status = part["status"] as? String ?? "running"
+                return (part["preview"] as? String).map { "\($0) (\(status))" } ?? "Working (\(status))"
+            case "question":
+                let items = part["items"] as? [[String: Any]] ?? []
+                return items.compactMap { $0["prompt"] as? String }.joined(separator: "\n")
+            case "link_preview": return part["url"] as? String
+            default: return nil
+            }
+        }
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
+    }
+
+    /// `peerReadSeq`: Chief's read cursor; my messages at or below it read as Read.
+    func message(_ object: [String: Any], peerReadSeq: Int) -> ConversationMessage? {
+        guard let id = object["id"] as? String, let seq = (object["seq"] as? NSNumber)?.intValue,
+              let author = object["author"] as? String else { return nil }
+        let parts = object["parts"] as? [[String: Any]] ?? []
+        let mine = author == identity.meID
+        let reactions = (object["reactions"] as? [[String: Any]] ?? []).compactMap { mark -> ConversationReactionMark? in
+            guard let who = mark["author"] as? String, let reaction = reaction(kind: mark["kind"]) else { return nil }
+            return ConversationReactionMark(participantID: who, reaction: reaction)
+        }
+        let retracted = date(object["retracted_at"])
+        return ConversationMessage(
+            id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
+            sentAt: date(object["created_at"]) ?? Date(),
+            text: retracted == nil ? text(parts: parts) : "",
+            replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
+            editedAt: date(object["edited_at"]),
+            unsentAt: retracted,
+            reactions: reactions,
+            delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil
+        )
+    }
+
+    func textParts(_ text: String) -> [[String: Any]] {
+        [["type": "text", "text": text]]
+    }
+
+    // MARK: Conversations
+
+    func info(_ summary: [String: Any]) -> ConversationInfo? {
+        guard let id = summary["id"] as? String else { return nil }
+        let participants = (summary["participants"] as? [[String: Any]] ?? []).compactMap { p -> ConversationParticipant? in
+            guard let pid = p["id"] as? String else { return nil }
+            let name = p["display_name"] as? String ?? pid
+            let isMe = pid == identity.meID
+            let initials = isMe ? "" : String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+            return ConversationParticipant(id: pid, name: isMe ? "You" : name, initials: initials, colorHex: "#636366", isMe: isMe)
+        }
+        return ConversationInfo(
+            id: id, title: summary["title"] as? String ?? identity.title,
+            kind: participants.count > 2 ? .group : .direct, participants: participants,
+            listState: ConversationListState(pinned: true, pinOrder: 0)
+        )
+    }
+
+    func isChief(_ summary: [String: Any]) -> Bool {
+        let ids = (summary["participants"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        return ids.contains(identity.chiefID) && ids.contains(identity.meID)
+    }
+
+    func readCursor(_ summary: [String: Any], of participant: String) -> Int {
+        ((summary["read_cursors"] as? [String: Any])?[participant] as? NSNumber)?.intValue ?? 0
+    }
+
+    func participants() -> [[String: Any]] {
+        [
+            ["id": identity.meID, "kind": "human", "display_name": "You"],
+            ["id": identity.chiefID, "kind": "agent", "display_name": identity.title, "agent_class": "agent"],
+        ]
+    }
+}
