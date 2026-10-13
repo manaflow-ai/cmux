@@ -30,13 +30,8 @@ enum WorkspaceClose {
         }
     }
 
-    /// The daemon's refusal of an `ifEmpty` close: the workspace has a tab.
-    nonisolated static let notEmptyCode = "workspace_not_empty"
-
-    /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not
-    /// start, kept out of Recently Closed (`close-reason-v1`; an older daemon records it).
-    /// `ifEmpty`: close only if the workspace still has no tab when the daemon commits
-    /// (`close-workspace-if-empty-v1`), so a tab another client opened there survives.
+    /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not start, kept out of Recently
+    /// Closed (`close-reason-v1`). `ifEmpty`: only while it has no tab (`close-workspace-if-empty-v1`; else `workspace_not_empty`).
     static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
                       reason: CloseReason? = nil, ifEmpty: Bool = false) async throws {
         if await connection.supportsBatchClose {
