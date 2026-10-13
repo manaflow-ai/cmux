@@ -243,7 +243,8 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
     let token = d.local_token();
     let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
     assert_eq!(origin_of(&init), "local", "{init}");
-    let trust = call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    let trust =
+        call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
     assert!(trust.get("error").is_none(), "{trust}");
     let new = call(&mut app, 3, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
     let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
@@ -255,7 +256,13 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
     };
 
     // Archive: the `archived` tag (its value is when, in milliseconds); Unarchive removes it.
-    let archived = call(&mut app, 4, "_acpmux/tag", json!({"sessionId": id, "set": {"archived": "1760000000000"}})).await;
+    let archived = call(
+        &mut app,
+        4,
+        "_acpmux/tag",
+        json!({"sessionId": id, "set": {"archived": "1760000000000"}}),
+    )
+    .await;
     assert_eq!(archived["result"]["tags"]["archived"], json!("1760000000000"), "{archived}");
     let unread = call(&mut app, 5, "_acpmux/markUnread", json!({"sessionId": id})).await;
     assert!(unread.get("error").is_none(), "{unread}");
@@ -266,7 +273,8 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
     // The same requests from a plain browser tab on the listener (no Swift in between).
     let (mut tab, init) = hello(&d, None, None).await;
     assert_eq!(origin_of(&init), "remote", "{init}");
-    let restored = call(&mut tab, 2, "_acpmux/tag", json!({"sessionId": id, "remove": ["archived"]})).await;
+    let restored =
+        call(&mut tab, 2, "_acpmux/tag", json!({"sessionId": id, "remove": ["archived"]})).await;
     assert!(restored["result"]["tags"].get("archived").is_none(), "{restored}");
     let again = call(&mut tab, 3, "_acpmux/markUnread", json!({"sessionId": id})).await;
     assert!(again.get("error").is_none(), "{again}");
@@ -274,7 +282,8 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
     assert!(summary(&seen)["tags"].get("archived").is_none(), "{seen}");
     assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
     // An unknown chat is an error, never a silent success the menu would show as done.
-    let missing = call(&mut tab, 5, "_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await;
+    let missing =
+        call(&mut tab, 5, "_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await;
     assert!(missing.get("error").is_some(), "{missing}");
 }
 
