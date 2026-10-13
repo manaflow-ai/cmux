@@ -463,86 +463,86 @@ extension ConversationViewController {
     }
 
     func presentPhotoDrawer() {
-        guard photoDrawer == nil else { return }
+        guard photoDrawer == nil, presentedViewController == nil else { return }
         view.endEditing(true)
-        let drawer = ConversationPhotoGridView()
-        drawer.onToggle = { [weak self] asset, selected in
-            self?.photoSelectionChanged(asset: asset, selected: selected)
-        }
+        let height = PhotoDrawerGeometry.height(keyboardHeight: dockedKeyboardHeight)
+        let drawer = ConversationPhotoSheetController(sheetHeight: height)
+        drawer.onSelection = { [weak self] ids in self?.photoSelectionChanged(ids) }
         // Removing a preview from the card deselects its photo in the drawer.
         composer.onRemoveAttachment = { [weak self] attachmentID in
             guard let self, let assetID = self.pickedAssets.first(where: { $0.value == attachmentID })?.key else { return }
             self.pickedAssets[assetID] = nil
             self.photoDrawer?.deselect(assetID: assetID)
         }
-        // Messages' app-card sheet, sized by the keyboard it replaces (see
-        // PhotoDrawerGeometry).
-        let inset = PhotoDrawerGeometry.inset
-        let height = PhotoDrawerGeometry.height(keyboardHeight: dockedKeyboardHeight)
-        let top = view.bounds.height - inset - height
-        drawer.frame = CGRect(x: inset, y: view.bounds.height, width: view.bounds.width - 2 * inset, height: height)
-        view.addSubview(drawer)
+        drawer.onDismiss = { [weak self, weak drawer] in
+            guard let self, let drawer, self.photoDrawer === drawer else { return }
+            self.photoDrawerDidClose(animated: false)
+        }
         photoDrawer = drawer
-        // The composer's field sits 4 pt above its container's bottom.
-        let composerBottom = top - (PhotoDrawerGeometry.fieldGap - 4) - (view.bounds.height - view.safeAreaInsets.bottom)
-        // Pulled down, the sheet follows the finger with the composer on its
-        // top, and closes or springs back on release (Messages' sheet).
-        drawer.onDrag = { [weak self, weak drawer] offset in
-            guard let self, let drawer, self.photoDrawer === drawer else { return }
-            drawer.frame.origin.y = top + offset
-            self.composerBottomConstraintConstant(composerBottom + offset)
-            self.view.layoutIfNeeded()
-        }
-        drawer.onRelease = { [weak self, weak drawer] offset, velocity in
-            guard let self, let drawer, self.photoDrawer === drawer else { return }
-            if PhotoDrawerGeometry.shouldClose(offset: offset, velocity: velocity, height: height) {
-                self.dismissPhotoDrawer()
-                return
-            }
-            let distance = max(1, abs(offset))
-            UIView.animate(
-                springDuration: 0.5, bounce: 0, initialSpringVelocity: -velocity / distance, options: [.beginFromCurrentState, .allowUserInteraction],
-                animations: {
-                    drawer.frame.origin.y = top
-                    self.composerBottomConstraintConstant(composerBottom)
-                    self.view.layoutIfNeeded()
-                }
-            )
-        }
-        // On the keyboard's own curve: the keyboard leaving and the drawer
-        // arriving move the composer as one motion, never down then up.
+        // The composer rides the sheet's top (its field `fieldGap` above it)
+        // at the keyboard detent and while the sheet is dragged down, and
+        // holds there while the sheet rises over it to the large detent.
+        let link = CADisplayLink(target: PhotoSheetTracker(self), selector: #selector(PhotoSheetTracker.tick))
+        link.add(to: .main, forMode: .common)
+        photoSheetLink = link
         animateAlongsideKeyboard {
-            drawer.frame.origin.y = top
             self.composer.sideInset = self.composer.keyboardSideInset
             self.composer.layoutIfNeeded()
-            self.composerBottomConstraintConstant(composerBottom)
-            self.view.layoutIfNeeded()
         }
+        present(drawer, animated: true)
+    }
+
+    /// The composer on the sheet's top, read from the sheet's on-screen
+    /// (presentation) frame each display frame.
+    func followPhotoSheet() {
+        guard let drawer = photoDrawer, let sheetView = drawer.presentationController?.presentedView,
+              let container = drawer.presentationController?.containerView else { return }
+        let layer = sheetView.layer.presentation() ?? sheetView.layer
+        let top = view.convert(layer.frame, from: container).minY
+        let height = PhotoDrawerGeometry.height(keyboardHeight: dockedKeyboardHeight)
+        let restTop = view.bounds.height - PhotoDrawerGeometry.inset - height
+        let safeBottom = view.bounds.height - view.safeAreaInsets.bottom
+        let bottom = PhotoDrawerGeometry.composerBottom(sheetTop: top, restingSheetTop: restTop, safeBottom: safeBottom)
+        guard composerBottomConstraint?.constant != bottom else { return }
+        composerBottomConstraintConstant(bottom)
+        view.layoutIfNeeded()
     }
 
     func dismissPhotoDrawer() {
         guard let drawer = photoDrawer else { return }
+        photoDrawerDidClose(animated: true)
+        drawer.dismiss(animated: true)
+    }
+
+    /// The sheet is gone or going: the composer returns to its base line,
+    /// usually inside the keyboard's show animation (see viewDidLoad).
+    private func photoDrawerDidClose(animated: Bool) {
         photoDrawer = nil
         pickedAssets = [:]
-        // Usually inside the keyboard's show animation (see viewDidLoad),
-        // which this matches, so the composer rides up with the keyboard.
-        animateAlongsideKeyboard {
-            drawer.frame.origin.y = self.view.bounds.height
+        photoSheetLink?.invalidate()
+        photoSheetLink = nil
+        let reset = {
             self.composer.sideInset = ConversationTheme.composerSideInset
             self.composer.layoutIfNeeded()
             self.composerBottomConstraintConstant(-4)
             self.view.layoutIfNeeded()
-        } completion: { _ in
-            drawer.removeFromSuperview()
         }
+        if animated { animateAlongsideKeyboard(reset) } else { reset() }
     }
 
-    private func photoSelectionChanged(asset: PHAsset, selected: Bool) {
-        let id = asset.localIdentifier
-        guard selected else {
-            if let attachmentID = pickedAssets.removeValue(forKey: id) { composer.removeAttachment(id: attachmentID) }
-            return
+    private func photoSelectionChanged(_ ids: [String]) {
+        for (id, attachmentID) in pickedAssets where !ids.contains(id) {
+            pickedAssets[id] = nil
+            composer.removeAttachment(id: attachmentID)
         }
+        let added = ids.filter { pickedAssets[$0] == nil }
+        guard !added.isEmpty else { return }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: added, options: nil)
+        assets.enumerateObjects { asset, _, _ in self.loadPickedPhoto(asset) }
+    }
+
+    private func loadPickedPhoto(_ asset: PHAsset) {
+        let id = asset.localIdentifier
         let options = PHImageRequestOptions()
         options.isNetworkAccessAllowed = true
         options.deliveryMode = .highQualityFormat
@@ -623,5 +623,13 @@ final class ConversationMediaDelegate: NSObject, UIImagePickerControllerDelegate
         let chip = await ComposerFileChip.render(file: file.info, url: url, traits: traits)
         return ComposerAttachment(file: file, chip: chip)
     }
+}
+
+/// Breaks the display link's strong reference to the conversation.
+@MainActor
+final class PhotoSheetTracker: NSObject {
+    weak var controller: ConversationViewController?
+    init(_ controller: ConversationViewController) { self.controller = controller }
+    @objc func tick() { controller?.followPhotoSheet() }
 }
 #endif

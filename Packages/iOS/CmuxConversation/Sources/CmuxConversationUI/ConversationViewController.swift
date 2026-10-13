@@ -147,7 +147,8 @@ public final class ConversationViewController: UIViewController {
     var selectedRowIDs: Set<String> = []
     /// The long-press menu's "Select": in-bubble text selection, if active.
     var textSelection: BubbleTextSelectionView?
-    var photoDrawer: ConversationPhotoGridView?
+    var photoDrawer: ConversationPhotoSheetController?
+    var photoSheetLink: CADisplayLink?
     var pickedAssets: [String: UUID] = [:]
     /// The open Quick Look preview's data source (photos and documents).
     var quickLookPresenter: ConversationQuickLookPresenter?
