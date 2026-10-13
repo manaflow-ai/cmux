@@ -17,17 +17,25 @@ import type { StackServer } from "../stack-server.ts"
  * "unavailable" (503, retryable), never "unpaid", so an outage does not lock out a paying team.
  */
 export const PLAN_FRESH_MS = 10 * 60_000
+/** An unpaid answer is asked again sooner: a person who just bought a plan has no webhook for it. */
+export const UNPAID_FRESH_MS = 60_000
 export const PLAN_STALE_MS = 24 * 60 * 60_000
+/** After a failed Stack read, the stale copy answers without a new read for this long. */
+export const FAILURE_BACKOFF_MS = 60_000
 
 export type PlanAnswer = { readonly ok: true; readonly paid: boolean } | { readonly ok: false; readonly reason: "unavailable" }
 
-const ensure = (sql: SqlStorage) =>
-  sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL)`)
+const ensure = (sql: SqlStorage) => {
+  sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
+}
 
-/** Stores what Stack answered now (null = no plan). */
-export const storePlan = (sql: SqlStorage, plan: string | null, now: number) => {
+/**
+ * Stores what Stack answered at `at` (null = no plan). A read that started before a newer write
+ * (a webhook delivery) never overwrites it.
+ */
+export const storePlan = (sql: SqlStorage, plan: string | null, at: number) => {
   ensure(sql)
-  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at`, plan, now)
+  sql.exec(`INSERT INTO inference_plan (id, plan, checked_at, failed_at) VALUES (1, ?, ?, NULL) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, checked_at = excluded.checked_at, failed_at = NULL WHERE excluded.checked_at >= inference_plan.checked_at`, plan, at)
 }
 
 /**
@@ -36,14 +44,18 @@ export const storePlan = (sql: SqlStorage, plan: string | null, now: number) => 
  */
 export const readPlan = async (sql: SqlStorage, now: number, read: () => Promise<string | null>): Promise<{ ok: true; plan: string | null } | { ok: false }> => {
   ensure(sql)
-  const row = sql.exec<{ plan: string | null; checked_at: number }>(`SELECT plan, checked_at FROM inference_plan WHERE id = 1`).toArray()[0]
-  if (row && now - Number(row.checked_at) < PLAN_FRESH_MS) return { ok: true, plan: row.plan }
+  const row = sql.exec<{ plan: string | null; checked_at: number; failed_at: number | null }>(`SELECT plan, checked_at, failed_at FROM inference_plan WHERE id = 1`).toArray()[0]
+  const age = row ? now - Number(row.checked_at) : Infinity
+  if (row && age < (row.plan === null ? UNPAID_FRESH_MS : PLAN_FRESH_MS)) return { ok: true, plan: row.plan }
+  // Stack failed a moment ago: answer from the stale copy (or unavailable) without waiting on Stack again.
+  if (row && row.failed_at !== null && now - Number(row.failed_at) < FAILURE_BACKOFF_MS) return age < PLAN_STALE_MS ? { ok: true, plan: row.plan } : { ok: false }
   try {
     const plan = await read()
     storePlan(sql, plan, now)
     return { ok: true, plan }
   } catch (e) {
     console.warn(JSON.stringify({ msg: "inference.plan.read_failed", error: String(e).slice(0, 160), stale: Boolean(row) }))
+    if (row) sql.exec(`UPDATE inference_plan SET failed_at = ? WHERE id = 1`, now)
     if (row && now - Number(row.checked_at) < PLAN_STALE_MS) return { ok: true, plan: row.plan }
     return { ok: false }
   }
