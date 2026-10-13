@@ -28,6 +28,8 @@ struct HibernationPlanner {
         case webAudio = "web_audio"
         /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
         case agentBusy = "agent_busy"
+        /// The acpmux turn watch is down, so no chat's turn is known: every chat counts as busy.
+        case agentTurnsUnknown = "agent_turns_unknown"
     }
 
     struct Plan: Equatable {

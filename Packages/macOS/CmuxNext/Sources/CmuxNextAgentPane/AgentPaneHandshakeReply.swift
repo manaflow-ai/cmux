@@ -53,8 +53,11 @@ enum AgentPaneHandshakeReply {
             if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
-            handshake.wake = model.pendingWake
-            model.pendingWake = nil
+            // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
+            if request == .ready {
+                handshake.wake = model.pendingWake
+                model.pendingWake = nil
+            }
             model.hasHandshake = true
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }

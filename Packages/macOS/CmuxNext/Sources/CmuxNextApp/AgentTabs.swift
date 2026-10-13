@@ -334,7 +334,11 @@ final class AgentTabStore {
                 return folders.filter { $0.lowercased().contains(query) }
             }
         }
-        guard let view = makeView(model) else { return nil }
+        guard let view = makeView(model) else {
+            // The next page made for the tab still gets it.
+            if let wake = model.pendingWake { wakeStates[key] = wake }
+            return nil
+        }
         views[key] = view
         track(key, in: store)
         return view

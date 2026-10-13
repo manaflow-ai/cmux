@@ -186,7 +186,7 @@ struct AgentPageHibernationTests {
         rig.advance(minutes: 61)
         await rig.settle { false }
         #expect(rig.tabs.existingView("tab_unknown") === page, "a chat whose turn nobody knows let its page go")
-        #expect(rig.hibernation.keepsPage("tab_unknown") == .agentBusy)
+        #expect(rig.hibernation.keepsPage("tab_unknown") == .agentTurnsUnknown)
 
         // The watch is back and the chat idle: its overdue page goes without another hide.
         rig.turns.watching = true

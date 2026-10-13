@@ -384,9 +384,16 @@ const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { s
 };
 
 /// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
-function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: ScrollAnchor } | undefined {
+/// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
+function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null } | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const wake = value as { attachments?: unknown; shell?: unknown; shellText?: unknown; scrollAnchor?: unknown };
+  const wake = value as {
+    attachments?: unknown;
+    shell?: unknown;
+    shellText?: unknown;
+    scrollAnchor?: unknown;
+    atLatest?: unknown;
+  };
   const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
   return {
     composer: {
@@ -397,7 +404,9 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
     scrollAnchor:
       typeof anchor?.rowId === "string" && typeof anchor.offset === "number"
         ? { rowId: anchor.rowId, offset: anchor.offset }
-        : undefined,
+        : wake.atLatest === true
+          ? null
+          : undefined,
   };
 }
 
@@ -923,6 +932,18 @@ export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// latest message, which a reopened chat follows anyway.
 export type ScrollAnchor = { rowId: string; offset: number };
 
+/// Where a transcript scrolled to `top` rests: null at its latest message.
+function restingAnchor(
+  top: number,
+  atLatest: boolean,
+  placed: Parameters<typeof visibleLayoutRange>[0],
+  shown: readonly { id: string }[],
+): ScrollAnchor | null {
+  const index = visibleLayoutRange(placed, top, 0, 0).first;
+  const row = shown[index];
+  return atLatest || !row ? null : { rowId: row.id, offset: top - placed.tops[index] };
+}
+
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its dots say a reply is streaming below. It stays
 /// mounted while hidden (inert) so it fades out as it fades in (conversation.css).
@@ -987,8 +1008,9 @@ export function VirtualTranscript({
   openAt?: ScrollAnchor;
   /// Where it rests after each settled scroll (null at the latest message).
   onAnchor?: (anchor: ScrollAnchor | null) => void;
-  /// Filled with where it rests now (null at the latest message), for a page about to let go.
-  anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null) | undefined>;
+  /// Filled with where it last rested in view (null at the latest message, undefined when it was
+  /// never in view), for a page about to let go.
+  anchorNow?: React.MutableRefObject<(() => ScrollAnchor | null | undefined) | undefined>;
   /// A reply is streaming: Jump to latest shows its dots while the reader is scrolled up.
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
@@ -1218,6 +1240,8 @@ export function VirtualTranscript({
     };
   }, []);
   const scrolledTo = useRef({ top: 0, atLatest: false });
+  /// Where the reader last saw it rest, measured in view; undefined until it is.
+  const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// Whether a move off the latest row, to `top` against `latest`, is a stray rather than the reader's.
@@ -1467,6 +1491,7 @@ export function VirtualTranscript({
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
+      seenAnchor.current = undefined;
       clearTimeout(settle.current);
       settle.current = undefined;
       setScroll({ top: 0, delta: 0 });
@@ -1534,7 +1559,10 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node && node.clientHeight > 0) scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    if (node && node.clientHeight > 0) {
+      scrolledTo.current = scrollPosition(node, layout.totalHeight);
+      seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
+    }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId]);
@@ -1662,13 +1690,7 @@ export function VirtualTranscript({
   // the reader last saw it.
   useEffect(() => {
     if (!anchorNow) return;
-    anchorNow.current = () => {
-      const { layout: placed, rows: shown } = latestLayout.current;
-      const at = scrolledTo.current;
-      const index = visibleLayoutRange(placed, at.top, 0, 0).first;
-      const row = shown[index];
-      return at.atLatest || !row ? null : { rowId: row.id, offset: at.top - placed.tops[index] };
-    };
+    anchorNow.current = () => seenAnchor.current;
     return () => {
       anchorNow.current = undefined;
     };
@@ -1686,6 +1708,7 @@ export function VirtualTranscript({
     if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
       // Not the reader's scroll: the view keeps following the reply.
       scrolledTo.current = { top: latest, atLatest: true };
+      seenAnchor.current = null;
       node.scrollTop = latest;
       followTrace.set(latest);
       return;
@@ -1699,6 +1722,7 @@ export function VirtualTranscript({
         clientHeight: node.clientHeight,
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+    seenAnchor.current = restingAnchor(next, scrolledTo.current.atLatest, layout, rows);
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
@@ -2807,7 +2831,7 @@ function AcpmuxPane() {
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
-  const transcriptAnchor = useRef<(() => ScrollAnchor | null) | undefined>(undefined);
+  const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     if (handle && pendingWake.current) {
@@ -3212,10 +3236,13 @@ function AcpmuxPane() {
         if (!reconnect && host.sessionId) {
           // The released page's place is newer than the kept one: a scroll that settled while
           // hidden was never reported. Keep it for a relaunch too.
-          if (wake) postScrollAnchor(host.sessionId, wake.scrollAnchor ?? null);
-          const anchor = wake
-            ? wake.scrollAnchor && { sessionId: host.sessionId, ...wake.scrollAnchor }
-            : await fetchScrollAnchor(host.sessionId);
+          const woken = wake?.scrollAnchor;
+          if (woken !== undefined) postScrollAnchor(host.sessionId, woken);
+          const anchor = woken
+            ? { sessionId: host.sessionId, ...woken }
+            : woken === null
+              ? undefined
+              : await fetchScrollAnchor(host.sessionId);
           if (cancelled) return;
           setScrollAnchor(anchor);
         }
@@ -3611,10 +3638,15 @@ function AcpmuxPane() {
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
           // What this page holds that acpmux does not, kept by the host when a hidden chat's page
           // lets go and handed back with the next page's handshake (`wake`).
-          "pane.wakeState": async () => ({
-            ...composerHandle.current?.wakeState(),
-            scrollAnchor: transcriptAnchor.current?.() ?? null,
-          }),
+          // The transcript's place: an anchor, at its latest message, or left out when unknown
+          // (never in view, or a subagent's view open) so the chat's kept anchor stands.
+          "pane.wakeState": async () => {
+            const anchor = transcriptAnchor.current?.();
+            return {
+              ...composerHandle.current?.wakeState(),
+              ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+            };
+          },
         };
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
