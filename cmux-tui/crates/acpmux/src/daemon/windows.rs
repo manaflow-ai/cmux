@@ -22,11 +22,13 @@ use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::windows::ffi::OsStrExt;
+use std::os::windows::fs::FileExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::Path;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ACCESS_DENIED, HANDLE, HANDLE_FLAG_INHERIT, SetHandleInformation,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_LOCK_VIOLATION, HANDLE, HANDLE_FLAG_INHERIT,
+    SetHandleInformation,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
@@ -278,18 +280,19 @@ async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
     let socket = crate::config::socket_path();
     let lock = home.join("daemon.lock");
     while !socket.exists() && tokio::time::Instant::now() < deadline {
-        // RISK: this probe takes daemon.lock for an instant when it is free.
-        // Windows has no way to test a LockFileEx lock without taking it
-        // (a ReadFile lock-violation probe is not proven on an empty file,
-        // and daemon.pid is written only after the lock is taken). A free
-        // lock here means the winner has already exited; a third start
-        // whose daemon tries the lock in that instant exits too, and its
-        // client returns from this wait and fails its connect. Rare, and
-        // the next start succeeds.
-        let held = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&lock)
-            .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        // A 1-byte read at offset 0 tests daemon.lock without taking it, so
+        // this wait never makes another start's daemon lose the lock. While
+        // another handle holds the lock (LockFileEx over the whole range, as
+        // File::try_lock takes it) the read fails with ERROR_LOCK_VIOLATION
+        // (33); a free lock reads, or reports ERROR_HANDLE_EOF (38) on an
+        // empty file, which std returns as Ok(0). Proven on NTFS (Windows
+        // Server 2022) for an empty and a 1-byte lock file (cx-ncc.54). A
+        // free lock means the winner has already exited.
+        let held = File::open(&lock).is_ok_and(|file| {
+            let mut byte = [0u8; 1];
+            let read = file.seek_read(&mut byte, 0);
+            read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
+        });
         if !held {
             return;
         }
