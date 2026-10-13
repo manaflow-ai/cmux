@@ -24,7 +24,7 @@ export function PermissionStatus({
 }) {
   const t = useT();
   if (!trusted && !chatAllowed) return null;
-  const label = trusted && !chatAllowed ? trustLabel ?? t("trust.trustedPrivate") : t("permission.allowChat");
+  const label = trusted && !chatAllowed ? (trustLabel ?? t("trust.trustedPrivate")) : t("permission.allowChat");
   return (
     <span className="acpmux-permission-status">
       <Menu>

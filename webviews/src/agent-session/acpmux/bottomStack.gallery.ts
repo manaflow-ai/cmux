@@ -64,7 +64,11 @@ function geometry(ctx: PlayContext) {
     ".acpmux-composer-box",
   ];
   const layers = selectors.flatMap((selector) =>
-    [...ctx.document.querySelectorAll(selector)].map((node) => ({ selector, node, rect: node.getBoundingClientRect() })),
+    [...ctx.document.querySelectorAll(selector)].map((node) => ({
+      selector,
+      node,
+      rect: node.getBoundingClientRect(),
+    })),
   );
   for (let i = 0; i < layers.length; i++)
     for (let j = i + 1; j < layers.length; j++) {
