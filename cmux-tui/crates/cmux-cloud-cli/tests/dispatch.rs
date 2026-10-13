@@ -55,8 +55,7 @@ fn cloud_dispatch_all_spellings_preserve_arguments_and_exit_status() {
         if let Some(prefix) = prefix {
             c.arg(prefix);
         }
-        let switch =
-            c.args(["use", "own"]).env("CMUX_CLOUD_ADAPTER", &adapter).output().unwrap();
+        let switch = c.args(["use", "own"]).env("CMUX_CLOUD_ADAPTER", &adapter).output().unwrap();
         assert_eq!(switch.stdout, b"adapter\n<coderouter>\n<use>\n<own>\n");
     }
     let recursive =
