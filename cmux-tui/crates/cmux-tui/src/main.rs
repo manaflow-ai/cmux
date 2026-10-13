@@ -31,10 +31,10 @@ mod config;
 mod daemon_build;
 mod headless;
 mod local_actor;
+mod page_listener;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
-mod page_listener;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
