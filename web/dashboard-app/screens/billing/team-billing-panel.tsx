@@ -1,5 +1,6 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
@@ -42,9 +43,9 @@ export function TeamBillingPanel({
         </h2>
       ) : null}
       {view.personal ? (
-        <a href="/dashboard/teams/new" className="text-xs text-muted underline">
+        <Link to="/dashboard/teams/new" className="text-xs text-muted underline">
           {t("team.createCta")}
-        </a>
+        </Link>
       ) : null}
       {welcome ? <Notice>{t("teamPanel.welcome")}</Notice> : null}
       {view.paymentPastDue && view.canManageBilling ? (
