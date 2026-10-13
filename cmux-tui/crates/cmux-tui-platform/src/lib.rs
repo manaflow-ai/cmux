@@ -10,7 +10,6 @@ pub mod host_exe;
 pub mod platform;
 #[cfg(unix)]
 pub mod process_identity;
-#[cfg(unix)]
 pub mod process_inventory;
 pub mod process_resources;
 #[cfg(unix)]
