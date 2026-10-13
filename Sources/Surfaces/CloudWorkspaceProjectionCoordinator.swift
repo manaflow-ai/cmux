@@ -71,8 +71,8 @@ final class CloudWorkspaceProjectionCoordinator {
     /// Daemon generation last reported per machine. A persistent re-requester
     /// would otherwise report once for every graph revision.
     private var reportedNonConvergence: [SurfaceMachineID: String] = [:]
-    /// The last plan computed per machine, so a non-convergence report names
-    /// what the passes kept trying to add and retire.
+    /// The most recent non-empty plan per machine, so a non-convergence report
+    /// names what the passes kept trying to add and retire.
     private var lastPlanShape: [SurfaceMachineID: CloudWorkspaceProjectionPlanShape] = [:]
 
     /// Reports non-convergence once per daemon generation, so a trigger outside
@@ -153,7 +153,6 @@ final class CloudWorkspaceProjectionCoordinator {
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
         let completeness = CloudVMGraphCompleteness(state: state, resources: catalog.snapshot.resources(on: machine))
-        lastPlanShape[machine] = nil
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
             if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspaceID) { continue }
@@ -184,7 +183,8 @@ final class CloudWorkspaceProjectionCoordinator {
             }
             // `project` may satisfy a missing placement by rewriting an obsolete
             // pane's coordinates. That pane now shows the placement; closing it
-            // would make the next pass rebuild it, forever.
+            // would make the next pass rebuild it, forever. A pane reused with
+            // its old coordinates still does not show it and is still retired.
             var projectedPanels = Set<UUID>()
             do {
                 for placement in plan.missing {
@@ -198,7 +198,11 @@ final class CloudWorkspaceProjectionCoordinator {
                     )
                     let (projection, _) = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
-                    projectedPanels.insert(projection.panelID)
+                    if projection.resource == placement.resource,
+                       projection.remoteWorkspaceID == placement.remoteWorkspaceID,
+                       projection.remoteTabID == placement.remoteTabID {
+                        projectedPanels.insert(projection.panelID)
+                    }
                     adoptOrphanedDisplayMembership(placement, replacedBy: projection, state: state, catalog: catalog)
                 }
                 guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
