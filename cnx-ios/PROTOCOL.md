@@ -50,9 +50,9 @@ with 4001 `moved`.
 - server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
 - server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
-  On every forwarded signal the DO overwrites `from` with the sender's
-  deviceId and sets `"fromUserId": <sender's Stack userId>` (clients never
-  set it). `cnx-hostd` admits a dial only when `fromUserId` equals the Mac's
+  A `from` other than the socket's own deviceId is refused with `bad_request`.
+  On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
+  overwriting any client value. `cnx-hostd` admits a dial only when `fromUserId` equals the Mac's
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
   - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
