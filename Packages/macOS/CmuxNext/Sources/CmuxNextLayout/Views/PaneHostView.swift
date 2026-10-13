@@ -136,7 +136,7 @@ final class PaneHostView: NSView {
 
     /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
-    func setStripClip(_ rect: CGRect?) {
+    func setStripClip(_ rect: CGRect?, cornerRadius: CGFloat = 0) {
         guard let layer else { return }
         guard let rect else {
             if layer.mask != nil { layer.mask = nil }
@@ -148,10 +148,11 @@ final class PaneHostView: NSView {
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect else { return }
+        guard mask.frame != rect || mask.cornerRadius != cornerRadius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
+        mask.cornerRadius = cornerRadius
         CATransaction.commit()
     }
 

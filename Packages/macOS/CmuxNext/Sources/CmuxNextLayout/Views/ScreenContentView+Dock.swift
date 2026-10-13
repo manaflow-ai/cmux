@@ -71,7 +71,9 @@ extension ScreenContentView {
         if scrolls, let clip { visible = visible.intersection(clip) }
         for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
         if visible == host.frame { return host.setStripClip(nil) }
-        host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
+        // A split's presented rect is the content itself: rounded as at rest.
+        host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY),
+                          cornerRadius: revealing == nil ? 0 : host.cornerRadius)
     }
 
     /// Glass backdrops for overlay columns and the stacking order: strip
