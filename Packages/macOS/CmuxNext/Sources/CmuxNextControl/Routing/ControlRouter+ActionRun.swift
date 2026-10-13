@@ -20,11 +20,6 @@ extension ControlRouter {
     /// How long a started run keeps settling after its request answered
     /// `in_progress`, so a retry with the same key gets the final reply.
     static let settleLimit: Duration = .seconds(30)
-    /// How long a settled run waits for its created objects to show in a
-    /// snapshot: the store can build a new object after the event that moved
-    /// the sequence. Past it the reply lists what it shows (an object closed
-    /// right away never shows).
-    static let createdLimit: Duration = .seconds(2)
 
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
@@ -127,7 +122,7 @@ extension ControlRouter {
         // wait) answers while the run keeps settling, and the key stays
         // pending until settlement records the final reply for a retry.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
+            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline, replyBy: call.deadline)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
@@ -157,7 +152,7 @@ extension ControlRouter {
     /// Waits for the run's work, then for a snapshot that reflects it.
     /// Returns that snapshot or the first failure.
     private func settle(_ run: ControlActionRun, scope: ControlCommandScope, action: String, method: String,
-                        deadline: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
+                        deadline: ContinuousClock.Instant, replyBy: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
         defer { scope.close() }
         let failure: ActionWorkFailure?
         do {
@@ -174,26 +169,12 @@ extension ControlRouter {
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
         let barriers = scope.barriers
-        guard !barriers.isEmpty else { return .success(await showingCreated(scope.created, after: snapshots.current, deadline: deadline)) }
+        guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy)) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
-        return .success(await showingCreated(scope.created, after: snapshot, deadline: deadline))
-    }
-
-    /// `settled`, or the first later snapshot that shows every object in
-    /// `created`, so `created` in the reply is not empty under load (cli.md
-    /// Remaining 13). Bounded by ``createdLimit``.
-    private func showingCreated(_ created: [ControlCreatedObject], after settled: ControlSnapshot,
-                                deadline: ContinuousClock.Instant) async -> ControlSnapshot {
-        let showsAll: @Sendable (ControlSnapshot) -> Bool = { snapshot in
-            created.allSatisfy { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) != nil }
-        }
-        guard !showsAll(settled) else { return settled }
-        let limit = min(deadline, .now + Self.createdLimit)
-        let shown = await snapshots.snapshot(where: showsAll, deadline: limit)
-        return shown ?? snapshots.current
+        return .success(await snapshots.showing(scope.created, after: snapshot, replyBy: replyBy))
     }
 
     /// The scope's per-machine barriers as snapshot sequences: the local
