@@ -18,7 +18,8 @@
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
-    "CmuxUpdater": "Packages/macOS/CmuxUpdater"
+    "CmuxUpdater": "Packages/macOS/CmuxUpdater",
+    "CmuxVNC": "Packages/Shared/CmuxVNC"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -190,7 +191,8 @@
         "CmuxAgentQuestion",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxVNC"
       ]
     },
     "CmuxNextAppPermissions": {
@@ -226,7 +228,8 @@
         "CmuxAgentQuestion",
         "CmuxGhosttyKit",
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxVNC"
       ],
       "reads": [
         "plans/cmux-next/",
