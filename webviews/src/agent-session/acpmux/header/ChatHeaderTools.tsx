@@ -1,7 +1,8 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
 // folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
-// opens the last turn's changes; and the "..." chat menu. Before them, the chat branch's pull request
+// opens the last turn's changes; and the "..." chat menu, which starts with the quick actions not shown
+// as buttons (Split Down, Changes, Preview; each while it applies). Before them, the chat branch's pull request
 // with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control renders from the first frame
 // at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -161,6 +162,33 @@ export function ChatHeaderTools({
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
+  // The quick actions without a button, at the top of "...": each while it would show as a button.
+  const shownIds = new Set(actions.map((action) => action.id));
+  const folded: ChatMenuItem[] = [];
+  if (tabTools && onSplitDown && !shownIds.has("splitDown"))
+    folded.push({
+      key: "quick-splitDown",
+      label: t("header.splitDown"),
+      icon: "pane.split.down",
+      shortcutAction: HEADER_ACTIONS.splitDown,
+      onSelect: () => onSplitDown("toggle"),
+    });
+  if (tabTools && onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+    folded.push({
+      key: "quick-changes",
+      label: t("header.changes"),
+      icon: "diff.file",
+      shortcutAction: HEADER_ACTIONS.changes,
+      onSelect: () => onChanges("toggle"),
+    });
+  if (tabTools && onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+    folded.push({
+      key: "quick-preview",
+      label: t("header.preview"),
+      icon: "media.play",
+      onSelect: () => onPreview(previewUrl, "toggle"),
+    });
+  const rows = () => menuGroups(folded, menu());
   const buttons = tabTools && (
     <>
       {actions.map(({ id, mode }) =>
@@ -299,8 +327,8 @@ export function ChatHeaderTools({
       )}
       {summary}
       <ChatMenu
-        items={menu}
-        disabled={menu().length === 0}
+        items={rows}
+        disabled={rows().length === 0}
         onOpen={onMenuOpen}
         expand={expand}
         onExpanded={onExpanded}

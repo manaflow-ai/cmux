@@ -3,7 +3,9 @@ import { useSyncExternalStore } from "react";
 /// The chat header's quick actions (the buttons left of the Sources summary and "..." menu): which ones show,
 /// in which order, and whether each one toggles its panel or opens another copy. This is the one model
 /// the header reads (ChatHeaderTools). The default copies T3 Chat and ChatGPT: every button toggles,
-/// so a second click closes what the first one opened.
+/// so a second click closes what the first one opened. By default only the most-used show (Terminal,
+/// Browser, [+] New tab; Leo 2026-10-12: about four buttons with "..."): Split Down, Changes and Preview
+/// fold into the top of the "..." chat menu, each while it applies, until the person shows them here.
 ///
 /// The user customizes it in `agent-pane/layout.json` next to `cmux.json` (the file the App watches and
 /// pushes through `applyCustomization`):
@@ -40,8 +42,8 @@ export interface QuickAction {
 }
 
 const ids: readonly QuickActionId[] = ["terminal", "splitDown", "browser", "changes", "files", "preview", "newTab"];
-/// Not shown until a person adds them.
-const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["files"]);
+/// Not shown until a person adds them (all but Files are in the chat menu meanwhile).
+const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["splitDown", "changes", "files", "preview"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 
