@@ -62,6 +62,11 @@ import Testing
         #expect(LinkFileArtifactSource.absolutePath("/etc/../tmp/x", base: nil) == "/tmp/x")
         #expect(LinkFileArtifactSource.absolutePath("~/x", base: "/Users/me") == nil)
         #expect(LinkFileArtifactSource.absolutePath("x", base: "~/cmux") == nil)
+        // A live chat's folder is the workspace's display path: an edit's
+        // absolute path and the answer's relative mention are one file.
+        let display = SessionArtifacts.Collector(cwd: "~/work/demo")
+        #expect(display.normalize("/Users/cmux/work/demo/README.md") == "README.md")
+        #expect(display.normalize("/opt/work/demo/README.md") == "/opt/work/demo/README.md")
     }
 
     @Test func mockCheckpointsRestoreAndHandoff() async throws {

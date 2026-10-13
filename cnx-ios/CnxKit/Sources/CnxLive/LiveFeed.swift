@@ -96,6 +96,11 @@ public final class LiveFeed: FeedActions {
         try await hub.answer(question, with: answer)
     }
 
+    public func decline(_ item: FeedItem, question: AgentQuestion) async throws {
+        guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
+        try await hub.decline(question)
+    }
+
     public func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws {
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
         try await hub.respond(sessionID: askSessions[item.id] ?? item.tabID, permissionID: request.id, optionID: option.id)

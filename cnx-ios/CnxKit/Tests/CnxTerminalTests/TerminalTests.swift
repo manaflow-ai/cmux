@@ -73,3 +73,43 @@ import Testing
     }
 }
 #endif
+
+/// The Mac's 42-row screen on the bottom of a 151-row mirror (offset 109).
+@Suite struct TerminalRowShiftTests {
+    private func run(_ chunks: [String], offset: Int = 109, rows: Int = 42) -> String {
+        var shift = TerminalRowShift()
+        return chunks.map { String(decoding: shift.filter(Data($0.utf8), offset: offset, remoteRows: rows), as: UTF8.self) }.joined()
+    }
+
+    @Test func replayLandsOnTheBottomRows() {
+        // The daemon's replay: reset, history, then the cursor on its row 42.
+        let out = run(["\u{1B}c", "1\r\n2\r\n$ ", "\u{1B}[42;30H"])
+        #expect(out == "\u{1B}c" + String(repeating: "\n", count: 109) + "1\r\n2\r\n$ \u{1B}[151;30H")
+    }
+
+    @Test func rowAddressingShiftsAcrossChunks() {
+        #expect(run(["\u{1B}[", "5;", "1H x \u{1B}[H \u{1B}[3d"]) == "\u{1B}[114;1H x \u{1B}[110;1H \u{1B}[112d")
+        // Column-only and relative moves are untouched.
+        #expect(run(["\u{1B}[5G\u{1B}[2A\u{1B}[K"]) == "\u{1B}[5G\u{1B}[2A\u{1B}[K")
+    }
+
+    @Test func alternateScreenIsNotShifted() {
+        let out = run(["\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H", "\u{1B}[?1049l\u{1B}[42;1H"])
+        #expect(out == "\u{1B}[?1049h\u{1B}[1;1Hvim\u{1B}[42;1H\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8\u{1B}[151;1H")
+        // vim's region for its 42 rows stays as is on the alternate screen; leaving resets it.
+        #expect(run(["\u{1B}[?1049h\u{1B}[1;42r", "\u{1B}[?1049l"]) == "\u{1B}[?1049h\u{1B}[1;42r\u{1B}[?1049l\u{1B}7\u{1B}[r\u{1B}8")
+    }
+
+    @Test func fullScreenRegionKeepsTheScrollback() {
+        #expect(run(["\u{1B}[1;42r"]) == "\u{1B}[r")
+        #expect(run(["\u{1B}[r"]) == "\u{1B}[r")
+        #expect(run(["\u{1B}[2;10r"]) == "\u{1B}[111;119r")
+    }
+
+    @Test func stringsPassThrough() {
+        let osc = "\u{1B}]7;file://host/Users/x[1;1H\u{07}\u{1B}]2;t\u{1B}\\\u{1B}[1;1H"
+        #expect(run([osc]) == "\u{1B}]7;file://host/Users/x[1;1H\u{07}\u{1B}]2;t\u{1B}\\\u{1B}[110;1H")
+        #expect(run(["\u{1B}[1;1H"], offset: 0) == "\u{1B}[1;1H")
+        #expect(run(["\u{1B}(B\u{1B}[?25l"]) == "\u{1B}(B\u{1B}[?25l")
+    }
+}

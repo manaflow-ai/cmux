@@ -185,10 +185,21 @@ public final class AgentChatStore {
     public func cancel() { source.send(.cancel) }
 
     public func respond(to request: ACPPermissionRequest, option: ACPPermissionOption?) {
+        // A refusal is about the previous answer ("Approve this on your Mac"):
+        // a new answer, such as the decline that follows, replaces it.
+        clientError = nil
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
     }
 
+    /// Declines a pending question with its reject option.
+    public func decline(_ question: AgentQuestion) {
+        guard question.isPending, let reject = question.source.rejectOption else { return }
+        clientError = nil
+        source.send(.respondPermission(permissionId: question.id, optionId: reject))
+    }
+
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) {
+        clientError = nil
         source.send(.answerQuestion(questionId: question.id, answer: answer))
     }
 

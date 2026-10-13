@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::auth::{DEFAULT_STACK_API, DEFAULT_STACK_PROJECT, TokenSource};
+use crate::control::{AcpmuxEndpoint, Supplied};
 
 /// Where the `acpmux` service connects.
 #[derive(Debug, Clone)]
@@ -15,6 +16,8 @@ pub enum AcpmuxTarget {
     Home(PathBuf),
     /// A fixed URL and token (tests).
     Fixed { url: String, token: Option<String> },
+    /// The endpoint the supervising app reports over stdin (`control`).
+    Supplied(tokio::sync::watch::Receiver<AcpmuxEndpoint>),
 }
 
 /// What the link services may reach.
@@ -23,6 +26,10 @@ pub struct ServiceConfig {
     /// `$TMPDIR/cmux-tui-<uid>`: the cmux-tui session sockets.
     pub tui_socket_dir: PathBuf,
     pub default_session: String,
+    /// The default session's socket when it is not `<dir>/<session>.sock`
+    /// (`CNX_TUI_SOCKET`: the app's own daemon socket). A phone that names
+    /// a session still gets `<dir>/<session>.sock`.
+    pub default_socket: Option<PathBuf>,
     /// Workspace roots the `file` service may read below. Empty denies all.
     pub file_roots: Vec<PathBuf>,
     pub acpmux: AcpmuxTarget,
@@ -99,10 +106,14 @@ pub fn persistent_device_id(state_dir: &Path) -> Result<String> {
 }
 
 impl HostConfig {
-    pub fn from_env() -> Result<Self> {
+    /// Reads the environment. `supplied` (supervised mode) replaces the token
+    /// variables and the acpmux lookup with what the app sends over stdin.
+    pub fn from_env(supplied: Option<Supplied>) -> Result<Self> {
         let base_url = env("CNX_BASE_URL").context("CNX_BASE_URL is required")?;
         let team_id = env("CNX_TEAM_ID").context("CNX_TEAM_ID is required")?;
-        let tokens = if let Some(refresh_token) = env_or_file("CNX_REFRESH_TOKEN")? {
+        let tokens = if let Some(supplied) = &supplied {
+            TokenSource::Supplied(supplied.token.clone())
+        } else if let Some(refresh_token) = env_or_file("CNX_REFRESH_TOKEN")? {
             TokenSource::Refresh {
                 refresh_token,
                 project_id: env("CNX_STACK_PROJECT_ID").unwrap_or_else(|| DEFAULT_STACK_PROJECT.into()),
@@ -118,9 +129,10 @@ impl HostConfig {
             Some(id) => id,
             None => persistent_device_id(&default_state_dir())?,
         };
-        let acpmux = match env("CNX_ACPMUX_URL") {
-            Some(url) => AcpmuxTarget::Fixed { url, token: env("CNX_ACPMUX_TOKEN") },
-            None => AcpmuxTarget::Home(
+        let acpmux = match (env("CNX_ACPMUX_URL"), &supplied) {
+            (Some(url), _) => AcpmuxTarget::Fixed { url, token: env("CNX_ACPMUX_TOKEN") },
+            (None, Some(supplied)) => AcpmuxTarget::Supplied(supplied.acpmux.clone()),
+            (None, None) => AcpmuxTarget::Home(
                 env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".acpmux")),
             ),
         };
@@ -141,6 +153,7 @@ impl HostConfig {
                     .map(PathBuf::from)
                     .unwrap_or_else(default_tui_socket_dir),
                 default_session: env("CNX_TUI_SESSION").unwrap_or_else(|| "main".into()),
+                default_socket: env("CNX_TUI_SOCKET").map(PathBuf::from),
                 file_roots,
                 acpmux,
             },
