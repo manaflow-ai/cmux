@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Foundation
 
 /// The Home page's conversation actions (New Message, Invite, New Chief,
