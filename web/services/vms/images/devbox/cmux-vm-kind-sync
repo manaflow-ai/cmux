@@ -13,11 +13,19 @@ file in /etc/cmux, fsynced, 0644 root:root, renamed over the record. The
 rename replaces the name itself, so a symlink planted at the record is
 replaced, never followed.
 
-Only `owner` and `team` are ever written. A refusal, an error or an answer
-for another machine writes nothing and keeps the last record. The bake never
+Only `owner` and `team` are ever written, and only from a well-formed
+answer. The record never outlives what the control plane last said: a
+refusal (4xx: the machine is not live, or its credential was revoked)
+deletes it, and so does going STALE_AFTER seconds without an answer, so a
+machine whose team gained a member while the control plane was unreachable
+falls back to "unknown" (refused) instead of keeping `owner`. The bake never
 leaves a record in the snapshot, and cmux-devbox-boot deletes it on every
 fresh instance before the daemon starts, so a machine has no record until
 this service has heard from the control plane.
+
+cmux-host (cmux-next machine bind and team enroll) writes the same record on
+its own machines. The two writers must never share a machine; this one ships
+only on the web devbox image, which carries no cmux-host.
 """
 import argparse
 import json
@@ -35,16 +43,30 @@ KINDS = ("owner", "team")
 # Success re-asks every minute: the kind follows team membership. Failures
 # retry fast at first (the platform edge starts injecting the credential
 # 20-30 s after boot), then back off to the success cadence, or to five
-# minutes for a refusal (4xx). No failure polls faster than a success.
+# minutes for a refusal (4xx). Backoff never exceeds those caps.
 SUCCESS_INTERVAL = 60
 TRANSIENT_RETRY_CAP = SUCCESS_INTERVAL
 REFUSED_RETRY_CAP = 300
+# How long a record may outlive the last answer before it is deleted.
+STALE_AFTER = 300
 
 
 def retry_delay(previous, error):
-    refused = isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500
-    cap = REFUSED_RETRY_CAP if refused else TRANSIENT_RETRY_CAP
+    cap = REFUSED_RETRY_CAP if refused(error) else TRANSIENT_RETRY_CAP
     return 1 if previous is None else min(previous * 2, cap)
+
+
+def refused(error):
+    return isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500
+
+
+def forget(directory):
+    """Delete the record (back to unknown, which cmux-tui refuses). True when one was there."""
+    try:
+        os.unlink(Path(directory) / RECORD)
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def parse_kind(payload):
@@ -137,19 +159,25 @@ def main():
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     delay = None
+    last_answer = None
     while True:
         try:
             publish(args.directory, fetch_kind(args.url))
             delay = None
+            last_answer = time.monotonic()
             if args.once:
                 return
             time.sleep(SUCCESS_INTERVAL)
-        except (OSError, ValueError) as error:
+        except Exception as error:  # noqa: BLE001 - a crash would stop the unit; every failure backs off
             if args.once:
                 raise
+            if refused(error) or last_answer is None or time.monotonic() - last_answer >= STALE_AFTER:
+                try:
+                    forget(args.directory)
+                except OSError:
+                    pass
             delay = retry_delay(delay, error)
             time.sleep(delay)
-
 
 if __name__ == "__main__":
     main()

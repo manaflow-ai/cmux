@@ -52,7 +52,7 @@ on:
         default: ""
         type: string
       cmux_tui_commit:
-        description: "Optional full cmux-tui commit to bake (files.cmux.com/cmux-tui/<commit>/manifest.json); empty bakes latest"
+        description: "Full cmux-tui commit to bake (files.cmux.com/cmux-tui/<commit>/manifest.json). Empty bakes latest, which fails verify until main's cmux-tui serves Move to Cloud"
         required: false
         default: ""
         type: string
@@ -137,7 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$CMUX_TUI_COMMIT" ]; then
-            if ! printf '%s' "$CMUX_TUI_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            if ! [[ "$CMUX_TUI_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::cmux_tui_commit must be a full 40-character lowercase commit"
               exit 1
             fi

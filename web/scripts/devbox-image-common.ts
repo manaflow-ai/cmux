@@ -910,6 +910,8 @@ export function devboxVmKindSyncUnit(): string {
     "Description=cmux Cloud machine kind sync (/etc/cmux/vm-kind)",
     "After=network-online.target cmux-tui-daemon.service",
     "Wants=network-online.target",
+    // Never give up restarting: a unit left failed would never write a kind.
+    "StartLimitIntervalSec=0",
     "",
     "[Service]",
     "Type=simple",
@@ -955,6 +957,8 @@ export function devboxParkDaemonCommand(): string {
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    // The snapshot carries no kind writer mid-loop either; a clone's boot starts it.
+    "{ systemctl stop cmux-vm-kind-sync 2>/dev/null || true; }",
     devboxNoVmKindCommand(),
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",

@@ -31,6 +31,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
+| The machine kind writer (`cmux-vm-kind-sync`, which records `/etc/cmux/vm-kind`) | No | Bake only. A running machine without it has no kind, so a cmux-tui that gates chat starts on the kind (Move to Cloud) refuses them there, upgraded or not, until the machine is recreated |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |
 | `cloud_vms.provider_metadata` written at create | Only by a backfill | A reviewed SQL update, per machine, after verifying the guest |
 
