@@ -360,6 +360,64 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
       },
     },
+    "typed-red-duplicates": {
+      note: 'Leo 10-13 (photo): "red" with Reddit open on a `?solution=…` challenge address and visited twice. One Reddit row, the open tab (Switch to tab) with a clean title and a short host; then the other open tab, the visited page, the web search and Ask, on a solid surface over the page.',
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            {
+              id: "tab-reddit",
+              kind: "browser",
+              title: "Reddit - The heart of the internet",
+              detail: `reddit.com/?solution=${"eb7139b868b8d71e".repeat(2)}&js_challenge=1`,
+              workspace: "workspace-1",
+              icon: SITE_ICON,
+            },
+            { id: "tab-redis", kind: "browser", title: "Redis docs", detail: "redis.io/docs", workspace: "notes" },
+          ],
+          workspaces: [],
+          folders: [CWD],
+          commands: [],
+          history: [
+            {
+              url: `https://www.reddit.com/?solution=${"eb7139b868b8d71e".repeat(2)}&js_challenge=1`,
+              title: "Reddit - The heart of the internet",
+              icon: SITE_ICON,
+            },
+            { url: "https://www.reddit.com/", title: "Reddit", icon: SITE_ICON },
+            { url: "https://www.redblobgames.com/", title: "Red Blob Games", icon: OTHER_SITE_ICON },
+          ],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The suggestions float above the page sections." },
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
+      },
+      play: async (ctx) => {
+        await ctx.type("red", { selector: ".nt-field" });
+        await ctx.waitFor(() => {
+          const titles = [...ctx.document.querySelectorAll(".nt-row-title")].map((node) => node.textContent);
+          const first = ctx.document.querySelector('.nt-row[data-type="tab"] .nt-row-title');
+          return titles.filter((title) => title?.startsWith("Reddit")).length === 1 && first?.textContent === "Reddit";
+        });
+      },
+    },
+    "typed-dismissed": {
+      note: "Leo 10-13: a press outside the composer closes the suggestions; the typed text stays.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("reddit", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
+        await ctx.click({ selector: ".nt-screen" });
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-popover") &&
+            ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === "reddit",
+        );
+      },
+    },
     "typed-address": {
       note: "An address: open it first (highlighted), then a web search and Ask.",
       ready: newTab(),

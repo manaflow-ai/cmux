@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -17,11 +17,13 @@ import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
+  canonicalAddress,
   defaultSelection,
   isAddress,
   recentChatCards,
   screenRows,
   shellEntry,
+  shortHost,
   stepSelection,
   type ScreenRow,
 } from "./screenModel";
@@ -174,14 +176,16 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
-  // A dismiss in the host (another app, a resize) hides the rows until the text changes; it stays.
+  // A dismiss (a press outside the composer, Escape, or the host's: another app, a resize) hides
+  // the rows until the text changes or the field is pressed; the text stays (Leo 10-13).
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
-  const rows = useMemo(
-    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, dismissed, omnibar, home, ask],
+  const suggested = useMemo(
+    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask],
   );
+  const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
@@ -229,6 +233,22 @@ export function NewTabScreen(props: Props) {
     shell: "parent",
     onDismiss: () => setDismissed(textRef.current),
   });
+  const suggesting = rows.length > 0;
+  useEffect(() => {
+    if (!suggesting || !box) return;
+    const document = box.ownerDocument;
+    const press = (event: Event) => {
+      const target = event.target as Element | null;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover"))) return;
+      setDismissed(textRef.current);
+    };
+    document.addEventListener("pointerdown", press, true);
+    document.addEventListener("mousedown", press, true);
+    return () => {
+      document.removeEventListener("pointerdown", press, true);
+      document.removeEventListener("mousedown", press, true);
+    };
+  }, [suggesting, box]);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
   // selected one.
@@ -290,7 +310,8 @@ export function NewTabScreen(props: Props) {
     setNoAgent(false);
   };
   const submit = () => {
-    const row = rows[current];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
+    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
@@ -403,14 +424,18 @@ export function NewTabScreen(props: Props) {
     if (step && rows.length) {
       event.preventDefault();
       setSelected(stepSelection(current, step, rows.length));
+    } else if (step && dismissed !== undefined && text) {
+      // Down or Up on closed suggestions opens them again.
+      event.preventDefault();
+      setDismissed(undefined);
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
-    } else if (event.key === "Escape" && text) {
+    } else if (event.key === "Escape") {
+      // The first Escape closes the suggestions, the next leaves the field; the text stays.
       event.preventDefault();
-      setText("");
-      setSelected(undefined);
-      setTouched(true);
+      if (rows.length) setDismissed(text);
+      else input.blur();
     }
   };
   const pickProject = (cwd: string) => {
@@ -471,6 +496,7 @@ export function NewTabScreen(props: Props) {
             autoCorrect="off"
             onChange={(event) => edit(event.target.value)}
             onKeyDown={keyDown}
+            onMouseDown={() => setDismissed(undefined)}
             onCompositionStart={() => {
               composing.current = true;
             }}
@@ -524,7 +550,8 @@ export function NewTabScreen(props: Props) {
       {rows.length > 0 && box && (
         <Popover
           open
-          // The rows follow the field (Escape there clears it): the popover never closes itself.
+          // The rows follow the field (Escape there and a press outside close them): the popover
+          // never closes itself.
           onOpenChange={() => undefined}
           anchor={box}
           label={nt("suggestions")}
@@ -754,7 +781,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "open":
       return row.text;
     case "history":
-      return row.title ?? row.url;
+      return row.title ?? canonicalAddress(row.url);
     case "tab":
     case "workspace":
       return row.title;
@@ -766,7 +793,7 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "open":
       return row.url === row.text ? undefined : row.url;
     case "history":
-      return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
+      return row.title ? shortHost(row.url) : undefined;
     case "tab":
     case "workspace":
       return row.detail;

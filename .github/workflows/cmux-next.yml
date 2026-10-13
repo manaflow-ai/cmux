@@ -572,8 +572,11 @@ jobs:
           # the tree. A pull request: the base push's runs when its merge keeps
           # the base tree, else one artifacts run this probe dispatches for the
           # merge tree (same-repository pull requests only).
-          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
+          # A scheduled DEV run owns its exact SHA but may need to start the
+          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
+          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
+          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           GH_TOKEN: ${{ github.token }}
@@ -639,8 +642,11 @@ jobs:
         id: tree-final
         if: steps.marker-upload.outcome == 'success'
         env:
-          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && github.sha || '' }}
-          CMUX_TUI_TREE_DISPATCH: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}
+          # A scheduled DEV run owns its exact SHA but may need to start the
+          # cmux-tui publisher when that tree is cold. Leave the publisher SHA
+          # empty so pin-cmux-tui.sh takes the dispatch path below.
+          CMUX_TUI_TREE_PUBLISHER_SHA: ${{ github.event_name != 'pull_request' && inputs.dev_daily != true && github.sha || '' }}
+          CMUX_TUI_TREE_DISPATCH: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"

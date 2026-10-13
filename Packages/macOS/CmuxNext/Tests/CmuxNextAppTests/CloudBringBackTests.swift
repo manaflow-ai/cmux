@@ -175,8 +175,8 @@ struct CloudBringBackTests {
     }
 
     /// A machine whose cmux-tui is too old for the bring back (cx-rppd.13) is named as one in plain
-    /// words, not with the CLI's error, and nothing moves: the machine's tab stays and Retry runs
-    /// the bring back again on that machine once it is updated.
+    /// words, not with the CLI's error, and nothing moves: the machine's tab stays and the toast
+    /// offers "Update Machine" on that machine.
     @Test func anOutdatedMachineIsNamedAndTheChatStaysOnIt() async throws {
         try await Self.withRoundTrip("outdated") { trip in
             let error = try #require(await trip.bringBack(), "the bring back did not report the older machine")
@@ -184,7 +184,25 @@ struct CloudBringBackTests {
             #expect(trip.calls().count == 3, "the chat moved from an older machine: \(trip.calls())")
             #expect(trip.machineChat() != nil, "the machine's tab closed though the chat did not move")
             #expect(trip.localChat() == nil)
-            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .move(machineID: "vm-move"))
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .update(machineID: "vm-move"))
+        }
+    }
+
+    /// "Update Machine" (cx-rppd.13) on a machine too old for the bring back updates it through
+    /// `cmux link machine update` with only its socket, then brings the chat back.
+    @Test func updateMachineUpdatesAnOutdatedMachineThenBringsTheChatBack() async throws {
+        try await Self.withRoundTrip("updates") { trip in
+            #expect(await trip.bringBack() != nil, "the bring back did not report the older machine")
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .update(machineID: "vm-move"))
+            let before = trip.calls().count
+            let update = ActionInvocation(target: ActionTargetRef(kind: .tab, id: trip.machineKey),
+                                          arguments: [CloudMachineUpdate.argument: .bool(true)], origin: .user)
+            #expect(trip.services.registry.perform(CloudBringBack.action, invocation: update))
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = Array(trip.calls().dropFirst(before))
+            #expect(calls.first == ["link", "machine", "update", "--socket", trip.vmSocket], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
         }
     }
 
@@ -490,9 +508,19 @@ struct CloudBringBackTests {
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated","missing":["fs-v1"],"machine_build":"0000old"}'; exit 1 ;;
+                updates)
+                    if [ ! -e '\(root.path)/updated' ]; then
+                        echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated"}'
+                        exit 1
+                    fi
+                    touch '\(pulled)'; echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4,"fast_forwarded":true,"head":null}' ;;
                 pullTimeout) exec sleep 30 ;;
                 *) touch '\(pulled)'; echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4,"fast_forwarded":true,"head":null}' ;;
                 esac ;;
+            "link machine update")
+                [ '\(mode)' = updates ] || exit 64
+                : > '\(root.path)/updated'
+                echo '{"ok":true,"updated":true,"build":"new","previous_build":"0000old"}' ;;
             "link agent move")
                 if [ ! -f '\(pulled)' ]; then
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
