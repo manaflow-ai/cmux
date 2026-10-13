@@ -81,7 +81,15 @@ final class ConversationScrollProbe {
             + "frame,model,present,deadline,t0,t1,t2,t3,t4,t5,offset,content,tracking,decel,dragging,vel,touchT,touchY,touchN,newCells,cells\n"
         let url = output
         writer.async {
-            try? header.data(using: .utf8)?.write(to: url)
+            // A conversation shown again keeps appending to the same run.
+            if FileManager.default.fileExists(atPath: url.path) {
+                guard let handle = try? FileHandle(forWritingTo: url) else { return }
+                handle.seekToEndOfFile()
+                handle.write(Data(header.split(separator: "\n", maxSplits: 1).first.map { "\($0) (shown again)\n" }?.utf8 ?? "".utf8))
+                try? handle.close()
+            } else {
+                try? header.data(using: .utf8)?.write(to: url)
+            }
         }
     }
 
