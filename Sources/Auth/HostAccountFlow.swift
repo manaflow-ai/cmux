@@ -126,7 +126,13 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             return .rejected
         case .cancelled:
             return .cancelled
+        case .rateLimited:
+            return .rateLimited
         }
+    }
+
+    var isRetryingAfterRateLimit: Bool {
+        browserSignIn.isRetryingAfterRateLimit
     }
 
     func startSignIn() {
