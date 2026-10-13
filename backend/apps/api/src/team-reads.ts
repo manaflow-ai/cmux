@@ -28,7 +28,7 @@ const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
 }
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
-export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan): ReadResult => {
+export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan, defaultLimitVar?: string): ReadResult => {
   const member = memberOf(state, rows, principal.user)
   if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const p = (params ?? {}) as { version?: unknown; limit?: unknown }
@@ -104,6 +104,15 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       const admin = principal.kind === "session" && roleHas(member.role, "team.manage")
       if (!teamVm && !admin) return { ok: false, code: "auth.forbidden", message: "only the team VM and the team's owners and admins may read its Linux accounts" }
       return { ok: true, value: accountsView(state.team?.id ?? "", state, (user) => memberOf(state, rows, user) !== undefined), revision: String(state.vm_next_uid ?? 0) }
+    }
+    case "team.ai_limit.get": {
+      // Members who use the team or manage its billing (cx-ds09i): the limit in force and whether it is the
+      // default; never anyone's spend.
+      if (!roleHas(member.role, "team.resources") && !roleHas(member.role, "billing.manage")) return { ok: false, code: "auth.forbidden", message: `the ${member.role} role may not read ${op}` }
+      const set = state.ai_user_monthly_limit_usd ?? null
+      const fallback = Number(defaultLimitVar ?? "200")
+      const defaultUsd = Number.isFinite(fallback) && fallback >= 0 ? fallback : 200
+      return { ok: true, value: { team: state.team?.id, user_monthly_limit_usd: set ?? defaultUsd, is_default: set === null }, revision: String(state.audit_count ?? 0) }
     }
     case "team.audit.list": {
       // Session only (the op's principals); billing reads only billing records (spec H12 b).

@@ -5,6 +5,47 @@
 use super::*;
 
 wire_op! {
+    /// Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).
+    TeamVmSshCaRotateOp {
+        name: "team_vm.ssh_ca.rotate",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmSshCaRotateParams,
+        result: TeamVmSshCaRotateResult,
+        error: TeamVmSshCaRotateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compromised: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateResult {
+    pub generation: i64,
+    pub ca_public_key: String,
+    pub previous_trusted_until: Option<i64>,
+}
+
+wire_errors! {
+    /// The error codes team_vm.ssh_ca.rotate declares.
+    TeamVmSshCaRotateError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash.
     TeamVmSshCertOp {
         name: "team_vm.ssh_cert",
