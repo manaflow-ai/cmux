@@ -1,7 +1,7 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 /// A command ticket in the running action's scope.
-struct CommandTicket {
+public struct CommandTicket {
     let scope: DaemonCommandScope
     let ticket: DaemonCommandScope.Ticket
 }
@@ -15,7 +15,7 @@ struct CommandTicket {
 extension DaemonService {
     /// Opens a ticket on entry (synchronously, on the main actor), so the
     /// scope is not idle between a task's commands.
-    func openTicket() -> CommandTicket? {
+    public func openTicket() -> CommandTicket? {
         guard let scope = DaemonCommandScope.current, let ticket = scope.begin() else { return nil }
         return CommandTicket(scope: scope, ticket: ticket)
     }
@@ -26,7 +26,7 @@ extension DaemonService {
     /// `replying` is the connection that answered the command (the current
     /// one when nil): after a reconnect, the new connection's sequence does
     /// not cover the old one's echo.
-    func closeTicket(_ ticket: CommandTicket?, label: String, error: (any Error)?, replying: DaemonConnection? = nil) async {
+    public func closeTicket(_ ticket: CommandTicket?, label: String, error: (any Error)?, replying: DaemonConnection? = nil) async {
         guard let ticket else { return }
         if error == nil, let source = replying ?? connection, let sequence = await source.eventSequence() {
             ticket.scope.noteBarrier(sequence, machine: machineID)
