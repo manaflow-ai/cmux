@@ -462,7 +462,7 @@ final class LongTextLayout: @unchecked Sendable {
     }
     var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
     var size: CGSize {
-        CGSize(width: column + 2 * Fixture.bubblePadX, height: textHeight + 2 * Fixture.bubblePadY)
+        CGSize(width: Sizing.textBalloonWidth(column, column: column), height: textHeight + 2 * Fixture.bubblePadY)
     }
     var blockCount: Int { index.blockCount }
     func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) }
@@ -998,7 +998,7 @@ enum LongTextFold {
     static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
     static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
     static func size(_ l: LongTextLayout) -> CGSize {
-        CGSize(width: l.column + 2 * Fixture.bubblePadX,
+        CGSize(width: Sizing.textBalloonWidth(l.column, column: l.column),
                height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
     }
     static func label(_ n: Int) -> String {

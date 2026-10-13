@@ -191,6 +191,42 @@ impl super::ClientRegistry {
                 .is_some_and(|record| matches!(record.transport, super::ClientTransport::Unix))
         })
     }
+
+    /// Marks `client` as authenticated with a pairing-store credential.
+    pub(super) fn mark_person(&self, client: u64) {
+        if let Ok(mut state) = self.state.lock()
+            && let Some(record) = state.clients.get_mut(&client)
+        {
+            record.person = true;
+        }
+    }
+
+    /// Whether `client` is a WebSocket connection that authenticated with a
+    /// pairing-store credential (`mark_person`). Fails closed.
+    pub(super) fn is_websocket_person(&self, client: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.clients.get(&client).is_some_and(|record| {
+                record.person && matches!(record.transport, super::ClientTransport::WebSocket)
+            })
+        })
+    }
+
+    /// Whether `client` is one of the person's own clients for the local
+    /// conversations (`ws-conversations-v1`): a Unix socket connection, or a
+    /// WebSocket connection, which is registered only after it presented
+    /// the daemon's credential or an approved pairing credential
+    /// (transports.md "Authentication and Pairing"). A poisoned registry
+    /// lock trusts no connection (fail closed).
+    pub(super) fn is_owner_client(&self, client: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.clients.get(&client).is_some_and(|record| {
+                matches!(
+                    record.transport,
+                    super::ClientTransport::Unix | super::ClientTransport::WebSocket
+                )
+            })
+        })
+    }
 }
 
 #[cfg(test)]

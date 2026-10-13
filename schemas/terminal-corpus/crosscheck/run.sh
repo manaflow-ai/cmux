@@ -19,7 +19,8 @@ echo "$sha  $work/kit.zip" | shasum -a 256 -c -
 x="$work/GhosttyNextKit.xcframework"
 
 # 2. The surface side, configured like the session host's terminal:
-#    - scrollback budget 50 MB (cmux-tui DEFAULT_SCROLLBACK_LIMIT_BYTES);
+#    - scrollback budget 50 MB (the corpus's HOST_SCROLLBACK_BYTES, which the
+#      recorded snapshots encode; cmux-tui's default is 10 MB since #20257);
 #    - the default colors the frontend sends the host (Ghostty's theme);
 #    - no cursor-blink default (libghostty-vt's default cursor policy);
 #    - legacy grapheme width: the host terminal leaves mode 2027 off.
