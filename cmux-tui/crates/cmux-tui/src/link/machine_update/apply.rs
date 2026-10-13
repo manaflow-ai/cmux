@@ -3,11 +3,13 @@
 //! PID --result PATH`, run once by the machine's own daemon in a detached
 //! terminal, as the daemon's user, from the staged new build itself.
 //!
-//! It touches nothing until every check passes: its own executable has the
-//! pinned checksum, `--install` is `$HOME/.cmux/bin/cmux-tui` and is the
-//! binary daemon `--daemon-pid` runs, and `--result` is an outcome file next
-//! to it. Then it copies the running binary to `cmux-tui.prev`, renames
-//! itself over the binary (one atomic rename in the same folder) and sends
+//! It touches nothing until every check passes: it holds the folder's update
+//! lock (one update at a time), its own executable has the pinned checksum,
+//! `--install` is `$HOME/.cmux/bin/cmux-tui` and is the binary daemon
+//! `--daemon-pid` runs, that daemon is the one serving this terminal's daemon
+//! socket, and `--result` is an outcome file next to it. Then it hard-links
+//! the running binary as `cmux-tui.prev`, renames itself over the binary
+//! (one atomic rename in the same folder, of the very file it hashed) and sends
 //! the daemon SIGTERM, which ends only the daemon: every terminal host and
 //! chat keeps running, and the daemon the supervisor starts from the new
 //! binary adopts them (docs/cloud-guest-upgrades.md). A new daemon that does
@@ -18,6 +20,8 @@
 //!
 //! Linux only: a Cloud machine is a Linux machine.
 
+use std::os::unix::fs::MetadataExt as _;
+use std::os::unix::io::AsRawFd as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -35,6 +39,8 @@ const SERVE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const SETTLE: Duration = Duration::from_secs(5);
 const INSTALL_SUFFIX: &str = "/.cmux/bin/cmux-tui";
 const RESULT_PREFIX: &str = ".cmux-tui.update-";
+/// The folder's update lock: a second update while one runs is `busy`.
+const LOCK_NAME: &str = ".cmux-tui.update.lock";
 
 /// The fixed argv the Mac side runs on the machine.
 pub(crate) fn argv(
@@ -125,24 +131,40 @@ fn parse(args: &[String]) -> Option<Args> {
 
 /// The update itself: its outcome state and a detail line.
 fn apply(args: &Args) -> (&'static str, String) {
-    if let Err(why) = check(args) {
-        return ("failed", why);
-    }
+    let Some(_lock) = lock(&args.install) else {
+        return ("busy", "another update of this machine is running".into());
+    };
+    let own = match check(args) {
+        Ok(own) => own,
+        Err(why) => return ("failed", why),
+    };
+    // A hard link: no copy, no space, and a planted file there goes first.
     let previous = args.install.with_file_name("cmux-tui.prev");
-    if let Err(error) = std::fs::copy(&args.install, &previous) {
+    let _ = std::fs::remove_file(&previous);
+    if let Err(error) = std::fs::hard_link(&args.install, &previous) {
         return ("failed", format!("cannot keep the running binary: {error}"));
     }
-    let own = match std::env::current_exe() {
-        Ok(own) => own,
-        Err(error) => return ("failed", format!("cannot name the new build: {error}")),
-    };
-    if let Err(error) = std::fs::rename(&own, &args.install) {
+    // The file at our own path is still the one hashed: same inode, one link.
+    match std::fs::symlink_metadata(&own.path) {
+        Ok(now) if now.dev() == own.dev && now.ino() == own.ino && now.nlink() == 1 => {}
+        _ => return ("failed", "the staged build changed after it was checked".into()),
+    }
+    if let Err(error) = std::fs::rename(&own.path, &args.install) {
         return ("failed", format!("cannot install the new build: {error}"));
     }
     // SAFETY: kill has no memory preconditions; the pid was checked to run
-    // the installed binary.
+    // the installed binary and to serve this terminal's daemon socket.
     if unsafe { libc::kill(args.daemon_pid, libc::SIGTERM) } != 0 {
-        return restore(args, &previous, "the daemon could not be stopped");
+        // The old daemon still runs (and serves): only put its binary back.
+        return match put_back(args, &previous) {
+            Ok(()) => ("rolled_back", "the daemon could not be stopped; nothing changed".into()),
+            Err(error) => (
+                "failed",
+                format!(
+                    "the daemon could not be stopped, and its binary could not be put back: {error}"
+                ),
+            ),
+        };
     }
     if !wait(STOP_TIMEOUT, || !alive(args.daemon_pid)) {
         return (
@@ -157,8 +179,15 @@ fn apply(args: &Args) -> (&'static str, String) {
     restore(args, &previous, "the new daemon did not serve")
 }
 
+/// The staged build that passed [`check`]: its path and the inode hashed.
+struct Staged {
+    path: PathBuf,
+    dev: u64,
+    ino: u64,
+}
+
 /// Every check before anything changes.
-fn check(args: &Args) -> Result<(), String> {
+fn check(args: &Args) -> Result<Staged, String> {
     let home = std::env::var_os("HOME").ok_or("no HOME")?;
     let expected = PathBuf::from(home).join(".cmux/bin/cmux-tui");
     let canonical =
@@ -170,7 +199,13 @@ fn check(args: &Args) -> Result<(), String> {
     if own.parent() != canonical(&args.install)?.parent() {
         return Err("the new build is not staged beside the binary".into());
     }
-    if file_sha256(&own).map_err(|e| e.to_string())? != args.sha256 {
+    // Hash the file through one descriptor, and remember which file it was.
+    let mut file = std::fs::File::open(&own).map_err(|e| e.to_string())?;
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    let mut digest = Sha256::new();
+    std::io::copy(&mut file, &mut digest).map_err(|e| e.to_string())?;
+    let sha256: String = digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    if sha256 != args.sha256 {
         return Err("the staged build does not match the pinned checksum".into());
     }
     let running = std::fs::read_link(format!("/proc/{}/exe", args.daemon_pid))
@@ -178,14 +213,41 @@ fn check(args: &Args) -> Result<(), String> {
     if running != canonical(&args.install)? {
         return Err("the daemon does not run the installed binary".into());
     }
-    Ok(())
+    // The pid is the daemon serving this terminal's socket now, not a pid
+    // reused since the Mac read it.
+    let socket = socket().ok_or("no daemon socket in this terminal")?;
+    let identity =
+        super::super::machine_gate::identify(&socket).ok_or("the daemon socket did not answer")?;
+    if identity["pid"].as_i64() != Some(i64::from(args.daemon_pid)) {
+        return Err("the daemon pid is not the one serving this machine".into());
+    }
+    Ok(Staged { path: own, dev: opened.dev(), ino: opened.ino() })
+}
+
+/// The folder's update lock, held while this process lives.
+fn lock(install: &Path) -> Option<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(install.with_file_name(LOCK_NAME))
+        .ok()?;
+    // SAFETY: flock on a descriptor this function owns.
+    let locked = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+    locked.then_some(file)
+}
+
+/// Puts the previous binary back over the install, atomically.
+fn put_back(args: &Args, previous: &Path) -> std::io::Result<()> {
+    let back = args.install.with_file_name(".cmux-tui.rollback");
+    let _ = std::fs::remove_file(&back);
+    std::fs::hard_link(previous, &back)?;
+    std::fs::rename(&back, &args.install)
 }
 
 /// Puts the previous binary back and waits for a daemon of it to serve.
 fn restore(args: &Args, previous: &Path, why: &str) -> (&'static str, String) {
-    let back = args.install.with_file_name(".cmux-tui.rollback");
-    let restored =
-        std::fs::copy(previous, &back).and_then(|_| std::fs::rename(&back, &args.install));
+    let restored = put_back(args, previous);
     if let Err(error) = restored {
         return (
             "failed",
@@ -256,7 +318,8 @@ fn wait(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
     done()
 }
 
-fn file_sha256(path: &Path) -> std::io::Result<String> {
+/// A file's SHA-256, lowercase hex.
+pub(crate) fn file_sha256(path: &Path) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut digest = Sha256::new();
     std::io::copy(&mut file, &mut digest)?;

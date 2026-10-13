@@ -101,6 +101,14 @@ fn update(socket: &Path) -> Result<Value, Failed> {
     if machine_gate::outdated_identity(&before, &NEEDED).is_none() {
         return Ok(json!({"updated": false, "build": previous}));
     }
+    // Never a downgrade: a machine whose cmux-tui reports a newer version
+    // than this client keeps its build, whatever it lacks.
+    if newer_version(before["version"].as_str()) {
+        return Err(Failed::new(
+            "machine_update_newer",
+            "the machine runs a newer cmux-tui than this app; update the app instead",
+        ));
+    }
     let served = machine_gate::served(&before).unwrap_or_default();
     if let Some(missing) = REACHES.iter().find(|capability| !served.contains(capability)) {
         return Err(Failed::new(
@@ -122,9 +130,13 @@ fn update(socket: &Path) -> Result<Value, Failed> {
     let (payload, sha256) = pinned_payload()?;
     let folder = install.rsplit_once('/').map_or("", |(folder, _)| folder).to_owned();
     let nonce = nonce();
-    let staged = format!("{folder}/.cmux-tui.update-{}", &sha256[..16]);
+    // Both named by this update alone, so two updates never share a file.
+    let staged = format!("{folder}/.cmux-tui.update-{nonce}");
     let result = format!("{folder}/.cmux-tui.update-{nonce}.json");
-    stage(socket, &payload, &staged, &nonce)?;
+    if let Err(failed) = stage(socket, &payload, &sha256, &staged, &nonce) {
+        let _ = super::sync_cli::delete_remote(socket, &staged);
+        return Err(failed);
+    }
     let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
     let created = machine_gate::call(
         socket,
@@ -186,17 +198,45 @@ fn pinned_payload() -> Result<(PathBuf, String), Failed> {
     }
 }
 
-/// Writes `payload` to `staged` on the machine, executable.
-fn stage(socket: &Path, payload: &Path, staged: &str, nonce: &str) -> Result<(), Failed> {
-    use std::os::unix::fs::PermissionsExt as _;
+/// Whether `version` (identify's `version`) is newer than this client's.
+fn newer_version(version: Option<&str>) -> bool {
+    let parse = |text: &str| -> Option<Vec<u64>> {
+        text.split(['-', '+']).next()?.split('.').map(|part| part.parse().ok()).collect()
+    };
+    match (version.and_then(parse), parse(env!("CARGO_PKG_VERSION"))) {
+        (Some(theirs), Some(ours)) => theirs > ours,
+        _ => false,
+    }
+}
+
+/// Writes `payload` to `staged` on the machine, executable, once its local
+/// copy hashes to `sha256`.
+fn stage(
+    socket: &Path,
+    payload: &Path,
+    sha256: &str,
+    staged: &str,
+    nonce: &str,
+) -> Result<(), Failed> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
     let local = std::env::temp_dir().join(format!("cmux-machine-update-{nonce}"));
     let copy = local.join("cmux-tui");
-    let staged_locally = std::fs::create_dir_all(&local)
+    // A fresh private folder: never one somebody planted.
+    let staged_locally = std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&local)
         .and_then(|()| std::fs::copy(payload, &copy))
         .and_then(|_| std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)));
-    let written = staged_locally
-        .map_err(anyhow::Error::from)
-        .and_then(|()| super::sync_cli::copy_file(socket, &copy, staged));
+    let checked = staged_locally.map_err(anyhow::Error::from).and_then(|()| {
+        let actual = apply::file_sha256(&copy)?;
+        anyhow::ensure!(actual == sha256, "the build's copy does not match its pin");
+        Ok(())
+    });
+    if let Err(error) = checked {
+        let _ = std::fs::remove_dir_all(&local);
+        return Err(Failed::new("machine_update_payload_rejected", format!("{error:#}")));
+    }
+    let written = super::sync_cli::copy_file(socket, &copy, staged);
     let _ = std::fs::remove_dir_all(&local);
     written.map_err(|e| {
         Failed::new("machine_update_failed", format!("cannot copy the build to the machine: {e:#}"))
@@ -216,6 +256,10 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
                 Some("pending") => Err(Failed::new(
                     "machine_update_pending",
                     "the new build is installed but the daemon did not stop; it runs after the machine's next restart",
+                )),
+                Some("busy") => Err(Failed::new(
+                    "machine_update_busy",
+                    "another update of this machine is running; try again once it ends",
                 )),
                 Some("rolled_back") => Err(Failed::new(
                     "machine_update_rolled_back",

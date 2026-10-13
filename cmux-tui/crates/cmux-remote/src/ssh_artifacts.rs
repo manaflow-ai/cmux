@@ -314,12 +314,16 @@ pub async fn pinned_linux_payload(arch: &str) -> Result<Option<(PathBuf, String)
     match payload(&executable, identity, "linux", arch, &source)? {
         None => Ok(None),
         Some(Payload::Bundled(path)) => {
-            let sha256 = file_sha256(&path).map_err(BootstrapError::Io)?;
-            Ok(Some((path, sha256)))
+            // The manifest's own pin, which `payload` matched the file against.
+            let pinned = PinnedArtifacts::load(&executable, identity)?
+                .and_then(|pinned| pinned.platform("linux", arch).transpose())
+                .transpose()?
+                .ok_or_else(|| BootstrapError::Configuration("the Linux pin went away".into()))?;
+            Ok(Some((path, pinned.sha256.to_ascii_lowercase())))
         }
         Some(Payload::Published(published)) => {
             let path = fetch_published(&published).await?;
-            Ok(Some((path, published.sha256.clone())))
+            Ok(Some((path, published.sha256.to_ascii_lowercase())))
         }
         Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
             "a Linux payload resolved to this client's own build".into(),

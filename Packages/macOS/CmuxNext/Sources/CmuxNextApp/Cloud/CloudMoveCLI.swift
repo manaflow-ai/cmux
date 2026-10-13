@@ -54,12 +54,15 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
     /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13).
     func machineUpdate(socket: String) async throws -> Answer {
-        try await run(["link", "machine", "update", "--socket", socket])
+        try await run(["link", "machine", "update", "--socket", socket], timeout: max(timeout, Self.machineUpdateTimeout))
     }
 
-    private func run(_ arguments: [String]) async throws -> Answer {
+    /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.
+    static let machineUpdateTimeout: Duration = .seconds(45 * 60)
+
+    private func run(_ arguments: [String], timeout: Duration? = nil) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
-                                                 timeout: timeout, clock: ContinuousClock())
+                                                 timeout: timeout ?? self.timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
