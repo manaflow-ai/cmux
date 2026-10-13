@@ -748,6 +748,12 @@ jobs:
           python cmux-tui/scripts/smoke-windows-process-wait.py \
             --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
+      - name: Verify Windows install key handoff
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File cmux-tui/scripts/smoke-windows-install-key-handoff.ps1 `
+            -Binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
       - name: Set up Python for ConPTY verification
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
