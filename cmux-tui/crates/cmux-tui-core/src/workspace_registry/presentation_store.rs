@@ -20,20 +20,20 @@
 //! preview never counts these records as unsupported required state.
 
 mod snapshot;
-use crate::state::conversation_tabs_store::{read_conversation_tabs, ConversationTabRecord};
-use crate::state::remote_terminal_tabs_store::{read_remote_terminals, RemoteTerminalRecord};
+use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::personal_browser_profiles::resolve_browser_profile_id_in;
-use super::session_journal::{append_journal_record, JournalAppend};
+use super::session_journal::{JournalAppend, append_journal_record};
 use super::{
-    new_uuid_v4, unix_epoch_ms, JournalClass, JournalProducer, JournalReplayPolicy,
-    JournalSensitivity, JournalSubject, WorkspaceRegistry,
+    JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
+    WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
 };
 mod saved_tab_groups;
 pub(crate) use saved_tab_groups::{
@@ -43,8 +43,8 @@ pub(crate) use saved_tab_groups::{
 mod frontend_browser_history;
 mod icon;
 pub use icon::{
-    is_sha256_hex, parse_icon_asset, validate_icon_value, validate_presentation_icon_asset,
-    IconAssetKind,
+    IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
+    validate_presentation_icon_asset,
 };
 pub(crate) mod svg_icon;
 

@@ -6,16 +6,16 @@
 //! `personal_workspaces.browser_profile_id` and `profiles.browser_profile_id`;
 //! deleting a profile clears them in the same transaction.
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::personal_store::{
-    commit_personal, insertion_final_index, require_icon_asset, subject, validate_appearance,
-    validate_browser_profile_ref, validate_name, validate_personal_json, write_order,
-    DEFAULT_PROFILE_ID,
+    DEFAULT_PROFILE_ID, commit_personal, insertion_final_index, require_icon_asset, subject,
+    validate_appearance, validate_browser_profile_ref, validate_name, validate_personal_json,
+    write_order,
 };
-use super::{new_uuid_v4, WorkspaceRegistry};
+use super::{WorkspaceRegistry, new_uuid_v4};
 
 /// The table and its `default` row. Additive and idempotent: it runs at
 /// every open, so a registry migrated before this capability gains it.
