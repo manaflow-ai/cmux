@@ -65,6 +65,45 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         super.setFrameSize(size)
     }
 
+#if DEBUG
+    /// CMUXTERM-MACOS-41RH probe: AppKit's `-[NSView hitTest:]` walks this
+    /// view's subviews by index, so any removal while a walk is in flight
+    /// throws NSRangeException. Record the stack of every such mutation.
+    private var cmuxHitTestDepth = 0
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        cmuxHitTestDepth += 1
+        defer { cmuxHitTestDepth -= 1 }
+        return super.hitTest(point)
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        if cmuxHitTestDepth > 0 { Self.cmuxRecordHitTestMutation("remove", subview, count: subviews.count) }
+        super.willRemoveSubview(subview)
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if cmuxHitTestDepth > 0 { Self.cmuxRecordHitTestMutation("add", subview, count: subviews.count) }
+    }
+
+    private static func cmuxRecordHitTestMutation(_ kind: String, _ subview: NSView, count: Int) {
+        let event = NSApp.currentEvent.map { "\($0.type.rawValue)" } ?? "nil"
+        let text = "=== hitTest mutation kind=\(kind) subview=\(type(of: subview)) count=\(count) event=\(event) at=\(Date())\n"
+            + Thread.callStackSymbols.joined(separator: "\n") + "\n"
+        cmuxDebugLog("mainWindowHost.hitTestMutation kind=\(kind) subview=\(type(of: subview)) count=\(count) event=\(event)")
+        let url = URL(fileURLWithPath: "/tmp/cmux-41rh-probe.log")
+        guard let data = text.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: url)
+        }
+    }
+#endif
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating
