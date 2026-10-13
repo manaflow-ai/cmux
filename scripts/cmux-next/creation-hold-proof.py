@@ -161,10 +161,11 @@ for rnd in range(ROUNDS):
             win = next(w for w in topology()["windows"] if w["key"] == WIN_A)
             focused = panes(WS_A).get(win.get("focused_pane"))
             expect = focused["tabs"][0]["surface"] if focused else None
+        held_at_check = sum(int(v) for v in rpc("debug.creation_hold")["held"].values())
         lines = screen(expect) if expect else []
-        row = {"n": n, "case": case, "held": held, "held_after_end": held_after_end,
+        row = {"n": n, "case": case, "held": held, "held_after_end": held_after_end, "held_at_check": held_at_check,
                "ok": (case == "vanish" or held == len("echo " + marker) + 1) and lines.count(marker) == 1
-                     and (case in ("resolve", "fail") or held_after_end == 0),
+                     and (case in ("resolve", "fail", "vanish") or held_after_end == 0) and held_at_check == 0,
                "tail": lines[-3:]}
         if not row["ok"] and DIAG:
             entries = rpc("debug.journal", {"last": 300})["entries"]
