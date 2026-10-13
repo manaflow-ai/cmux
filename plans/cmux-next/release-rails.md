@@ -310,6 +310,16 @@ deploy-staging and on `workflow_dispatch target=promote`:
   it when production is current. It runs in promote-gates on every feat-cmux-next backend push
   (GitHub schedules run only from main; cmux-lawrence has no Cloudflare credential). The chief
   watches the `prod-stale` label and asks Lawrence after 72 h.
+- **Accepted risk (Lawrence, 2026-10-13: no ruleset on feat-cmux-next, "only me and people in my
+  team work on this").** Any repository writer can change the production deploy path on
+  feat-cmux-next (backend.yml, deploy-worker.sh, prod-promote.ts, the approvals file), and the
+  repo-level CLOUDFLARE_API_TOKEN can deploy cmux-api from any branch. The hold and the gates
+  guard against mistakes, not against a hostile writer.
+- **No signing key in CI.** Every production deploy job (promote-production, deploy-production)
+  runs with `CMUX_DEPLOY_NO_SECRETS=1 CMUX_RELEASE_PROMOTE=1`: the Worker keeps its own
+  JWT_PRIVATE_JWK, and the cmux-next-production environment holds no copy. The key's stored copy
+  is `~/.secrets/cmux-next-api-production.env` (the hand rail reads it); its thumbprint equals the
+  production JWKS (`kid production-2026-10-02`, checked 2026-10-13).
 
 ## cmux-old compatibility (production steps)
 

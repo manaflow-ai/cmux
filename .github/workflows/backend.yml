@@ -568,8 +568,11 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
-          JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
           CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          # No secret is sent (the chief, 2026-10-13): production keeps its own JWT_PRIVATE_JWK, and the
+          # cmux-next-production environment no longer holds a copy.
+          CMUX_DEPLOY_NO_SECRETS: "1"
+          CMUX_RELEASE_PROMOTE: "1"
           CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
           CMUX_RELEASE_VERIFY_STEP: "1"
         run: bash scripts/deploy-worker.sh production
