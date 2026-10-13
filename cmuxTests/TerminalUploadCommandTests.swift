@@ -407,6 +407,16 @@ import Testing
         #expect(text == destinations.map(TerminalImageTransferPlanner.escapeForShell).joined(separator: " "))
     }
 
+    @Test func customRemotePathPreservesLegacyExtensionShape() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        #expect(
+            TerminalUploadCommand.customRemotePath(
+                for: URL(fileURLWithPath: "/tmp/file.tar-gz"),
+                uuid: uuid
+            ) == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.tar-gz"
+        )
+    }
+
     @Test func nonZeroExitFailsClosed() {
         let result = runner { _, _, _, _ in (1, "", "boom") }.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],

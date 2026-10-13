@@ -126,15 +126,13 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// may use an interactive SSH wrapper, an artifact service, or another
     /// transport that cannot run cmux's directory-maintenance SSH command.
     static func customRemotePath(for fileURL: URL, uuid: UUID = UUID()) -> String {
-        let extensionValue = fileURL.pathExtension.lowercased()
-        let suffix = extensionValue.unicodeScalars.prefix(16).reduce(into: "") { result, scalar in
-            if (scalar.value >= 48 && scalar.value <= 57) ||
-                (scalar.value >= 97 && scalar.value <= 122) {
-                result.unicodeScalars.append(scalar)
-            }
-        }
-        let extensionSuffix = suffix.isEmpty ? "" : "." + suffix
-        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(extensionSuffix)"
+        // Preserve the path shape used by custom commands before the private
+        // session directory was introduced in #16523.
+        let extensionValue = fileURL.pathExtension
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let suffix = extensionValue.isEmpty ? "" : "." + extensionValue
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(suffix)"
     }
 
     /// The ready-to-type string cmux inserts for one file after the command runs.

@@ -375,7 +375,7 @@ unchanged, so other hosts are untouched.
 ### The custom command owns the upload
 
 `CMUX_UPLOAD_REMOTE_PATH` is an absolute path under `/tmp`, with a random name
-and a sanitized file extension. Its parent already exists, so a command can
+and a lowercased file extension. Its parent already exists, so a command can
 copy to it without creating a session directory:
 
 ```sh
