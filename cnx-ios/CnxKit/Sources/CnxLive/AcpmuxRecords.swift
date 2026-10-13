@@ -1,0 +1,119 @@
+import CmuxAgentQuestion
+import CnxAgentChat
+import Foundation
+
+/// Maps acpmux records (`Event = {sessionId, seq, at, dir, kind, msg}` from
+/// `_acpmux/attach`, `_acpmux/events` and `_acpmux/event`) to chat events.
+struct AcpmuxRecords {
+    let sessionID: String
+
+    /// One record's chat events (empty for records the chat does not draw).
+    func map(_ record: JSONValue) -> [AgentSessionEvent] {
+        let at = record["at"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+        let msg = record["msg"] ?? .null
+        let kind = record["kind"]?.stringValue ?? ""
+        switch record["dir"]?.stringValue {
+        case "in":
+            // eventStream form: msg = {method: session/update, params: {update}}; raw form: msg.params.update too.
+            guard let update = msg["params"]?["update"] ?? msg["update"],
+                  let decoded = try? Self.decode(ACPSessionUpdate.self, update) else { return [] }
+            return [.update(decoded)]
+        case "mux":
+            return mux(kind, msg, at: at)
+        default:
+            return []
+        }
+    }
+
+    func mux(_ kind: String, _ msg: JSONValue, at: Date) -> [AgentSessionEvent] {
+        switch kind {
+        case "user_message":
+            guard let turnID = msg["turnId"]?.stringValue else { return [] }
+            return [.userMessage(text: msg["text"]?.stringValue ?? "", promptId: msg["promptId"]?.stringValue ?? turnID,
+                                 turnId: turnID, attachments: [], at: at)]
+        case "queued":
+            guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            return [.queued(text: msg["text"]?.stringValue ?? "", promptId: promptID, position: Int(msg["position"]?.numberValue ?? 0))]
+        case "dequeued":
+            guard let promptID = msg["promptId"]?.stringValue else { return [] }
+            return [.dequeued(promptId: promptID)]
+        case "turn_started":
+            guard let turnID = msg["turnId"]?.stringValue else { return [] }
+            return [.turnStarted(turnId: turnID, at: at)]
+        case "turn_result":
+            guard let turnID = msg["turnId"]?.stringValue else { return [] }
+            let status: AgentTurn.Status = switch msg["status"]?.stringValue {
+            case "cancelled": .cancelled
+            case "failed": .failed
+            default: .completed
+            }
+            return [.turnResult(turnId: turnID, status: status, errorText: msg["errorText"]?.stringValue ?? msg["error"]?.stringValue, at: at)]
+        case "permission_request":
+            guard let permissionID = msg["permissionId"]?.stringValue, let request = msg["request"] else { return [] }
+            return permission(permissionID, request: request).map { [$0] } ?? []
+        case "permission_decision":
+            guard let permissionID = msg["permissionId"]?.stringValue else { return [] }
+            let outcome = msg["outcome"]
+            let optionID = outcome?["outcome"]?.stringValue == "selected" ? outcome?["optionId"]?.stringValue : nil
+            return [.permissionDecision(permissionId: permissionID, optionId: optionID)]
+        default:
+            return []
+        }
+    }
+
+    /// A `permission_request` body as a question (AskUserQuestion and kin) or a tool permission.
+    func permission(_ permissionID: String, request: JSONValue) -> AgentSessionEvent? {
+        if let json = try? Self.convert(request, to: AgentQuestionJSON.self),
+           let question = AgentQuestion(permissionRequest: json, permissionId: permissionID, session: sessionID) {
+            return .question(question)
+        }
+        guard let toolCall = request["toolCall"], let call = try? Self.decode(ACPToolCall.self, toolCall) else { return nil }
+        let options = (try? Self.decode([ACPPermissionOption].self, request["options"] ?? .array([]))) ?? []
+        return .permissionRequest(ACPPermissionRequest(id: permissionID, toolCall: call, options: options, cwd: request["cwd"]?.stringValue))
+    }
+
+    static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
+        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+    }
+
+    static func convert<T: Decodable, U: Encodable>(_ value: U, to type: T.Type) throws -> T {
+        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+    }
+}
+
+/// acpmux `SessionSummary` fields the app reads.
+public struct AcpmuxSession: Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var harness: String
+    public var cwd: String
+    public var status: String
+    public var indicator: String?
+    public var preview: String?
+    public var lastPrompt: String?
+    public var pendingPermissions: Int
+    public var lastSeq: Int
+    public var updatedAt: Date?
+    /// `lastTurn.status`: completed, cancelled or failed.
+    public var lastTurnStatus: String?
+
+    init?(_ value: JSONValue) {
+        guard let id = value["sessionId"]?.stringValue else { return nil }
+        self.id = id
+        name = value["name"]?.stringValue ?? ""
+        harness = value["harness"]?.stringValue ?? "agent"
+        cwd = value["cwd"]?.stringValue ?? ""
+        status = value["status"]?.stringValue ?? "idle"
+        indicator = value["indicator"]?.stringValue
+        preview = value["preview"]?.stringValue
+        lastPrompt = value["lastPrompt"]?.stringValue
+        pendingPermissions = Int(value["pendingPermissions"]?.numberValue ?? 0)
+        lastSeq = Int(value["lastSeq"]?.numberValue ?? 0)
+        lastTurnStatus = value["lastTurn"]?["status"]?.stringValue
+        updatedAt = value["updatedAt"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
+    }
+
+    public var summaryStatus: AgentSessionSummary.Status {
+        AgentSessionSummary.Status(rawValue: status) ?? .idle
+    }
+}

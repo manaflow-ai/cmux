@@ -16,7 +16,21 @@ import UIKit
 public final class AgentChatSurface {
     public var text = ""
     var attachments: [AgentAttachment] = []
-    var position = ScrollPosition(edge: .bottom)
+    /// The transcript's scroll position. Writes that change nothing are
+    /// dropped: SwiftUI writes the resolved position back through the
+    /// binding, and an unconditional invalidation there can feed back into
+    /// another scroll request without end (seen with live sessions).
+    var position: ScrollPosition {
+        get {
+            access(keyPath: \.position)
+            return storedPosition
+        }
+        set {
+            guard newValue != storedPosition else { return }
+            withMutation(keyPath: \.position) { storedPosition = newValue }
+        }
+    }
+    @ObservationIgnored private var storedPosition = ScrollPosition(edge: .bottom)
     var following = true
     var showJump = false
     var diffRoute: DiffRoute?
@@ -318,6 +332,21 @@ public struct AgentChatBottomStack: View {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
+            }
+            if let error = store.clientError {
+                Button {
+                    withAnimation(.cnxSmooth) { store.clientError = nil }
+                } label: {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular, in: .capsule)
+                .transition(.opacity.combined(with: .offset(y: 8)))
+                .accessibilityHint("Dismiss")
             }
             if let permission = store.pendingPermission, !surface.replyInsteadOfPermission {
                 PermissionActionBar(request: permission.request) { option in

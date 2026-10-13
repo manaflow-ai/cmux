@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "CnxSettings", targets: ["CnxSettings"]),
         .library(name: "CnxWorkspaces", targets: ["CnxWorkspaces"]),
         .library(name: "CnxChief", targets: ["CnxChief"]),
+        .library(name: "CnxLive", targets: ["CnxLive"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
@@ -84,17 +85,28 @@ let package = Package(
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
+        // Live data: device registry, presence, the Mac link state machine, the
+        // daemon tree, acpmux chats, Feed events and Chief over the link.
+        .target(name: "CnxLive", dependencies: [
+            "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxFeed", "CnxChief",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+        ]),
         .target(
             name: "CnxShell",
             dependencies: [
                 "CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding", "CnxSettings",
-                "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief",
+                "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief", "CnxLive",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             ]
         ),
         .testTarget(name: "CnxModelTests", dependencies: ["CnxModel"]),
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
+        .testTarget(name: "CnxLiveTests", dependencies: [
+            "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+        ]),
         .testTarget(name: "CnxChiefTests", dependencies: [
             "CnxChief", "CnxTransport",
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),

@@ -202,6 +202,9 @@ public struct ConnectionBannerState: Sendable, Hashable {
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
     public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "\(mac) is offline") }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
+    public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Connecting to \(mac)…") }
+    /// A dial that keeps failing (for example WebRTC with no TURN path).
+    public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
 }
 
 /// Glass capsule banner, 36 pt tall, `footnote` semibold. Use `.cnxBanner(_:)`

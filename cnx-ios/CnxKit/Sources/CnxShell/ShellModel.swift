@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAuth
 import CnxDesign
+import CnxLive
 import CnxModel
 import CnxSettings
 import Observation
@@ -30,6 +31,10 @@ final class ShellModel {
 
     var toast: CnxToast?
     var editingTeam: Team?
+    /// Live data (signed in for real with a `cnx-ios-api` base URL); nil in mock mode.
+    var live: LiveCoordinator?
+    /// The team an email invite is being written for (live mode).
+    var invitingTeam: Team?
     var isFetchingInvite = false
     var shareURL: ShareItem?
     /// Debug-driven scroll target for the Settings list.
@@ -72,10 +77,59 @@ final class ShellModel {
         }
         workspacesPath.removeAll()
         sidebar.close()
+        live?.activeTeamChanged()
+        guard !id.hasPrefix("personal-") else { return }
         Task { await auth.selectTeam(id) }
     }
 
+    /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
+    var banner: ConnectionBannerState? {
+        if store.isOffline { return .offline }
+        return live?.banner
+    }
+
+    /// Saves a team's color and emoji (and `PUT /prefs` when live).
+    func saveAppearance(_ appearance: TeamAppearance, for team: Team) {
+        guard let live else {
+            store.setAppearance(appearance, for: team.id)
+            return
+        }
+        Task {
+            do {
+                try await live.saveAppearance(appearance, teamID: team.id)
+            } catch {
+                toast = CnxToast(symbol: "exclamationmark.circle", text: "Saved on this iPhone only")
+            }
+        }
+    }
+
+    /// Live mode: `POST /v1/teams/:id/invites {email}` (Stack emails the invitation).
+    func sendInvite(email: String, to team: Team) {
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let live, !address.isEmpty else { return }
+        isFetchingInvite = true
+        Task {
+            defer { isFetchingInvite = false }
+            do {
+                try await live.invite(email: address, teamID: team.id)
+                toast = CnxToast(symbol: "envelope", text: "Invitation sent to \(address)")
+                theme.haptics.success()
+            } catch {
+                toast = CnxToast(symbol: "exclamationmark.circle", text: "Couldn't send the invitation")
+                theme.haptics.error()
+            }
+        }
+    }
+
     func invite(to team: Team) {
+        if live != nil {
+            if team.id.hasPrefix("personal-") {
+                toast = CnxToast(symbol: "person.2", text: "Create a team to invite people")
+            } else {
+                invitingTeam = team
+            }
+            return
+        }
         guard !isFetchingInvite else { return }
         isFetchingInvite = true
         Task {
@@ -100,7 +154,11 @@ final class ShellModel {
                 let team = try await auth.createTeam(named: trimmed)
                 var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
                 if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
-                store.applyAccountTeams(teams, selectedID: store.activeTeamID)
+                if let live {
+                    live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
+                } else {
+                    store.applyAccountTeams(teams, selectedID: store.activeTeamID)
+                }
                 theme.haptics.success()
                 switchTeam(to: team.id)
             } catch {

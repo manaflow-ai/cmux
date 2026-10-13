@@ -51,6 +51,12 @@ struct FeedCell: View {
                 statusChip
                 bodyView
                 inlineAnswer
+                if let error = item.error {
+                    Label(error, systemImage: "exclamationmark.circle")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
+                }
                 if !item.replies.isEmpty {
                     replies
                 }

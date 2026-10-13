@@ -18,6 +18,9 @@ public final class AppStore {
     public var teamDataState: LoadState = .loaded
     /// Whether the device has network (drives the offline banner).
     public var isOffline = false
+    /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
+    /// shown in the Workspaces Mac section header. Empty in mock mode.
+    public var macLinkStatus: [String: String] = [:]
 
     /// Phases of a remote load.
     public enum LoadState: Hashable, Sendable {
@@ -68,6 +71,32 @@ public final class AppStore {
         let remembered = UserDefaults.standard.string(forKey: Self.lastTeamKey)
         let candidates = [selectedID, remembered, teams.first?.id].compactMap { $0 }
         activeTeamID = candidates.first { id in teams.contains { $0.id == id } } ?? ""
+    }
+
+    /// Live mode: the account's teams with no sample Macs (Macs come from
+    /// `GET /v1/teams/:id/macs` and presence). Keeps Macs already loaded.
+    public func applyLiveTeams(_ accountTeams: [AccountTeam], selectedID: String?) {
+        let known = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        teams = accountTeams.map { team in
+            Team(id: team.id, name: team.name, appearance: known[team.id]?.appearance ?? Self.storedAppearance(team.id),
+                 macs: known[team.id]?.macs ?? [])
+        }
+        let remembered = UserDefaults.standard.string(forKey: Self.lastTeamKey)
+        let candidates = [selectedID, remembered, teams.first?.id].compactMap { $0 }
+        activeTeamID = candidates.first { id in teams.contains { $0.id == id } } ?? ""
+    }
+
+    /// Replaces a team's Macs (presence snapshot or update).
+    public func setMacs(_ macs: [MacDevice], teamID: String) {
+        guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].macs != macs else { return }
+        teams[index].macs = macs
+    }
+
+    /// Replaces one Mac's workspaces, keeping the others.
+    public func replaceWorkspaces(macID: String, with next: [Workspace]) {
+        let others = workspaces.filter { $0.macID != macID }
+        let merged = others + next
+        if merged != workspaces { workspaces = merged }
     }
 
     /// A Stack Auth team as the account reports it.
