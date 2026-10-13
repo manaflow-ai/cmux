@@ -256,7 +256,8 @@ private struct PairMacStep: View {
 
     var body: some View {
         SetupPage(symbol: "desktopcomputer", title: "Connect your Mac") {
-            ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil)
+            ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
+                            noMacsForAccount: store.accountMacCount == 0)
         } actions: {
             if onlineMac != nil {
                 PrimaryCapsule("Continue", action: next)

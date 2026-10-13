@@ -252,10 +252,11 @@ public final class LiveCoordinator {
                 return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
             }
             store.mergeDiscoveredMacs(found, personal: personal)
+            if store.accountMacCount != found.count { store.accountMacCount = found.count }
             if let team = store.teamToFollow(found, previouslyOnline: previouslyOnline, pinnedTeamID: pinnedTeamID) {
                 follow(team, macName: found.first { $0.teamID == team.id && $0.isOnline }?.name ?? "Your Mac")
             }
-            previouslyOnline = Set(found.filter(\.isOnline).map(\.id))
+            previouslyOnline = Set(found.filter(\.isOnline).map(\.placement))
             retarget()
         } catch {
             guard !Task.isCancelled else { return }

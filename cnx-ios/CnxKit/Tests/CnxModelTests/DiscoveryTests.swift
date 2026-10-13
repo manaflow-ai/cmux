@@ -78,7 +78,7 @@ import Testing
         // First look: the active team has no Mac, the account's Mac is online in c.
         #expect(s.teamToFollow(found, previouslyOnline: nil)?.id == "c")
         // Still waiting on later looks too (setup's "Waiting for your Mac").
-        #expect(s.teamToFollow(found, previouslyOnline: ["m"])?.id == "c")
+        #expect(s.teamToFollow(found, previouslyOnline: [found[0].placement])?.id == "c")
         // An offline Mac is nothing to follow.
         let offline = [DiscoveredMac(id: "m", name: "Studio", isOnline: false, teamID: "c")]
         #expect(s.teamToFollow(offline, previouslyOnline: nil) == nil)
@@ -96,11 +96,11 @@ import Testing
         let found = [DiscoveredMac(id: "m", name: "Studio", isOnline: true, teamID: "b")]
         s.mergeDiscoveredMacs(found)
         // The user picked team a in the sidebar; m was already online: stay.
-        #expect(s.teamToFollow(found, previouslyOnline: ["m"], pinnedTeamID: "a") == nil)
+        #expect(s.teamToFollow(found, previouslyOnline: [found[0].placement], pinnedTeamID: "a") == nil)
         // A Mac that just came online still moves the phone.
         let more = found + [DiscoveredMac(id: "n", name: "Air", isOnline: true, teamID: "c")]
         s.mergeDiscoveredMacs(more)
-        #expect(s.teamToFollow(more, previouslyOnline: ["m"], pinnedTeamID: "a")?.id == "c")
+        #expect(s.teamToFollow(more, previouslyOnline: [found[0].placement], pinnedTeamID: "a")?.id == "c")
     }
 
     @Test func offlineMacsInTheActiveTeamOnlyMoveOnAnArrival() {
@@ -110,8 +110,18 @@ import Testing
             DiscoveredMac(id: "m", name: "Studio", isOnline: true, teamID: "b"),
         ]
         s.mergeDiscoveredMacs(found)
-        #expect(s.teamToFollow(found, previouslyOnline: ["m"]) == nil)
+        #expect(s.teamToFollow(found, previouslyOnline: [found[1].placement]) == nil)
         #expect(s.teamToFollow(found, previouslyOnline: [])?.id == "b")
+    }
+
+    @Test func aMacThatMovesTeamsWhileOnlineIsFollowed() {
+        // The phone followed m to b; then m's Mac re-registers into c, staying online.
+        let s = store(active: "b", macs: ["b": [MacDevice(id: "old", name: "Old", isOnline: false)]])
+        let before = DiscoveredMac(id: "m", name: "Studio", isOnline: true, teamID: "b")
+        let after = DiscoveredMac(id: "m", name: "Studio", isOnline: true, teamID: "c")
+        s.mergeDiscoveredMacs([after])
+        #expect(s.teams[1].macs.map(\.id) == ["old"])
+        #expect(s.teamToFollow([after], previouslyOnline: [before.placement])?.id == "c")
     }
 
     @Test func emptyStateOffersTheTeamWithAMac() {

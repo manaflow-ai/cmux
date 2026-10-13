@@ -23,13 +23,15 @@ public struct WorkspacesList: View {
     var refresh: (() async -> Void)?
     /// Moves to another team (the empty state offers the team where a Mac is).
     var switchTeam: ((String) -> Void)?
+    /// Opens Settings → Account (the empty state, when no Mac uses this account).
+    var openAccount: (() -> Void)?
     @AppStorage("cnx.workspaces.sort") private var sort: WorkspaceSort = .recent
     @AppStorage("cnx.workspaces.showOffline") private var showsOffline = true
     @State private var isRetrying = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
-                switchTeam: ((String) -> Void)? = nil,
+                switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 open: @escaping (Workspace) -> Void) {
         self.store = store
         self.creator = creator
@@ -37,6 +39,7 @@ public struct WorkspacesList: View {
         self.reconnect = reconnect
         self.refresh = refresh
         self.switchTeam = switchTeam
+        self.openAccount = openAccount
         self.open = open
     }
 
@@ -90,7 +93,9 @@ public struct WorkspacesList: View {
                     email: accountEmail,
                     teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
                     elsewhere: store.teamWithMacsElsewhere(),
-                    switchTeam: switchTeam
+                    switchTeam: switchTeam,
+                    noMacsForAccount: store.accountMacCount == 0,
+                    openAccount: openAccount
                 )
             } else if !macs.contains(where: \.isOnline) && !showsOffline {
                 EmptyState(
@@ -177,6 +182,8 @@ struct ConnectMacEmptyState: View {
     /// Another team with one of the account's Macs.
     let elsewhere: (team: Team, mac: MacDevice)?
     let switchTeam: ((String) -> Void)?
+    let noMacsForAccount: Bool
+    let openAccount: (() -> Void)?
 
     var body: some View {
         ScrollView {
@@ -210,7 +217,7 @@ struct ConnectMacEmptyState: View {
                     }
                     .padding(.bottom, 28)
                 }
-                ConnectMacSteps(email: email, onlineMac: nil)
+                ConnectMacSteps(email: email, onlineMac: nil, noMacsForAccount: noMacsForAccount, openAccount: openAccount)
             }
             .padding(.horizontal, theme.metrics.sideMargin)
             .frame(maxWidth: .infinity)

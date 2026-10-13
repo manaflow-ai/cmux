@@ -64,7 +64,11 @@ struct WorkspacesScreen: View {
                     { macID in live.link.target?.macID == macID ? live.foreground() : live.select(macID: macID) }
                 },
                 refresh: shell.live.map { live in { await live.workspaces.refresh() } },
-                switchTeam: { shell.switchTeam(to: $0) }
+                switchTeam: { shell.switchTeam(to: $0) },
+                openAccount: {
+                    shell.tab = .settings
+                    shell.settingsPath = [.account]
+                }
             ) { shell.workspacesPath.append($0) }
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)

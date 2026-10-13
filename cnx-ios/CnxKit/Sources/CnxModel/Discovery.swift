@@ -70,6 +70,9 @@ public struct DiscoveredMac: Hashable, Sendable {
     }
 
     var device: MacDevice { MacDevice(id: id, name: name, isOnline: isOnline, lastSeenAt: lastSeenAt) }
+
+    /// The Mac in its team: a Mac that moves to another team is a new arrival there.
+    public var placement: String { "\(id)\u{0}\(teamID)" }
 }
 
 extension AppStore {
@@ -94,8 +97,9 @@ extension AppStore {
 
     /// The team the phone should move to so it reaches one of the account's
     /// Macs, or nil to stay. Only while the active team has no online Mac:
-    /// a Mac that just came online elsewhere (not in `previouslyOnline`;
-    /// nil means this is the first look) moves it, and so does any online
+    /// a Mac that just came online elsewhere, or moved there while online
+    /// (its `placement` not in `previouslyOnline`; nil means this is the
+    /// first look), moves it, and so does any online
     /// Mac elsewhere while the active team has no Mac at all, unless the
     /// user picked this team themselves (`pinnedTeamID`).
     public func teamToFollow(_ macs: [DiscoveredMac], previouslyOnline: Set<String>?, pinnedTeamID: String? = nil) -> Team? {
@@ -106,7 +110,7 @@ extension AppStore {
             mac.isOnline && mac.teamID != activeTeamID && teams.contains { $0.id == mac.teamID }
         }
         let candidates = reachable.filter { mac in
-            let appeared = previouslyOnline.map { !$0.contains(mac.id) } ?? true
+            let appeared = previouslyOnline.map { !$0.contains(mac.placement) } ?? true
             return appeared || (waitingForAnyMac && pinnedTeamID != activeTeamID)
         }
         // The first such team in the sidebar's order.

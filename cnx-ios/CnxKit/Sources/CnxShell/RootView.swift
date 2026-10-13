@@ -222,10 +222,17 @@ public struct RootView: View {
     /// `-cnx-setup-pair`: the active team's Macs vanish, then a Mac comes
     /// online 4 s in (recording pace, not synchronization). With
     /// `-cnx-setup-pair-elsewhere` it comes online in another team, and the
-    /// phone follows it there as live discovery does.
+    /// phone follows it there as live discovery does. With
+    /// `-cnx-setup-pair-other-account` no Mac uses the account at all.
     private func runSetupPairDemo() async {
         guard let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) else { return }
         let macs = store.teams[index].macs
+        if ProcessInfo.processInfo.arguments.contains("-cnx-setup-pair-other-account") {
+            // No Mac uses this account anywhere: the setup step says so.
+            for i in store.teams.indices { store.teams[i].macs = [] }
+            store.accountMacCount = 0
+            return
+        }
         let elsewhere = ProcessInfo.processInfo.arguments.contains("-cnx-setup-pair-elsewhere")
         if elsewhere {
             for i in store.teams.indices { store.teams[i].macs = [] }
