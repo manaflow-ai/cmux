@@ -82,6 +82,23 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(refusal.message == "Cloud VMs require a cmux Pro subscription.")
     }
 
+    @Test("A team-created team refusal names the Team plan and preserves its billing scope")
+    func teamPlanRefusalPreservesBillingScope() throws {
+        let refusal = try #require(CloudPlanRefusal(status: 402, body: Self.body([
+            "error": "vm_requires_team_plan",
+            "teamId": "team-trollol",
+            "upgradePlanId": "team",
+            "message": "This team needs the cmux Team plan to run Cloud VMs.",
+        ])))
+        #expect(refusal.kind == .teamPlan)
+        #expect(refusal.teamID == "team-trollol")
+        #expect(refusal.upgradePlanId == "team")
+        #expect(refusal.message == String(
+            localized: "cloud.operation.failure.teamPlan",
+            defaultValue: "This team needs the cmux Team plan to run Cloud VMs. Personal plans apply only to your personal team."
+        ))
+    }
+
     @Test("Pool upgrades follow the capacity ladder, including Founders and Team")
     func resourcePoolUpgradeActions() {
         let poolCode = CloudPlanRefusal.resourcePoolExceededCode

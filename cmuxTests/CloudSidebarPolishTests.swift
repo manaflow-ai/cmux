@@ -60,6 +60,20 @@ struct CloudSidebarPolishTests {
         #expect(!operation.hitResourcePool)
     }
 
+    @Test("A Team-plan refusal keeps the team billing target on the failed row")
+    func teamPlanFailureKeepsBillingTarget() {
+        var operation = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
+        )
+        operation.phase = .failed(output: "This team needs the cmux Team plan.")
+        operation.refusalCode = "vm_requires_team_plan"
+        operation.refusalTeamID = "team-trollol"
+        #expect(operation.requiresTeamPlan)
+        #expect(operation.refusalTeamID == "team-trollol")
+        #expect(!operation.hitMachineLimit)
+        #expect(!operation.hitResourcePool)
+    }
+
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")
     func oneLabelWidth() {
         // Full and icon-only widths for three tabs; Cloud's label is the widest.
