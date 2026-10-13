@@ -10,7 +10,7 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 | `cnx-ios/project.yml` | XcodeGen app project (`CnxApp`), iOS 26.0+, bundle `dev.cmux.cnx` (+ `.<tag>`). |
 | `cnx-ios/CnxKit/` | SwiftPM package with all app modules (below). |
 | `cnx-ios/rust/` | Rust crates: `cnx-link` (transport-agnostic framed channel mux, WebRTC + WireGuard dialers), `cnx-ffi` (uniffi), `cnx-hostd` (Mac bridge). |
-| `cnx-ios/backend/` | Cloudflare Worker `cnx-ios-api` (DOs: `TeamHub` signaling + presence, `DeviceRegistry`) + PlanetScale Postgres via Hyperdrive. |
+| `cnx-ios/backend/` | Cloudflare Worker `cnx-ios-api` (DO `TeamHub`: signaling, presence, WireGuard relay) + PlanetScale Postgres `cnx-ios` via Hyperdrive (device registry, team prefs). |
 | `cnx-ios/verify/` | Recording / frame-split / comparison scripts and the evidence index. |
 
 ## CnxKit modules

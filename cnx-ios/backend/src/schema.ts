@@ -1,0 +1,31 @@
+import { index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core"
+
+/** A phone or Mac registered by its owner (PROTOCOL.md "Devices"). The deviceId is client generated. */
+export const devices = pgTable(
+  "devices",
+  {
+    deviceId: uuid("device_id").primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    teamId: text("team_id").notNull(),
+    kind: text("kind", { enum: ["mac", "phone"] }).notNull(),
+    name: text("name").notNull(),
+    wgPublicKey: text("wg_public_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+  },
+  (t) => [index("devices_team_kind_idx").on(t.teamId, t.kind), index("devices_owner_idx").on(t.ownerUserId)]
+)
+
+/** Per user, per team appearance in the app's team sidebar. */
+export const teamPrefs = pgTable(
+  "team_prefs",
+  {
+    userId: text("user_id").notNull(),
+    teamId: text("team_id").notNull(),
+    color: text("color"),
+    emoji: text("emoji"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.teamId] })]
+)
