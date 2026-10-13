@@ -368,3 +368,99 @@ fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]
     child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
     assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }
+
+/// An agent chat's agent runs the app's `cmux` and reaches the app (cx-c6xdh):
+/// the app hands its daemon the bundled CLI (`CMUX_BUNDLED_CLI_PATH`) and its
+/// control socket, and every agent finds that CLI first on its `PATH`, ahead
+/// of the login shell's entries (where an older `cmux` may live), with the
+/// socket that names the app.
+#[tokio::test]
+async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
+    let dir = scratch("cli");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let bundled = dir.join("cmux.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&bundled).unwrap();
+    write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    let login = dir.join("login-bin");
+    std::fs::create_dir_all(&login).unwrap();
+    write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
+    // The login shell lists its own `cmux` first.
+    let shell = dir.join("loginsh");
+    write_executable(
+        &shell,
+        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+    );
+    let socket = dir.join("s.sock");
+    let app_socket = dir.join("app.sock");
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .env("CMUX_BUNDLED_CLI_PATH", bundled.join("cmux"))
+        .env("CMUX_SOCKET_PATH", &app_socket)
+        .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
+        .env_remove("XPC_SERVICE_NAME")
+        .env_remove("CLAUDECODE")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
+                return;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    })
+    .await
+    .unwrap();
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "cli"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut seen = Vec::new();
+    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID"] {
+        rpc.call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+        )
+        .await;
+        let events = rpc
+            .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+            .await;
+        seen = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    let path = seen[0].strip_prefix("PATH=").unwrap_or_else(|| panic!("{seen:?}"));
+    let first_cmux = path
+        .split(':')
+        .map(|entry| Path::new(entry).join("cmux"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("no cmux on the agent's PATH: {path}"));
+    assert_eq!(first_cmux, bundled.join("cmux"), "the agent's PATH: {path}");
+    assert_eq!(seen[1], format!("CMUX_SOCKET_PATH={}", app_socket.display()));
+    assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
+    let _ = std::fs::remove_dir_all(&dir);
+}
