@@ -68,6 +68,23 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
             mountedSplit = Self.firstSplitView(in: hostingView)
         }
         let splitView = try #require(mountedSplit)
+        let paneHostingViews = Self.hostingViews(in: splitView)
+        let orphanWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        orphanWindow.isReleasedWhenClosed = false
+        defer { orphanWindow.orderOut(nil) }
+        let orphanContentView = try #require(orphanWindow.contentView)
+        orphanWindow.makeKeyAndOrderFront(nil)
+        for paneHostingView in paneHostingViews {
+            paneHostingView.removeFromSuperview()
+            paneHostingView.frame = orphanContentView.bounds
+            paneHostingView.autoresizingMask = [.width, .height]
+            orphanContentView.addSubview(paneHostingView)
+        }
 
         // Detach the split from its SwiftUI ancestor, then change the model so
         // the representable must refresh its retained pane hosting controller
@@ -77,6 +94,8 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
         splitView.removeFromSuperview()
         controller.createTab(title: "Refresh while detached")
         hostingView.layoutSubtreeIfNeeded()
+        orphanContentView.layoutSubtreeIfNeeded()
+        orphanWindow.displayIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         // Closing a window during the drag's nested run loop detaches the
