@@ -498,6 +498,18 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("Upgrade to Pro");
   });
 
+  test("explains that a personal Pro plan covers a team before Team checkout", async () => {
+    proUser.clientReadOnlyMetadata = { cmuxPlan: "pro" };
+    const team = teamWithMembers("team-pro-fallback", "Team Pro Fallback", 2);
+    mockImplementation(proUser.listTeams, async () => [team]);
+
+    const html = await renderBillingPage({ team: "team-pro-fallback" });
+    expect(html).toContain("Team Pro Fallback is using your Pro plan.");
+    expect(html).toContain("Personal plans support up to 3 members.");
+    expect(html).toContain("each accepted member costs $60 per month");
+    expect(html).toContain("Pending invitations do not use seats");
+  });
+
   test("asks members of a free team to contact an admin", async () => {
     const team = teamWithMembers("team-free", "Team Free", 2);
     mockImplementation(proUser.listTeams, async () => [team]);

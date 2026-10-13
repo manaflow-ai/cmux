@@ -60,7 +60,7 @@ const detail = teamUser
   .input(teamInput)
   .use(teamAccess(), (input) => input)
   .output(teamDetailSchema)
-  .handler(({ context }) => loadTeamDetail(context.team));
+  .handler(({ context }) => loadTeamDetail(context.team, { personalPlanId: context.user.userBillingPlanId }));
 
 const update = teamUser
   .input(teamInput.extend(updateTeamBody.shape).strict())

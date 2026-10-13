@@ -33,9 +33,18 @@ export function TeamBillingPanel({
       </section>
     );
   }
+  const effectivePlanName = personalPlanName(view.effectivePlanId, t);
   return (
     <div className="space-y-3">
       {welcome ? <Notice>{t("teamPanel.welcome")}</Notice> : null}
+      {!view.subscription && !view.granted ? (
+        <Notice>
+          {effectivePlanName
+            ? t("teamPanel.personalPlanBody", { team: view.team.displayName ?? t("team.fallbackName"), plan: effectivePlanName })
+            : t("teamPanel.freeBody", { team: view.team.displayName ?? t("team.fallbackName") })}
+        </Notice>
+      ) : null}
+      <p className="text-xs text-muted">{t("teamPanel.planRules")}</p>
       {view.paymentPastDue && view.canManageBilling ? (
         <Notice>
           <span>{t("banners.pastDue")}</span>{" "}
@@ -52,6 +61,21 @@ export function TeamBillingPanel({
       />
     </div>
   );
+}
+
+function personalPlanName(planId: string | null, translate: (key: string) => string): string | null {
+  switch (planId) {
+    case "go":
+      return translate("picker.names.go");
+    case "pro":
+      return translate("picker.names.pro");
+    case "max":
+      return translate("picker.names.max");
+    case "founders":
+      return translate("teamList.planBadges.founders");
+    default:
+      return null;
+  }
 }
 
 function Notice({ children }: { children: ReactNode }) {
@@ -87,4 +111,3 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

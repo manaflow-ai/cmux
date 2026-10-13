@@ -128,6 +128,7 @@ function PlanStep({ team, onFree }: { readonly team: CreatedTeam; readonly onFre
     <section className="grid gap-3">
       <h2 className="text-sm font-medium">{t("planTitle", { team: team.displayName })}</h2>
       <p className="text-xs text-muted">{t("planDescription")}</p>
+      <p className="text-xs text-muted">{t("planRules")}</p>
       <div className="grid gap-3 md:grid-cols-2">
         <div className="grid content-start gap-2 border border-border p-4">
           <div className="text-sm font-medium">{t("freeName")}</div>

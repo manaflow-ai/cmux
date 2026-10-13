@@ -57,6 +57,8 @@ describe("new team flow steps", () => {
     expect(html).toContain("$60 per seat per month");
     expect(teamCheckoutHref(team.id)).toBe("/api/billing/checkout?plan=team&teamId=team+1");
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;teamId=team+1"');
+    expect(html).toContain("Personal Pro or Max can power this team for up to 3 people.");
+    expect(html).toContain("Pending invitations are free.");
   });
 
   test("the plan step says seats follow the member count", async () => {

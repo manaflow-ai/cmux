@@ -75,6 +75,30 @@ export function billingPlanIdFromMetadata(metadata: unknown): string | null {
 }
 
 /**
+ * The plan a member sees when a real team has no team-scoped plan of its own.
+ *
+ * Pro/Max (and the legacy Founder's plan) are personal subscriptions, but the
+ * selected Stack team is still the Cloud billing scope. That lets a Pro user
+ * use each team they belong to while the team roster cap keeps the personal
+ * plan from becoming an uncapped organization plan. A Team plan is always
+ * team-scoped and must never be inherited from the user.
+ */
+export function effectiveTeamPlanId(
+  teamPlanId: string | null | undefined,
+  personalPlanId: string | null | undefined,
+): string | null {
+  const team = normalizedPlanId(teamPlanId);
+  if (team) return team;
+  const personal = normalizedPlanId(personalPlanId);
+  return personal && personal !== "team" ? personal : null;
+}
+
+function normalizedPlanId(value: string | null | undefined): string | null {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized || null;
+}
+
+/**
  * Paid seats on a team (`cmuxSeats`, written from the Stripe subscription
  * quantity by syncTeamPlanMetadata). Null when absent or malformed; callers
  * treat that as a single seat. Teams recorded before seats were written are

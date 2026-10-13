@@ -10,6 +10,7 @@ import {
   type TeamBillingAccessUser,
   type TeamBillingRole,
 } from "./teamBillingAccess";
+import { effectiveTeamPlanId } from "./teamResolution";
 
 /** Per-team billing fields the dashboard team catalog carries. */
 export type TeamCatalogBilling = {
@@ -47,7 +48,9 @@ export async function billingCatalogTeams(
     const role: TeamBillingRole = adminTeamIds.has(team.teamId) ? "admin" : "member";
     return {
       ...team,
-      planId: authed?.billingPlanId ?? null,
+      // A real team with no team-scoped plan uses the viewer's personal
+      // Pro/Max entitlement. Team remains explicit and team-scoped.
+      planId: effectiveTeamPlanId(authed?.billingPlanId, user.userBillingPlanId),
       seats: authed?.billingSeats ?? null,
       role,
       canManageBilling: role === "admin",

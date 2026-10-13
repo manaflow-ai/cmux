@@ -65,6 +65,7 @@ export type ReadyTeamBillingViewJson = {
   readonly role: TeamBillingRole;
   readonly canManageBilling: boolean;
   readonly planId: string;
+  readonly effectivePlanId: string | null;
   readonly billingManagement: BillingManagementKind;
   readonly granted: boolean;
   readonly subscription: TeamBillingSubscriptionJson | null;

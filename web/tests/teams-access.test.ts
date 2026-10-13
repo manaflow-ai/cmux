@@ -143,7 +143,7 @@ describe("loadTeamDetail", () => {
       expect.objectContaining({ email: "new@example.com", role: "admin" }),
     ]);
     expect(adminView.links).toHaveLength(1);
-    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: null, memberCount: 2, hasActiveSubscription: true });
+    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: 3, memberCount: 2, hasActiveSubscription: true });
     expect(adminView.members.find((member) => member.userId === ADMIN_ID)?.role).toBe("admin");
   });
 
@@ -155,5 +155,17 @@ describe("loadTeamDetail", () => {
     const view = await loadTeamDetail(access.access, { store: new MemoryInviteStore(), hasActiveSubscription: async () => false });
     expect(view.members.map((member) => member.userId)).toEqual([MEMBER_ID]);
     expect(view.billing.memberCount).toBe(2);
+  });
+
+  test("shows the viewer's personal Pro plan as the effective team plan", async () => {
+    const stack = standardTeam();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    const view = await loadTeamDetail(access.access, {
+      store: new MemoryInviteStore(),
+      personalPlanId: "pro",
+      hasActiveSubscription: async () => false,
+    });
+    expect(view.billing).toMatchObject({ planId: "pro", memberLimit: 3 });
   });
 });
