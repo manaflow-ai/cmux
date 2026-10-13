@@ -6,7 +6,7 @@ import Foundation
 // cmux-vnc-host: shares a VNC server (this Mac's Screen Sharing by default)
 // with the cmux VNC iOS app over WebRTC.
 //
-//   cmux-vnc-host [--stream] [--user NAME] [--target HOST:PORT] [--name NAME] [--signal URL] [--new-pairing]
+//   cmux-vnc-host [--capture | --stream] [--user NAME] [--target HOST:PORT] [--name NAME] [--signal URL] [--new-pairing]
 //
 // --stream sends the screen as a WebRTC video track (hardware H.264) with
 // input on a data channel, reading frames from --target's VNC server (this
@@ -24,6 +24,9 @@ struct Options {
     var signal = VNCPairing.defaultSignal
     var newPairing = false
     var stream = false
+    /// ScreenCaptureKit + CGEvent instead of Screen Sharing (needs Screen
+    /// Recording and Accessibility; run inside CmuxScreenHost.app).
+    var capture = false
     var user: String?
 }
 
@@ -37,6 +40,9 @@ while !arguments.isEmpty {
     case "--signal": options.signal = arguments.isEmpty ? options.signal : (URL(string: arguments.removeFirst()) ?? options.signal)
     case "--new-pairing": options.newPairing = true
     case "--stream": options.stream = true
+    case "--capture":
+        options.stream = true
+        options.capture = true
     case "--user": options.user = arguments.isEmpty ? nil : arguments.removeFirst()
     default:
         print("usage: cmux-vnc-host [--stream] [--user NAME] [--target HOST:PORT] [--name NAME] [--signal URL] [--new-pairing]")
@@ -99,7 +105,10 @@ print("\n\(pairing.link.absoluteString)\n")
 setvbuf(stdout, nil, _IOLBF, 0)
 
 let log: @Sendable (String) -> Void = { line in print("[\(Date().formatted(date: .omitted, time: .standard))] \(line)") }
-if options.stream {
+if options.capture {
+    let host = ScreenStreamHost(pairing: pairing, backend: { ScreenCaptureBackend(log: log) }, log: log)
+    await host.run()
+} else if options.stream {
     let password = ProcessInfo.processInfo.environment["CMUX_VNC_PASSWORD"]
         ?? (try? String(contentsOf: folder.appendingPathComponent("password"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
     let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: targetHost, port: targetPort),

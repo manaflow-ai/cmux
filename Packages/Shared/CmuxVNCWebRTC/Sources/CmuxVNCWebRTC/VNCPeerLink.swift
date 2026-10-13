@@ -22,7 +22,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software.
-        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
+        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: ScreenDecoderFactory())
     }()
 
     /// Largest data channel message (SCTP fragments larger ones less well).
@@ -40,9 +40,12 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var drained: [CheckedContinuation<Void, Never>] = []
     private var ended = false
     private var videoTransceiver: RTCRtpTransceiver?
+    /// Secondary channels by label (the unordered `pointer` channel).
+    private var extras: [String: RTCDataChannel] = [:]
 
     /// `relayOnly` forces the TURN relay (measurements).
-    init(iceServers: [ICEServerConfig], relayOnly: Bool = false) throws {
+    /// `preferStreamRelays` (byte streams only) drops UDP TURN; video lets ICE choose.
+    init(iceServers: [ICEServerConfig], relayOnly: Bool = false, preferStreamRelays: Bool = true) throws {
         (events, sink) = AsyncStream.makeStream(of: Event.self)
         super.init()
         let configuration = RTCConfiguration()
@@ -51,7 +54,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         configuration.rtcpMuxPolicy = .require
         configuration.continualGatheringPolicy = .gatherContinually
         if relayOnly { configuration.iceTransportPolicy = .relay }
-        configuration.iceServers = Self.preferringStreamRelays(iceServers)
+        configuration.iceServers = (preferStreamRelays ? Self.preferringStreamRelays(iceServers) : iceServers)
             .map { RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = Self.factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
@@ -79,23 +82,35 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     /// Viewer: opens the data channel (`rfb` bytes, or `input` for a screen
     /// stream that also receives the host's video) and returns the offer SDP.
-    func offer(label: String = "rfb", receiveVideo: Bool = false) async throws -> String {
+    func offer(label: String = "rfb", receiveVideo: Bool = false, unorderedLabel: String? = nil) async throws -> String {
         let configuration = RTCDataChannelConfiguration()
         configuration.isOrdered = true
         guard let created = connection.dataChannel(forLabel: label, configuration: configuration) else {
             throw VNCWebRTCError.peer("could not open the data channel")
         }
         adopt(created)
+        if let unorderedLabel {
+            // Pointer moves: latest wins, a lost one is never resent or waited for.
+            let unordered = RTCDataChannelConfiguration()
+            unordered.isOrdered = false
+            unordered.maxRetransmits = 0
+            if let extra = connection.dataChannel(forLabel: unorderedLabel, configuration: unordered) {
+                extra.delegate = self
+                lock.withLock { extras[unorderedLabel] = extra }
+            }
+        }
         if receiveVideo {
             let options = RTCRtpTransceiverInit()
             options.direction = .recvOnly
             if let transceiver = connection.addTransceiver(of: .video, init: options) {
+                // H.264 first (hardware on Apple devices), through the standard API.
+                let codecs = Self.factory.rtpReceiverCapabilities(forKind: "video").codecs
+                let preferred = codecs.filter { $0.name == "H264" } + codecs.filter { $0.name != "H264" }
+                Self.setCodecPreferences(transceiver, preferred)
                 lock.withLock { videoTransceiver = transceiver }
             }
         }
-        var sdp = try await describe { self.connection.offer(for: Self.constraints, completionHandler: $0) }
-        // H.264 first: Apple devices encode and decode it in hardware (VP8 is software).
-        if receiveVideo { sdp = Self.preferH264(sdp) }
+        let sdp = try await describe { self.connection.offer(for: Self.constraints, completionHandler: $0) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .offer, sdp: sdp), completionHandler: $0) }
         return sdp
     }
@@ -241,8 +256,9 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     /// Text messages on the data channel (screen stream control and input).
-    func sendText(_ text: String) -> Bool {
-        guard let channel = lock.withLock({ channel }), channel.readyState == .open else { return false }
+    func sendText(_ text: String, on label: String? = nil) -> Bool {
+        let target = lock.withLock { label.flatMap { extras[$0] } ?? channel }
+        guard let channel = target, channel.readyState == .open else { return false }
         return channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false))
     }
 
@@ -265,6 +281,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     // MARK: RTCDataChannelDelegate
 
     func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        guard lock.withLock({ dataChannel === channel }) else { return }
         switch dataChannel.readyState {
         case .open: sink.yield(.open)
         case .closed: closeOffCallback()
@@ -322,8 +339,13 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-        // Host side: the viewer's channel.
-        adopt(dataChannel)
+        // Host side: the viewer's channels; the ordered one (not `pointer`) is primary.
+        let isPrimary = lock.withLock { () -> Bool in
+            guard dataChannel.label == "pointer" || channel != nil else { return true }
+            extras[dataChannel.label] = dataChannel
+            return false
+        }
+        if isPrimary { adopt(dataChannel) } else { dataChannel.delegate = self }
     }
 }
 
@@ -360,28 +382,14 @@ public struct VideoTrackBox: @unchecked Sendable {
 }
 
 extension VNCPeerLink {
-    /// Moves the H.264 payload types to the front of the `m=video` line and
-    /// raises the offered H.264 level so full-resolution screens encode in hardware.
-    static func preferH264(_ sdp: String) -> String {
-        var lines = sdp.components(separatedBy: "\r\n")
-        let h264 = Set(lines.compactMap { line -> String? in
-            guard line.hasPrefix("a=rtpmap:"), line.contains(" H264/") else { return nil }
-            return String(line.dropFirst("a=rtpmap:".count).prefix { $0 != " " })
-        })
-        guard !h264.isEmpty, let index = lines.firstIndex(where: { $0.hasPrefix("m=video ") }) else { return sdp }
-        var parts = lines[index].split(separator: " ").map(String.init)
-        guard parts.count > 3 else { return sdp }
-        let payloads = Array(parts[3...])
-        parts = Array(parts[..<3]) + payloads.filter { h264.contains($0) } + payloads.filter { !h264.contains($0) }
-        lines[index] = parts.joined(separator: " ")
-        // Level 3.1 (…1f) caps a frame near 1280x720: a 1080p screen fails encoder
-        // setup and libwebrtc falls back to software VP8. Apple decodes level 5.2.
-        lines = lines.map { line in
-            guard line.hasPrefix("a=fmtp:") else { return line }
-            return line.replacingOccurrences(of: "profile-level-id=640c1f", with: "profile-level-id=640c34")
-                .replacingOccurrences(of: "profile-level-id=42e01f", with: "profile-level-id=42e034")
-        }
-        return lines.joined(separator: "\r\n")
+    /// `setCodecPreferences:error:` (the non-deprecated form; Swift otherwise
+    /// resolves the deprecated overload, which does not apply the order).
+    static func setCodecPreferences(_ transceiver: RTCRtpTransceiver, _ codecs: [RTCRtpCodecCapability]) {
+        let selector = NSSelectorFromString("setCodecPreferences:error:")
+        guard transceiver.responds(to: selector) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, NSArray, UnsafeMutablePointer<NSError?>?) -> Bool
+        let method = unsafeBitCast(transceiver.method(for: selector), to: Setter.self)
+        _ = method(transceiver, selector, codecs as NSArray, nil)
     }
 
     /// Receive codec names, in the factory's order (diagnostics).
@@ -442,6 +450,27 @@ extension VNCPeerLink {
                 }
                 continuation.resume(returning: out)
             }
+        }
+    }
+}
+
+/// The default decoders, with H.264 declared at level 5.2 instead of the
+/// default 3.1 (a 1080p frame does not fit level 3.1, so the sender's
+/// hardware encoder fails setup and falls back to software VP8). Apple's
+/// hardware decodes level 5.2; this states it through the factory API.
+final class ScreenDecoderFactory: NSObject, RTCVideoDecoderFactory {
+    private let base = RTCDefaultVideoDecoderFactory()
+
+    func createDecoder(_ info: RTCVideoCodecInfo) -> (any RTCVideoDecoder)? {
+        base.createDecoder(info)
+    }
+
+    func supportedCodecs() -> [RTCVideoCodecInfo] {
+        base.supportedCodecs().map { info in
+            guard info.name == "H264", let level = info.parameters["profile-level-id"] else { return info }
+            var parameters = info.parameters
+            parameters["profile-level-id"] = String(level.prefix(4)) + "34"
+            return RTCVideoCodecInfo(name: info.name, parameters: parameters)
         }
     }
 }

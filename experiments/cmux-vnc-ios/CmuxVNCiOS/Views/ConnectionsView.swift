@@ -79,7 +79,11 @@ struct ConnectionsView: View {
                 }
                 guard session == nil, let automatic = autopilot.session() else { return }
                 open(automatic)
-                if autopilot.playsScript { await autopilot.play(on: automatic) }
+                if autopilot.arguments.contains("-perfScript") {
+                    await autopilot.playPerfScript(on: automatic)
+                } else if autopilot.playsScript {
+                    await autopilot.play(on: automatic)
+                }
             }
         }
     }
