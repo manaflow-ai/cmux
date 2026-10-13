@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
+inline constexpr std::string_view kProtocolIrSha256 = "374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -453,6 +453,7 @@ struct SetRatioRequest;
 struct SetRowHeightsRequest;
 struct SetScreenMetadataRequest;
 struct SetScreenPinnedRequest;
+struct SetSessionIconRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
@@ -4420,6 +4421,12 @@ struct SetScreenPinnedRequest {
     friend bool operator==(const SetScreenPinnedRequest&, const SetScreenPinnedRequest&) = default;
 };
 
+struct SetSessionIconRequest {
+    std::optional<std::string> icon{};
+    std::string session_id{};
+    friend bool operator==(const SetSessionIconRequest&, const SetSessionIconRequest&) = default;
+};
+
 struct SetSizeCountsRequest {
     Field<std::uint64_t> client{};
     Field<bool> counts{};
@@ -7917,6 +7924,12 @@ template <>
 struct Codec<SetScreenPinnedRequest> {
     static Result<Json> encode(const SetScreenPinnedRequest& value);
     static Result<SetScreenPinnedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetSessionIconRequest> {
+    static Result<Json> encode(const SetSessionIconRequest& value);
+    static Result<SetSessionIconRequest> decode(const Json& value);
 };
 
 template <>

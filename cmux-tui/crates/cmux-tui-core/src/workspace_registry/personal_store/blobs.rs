@@ -63,6 +63,9 @@ pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("browser_profiles", "icon"),
     ("workspace_status_entries", "icon"),
     ("bookmarks", "icon"),
+    // The session registry (`session-icon-v1`); `create_personal_schema`
+    // adds the column before the open-time sweep.
+    ("sessions", "icon"),
     ("closed_groups", "record_json"),
     // Sidebar layout items' icons (`item.icon`, a custom Home icon).
     ("sidebar_layout", "document_json"),

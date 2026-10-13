@@ -11,6 +11,8 @@ extension SettingsSchema {
         "updates.quietHours": "a staged update shows only the small control on Settings",
         // New Tab always opens the New Tab page (Leo 2026-10-12): a terminal is an explicit pick.
         "tabs.newTabKind": "New Tab always opens the New Tab page",
+        // The pane's buttons became one hover "…" listing every action (Leo 2026-10-12).
+        "tabs.hiddenButtons": "the pane's \"…\" menu lists every action",
     ]
 
     /// Whether `path` is a retired key.
