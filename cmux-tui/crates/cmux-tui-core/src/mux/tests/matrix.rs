@@ -11,6 +11,14 @@ use serde_json::Value;
 use std::path::Path;
 
 const SIZE: Option<(u16, u16)> = Some((80, 24));
+const CONSERVING_OPS: [&str; 6] = [
+    "move_tab",
+    "move_tab_to_workspace",
+    "move_tab_to_new_workspace",
+    "move_pane_to_new_workspace",
+    "move_tab_to_split",
+    "zoom_pane",
+];
 
 /// The case file, or `None` in a cmux-tui tree without the app beside it
 /// (a published tree): the matrix belongs to the monorepo.
@@ -202,10 +210,17 @@ fn apply(seed: &Seed, step: &Value) -> Result<(), String> {
         "move_tab" => {
             let tab = seed.tab(&step["tab"])?;
             let pane = seed.pane(&step["pane"])?;
-            let index = match step["index"].as_u64() {
-                Some(index) => index as usize,
-                None => mux
-                    .with_state(|state| state.panes.get(&pane).map_or(0, |model| model.tabs.len())),
+            // `index` is the tab's final index, as the app sends it; the core
+            // takes an insertion index in the pre-move list (TabMoveIndex.wireIndex).
+            let (current, len) = mux.with_state(|state| {
+                let tabs =
+                    state.panes.get(&pane).map(|model| model.tabs.clone()).unwrap_or_default();
+                (tabs.iter().position(|candidate| *candidate == tab), tabs.len())
+            });
+            let index = match (step["index"].as_u64(), current) {
+                (None, _) => len,
+                (Some(index), Some(current)) if index as usize > current => index as usize + 1,
+                (Some(index), _) => index as usize,
             };
             mux.move_tab(tab, pane, index);
             Ok(())
@@ -286,7 +301,7 @@ fn apply(seed: &Seed, step: &Value) -> Result<(), String> {
     }
 }
 
-/// Resolves a `$` name, or `$new`: the one object of `kind` the case created.
+/// Resolves a `$` name, or `$new`: the newest object of `kind` the case created.
 fn resolve(
     seed: &Seed,
     before: &Snapshot,
@@ -304,12 +319,18 @@ fn resolve(
         "workspace" => after
             .workspaces
             .iter()
-            .find(|id| !before.workspaces.contains(id))
+            .filter(|id| !before.workspaces.contains(id))
+            .max()
             .map(|id| Object::Workspace(*id)),
-        "pane" => {
-            after.panes().into_iter().find(|id| !before.panes().contains(id)).map(Object::Pane)
+        "pane" => after
+            .panes()
+            .into_iter()
+            .filter(|id| !before.panes().contains(id))
+            .max()
+            .map(Object::Pane),
+        _ => {
+            after.tabs().into_iter().filter(|id| !before.tabs().contains(id)).max().map(Object::Tab)
         }
-        _ => after.tabs().into_iter().find(|id| !before.tabs().contains(id)).map(Object::Tab),
     };
     created.map(Some).ok_or_else(|| format!("no new {kind}"))
 }
@@ -334,18 +355,16 @@ fn count(snapshot: &Snapshot, of: &str, container: Option<Object>) -> Result<usi
 
 fn ids(snapshot: &Snapshot, of: &str) -> Result<Vec<u64>, String> {
     Ok(match of {
-        "workspaces" => snapshot.workspaces.iter().map(|id| u64::from(*id)).collect(),
-        "panes" => snapshot.panes().into_iter().map(u64::from).collect(),
-        "tabs" => snapshot.tabs().into_iter().map(u64::from).collect(),
+        "workspaces" => snapshot.workspaces.clone(),
+        "panes" => snapshot.panes(),
+        "tabs" => snapshot.tabs(),
         other => return Err(format!("no ids of {other}")),
     })
 }
 
 fn raw(object: Option<Object>) -> Option<u64> {
     object.map(|object| match object {
-        Object::Workspace(id) => u64::from(id),
-        Object::Pane(id) => u64::from(id),
-        Object::Tab(id) => u64::from(id),
+        Object::Workspace(id) | Object::Pane(id) | Object::Tab(id) => id,
     })
 }
 
@@ -395,15 +414,10 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
                 .collect::<Vec<_>>();
             let actual: Vec<u64> = match (of, resolve(seed, before, after, &expect["in"], "pane")?)
             {
-                ("workspaces", None) => after.workspaces.iter().map(|id| u64::from(*id)).collect(),
-                ("tabs", Some(Object::Pane(pane))) => after
-                    .tabs_of
-                    .get(&pane)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(u64::from)
-                    .collect(),
+                ("workspaces", None) => after.workspaces.clone(),
+                ("tabs", Some(Object::Pane(pane))) => {
+                    after.tabs_of.get(&pane).cloned().unwrap_or_default()
+                }
                 _ => return fail(format!("no order of {of} there")),
             };
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
@@ -420,9 +434,9 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
         "selected-is" => {
             let wanted = raw(resolve(seed, before, after, &expect["id"], kind_of(of))?);
             let actual = match (of, resolve(seed, before, after, &expect["in"], "pane")?) {
-                ("workspace", _) => after.active_workspace.map(u64::from),
+                ("workspace", _) => after.active_workspace,
                 ("tab", Some(Object::Pane(pane))) => {
-                    after.selected_tab.get(&pane).copied().flatten().map(u64::from)
+                    after.selected_tab.get(&pane).copied().flatten()
                 }
                 _ => return fail(format!("no selection of {of} there")),
             };
@@ -431,18 +445,17 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
         "focus-on" => {
             let wanted = raw(resolve(seed, before, after, &expect["id"], kind_of(of))?);
             let actual = match of {
-                "pane" => after.focused_pane.map(u64::from),
+                "pane" => after.focused_pane,
                 "tab" => after
                     .focused_pane
-                    .and_then(|pane| after.selected_tab.get(&pane).copied().flatten())
-                    .map(u64::from),
+                    .and_then(|pane| after.selected_tab.get(&pane).copied().flatten()),
                 other => return fail(format!("no focus of {other}")),
             };
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
         }
         "zoomed-is" => {
             let wanted = raw(resolve(seed, before, after, &expect["id"], "pane")?);
-            let actual = after.zoomed_pane.map(u64::from);
+            let actual = after.zoomed_pane;
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
         }
         other => fail(format!("{other} has no headless check")),
@@ -464,8 +477,18 @@ fn run_case(case: &Value) -> Vec<String> {
             failures.push(format!("MATRIX {id}: core step {index}: {error}"));
             return failures;
         }
+        // Moves and zoom conserve tabs; creates and closes only keep the
+        // per-state invariants (no empty pane, no tab placed twice).
+        let conserving = CONSERVING_OPS.contains(&step["op"].as_str().unwrap_or(""));
         let problems = seed.mux.with_state(|state| {
-            layout_invariants::transition_problems(&before_layout, None, state)
+            if conserving {
+                return layout_invariants::transition_problems(&before_layout, None, state);
+            }
+            let known = cmux_layout_reducer::check_state(&before_layout);
+            cmux_layout_reducer::check_state(&layout_invariants::project(state))
+                .difference(&known)
+                .map(ToString::to_string)
+                .collect()
         });
         if !problems.is_empty() {
             failures.push(format!(
