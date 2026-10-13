@@ -7,11 +7,25 @@ extension AppDelegate {
         let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager
             ?? tabManager
         if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            stepTabOrWorkspace(forward: true, tabManager: routedTabs, event: event)
+            if performFocusedDockShortcut(
+                .selectNextSurface,
+                action: .nextSurface,
+                event: event
+            ) {
+                return true
+            }
+            routedTabs?.selectNextSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            stepTabOrWorkspace(forward: false, tabManager: routedTabs, event: event)
+            if performFocusedDockShortcut(
+                .selectPreviousSurface,
+                action: .prevSurface,
+                event: event
+            ) {
+                return true
+            }
+            routedTabs?.selectPreviousSurface()
             return true
         }
         if matchConfiguredShortcut(event: event, action: .moveSurfaceLeft) {
@@ -60,16 +74,6 @@ extension AppDelegate {
             return true
         }
         return false
-    }
-
-    /// Previous/Next from a key (``TabManager/stepTabOrWorkspace(forward:dock:)``), with the Dock
-    /// that owns keyboard focus, if any.
-    func stepTabOrWorkspace(forward: Bool, tabManager: TabManager?, event: NSEvent) {
-        // Each action is named at its own gate call (tests/test_dock_shortcut_routing_guard.py).
-        let dock = forward
-            ? focusedDockStoreForShortcut(action: .nextSurface, preferredWindow: event.window)
-            : focusedDockStoreForShortcut(action: .prevSurface, preferredWindow: event.window)
-        tabManager?.stepTabOrWorkspace(forward: forward, dock: dock)
     }
 
     /// Reuses the configured workspace reorder keys when a Cloud machine

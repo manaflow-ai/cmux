@@ -230,6 +230,9 @@ final class ReverseRelayStderrCapture: @unchecked Sendable {
         }) {
             return forwardFailure
         }
+        if let authenticationFailure = RemoteRelayAuthenticationFailure.detect(in: stderr) {
+            return authenticationFailure.canonicalDiagnostic
+        }
         return RemoteSessionCoordinator.bestErrorLine(stderr: stderr)
     }
 }

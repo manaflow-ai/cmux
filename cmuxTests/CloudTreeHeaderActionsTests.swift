@@ -363,11 +363,15 @@ struct CloudTreeHeaderActionsTests {
         let controls = try #require(tree.devicesSection.children.first {
             if case .devicesEmpty = $0.kind { true } else { false }
         })
-        // "No other devices yet", then both independent actions in every state.
-        let inlineRows = (listedMacs == 0 ? 1 : 0) + 2
+        // The empty-state label uses its compact row height; the two
+        // independent actions retain the normal row height.
+        let emptyRowCount = listedMacs == 0 ? 1 : 0
+        let actionRowCount = 2
         let style = tree.outline.treeStyle
-        // Each inline row plus the 2 pt top and bottom inset, nothing more.
-        let expected = GlobalFontMagnification.scaledSize(CGFloat(inlineRows) * style.rowHeight + 4)
+        let expected = GlobalFontMagnification.scaledSize(
+            CGFloat(emptyRowCount) * style.emptyStateRowHeight
+                + CGFloat(actionRowCount) * style.rowHeight + 4
+        )
         #expect(fixture.coordinator.outlineView(tree.outline, heightOfRowByItem: controls) == expected)
         let bundle = Bundle(for: CloudTreeCellView.self)
         #expect(bundle.localizedString(forKey: "devices.options.hint", value: "∅", table: "Localizable") == "∅")

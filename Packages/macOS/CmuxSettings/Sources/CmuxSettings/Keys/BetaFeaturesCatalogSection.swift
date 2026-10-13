@@ -34,6 +34,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "extensions.beta.enabled"
     )
 
+    /// Click by Hint: hint mode (Cmd-J labels every clickable control in the
+    /// window; typing a label clicks it) as an opt-in preview. Defaults off;
+    /// a remote rollout flag can turn it on even while this is off.
+    public let windowHints = DefaultsKey<Bool>(
+        id: "windowHints.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "windowHints.beta.enabled"
+    )
+
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
     /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
     /// sidebar button's provider picker. Defaults on; while off, no custom
@@ -87,6 +96,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "remoteTmux.beta.enabled"
+    )
+
+    /// New Workspace on the remote host: with a remote tmux workspace selected, New
+    /// Workspace creates a tmux session on that workspace's host and New Local Workspace
+    /// is offered for local work. Defaults off; while off, New Workspace always creates a
+    /// local workspace.
+    public let remoteTmuxNewWorkspaceOnHost = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "remoteTmux.beta.newWorkspaceOnHost.enabled"
     )
 
     /// Aggregates all of a host's sessions through one shared `tmux -CC` connection

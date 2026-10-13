@@ -90,6 +90,164 @@ struct CoderouterAccountTerminalLaunch: Equatable {
     }
 }
 
+/// Persists the local workspace used when CodeRouter setup is requested while
+/// the selected workspace belongs to Cloud or another remote machine.
+///
+/// The UUID is deliberately the only persisted value. The workspace's live
+/// ownership and existence are checked by ``CoderouterSetupWorkspaceCoordinator``
+/// before every reuse, so a deleted or converted workspace cannot receive a
+/// local account command by accident.
+struct CoderouterSetupWorkspacePersistence {
+    static let userDefaultsKey = "coderouter.setupWorkspaceID"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func save(workspaceID: UUID) {
+        defaults.set(workspaceID.uuidString, forKey: Self.userDefaultsKey)
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: Self.userDefaultsKey)
+    }
+
+    /// Resolves the stored ID and removes malformed or stale state in one read.
+    @discardableResult
+    func validatedWorkspaceID(isValid: (UUID) -> Bool) -> UUID? {
+        guard let rawValue = defaults.string(forKey: Self.userDefaultsKey),
+              let workspaceID = UUID(uuidString: rawValue),
+              isValid(workspaceID) else {
+            clear()
+            return nil
+        }
+        return workspaceID
+    }
+}
+
+enum CoderouterSetupWorkspaceRoute: Equatable {
+    case selectedWorkspace
+    case persistedSetupWorkspace
+    case createSetupWorkspace
+
+    static func resolve(
+        selectedWorkspaceIsLocal: Bool,
+        persistedSetupWorkspaceIsValid: Bool
+    ) -> Self {
+        if selectedWorkspaceIsLocal { return .selectedWorkspace }
+        if persistedSetupWorkspaceIsValid { return .persistedSetupWorkspace }
+        return .createSetupWorkspace
+    }
+}
+
+/// Chooses the local destination for a CodeRouter account setup command.
+///
+/// A selected local workspace is the least surprising destination. Cloud and
+/// remote workspaces cannot host the local CLI process, so those requests use
+/// one persisted local workspace named `CodeRouter Setup`.
+@MainActor
+struct CoderouterSetupWorkspaceCoordinator {
+    static let workspaceTitle = String(
+        localized: "coderouter.setup.workspaceTitle",
+        defaultValue: "CodeRouter Setup"
+    )
+
+    private let managerSource: @MainActor () -> TabManager?
+    private let provider: CoderouterProvider
+    private let initialTerminalCommand: String?
+    private let persistence: CoderouterSetupWorkspacePersistence
+
+    init(
+        managerSource: @escaping @MainActor () -> TabManager?,
+        provider: CoderouterProvider,
+        initialTerminalCommand: String? = nil,
+        persistence: CoderouterSetupWorkspacePersistence = CoderouterSetupWorkspacePersistence()
+    ) {
+        self.managerSource = managerSource
+        self.provider = provider
+        self.initialTerminalCommand = initialTerminalCommand
+        self.persistence = persistence
+    }
+
+    enum Destination {
+        case existing(workspace: Workspace, manager: TabManager)
+        case created(workspace: Workspace, manager: TabManager)
+    }
+
+    func resolveDestination() -> Destination? {
+        let manager = managerSource().flatMap { manager in
+            manager.isFinalizedForWindowClose ? nil : manager
+        }
+        let selectedWorkspace = manager?.selectedWorkspace
+        let selectedWorkspaceIsLocal = manager.map { manager in
+            !manager.isFinalizedForWindowClose
+                && selectedWorkspace.map { Self.isLocal($0) } == true
+        } == true
+        let setup = Self.persistedLocalWorkspace(using: persistence)
+
+        switch CoderouterSetupWorkspaceRoute.resolve(
+            selectedWorkspaceIsLocal: selectedWorkspaceIsLocal,
+            persistedSetupWorkspaceIsValid: setup != nil
+        ) {
+        case .selectedWorkspace:
+            guard let manager, let selectedWorkspace else { return nil }
+            return .existing(workspace: selectedWorkspace, manager: manager)
+        case .persistedSetupWorkspace:
+            guard let setup else { return nil }
+            setup.manager.selectWorkspace(setup.workspace)
+            return .existing(workspace: setup.workspace, manager: setup.manager)
+        case .createSetupWorkspace:
+            break
+        }
+
+        guard let manager,
+              !manager.isFinalizedForWindowClose,
+              let workspace = manager.addWorkspaceIfActive(
+                  title: Self.workspaceTitle,
+                  titleSource: .user,
+                  initialTerminalCommand: initialTerminalCommand ?? provider.addCommand,
+                  inheritWorkingDirectory: false,
+                  select: true,
+                  autoWelcomeIfNeeded: false,
+                  autoRefreshMetadata: false
+              ) else {
+            return nil
+        }
+        persistence.save(workspaceID: workspace.id)
+        return .created(workspace: workspace, manager: manager)
+    }
+
+    private static func persistedLocalWorkspace(
+        using persistence: CoderouterSetupWorkspacePersistence
+    ) -> (workspace: Workspace, manager: TabManager)? {
+        guard let workspaceID = persistence.validatedWorkspaceID(isValid: { workspaceID in
+            guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+                  !manager.isFinalizedForWindowClose,
+                  let workspace = manager.tabs.first(where: { $0.id == workspaceID }) else {
+                return false
+            }
+            return Self.isLocal(workspace)
+        }),
+        let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+        !manager.isFinalizedForWindowClose,
+        let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+        Self.isLocal(workspace) else {
+            return nil
+        }
+        return (workspace, manager)
+    }
+
+    /// Ownership comes from the workspace's binding state rather than its
+    /// visible title. An intentionally mixed local/cloud workspace remains a
+    /// valid local destination for a new local pane; fully remote, bound, and
+    /// cloud-only projection workspaces are excluded.
+    private static func isLocal(_ workspace: Workspace) -> Bool {
+        workspace.canHostLocalTerminal
+    }
+}
+
 /// What the Cloud tree's CodeRouter section shows: the selected team's
 /// accounts and whether a refresh is running.
 struct CloudTreeCoderouterSection: Equatable {

@@ -35,6 +35,11 @@
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
       "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Stadig i gang",
+      "message": "Cloududbyderen har ikke afsluttet denne ændring endnu. Den kan stadig blive gennemført.",
+      "action": "Tjek maskinens status med cmux vm ls eller på listen over maskiner, før du prøver igen."
+    },
     "providerTimeout": {
       "title": "Cloududbyderen er langsom",
       "message": "Cloududbyderen svarede ikke i tide.",
@@ -105,6 +110,11 @@
       "vcpuMessage": "Dine VM'er bruger allerede {used} af {pool} vCPU'er. Denne VM skal bruge {requested} vCPU'er.",
       "upgradeAction": "Sæt en VM på pause, eller slet den, eller opgrader til Max.",
       "action": "Sæt en VM på pause, eller slet den."
+    },
+    "activeLimit": {
+      "counted": "Tælles nu: {machines}. Pausede maskiner tælles ikke med.",
+      "provisioning": "{name} (klargøres)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -198,6 +208,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Sprog",
     "assets": "Assets",
+    "art": "Kunst",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Sammenlign"
@@ -1132,7 +1143,7 @@
       "transferUnavailableError": "Overførsler er midlertidigt utilgængelige, eller kontoen bliver opdateret. Prøv igen om et øjeblik.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gør privat",
-      "privateImportHint": "Nye konti er private. Del en konto for at gøre den tilgængelig for teamets Cloud-VM’er.",
+      "privateImportHint": "I en organisation deles nye konti med teamet og dets Cloud-VM'er. I dit personlige team forbliver de private. Brug Gør privat eller Del med teamet til at ændre en konto.",
       "description": "Delte konti er tilgængelige for dette teams Cloud VM’er. Private konti kan kun bruges af den person, der tilføjede dem.",
       "cancelAction": "Annuller",
       "apiKeysTitle": "API-nøgler",
@@ -2220,6 +2231,13 @@
           "indentGuides": "Markér hvert indrykningsniveau med en tynd lodret linje i den indbyggede fileditor.",
           "currentLineHighlight": "Farv den linje, hvor markøren står, når intet er markeret.",
           "tabWidth": "Hvor mange kolonner ét tabulatorstop fylder. Indrykningslinjerne bruger samme afstand."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Når et eksternt tmux-arbejdsområde er valgt, starter “Nyt arbejdsområde” en tmux-session på arbejdsområdets vært."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3202,8 +3220,8 @@
       "cloudLink": "Sådan konfigureres agenter på Cloud-maskiner",
       "teamsTitle": "Teams og deling",
       "teamsScope": "Konti tilhører det team, du er logget ind på. cr org list viser dine teams, og cr org switch skifter det team, som cr bruger. cmux coderouter-kommandoer tager --team '<id>'.",
-      "teamsPrivate": "En ny konto er privat for den person, der tilføjede den. I dashboardet gør \"Del med teamet\" den tilgængelig for alle medlemmer og for teamets Cloud-maskiner, og \"Gør privat\" fortryder det.",
-      "teamsPersonal": "I dit personlige team betjener dine private konti også dine egne Cloud-maskiner. En organisations Cloud-maskiner bruger kun delte konti, så del en konto, før du forventer, at en maskine bruger den.",
+      "teamsPrivate": "En konto, der tilføjes til en organisation, deles med teamet, så alle medlemmer og teamets Cloud-maskiner kan bruge den. I dashboardet begrænser Gør privat den til den person, der tilføjede den, og Del med teamet fortryder det.",
+      "teamsPersonal": "I dit personlige team er nye konti private, og dine private konti betjener også dine egne Cloud-maskiner. En organisations Cloud-maskiner bruger kun delte konti, så en privat konto skal deles, før en maskine kan bruge den.",
       "teamsManage": "Alle teammedlemmer kan tilføje, omdøbe, deaktivere, overføre og fjerne teamets delte konti. cr transfer flytter en konto til et andet team, efter du har bekræftet.",
       "usageTitle": "Forbrug og grænser",
       "usageLimits": "Hver udbyder måler forbruget på den konto, der betjente en anmodning, under den kontos egen plan og grænser. CodeRouter fordeler arbejdet på konti, men hæver ikke nogen enkelt kontos grænse.",
@@ -3322,6 +3340,23 @@
   "wallOfLove": {
     "title": "Wall of Love",
     "description": "Hvad folk siger om cmux."
+  },
+  "art": {
+    "metaTitle": "Kunst til cmux-baggrunde",
+    "metaDescription": "Se de offentligt tilgængelige malerier, som cmux tilbyder som vinduesbaggrunde: Van Gogh, Friedrich, Goya, Doré og flere, med kilder og licenser.",
+    "title": "Kunst",
+    "description": "Berømte malerier og tryk i det offentlige domæne, som du kan lægge bag dine terminaler. Alle kunstnerne døde for over 70 år siden, og hvert værk blev udgivet før 1931.",
+    "howToUse": "Kommer snart til cmux: brug et af disse værker som baggrund bag dine terminaler.",
+    "loading": "Indlæser samlingen…",
+    "unavailable": "Samlingen kunne ikke indlæses. Prøv igen om et par minutter.",
+    "collectionsLabel": "Samlinger",
+    "source": "Offentligt domæne · Kilde",
+    "collections": {
+      "darkArt": "Mørk kunst",
+      "museumIcons": "Museumsikoner",
+      "calm": "Rolig",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Endnu en dag, endnu et libghostty-baseret projekt, denne gang en macOS-terminal med vertikale faner, bedre organisering/notifikationer, indlejret/scriptbar browser specifikt rettet mod folk der bruger en masse terminalbaserede agentiske workflows.",

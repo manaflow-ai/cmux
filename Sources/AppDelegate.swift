@@ -8550,18 +8550,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         placementOverride: WorkspacePlacement? = nil,
-        debugSource: String = "newWorkspace"
+        debugSource: String = "newWorkspace",
+        skipConfiguredAction: Bool = false
     ) -> Bool {
-        // This is the context-following path used by configured/sidebar
-        // actions. The primary Cmd-N/File/palette controls call
-        // `performNewLocalWorkspaceAction` so they always stay local.
+        // This is the context-following path used by the ordinary New Workspace
+        // controls. On an active remote-tmux mirror it follows the routing toggle;
+        // `performNewLocalWorkspaceAction` is the explicit local escape hatch.
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
-        if let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
+        if !skipConfiguredAction, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
             return deviceWorkspaceCreationCoordinator?.start(on: machine, in: manager) ?? false
         }
-        if let manager,
+        if !skipConfiguredAction, let manager,
            let vmID = manager.selectedWorkspace?.cloudVMID,
            !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
@@ -8573,7 +8574,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredTabManager: preferredTabManager,
             event: event,
             placementOverride: placementOverride,
-            debugSource: debugSource
+            debugSource: debugSource,
+            skipConfiguredAction: skipConfiguredAction,
+            inheritWorkingDirectoryOverride: skipConfiguredAction
+                ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
+                : nil
         )
     }
 
@@ -8597,6 +8602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             debugSource: debugSource,
             skipConfiguredAction: true,
+            forceLocal: true,
             inheritWorkingDirectoryOverride: manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
         )
     }
@@ -8656,7 +8662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Whether a sidebar empty-area creation targets a remote-tmux mirror or a
     /// remote Mac, whose new workspaces are placed by the remote side.
     private func sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: TabManager) -> Bool {
-        tabManager.selectedTab?.isRemoteTmuxMirror == true
+        remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: tabManager)
             || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil
     }
 
@@ -8845,6 +8851,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusInitialBrowserAddressBarOnCreate: Bool = true,
         createdWorkspaceHandler: ((Workspace) -> Void)? = nil,
         skipConfiguredAction: Bool = false,
+        forceLocal: Bool = false,
         inheritWorkingDirectoryOverride: Bool? = nil
     ) -> Bool {
         let preferredContext = preferredTabManager.flatMap { mainWindowContext(for: $0) }
@@ -8916,6 +8923,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
 
+        // A configured action is an explicit override for New Workspace. Resolve
+        // it before the remote fallback so a custom action (for example a named
+        // workspace layout) keeps its existing meaning on a selected mirror.
+        // The built-in `.newWorkspace` action is the default and deliberately
+        // continues through the remote route below.
+        let configuredNewWorkspaceAction = initialSurface == .terminal && !skipConfiguredAction
+            ? context?.cmuxConfigStore?.resolvedNewWorkspaceAction()
+            : nil
+        let hasCustomConfiguredNewWorkspaceAction: Bool = {
+            guard let action = configuredNewWorkspaceAction else { return false }
+            if case .builtIn(.newWorkspace) = action.action { return false }
+            return true
+        }()
+
         // An explicit placement override is the caller's own decision about
         // where the workspace lands, so it outranks the selection-derived group
         // target: `createWorkspaceInGroup` takes a group placement instead and
@@ -8924,11 +8945,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let workspaceGroupTarget = placementOverride == nil
             ? context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
             : nil
+
+        if hasCustomConfiguredNewWorkspaceAction,
+           let context,
+           executeConfiguredNewWorkspaceActionIfAvailable(
+               in: context,
+               debugSource: debugSource,
+               workspaceGroupTarget: workspaceGroupTarget,
+               appendsToEnd: placementOverride == .end
+           ) {
+            return true
+        }
+
+        // On a remote-tmux mirror workspace, a new terminal workspace means
+        // "create a new tmux session on that workspace's host" — route it to the
+        // remote and mirror it back instead of creating a local workspace. The
+        // browser variant always stays local, and `forceLocal` (the "New Local
+        // Workspace" command) is the explicit escape hatch for opening local work
+        // alongside mirrors. `skipConfiguredAction` only preserves the primary
+        // Cmd+N/File menu behavior on ordinary local windows.
+        if initialSurface == .terminal,
+           !forceLocal,
+           let context,
+           !hasCustomConfiguredNewWorkspaceAction,
+           remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+            return true
+        }
+
         // The configured new-workspace action is the user's override for the
         // plain New Workspace behavior; the browser variant keeps its own
         // fixed semantics and skips it.
         if initialSurface == .terminal,
            !skipConfiguredAction,
+           !hasCustomConfiguredNewWorkspaceAction,
            let context,
            executeConfiguredNewWorkspaceActionIfAvailable(
                in: context,
@@ -9140,14 +9189,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // panel's pending row show Base coming up while the person keeps working (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
-                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.activeMachineCount ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
                     memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
+                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] _, arguments, progress, completion in
                             guard let self else { return nil }
                             var cancellation: CloudVMActionLauncher.CancellationHandle?
                             let didStart = self.launchCloudVMBaseOpen(
@@ -15658,7 +15707,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.cmdN")
+            performNewWorkspaceAction(
+                event: event,
+                debugSource: "shortcut.cmdN",
+                skipConfiguredAction: true
+            )
             return true
         }
 
@@ -15667,6 +15720,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("shortcut.action name=newBrowserWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
             performNewBrowserWorkspaceAction(event: event, debugSource: "shortcut.optCmdN")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .newLocalWorkspace) {
+#if DEBUG
+            cmuxDebugLog("shortcut.action name=newLocalWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            performNewLocalWorkspaceAction(event: event, debugSource: "shortcut.ctrlOptCmdN")
             return true
         }
 
@@ -16473,19 +16534,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // intentionally reuses nextSurface/prevSurface for Dock ownership so
         // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            stepTabOrWorkspace(
-                forward: true,
-                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+            if performFocusedDockShortcut(
+                .selectNextSurface,
+                action: .nextSurface,
                 event: event
-            )
+            ) {
+                return true
+            }
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            stepTabOrWorkspace(
-                forward: false,
-                tabManager: preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
+            if performFocusedDockShortcut(
+                .selectPreviousSurface,
+                action: .prevSurface,
                 event: event
-            )
+            ) {
+                return true
+            }
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
 
@@ -18193,6 +18260,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     if didStart { onExecuted?() }
                     return didStart
                 }
+                // Same routing as Cmd+N: on an active mirror workspace the
+                // built-in action creates a session on that mirror's host.
+                if remoteTmuxController.handleNewWorkspaceRequested(
+                    in: context.tabManager,
+                    onCreated: onExecuted
+                ) {
+                    return true
+                }
                 guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
                 onExecuted?()
                 return true
@@ -19176,7 +19251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if tabManager === closingTabManager {
+        let closingManagerOwnsCallerRouting =
+            tabManager === closingTabManager
+            || TerminalController.shared.activeTabManagerForCallerNotification() === closingTabManager
+        if closingManagerOwnsCallerRouting {
             let nextContext: MainWindowContext? = {
                 if let keyWindow = shortcutRoutingKeyWindow,
                    let ctx = contextForMainTerminalWindow(keyWindow, reindex: false) {

@@ -447,8 +447,8 @@ struct MachinesPanelView: View {
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                tabManager?.selectedTabId = workspaceID
+            selectLocalWorkspace: { [weak tabManager] workspaceID in
+                AppDelegate.shared?.selectCloudTreeLocalWorkspace(workspaceID, from: tabManager)
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
@@ -485,6 +485,8 @@ struct MachinesPanelView: View {
         nodeActions.addCoderouterAccount = { [self] provider in addCoderouterAccount(provider) }
         nodeActions.removeCoderouterAccount = { [self] account in removeCoderouterAccount(account) }
         nodeActions.refreshCoderouter = { [self] in requestCoderouterRefresh() }
+        nodeActions.refreshCloudMachines = { [weak viewModel] in viewModel?.refresh(tree: true) }
+        nodeActions.refreshDevices = { [weak devicesModel] in devicesModel?.refresh() }
         nodeActions.openCoderouterGuidePane = { [weak tabManager] in
             guard let workspace = tabManager?.selectedWorkspace,
                   let paneId = workspace.bonsplitController.focusedPaneId
@@ -625,12 +627,44 @@ struct MachinesPanelView: View {
             scope: destination.teamScope,
             cmuxExecutable: cmuxExecutable
         )
-        guard let workspaceID = tabManager?.selectedWorkspace?.id else {
-            viewModel.noteTreeHint(String(localized: "coderouter.selectWorkspace", defaultValue: "Select a local workspace before adding a coding agent account."))
-            return
-        }
 
         Task { @MainActor in
+            let coordinator = CoderouterSetupWorkspaceCoordinator(
+                managerSource: { @MainActor in
+                    if let tabManager, !tabManager.isFinalizedForWindowClose {
+                        return tabManager
+                    }
+                    if let active = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil),
+                       !active.isFinalizedForWindowClose {
+                        return active
+                    }
+                    return AppDelegate.shared?.tabManager.flatMap { manager in
+                        manager.isFinalizedForWindowClose ? nil : manager
+                    }
+                },
+                provider: provider,
+                initialTerminalCommand: command
+            )
+            guard let route = coordinator.resolveDestination() else {
+                viewModel.noteTreeHint(String(
+                    localized: "coderouter.setup.localWorkspaceUnavailable",
+                    defaultValue: "Could not open a local workspace for CodeRouter setup."
+                ))
+                return
+            }
+
+            // A newly-created setup workspace already owns the initial command
+            // in its starter terminal. Reuse adds a fresh terminal in the
+            // persisted workspace so each provider gets its own interactive
+            // setup session.
+            let workspace: Workspace
+            switch route {
+            case .created:
+                return
+            case let .existing(existingWorkspace, _):
+                workspace = existingWorkspace
+            }
+
             do {
                 _ = try await TerminalController.surfaceNewTerminal(
                     machine: .local,
@@ -638,7 +672,7 @@ struct MachinesPanelView: View {
                     cwd: nil,
                     name: "CodeRouter",
                     remoteWorkspaceID: nil,
-                    destination: .workspace(id: workspaceID, placement: .split),
+                    destination: .workspace(id: workspace.id, placement: .split),
                     focus: true
                 )
             } catch {

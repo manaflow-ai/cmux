@@ -1102,6 +1102,45 @@ function assertCreateReservationFitsPlan(input: {
   });
 }
 
+/** At most this many counted machines ride on an active-limit refusal. */
+const ACTIVE_LIMIT_NAMED_MACHINES = 20;
+
+/**
+ * The refusal for a full active-VM allowance, naming the machines the count
+ * saw. Clients list every non-destroyed machine, including paused ones that
+ * do not count, so the names are what lets a person see which slots are used.
+ */
+async function activeLimitExceededInTx(
+  tx: CloudDbTransaction,
+  input: { readonly scope: SQL | undefined; readonly billingTeamId: string; readonly limit: number },
+): Promise<VmLimitExceededError> {
+  const rows = await tx
+    .select({
+      id: cloudVms.id,
+      providerVmId: cloudVms.providerVmId,
+      displayName: cloudVms.displayName,
+      slug: cloudVms.slug,
+      status: cloudVms.status,
+    })
+    .from(cloudVms)
+    .where(and(inArray(cloudVms.status, ["provisioning", "running"]), input.scope))
+    .orderBy(asc(cloudVms.createdAt))
+    .limit(ACTIVE_LIMIT_NAMED_MACHINES);
+  return new VmLimitExceededError({
+    kind: "active_vms",
+    billingTeamId: input.billingTeamId,
+    limit: input.limit,
+    activeMachines: rows.map((row) => {
+      const id = row.providerVmId ?? row.id;
+      return {
+        id,
+        name: row.displayName?.trim() || row.slug?.trim() || id,
+        status: row.status === "running" ? "running" as const : "provisioning" as const,
+      };
+    }),
+  });
+}
+
 function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -2035,8 +2074,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2174,8 +2213,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const activeCount = Number(active?.total ?? 0);
             const limit = input.maxActiveVms;
             if (limit !== null && activeCount >= limit) {
-              throw new VmLimitExceededError({
-                kind: "active_vms",
+              throw await activeLimitExceededInTx(tx, {
+                scope: eq(cloudVms.billingTeamId, input.billingTeamId),
                 billingTeamId: input.billingTeamId,
                 limit,
               });
@@ -2398,8 +2437,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
           if (limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+            throw await activeLimitExceededInTx(tx, {
+              scope: eq(cloudVms.billingTeamId, input.billingTeamId),
               billingTeamId: input.billingTeamId,
               limit,
             });
@@ -2844,8 +2883,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
           if (!input.skipActiveLimit && limit !== null && activeCount >= limit) {
-            throw new VmLimitExceededError({
-              kind: "active_vms",
+            throw await activeLimitExceededInTx(tx, {
+              scope: teamScope,
               billingTeamId: input.billingTeamId ?? input.userId,
               limit,
             });

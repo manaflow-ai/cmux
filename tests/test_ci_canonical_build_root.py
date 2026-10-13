@@ -549,6 +549,47 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
         self.assertNotEqual(fingerprint, old)
 
 
+class SeedGhosttyPinTests(unittest.TestCase):
+    """A DerivedData seed bakes in the GhosttyKit it compiled against.
+
+    Xcode keeps its processed copy of the prebuilt GhosttyKit.xcframework in
+    DerivedData, so a pull request that adopted a nightly seed from before
+    #19443's ghostty bump compiled against the old headers ("cannot find
+    ghostty_surface_set_link_filter") while main's own CI passed. The ghostty
+    pin is part of the fingerprint every seed and cache key carries.
+    """
+
+    def fingerprint(self, base: Path, ghostty: str, name: str = "checkout") -> str:
+        workspace = base / f"{name}-{ghostty[:4]}"
+        workspace.mkdir(parents=True)
+        git = ["git", "-C", str(workspace)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["update-index", "--add", "--cacheinfo", f"160000,{ghostty},ghostty"], check=True)
+        subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pin"], check=True)
+        bin_dir = base / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        xcode = bin_dir / "xcodebuild"
+        xcode.write_text("#!/bin/sh\necho 'Xcode 26.3'\n")
+        xcode.chmod(0o755)
+        root = base / "canonical"
+        root.mkdir(exist_ok=True)
+        env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ["PATH"], CMUX_CI_CANONICAL_ROOT=str(root))
+        result = subprocess.run([str(SCRIPT), "canonical-fingerprint", str(root / "derived-data-compile-admission")],
+                                cwd=workspace, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_a_ghostty_bump_changes_the_seed_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            before = self.fingerprint(base, "1" * 40)
+            after = self.fingerprint(base, "2" * 40)
+            again = self.fingerprint(base, "2" * 40, name="another-checkout")
+        self.assertRegex(before, r"^[0-9a-f]{32}$")
+        self.assertNotEqual(before, after)
+        self.assertEqual(after, again)
+
+
 class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
     """Every scheme build reuses the manifests the resolve evaluated.
 

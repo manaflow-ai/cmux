@@ -411,6 +411,10 @@ path = "tests/test_workspace_initial_command_shim_root_owner.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_memory_pressure_coalition.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_pr_watch_private_state.py"
 lane = "macos-shell"
 
@@ -544,6 +548,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_release_profile.py"
 lane = "linux-guard"
 
 [[test]]
@@ -788,6 +796,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1778,4 +1794,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cli_package_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_merge_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_dispatch.py"
 lane = "linux-guard"

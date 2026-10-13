@@ -885,8 +885,8 @@ class GhosttyApp {
             // Mac's clipboard without a user gesture or confirmation.
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
                   let terminalSurface = callbackContext.terminalSurface,
-                  terminalSurface.allowsAutomaticClipboardWrite,
-                  let content = content, len > 0 else { return }
+                  let content = content else { return }
+            guard terminalSurface.permitsClipboardWrite(contentLength: Int(len)) else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
 
@@ -6203,7 +6203,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let copyAction = GhosttyApp.shared.configuredCopyToClipboardAction
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
-                performBindingActionImmediately(copyAction)
+                guard let terminalSurface else {
+                    return performBindingActionImmediately(copyAction)
+                }
+                return terminalSurface.withUserInitiatedClipboardWriteIntent {
+                    performBindingActionImmediately(copyAction)
+                }
             }
         if let formattedRepresentations {
             GhosttyApp.terminalPasteboard.writeRepresentations(
@@ -6239,10 +6244,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var copied = false
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
-                copied = ghostty_surface_copy_selection_to_clipboard_bounded(
-                    surface,
-                    maximumBytes
-                )
+                if let terminalSurface {
+                    copied = terminalSurface.withUserInitiatedClipboardWriteIntent {
+                        ghostty_surface_copy_selection_to_clipboard_bounded(
+                            surface,
+                            maximumBytes
+                        )
+                    }
+                } else {
+                    copied = ghostty_surface_copy_selection_to_clipboard_bounded(
+                        surface,
+                        maximumBytes
+                    )
+                }
                 return copied
             }
         if let formattedRepresentations {
@@ -6750,15 +6764,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Input Handling
 
-    /// The AppKit Copy action runs before a fullscreen TUI can receive Cmd+C.
-    /// If cmux could not copy a native terminal selection, forward the same
-    /// semantic key only while an alternate-screen application owns the view.
-    /// A primary-screen shell with no selection remains a harmless no-op.
-    static func shouldForwardMenuCopyToAlternateScreen(
+    /// The AppKit Copy action runs before a terminal application can receive
+    /// Cmd+C. If cmux could not copy a native terminal selection, forward the
+    /// same semantic key while an application owns the view: a fullscreen TUI
+    /// on the alternate screen, or an inline one that reports mouse events and
+    /// draws its own selection (#18812). A plain shell with no selection
+    /// remains a harmless no-op.
+    static func shouldForwardMenuCopyToTerminalApplication(
         copiedNativeSelection: Bool,
-        isAlternateScreenActive: Bool
+        isAlternateScreenActive: Bool,
+        isMouseCaptured: Bool
     ) -> Bool {
-        !copiedNativeSelection && isAlternateScreenActive
+        !copiedNativeSelection && (isAlternateScreenActive || isMouseCaptured)
     }
 
     @IBAction func copy(_ sender: Any?) {
@@ -6775,9 +6792,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             copied = copyCurrentGhosttySelectionToClipboard(surface: surface)
         }
 
-        guard Self.shouldForwardMenuCopyToAlternateScreen(
+        guard Self.shouldForwardMenuCopyToTerminalApplication(
             copiedNativeSelection: copied,
-            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true
+            isAlternateScreenActive: terminalSurface?.isAlternateScreenActive() == true,
+            isMouseCaptured: ghostty_surface_mouse_captured(surface)
         ) else {
             return
         }
@@ -8541,7 +8559,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
             modifierFlagsRawValue: pressFlags.rawValue,
-            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint)
+            permitsLinkActivation: pressFlags.contains(.command) && bounds.contains(eventPoint),
+            pressPointX: eventPoint.x,
+            pressPointY: eventPoint.y
         )
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
@@ -8578,6 +8598,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               ) else { return false }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: eventPoint.x, y: eventPoint.y)
+        }
         trackMousePointIfUsable(eventPoint)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         return true
@@ -8621,6 +8644,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let linkActivationAuthorized = completion?.permitsLinkActivation == true
             && event.modifierFlags.contains(.command) && bounds.contains(point) && desiredFocus
             && !codexActionHandled
+        if let completion,
+           let terminalSurface,
+           terminalSurface.ioMode == .manualMirror,
+           terminalSurface.allowsAutomaticClipboardWrite == false {
+            let callbackCount = TerminalPointerGestureState.clipboardWriteCount(
+                isDrag: completion.isDrag,
+                clickCount: event.clickCount,
+                isShiftClick: releaseFlags.contains(.shift)
+            )
+            if callbackCount > 0 {
+                terminalSurface.permitClipboardWriteForUserGesture(writeCount: callbackCount)
+            }
+        }
         _ = dispatchCommandClickRelease(
             surface: surface,
             at: point,
@@ -9851,6 +9887,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
+        if event.type == .leftMouseDragged {
+            terminalPointerGesture.markDragged(atX: mouseState.localPoint.x, y: mouseState.localPoint.y)
+        }
         copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
@@ -12922,13 +12961,29 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         if !window.isKeyWindow {
+            let applicationIsActive = NSApp.isActive
+#if DEBUG
+            cmuxDebugLog(
+                "focus.ensure.windowCandidate surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "appActive=\(applicationIsActive ? 1 : 0) windowVisible=\(window.isVisible ? 1 : 0) " +
+                "windowMini=\(window.isMiniaturized ? 1 : 0) windowKey=\(window.isKeyWindow ? 1 : 0)"
+            )
+#endif
             guard shouldAllowEnsureFocusWindowActivation(
                 activeTabManager: delegate.tabManager,
                 targetTabManager: tabManager,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow,
-                targetWindow: window
+                targetWindow: window,
+                applicationIsActive: applicationIsActive
             ) else {
+#if DEBUG
+                let reason = applicationIsActive ? "windowOwnership" : "inactiveApplication"
+                cmuxDebugLog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=\(reason)"
+                )
+#endif
                 return
             }
             window.makeKeyAndOrderFront(nil)

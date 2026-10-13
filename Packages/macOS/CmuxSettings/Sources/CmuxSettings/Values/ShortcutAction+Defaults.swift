@@ -80,6 +80,7 @@ extension ShortcutAction {
         case .focusSidebar: return ShortcutStroke(key: "e", command: true, control: true)
         case .showWindowHints: return ShortcutStroke(key: "j", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
+        case .newLocalWorkspace: return ShortcutStroke(key: "n", command: true, option: true, control: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
         case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true)
         case .newCloudMachine: return ShortcutStroke(key: "y", command: true, shift: true)
