@@ -101,6 +101,10 @@ extension Workspace {
                 stateSince = nil
             }
             let lifecycle = Self.customSidebarAgentLifecycle(
+                sessionID: record.sessionID,
+                currentSessionID: panelId.flatMap {
+                    service.registry.liveSessionSnapshot(surfaceID: $0.uuidString)?.sessionID
+                },
                 state: record.state,
                 agentSource: record.agentKind.sourceName,
                 panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] }
@@ -139,6 +143,8 @@ extension Workspace {
     /// Returns the custom-sidebar wire value for the lifecycle recorded on an
     /// agent's hosting panel.
     static func customSidebarAgentLifecycle(
+        sessionID: String,
+        currentSessionID: String?,
         state: ChatAgentState,
         agentSource: String,
         panelLifecycles: [String: AgentHibernationLifecycleState]?
@@ -146,6 +152,8 @@ extension Workspace {
         // A lifecycle belongs to the currently bound session. Avoid exposing
         // a newer session's panel state on an ended record.
         if case .ended = state { return nil }
+        _ = sessionID
+        _ = currentSessionID
 
         let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
         guard let lifecycle = panelLifecycles?[key] else { return nil }
