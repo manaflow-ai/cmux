@@ -32,6 +32,12 @@ final class ConversationDecelerationFillDriver {
         self.link = link
     }
 
+    /// The offset moved by `delta` to keep the rows in place.
+    func contentShifted(by delta: CGFloat) {
+        guard delta != 0 else { return }
+        fill.shift(by: delta)
+    }
+
     private func update(modelTime: Double) {
         guard let collectionView else { return }
         let elapsed = lastModelTime.map { modelTime - $0 } ?? 0

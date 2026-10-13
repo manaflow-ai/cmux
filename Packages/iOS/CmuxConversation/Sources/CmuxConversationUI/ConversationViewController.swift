@@ -1209,13 +1209,16 @@ public final class ConversationViewController: UIViewController {
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
+            let offsetBefore = collectionView.contentOffset.y
             UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.restore(anchor)
             }
+            decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         } else {
+            let offsetBefore = collectionView.contentOffset.y
             if isScrollingToTop {
                 // Stop a running scroll-to-top so it cannot carry the reader
                 // past the anchor into the page that just landed.
@@ -1232,6 +1235,9 @@ public final class ConversationViewController: UIViewController {
                 self.restore(anchor)
                 self.collectionView.layoutIfNeeded()
             }
+            // A page landing mid-fling keeps the rows in place; the offset's
+            // jump is not motion.
+            decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
             glideRegrouped(from: screenBefore)
         }
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }

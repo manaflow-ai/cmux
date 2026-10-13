@@ -5,8 +5,10 @@ import Foundation
 /// link it adds when the finger lifts does not fire in the next frame, so
 /// that frame shows no movement and the one after moves twice as far (iOS
 /// 26.5 simulator, ours and Messages alike: 27, 0, 51, 25 pt at 60 Hz; on
-/// iOS 27 UIKit moves 27, 25, 25, 25). A rigid transcript shows the stall
-/// at every fling; Messages' transcript dynamics hide it.
+/// iOS 27 UIKit moves 27, 25, 25, 25). Setting the offset mid-fling (a page
+/// landing above keeps the rows in place) restarts it the same way, on
+/// iOS 27 too. A rigid transcript shows each stall; Messages' transcript
+/// dynamics hide them.
 ///
 /// This draws the content where the skipped frame's step would have taken
 /// it (`lead`, in content-offset points along the motion) and lets the
@@ -28,6 +30,14 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
     static let absorption: CGFloat = 0.15
 
     public init() {}
+
+    /// The offset was moved to keep the rows where they are (an older page
+    /// landed above them): that move is not motion. UIKit restarts its
+    /// deceleration when the offset is set, and skips the next frame then
+    /// too, which the next update draws.
+    public mutating func shift(by delta: CGFloat) {
+        lastOffset = lastOffset.map { $0 + delta }
+    }
 
     /// One UI update after UIKit's display links: the offset this frame
     /// shows, the frame's length, and whether UIKit is decelerating.
