@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-// The SDK's own resolver, imported only here, to pin that our REST helpers
-// talk to the same Stack host as the SDK for every configuration.
-import { getBaseUrl as sdkServerBaseUrl } from "@hexclave/js/dist/esm/lib/hexclave-app/apps/implementations/common.js";
+import { StackServerApp } from "@hexclave/js";
 
 import { createHexclaveServerApi } from "../services/auth/hexclave/serverApi";
 import { stackApiBaseURL, stackTokenIssuerBaseURL } from "../services/auth/stackApiBaseURL";
@@ -33,6 +31,21 @@ const URL_KEYS = [
 ] as const;
 const saved = Object.fromEntries(URL_KEYS.map((key) => [key, process.env[key]]));
 const originalFetch = globalThis.fetch;
+
+/**
+ * The API origin a real SDK server app resolves for the current environment
+ * (read through its interface, test-only), so our REST helpers are pinned to
+ * the same Stack host as the SDK for every configuration.
+ */
+function sdkServerBaseUrl(_: undefined): string {
+  const app = new StackServerApp({
+    projectId: "00000000-0000-4000-8000-000000000001",
+    publishableClientKey: "pck_test",
+    secretServerKey: "ssk_test",
+    tokenStore: "memory",
+  }) as unknown as { _interface: { getApiUrl(): string } };
+  return new URL(app._interface.getApiUrl()).origin;
+}
 
 function clearUrlEnv(): void {
   for (const key of URL_KEYS) delete process.env[key];
