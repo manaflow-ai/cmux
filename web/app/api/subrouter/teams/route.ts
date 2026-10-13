@@ -23,7 +23,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { reportError } from "../../../../services/observability/report";
-import { markTeamPlanRequired } from "../../../../services/billing/teamResolution";
+import { createTeamForUser } from "../../../../services/teams/admin";
 import { getStackServerApp } from "../../../lib/stack";
 import {
   billingCatalogTeams,
@@ -60,23 +60,9 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({ error: "invalid_team_name" }, 400);
       }
 
-      const team = await getStackServerApp().createTeam({
-        displayName,
-        creatorUserId: user.id,
-      });
-      // An unflagged extra team would run machines on the creator's personal
-      // plan, so a team that cannot be flagged is removed again.
-      try {
-        await markTeamPlanRequired(team);
-      } catch (error) {
-        await team.delete().catch(() => {
-          console.error("subrouter team create rollback failed", { teamId: team.id });
-        });
-        throw error;
-      }
-      const stackUser = await getStackServerApp().getUser(user.id);
-      if (!stackUser) return unauthorized();
-      await stackUser.update({ selectedTeamId: team.id });
+      // The shared path flags the team as needing its own plan for Cloud
+      // machines before the creator joins, grants admin, and selects it.
+      const team = await createTeamForUser(user.id, displayName);
       return jsonResponse({
         team: { id: team.id, name: team.displayName },
         selectedTeamId: team.id,

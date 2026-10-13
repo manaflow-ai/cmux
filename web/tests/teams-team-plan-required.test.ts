@@ -69,11 +69,22 @@ describe("creating a team", () => {
     expect(teamPlanRequiredFromMetadata(stack.teams.get(team.id)!.metadata)).toBe(true);
   });
 
-  test("a team whose flag cannot be written is deleted again", async () => {
+  test("the creator joins only after the flag is written", async () => {
+    const stack = new FakeStack().addUser({ id: ADMIN_ID });
+    await createTeamForUser(ADMIN_ID, "Side project", { stack: stack.app() });
+    const flagged = stack.calls.findIndex((call) => call.startsWith("updateTeam:") && call.includes(TEAM_PLAN_REQUIRED_METADATA_KEY));
+    const joined = stack.calls.findIndex((call) => call.startsWith("addUser:"));
+    expect(stack.calls.some((call) => call === `createTeam:Side project:undefined`)).toBe(true);
+    expect(flagged).toBeGreaterThanOrEqual(0);
+    expect(joined).toBeGreaterThan(flagged);
+  });
+
+  test("a team whose flag cannot be written is deleted again, never joined", async () => {
     const stack = new FakeStack().addUser({ id: ADMIN_ID });
     stack.failMetadataUpdate = true;
     await expect(createTeamForUser(ADMIN_ID, "Broken", { stack: stack.app() })).rejects.toThrow();
     expect(stack.calls.some((call) => call.startsWith("deleteTeam:"))).toBe(true);
+    expect(stack.calls.some((call) => call.startsWith("addUser:"))).toBe(false);
     expect(stack.teams.size).toBe(0);
   });
 });

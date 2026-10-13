@@ -8,7 +8,7 @@ import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resizeVm } from "../../../../../services/vms/workflows";
 import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "../../../../../services/vms/machineSpec";
-import { maxDiskMbForPlan, maxMemoryMbForPlan, maxVcpusForPlan } from "../../../../../services/vms/entitlements";
+import { isVmProGateBlocked, maxDiskMbForPlan, maxMemoryMbForPlan, maxVcpusForPlan } from "../../../../../services/vms/entitlements";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 
 /** Grow a Cloud VM's resources. The workflow owns plan and grow-only checks. */
@@ -25,7 +25,7 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
-      if (account.entitlements.teamPlanRequired) {
+      if (account.entitlements.teamPlanRequired && isVmProGateBlocked(account.entitlements)) {
         return vmRequiresTeamPlanResponse(account.entitlements.billingTeamId, vmRequestLocale(request));
       }
       let body: unknown;

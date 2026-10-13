@@ -5,6 +5,7 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../../../services/vms/vmErrorMessages";
+import { isVmProGateBlocked } from "../../../../../services/vms/entitlements";
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { resumeVm } from "../../../../../services/vms/workflows";
@@ -31,7 +32,7 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
-      if (account.entitlements.teamPlanRequired) {
+      if (account.entitlements.teamPlanRequired && isVmProGateBlocked(account.entitlements)) {
         return vmRequiresTeamPlanResponse(account.entitlements.billingTeamId, vmRequestLocale(request));
       }
       setSpanAttributes(span, { "cmux.vm.id": id });
