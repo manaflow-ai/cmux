@@ -369,13 +369,23 @@ public final class AddressBarView: NSView {
     /// address, a later one places the caret at the nearest character. The
     /// chip, badges and star take their own presses.
     public override func mouseDown(with event: NSEvent) {
+        guard isBarHit(event) else { return super.mouseDown(with: event) }
         // While editing the field editor tracks the press (it reports it to
         // the state machine itself); at rest the field starts editing.
         if let editor = field.editor { editor.mouseDown(with: event) } else { field.mouseDown(with: event) }
     }
 
     public override func rightMouseDown(with event: NSEvent) {
+        guard isBarHit(event) else { return super.rightMouseDown(with: event) }
         field.rightMouseDown(with: event)
+    }
+
+    /// The press landed on the bar itself (or a gap between the badges), not
+    /// on a chip, badge or star that passed it up the responder chain.
+    private func isBarHit(_ event: NSEvent) -> Bool {
+        guard let superview else { return false }
+        let hit = hitTest(superview.convert(event.locationInWindow, from: nil))
+        return hit === self || hit === badges
     }
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {

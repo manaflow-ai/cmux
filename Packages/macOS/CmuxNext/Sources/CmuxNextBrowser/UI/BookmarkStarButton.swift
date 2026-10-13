@@ -86,7 +86,8 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        paintFill(animated: false)
+        // A redraw during a hover fade leaves the fade running.
+        if layer?.animation(forKey: "backgroundColor") == nil { paintFill(animated: false) }
         performWithTheme {
             image.contentTintColor = state == .on ? OmnibarStyle.textPrimary : OmnibarStyle.textSecondary
         }

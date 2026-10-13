@@ -18,6 +18,11 @@ walks the states with `debug.mouse` (the synthesized pointer and clicks), `debug
   6. Cmd-L focuses and selects; typed text reverts on Escape (still focused), a second Escape blurs;
   7. snapshots of rest, hover and editing in light and dark (`debug.window_snapshot`).
 
+The cursor checks are rule checks: `probe_cursor` is the cursor `OmnibarPointer` gives for the
+region AppKit hits at the point. `installed_text_cursor` (what the field last installed when AppKit
+rebuilt its cursor rects) is printed as a note, because AppKit rebuilds cursor rects lazily for the
+key window and a test window here is never key.
+
 GUI host only (cmux-lawrence-2 or the M1 Max through nx-remote). An app it launched is quit and
 the tag's daemons stopped at the end. Exits 1 when a check fails.
 """
@@ -233,6 +238,7 @@ try:
         first = wait_for(lambda: selection_all(omnibar()) and omnibar(), "first click focuses and selects all", 5) or omnibar()
         check(selection_all(first), f"first click selects the whole address: {first.get('selection')} of {len(first.get('text') or '')}")
         check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text while editing {probe(center(text))}")
+        print(f"note installed_text_cursor while editing: {pointer().get('installed_text_cursor')}", flush=True)
         if above_text:
             check(probe(above_text)[1] == "arrow", f"arrow over the bar around the text while editing {probe(above_text)}")
         snapshot("light-editing")

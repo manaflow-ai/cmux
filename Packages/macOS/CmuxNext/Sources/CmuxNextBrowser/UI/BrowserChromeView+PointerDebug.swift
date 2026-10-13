@@ -28,6 +28,11 @@ public struct BrowserPointerDebug: Sendable, Equatable {
     /// cursor (`arrow`, `iBeam`) at the probe point.
     public var probeRegion: String?
     public var probeCursor: String?
+    /// The cursor the field last installed over its text when AppKit rebuilt
+    /// its cursor rects (`arrow`, `iBeam`); nil before the first build.
+    /// AppKit rebuilds them lazily for the key window, so this can lag in a
+    /// window that is never key.
+    public var installedTextCursor: String?
     /// Part name to frame (x, y, width, height).
     public var frames: [String: CGRect]
 }
@@ -63,6 +68,7 @@ extension BrowserChromeView {
             hoveredButtons: hovered.sorted(),
             probeRegion: probed?.rawValue ?? (probe == nil ? nil : "outside"),
             probeCursor: probed.map { OmnibarPointer.cursor($0, editing: addressBar.isEditing).rawValue },
+            installedTextCursor: addressBar.field.installedCursor?.rawValue,
             frames: frames
         )
     }
@@ -78,10 +84,12 @@ extension BrowserChromeView {
     private func region(atTopLeft point: CGPoint) -> OmnibarPointer.Region? {
         guard let window, let content = window.contentView else { return nil }
         let base = NSPoint(x: point.x, y: content.bounds.height - point.y)
-        guard let hit = content.hitTest(content.convert(base, from: nil)), hit.isDescendant(of: toolbar) else { return nil }
+        // hitTest takes a point in the receiver's superview coordinates.
+        let root = content.superview ?? content
+        guard let hit = root.hitTest(root.convert(base, from: nil)), hit.isDescendant(of: toolbar) else { return nil }
         let field = addressBar.field
         if hit === field || hit.isDescendant(of: field) { return .text }
-        if hit === addressBar { return .bar }
+        if hit === addressBar || hit.superview === addressBar && hit is NSStackView { return .bar }
         var view: NSView? = hit
         while let current = view, current !== toolbar {
             if current is NSControl || current is any PointerHoverReporting || current is ProfileBadgeView || current is MachineBadgeView {

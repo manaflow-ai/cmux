@@ -73,6 +73,7 @@ enum DebugOmnibar {
             "hovered_buttons": .array(report.hoveredButtons.map(JSONValue.string)),
             "probe_region": report.probeRegion.map(JSONValue.string) ?? .null,
             "probe_cursor": report.probeCursor.map(JSONValue.string) ?? .null,
+            "installed_text_cursor": report.installedTextCursor.map(JSONValue.string) ?? .null,
             "frames": .object(report.frames.mapValues(rect)),
         ])
     }

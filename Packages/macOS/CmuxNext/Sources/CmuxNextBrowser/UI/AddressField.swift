@@ -80,10 +80,16 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     override func resetCursorRects() {
         if isFieldEditorActive {
             super.resetCursorRects()
+            installedCursor = .iBeam
         } else {
             addCursorRect(bounds, cursor: OmnibarPointer.cursor(.text, editing: false).cursor)
+            installedCursor = .arrow
         }
     }
+
+    /// The cursor AppKit last asked this field to install over its text
+    /// (`debug.omnibar`): nil until AppKit built the field's cursor rects.
+    private(set) var installedCursor: OmnibarPointer.Cursor?
 
     // MARK: OmnibarFieldSurface
 
