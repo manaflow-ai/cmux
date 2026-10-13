@@ -73,6 +73,8 @@ final class ConversationHeaderView: UIView {
         backGlass.contentView.addSubview(unreadPill)
         unreadPill.addSubview(unreadLabel)
         unreadPill.isUserInteractionEnabled = false
+        // No count until `configure` says so (an empty pill read as a white dot).
+        unreadPill.isHidden = true
         // The count is spoken as the back button's value, not as a stray "349".
         unreadPill.isAccessibilityElement = false
         unreadPill.accessibilityElementsHidden = true

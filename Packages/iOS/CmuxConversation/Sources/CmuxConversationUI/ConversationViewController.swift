@@ -11,19 +11,25 @@ public struct ConversationPresentationOptions {
     public var serviceSubtitle: String
     public var unreadCount: Int
     public var trailingSymbol: String
+    /// Whether incoming rows of a one-to-one conversation slide with the
+    /// swipe-left send-time drawer, as every row of a group does (see
+    /// `TimestampDrawerRows`). Off by default: Messages keeps them still.
+    public var incomingRowsFollowTimestampDrawer: Bool
 
     public init(
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
-        trailingSymbol: String = "video"
+        trailingSymbol: String = "video",
+        incomingRowsFollowTimestampDrawer: Bool = false
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
+        self.incomingRowsFollowTimestampDrawer = incomingRowsFollowTimestampDrawer
     }
 }
 
@@ -323,6 +329,11 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    public override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        configureHeaderIfNeeded()
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -690,11 +701,7 @@ public final class ConversationViewController: UIViewController {
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
         rowsBase = (revision, ConversationRowBuilder.statusMessageID(store: store))
         updateCatchUp()
-        if let info = store.info, header.window != nil, !hasConfiguredHeader {
-            hasConfiguredHeader = true
-            configuredHeaderTitle = info.title
-            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
-        } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
+        if !configureHeaderIfNeeded(), let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
             // "… named the conversation": the header takes the new name.
             configuredHeaderTitle = info.title
             header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
@@ -780,6 +787,21 @@ public final class ConversationViewController: UIViewController {
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
+
+    /// Configures the header once the conversation is known and the header
+    /// is in a window (its colors resolve against the window's traits).
+    /// Runs on each rebuild and when the view appears: a host that shares a
+    /// store already connected before this controller existed sends no
+    /// further change, so the first rebuild (before the window) cannot be
+    /// the only chance. Returns whether it configured the header now.
+    @discardableResult
+    func configureHeaderIfNeeded() -> Bool {
+        guard !hasConfiguredHeader, let info = store.info, header.window != nil else { return false }
+        hasConfiguredHeader = true
+        configuredHeaderTitle = info.title
+        header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+        return true
+    }
     private var configuredHeaderTitle: String?
     private var didFocusEmptyConversation = false
 
@@ -1472,6 +1494,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
+            cell.incomingFollowsTimestampDrawer = options.incomingRowsFollowTimestampDrawer
             cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
@@ -1514,6 +1537,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .typing(ids):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TypingCell.reuseID, for: indexPath) as! TypingCell
             cell.margin = layoutMargin
+            cell.incomingFollowsTimestampDrawer = options.incomingRowsFollowTimestampDrawer
             cell.timestampDrawerOffset = timestampReveal * timestampRevealDistance
             // Batch updates and reuse strip layer animations; restart the pulse.
             cell.indicator.startAnimating()

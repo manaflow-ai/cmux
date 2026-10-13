@@ -38,6 +38,11 @@ extension ConversationViewController {
         guard let verb = parts.first else { return "error empty" }
         let argument = parts.count > 1 ? parts[1] : ""
         switch verb {
+        case "timestamps":
+            // Swipe left for send times: points to drag, seconds, seconds held.
+            let numbers = argument.split(separator: " ").compactMap { Double($0) }
+            labTimestampDrag(points: CGFloat(numbers.first ?? 120), seconds: numbers.count > 1 ? numbers[1] : 0.5, hold: numbers.count > 2 ? numbers[2] : 1)
+            return "ok"
         case "send":
             composer.text = argument
             composerDidTapSend(composer)

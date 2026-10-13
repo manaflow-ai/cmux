@@ -121,7 +121,7 @@ let package = Package(
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .testTarget(name: "CnxChiefTests", dependencies: [
-            "CnxChief", "CnxTransport",
+            "CnxChief", "CnxTransport", "CnxModel", "CnxAgentChat",
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
     ],

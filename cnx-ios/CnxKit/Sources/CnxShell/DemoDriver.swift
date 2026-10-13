@@ -25,7 +25,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -38,6 +38,7 @@ struct DemoDriver {
         case "workspaces": await workspaces()
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
+        case "chief-parity": await chiefParity()
         case "ws-terminal": await workspaceTerminal()
         case "tour-a": await tourHomeAndWorkspaces()
         case "tour-b": await tourFeedChatDiff()
@@ -304,6 +305,94 @@ struct DemoDriver {
         await pause(1.8)
         if !shell.homePath.isEmpty { shell.homePath.removeLast() }
         await pause(2.5)
+    }
+
+    /// Chief parity (verify/chief-parity.md): Home without a title; New
+    /// Message to an agent (opens its chat), then to Chief (opens the Chief
+    /// conversation over the already-connected shared store, which used to
+    /// leave the header empty); the send-time drawer through its own pan
+    /// steps, held, then released; a photo send; the Photos drawer; back.
+    private func chiefParity() async {
+        let hook = ChiefDemoHook.shared
+        let open: (HomeConversationRoute) -> Void = { route in
+            switch route {
+            case .chief: shell.homePath.append(ChiefRoute())
+            case let .agent(destination): shell.homePath.append(destination)
+            }
+        }
+        let composer = ChiefComposer(store: shell.store, open: open)
+        shell.tab = .home
+        mark("home")
+        await pause(2.5)
+        mark("compose agent")
+        composer.present()
+        await pause(1.4)
+        hook.composeLab("to claude")
+        await pause(1.2)
+        hook.composeLab("pick 0")
+        await pause(0.8)
+        hook.composeLab("body run the cnx-link tests")
+        await pause(1.0)
+        mark("compose agent send")
+        hook.composeLab("send")
+        await pause(4.0)
+        mark("agent back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.0)
+        mark("compose chief")
+        composer.present()
+        await pause(1.4)
+        hook.composeLab("to chief")
+        await pause(1.0)
+        hook.composeLab("pick 0")
+        await pause(0.8)
+        hook.composeLab("body what's the status?")
+        await pause(1.0)
+        mark("compose chief send")
+        hook.composeLab("send")
+        await pause(7.0)
+        mark("timestamps")
+        hook.lab("timestamps 150 0.7 1.6")
+        await pause(4.0)
+        mark("timestamps quick")
+        hook.lab("timestamps 90 0.35 0.0")
+        await pause(2.5)
+        mark("photo")
+        hook.attachPhoto(Self.samplePhoto())
+        await pause(6.5)
+        mark("timestamps photo")
+        hook.lab("timestamps 150 0.7 1.2")
+        await pause(3.5)
+        mark("photos drawer")
+        hook.photoLab("drawer")
+        await pause(3.0)
+        hook.photoLab("close")
+        await pause(2.0)
+        mark("back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.5)
+        mark("end")
+    }
+
+    /// A 1200 x 900 test photo (a gradient and a grid), rendered on device.
+    private static func samplePhoto() -> UIImage {
+        let size = CGSize(width: 1200, height: 900)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let colors = [UIColor.systemTeal.cgColor, UIColor.systemIndigo.cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            UIColor.white.withAlphaComponent(0.35).setStroke()
+            for x in stride(from: 0, through: size.width, by: 100) {
+                context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            for y in stride(from: 0, through: size.height, by: 100) {
+                context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.cgContext.strokePath()
+        }
     }
 
     /// Appends a wall-clock mark to `Documents/terminal-demo-timeline.txt`
