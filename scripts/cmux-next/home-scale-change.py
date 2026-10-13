@@ -10,8 +10,8 @@ and moves the window onto it (`debug.window_frame {screen: last}`): the window's
 host calls MessagesWindowView.setRenderScale (HostView.viewDidChangeBackingProperties ->
 ChatController.displayScaleChanged), and the rows must snap again: read right after the move (no other move
 of the transcript, so only setRenderScale can have re-snapped them), then again with the transcript on half a
-point (half a device pixel at 1x): every text row's anchored side and top must be on whole points. The window then
-moves to screen 0 (2x) and the rows must be on whole device pixels again. Snapshots at each scale.
+point (half a device pixel at 1x): every text row's anchored side and top must be on whole points. The move back
+to 2x is UNVERIFIED on the GUI host (the virtual display becomes screen 0); the script reports what it measured. Snapshots at each scale.
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); ends with the DEBUG quit fixture,
 the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
 
@@ -29,6 +29,7 @@ app = f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Product
 sock = f"/tmp/cmux-debug-{opts.tag}.sock"
 os.makedirs(opts.out, exist_ok=True)
 failures = []
+UNVERIFIED = []
 
 
 def rpc(method, params=None, timeout=35):
@@ -165,23 +166,20 @@ try:
         rows_on_grid("1x after the scale change, half a pixel", r1, 1)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-1x.png")})
 
-    # Back to the 2x display.
-    # Screen 0 (the menu-bar screen, 2x on the GUI host): the frame from before can lie inside the virtual display's
-    # area of the desktop (gate run on 024e48d: the window stayed at 1x after a move to its old frame).
+    # Back to 2x: UNVERIFIED on the GUI host (decision hq-6d after gate runs on 024e48d and e87fffa). The rig cannot
+    # move the window off the virtual display: with it attached, NSScreen.screens[0] (the menu-bar screen) is the
+    # virtual display itself (screen 0 centres the window at 1512,74, inside it), and the frame from before lies in
+    # its desktop area too. The step still runs and reports what it measured; it never passes or fails the check.
     back = rpc("debug.window_frame", {"screen": 0}) or {}
-    check("the window moves back off the virtual display", bool(back.get("screen")) and back.get("screen") != "MessagesLab Rig", back)
-    rb = poll(lambda: (r := rows_report()) and r.get("scale") == 2 and r, timeout=10) or rows_report()
-    check("the window's backing scale is 2 again", rb.get("scale") == 2, {k: rb.get(k) for k in ("scale", "error")})
-    time.sleep(0.3)  # test harness: display frames after the move
-    rb = rows_report()
+    rb = poll(lambda: (r := rows_report()) and r.get("scale") == 2 and r, timeout=5) or rows_report()
     if rb.get("scale") == 2:
-        rows_on_grid("2x right after the scale change back (no other move)", rb, 2)
-    rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
-    time.sleep(0.2)  # test harness: one display frame for the move to show
-    rb = rows_report()
-    if rb.get("scale") == 2:
-        rows_on_grid("2x again, half a pixel", rb, 2)
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-2x-again.png")})
+        time.sleep(0.3)  # test harness: display frames after the move
+        rows_on_grid("2x right after the scale change back (no other move)", rows_report(), 2)
+    else:
+        print(f"UNVERIFIED return to 2x: the window stayed on {back.get('screen')!r} at {back.get('frame')},"
+              f" backing scale {rb.get('scale')}", flush=True)
+        UNVERIFIED.append("return to 2x")
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-back.png")})
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
@@ -194,4 +192,6 @@ finally:
         vd.terminate()  # the virtual display this script started (its own pid)
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if UNVERIFIED:
+    print(f"{len(UNVERIFIED)} step(s) UNVERIFIED (not passed): {UNVERIFIED}", flush=True)
 sys.exit(1 if failures else 0)
