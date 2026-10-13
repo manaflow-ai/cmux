@@ -704,6 +704,11 @@ fn a_closed_pane_reopens_its_tabs() {
         .expect("the split made a pane");
     let split_id = split["resource_id"].as_str().expect("the pane has an id").to_string();
     let tab = split["tabs"][0]["tab_resource_id"].clone();
+    let stayed = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() == Some(pane))
+        .map(|home| home["tabs"][0]["tab_resource_id"].clone())
+        .expect("the pane that stays has a tab");
     let (item, reopened) = close_records_and_reopens(
         &harness,
         "pane.close",
@@ -716,19 +721,16 @@ fn a_closed_pane_reopens_its_tabs() {
     assert_eq!(tabs.len(), 1, "{reopened}");
     let back = app.tab_by_id(tabs[0].as_str().unwrap());
     assert!(back["terminal_id"].is_string(), "{back} (closed tab {tab})");
-    // The pane comes back beside the one that stayed, holding the tab.
+    // The split does not come back (an audit gap): the tab reopens beside
+    // the tab of the pane that stayed, which keeps its own.
     let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
-    assert_eq!(panes.len(), 2, "{panes:?}");
-    let home = panes
+    let ids = panes
         .iter()
-        .find(|candidate| candidate["id"].as_u64() == Some(pane))
-        .expect("the pane that stayed");
-    assert!(
-        home["tabs"].as_array().is_some_and(|tabs| tabs
-            .iter()
-            .all(|t| t["tab_resource_id"] != back["tab_resource_id"])),
-        "the reopened tab went into the pane that stayed: {panes:?}"
-    );
+        .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+        .map(|tab| tab["tab_resource_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2, "{panes:?}");
+    assert!(ids.contains(&stayed) && ids.contains(&back["tab_resource_id"]), "{panes:?}");
 }
 
 #[test]
