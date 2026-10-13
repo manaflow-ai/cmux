@@ -82,7 +82,10 @@ fn serve_one(mut stream: TcpStream, api: &Mutex<Api>) {
         api.seen.push((path.clone(), auth, body));
         if path == "/v1/inference/free/challenge" {
             api.challenges += 1;
-            (200, json!({"challenge": format!("challenge-{}", api.challenges), "expires_at": now_ms() + 300_000}))
+            (
+                200,
+                json!({"challenge": format!("challenge-{}", api.challenges), "expires_at": now_ms() + 300_000}),
+            )
         } else if let Some((_, queue)) = api.answers.iter_mut().find(|(p, _)| *p == path) {
             if queue.len() > 1 { queue.remove(0) } else { queue[0].clone() }
         } else {
@@ -146,7 +149,10 @@ fn admin(dir: &Path, request: Value) -> std::io::Result<Value> {
 
 fn mint(dir: &Path) -> (String, u16) {
     let scope = json!({"harness": "fake", "session": "s1", "surfaces": [], "families": ["open_ai_chat"], "expires_at": 0});
-    let key = admin(dir, json!({"op": "mint_key", "scope": scope})).unwrap()["key"].as_str().unwrap().to_owned();
+    let key = admin(dir, json!({"op": "mint_key", "scope": scope})).unwrap()["key"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let port = admin(dir, json!({"op": "status"})).unwrap()["port"].as_u64().unwrap() as u16;
     (key, port)
 }
@@ -274,11 +280,13 @@ fn a_signed_out_request_is_served_with_the_device_token_the_app_proved() {
         assert!(Instant::now() < deadline, "provider end not seen");
         std::thread::sleep(Duration::from_millis(20));
     }
-    let forwarded = api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
+    let forwarded =
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
     let (status, body) = chat(port, &key);
     assert_eq!(status, 503, "{body}");
     assert_eq!(body["error"]["code"], "router.no_upstream");
-    let after = api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
+    let after =
+        api.lock().unwrap().seen.iter().filter(|(p, _, _)| p.ends_with("chat/completions")).count();
     assert_eq!(forwarded, after);
     drop(relay);
 }
@@ -288,7 +296,10 @@ fn a_known_key_renews_by_assertion_and_a_new_month_takes_a_fresh_key() {
     let api = Arc::new(Mutex::new(Api::default()));
     api.lock().unwrap().answers = vec![
         // The grant's month ended: the assertion is refused, then a fresh key attests.
-        ("/v1/inference/free/token".into(), vec![(403, json!({"error": {"code": "free.assertion"}}))]),
+        (
+            "/v1/inference/free/token".into(),
+            vec![(403, json!({"error": {"code": "free.assertion"}}))],
+        ),
         ("/v1/inference/free/attest".into(), vec![token_answer("free-token-2")]),
         ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
     ];
@@ -301,10 +312,14 @@ fn a_known_key_renews_by_assertion_and_a_new_month_takes_a_fresh_key() {
 
     assert_eq!(chat(port, &key).0, 200);
     let asked = asked.lock().unwrap();
-    let kinds: Vec<_> = asked.iter().map(|(req, _, hash, fresh)| (req.clone(), hash.clone(), *fresh)).collect();
+    let kinds: Vec<_> =
+        asked.iter().map(|(req, _, hash, fresh)| (req.clone(), hash.clone(), *fresh)).collect();
     assert_eq!(
         kinds,
-        vec![("assert".to_owned(), sha("challenge-1"), None), ("attest".to_owned(), sha("challenge-2"), Some(true))]
+        vec![
+            ("assert".to_owned(), sha("challenge-1"), None),
+            ("attest".to_owned(), sha("challenge-2"), Some(true))
+        ]
     );
     let api = api.lock().unwrap();
     let token = api.seen.iter().find(|(p, _, _)| p == "/v1/inference/free/token").unwrap();
@@ -365,7 +380,9 @@ fn the_account_bearer_wins_and_no_proof_is_asked() {
 fn a_provider_for_an_unknown_origin_is_refused() {
     let dir = scratch("orig");
     let relay = start_relay(&dir, "http://127.0.0.1:1");
-    for origin in ["https://api.example.com", "http://127.0.0.1:2", "https://cloud-api.cmux.dev.example.com"] {
+    for origin in
+        ["https://api.example.com", "http://127.0.0.1:2", "https://cloud-api.cmux.dev.example.com"]
+    {
         let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true});

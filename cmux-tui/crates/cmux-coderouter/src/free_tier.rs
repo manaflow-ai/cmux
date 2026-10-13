@@ -367,7 +367,7 @@ impl FreeTier {
 
     /// The origin and bearer for a request with no account bearer: the live
     /// free token, or a new one from a lease. Err: the response to send.
-    pub async fn bearer(&self) -> Result<(String, String), Response<Body>> {
+    pub async fn bearer(&self) -> Result<(String, String), Box<Response<Body>>> {
         if let Some(found) = Self::live(&self.lock(), unix_now()) {
             return Ok(found);
         }
@@ -387,14 +387,14 @@ impl FreeTier {
     }
 
     /// Whether a lease may run now; else the refusal for the current state.
-    fn admissible(&self) -> Result<(), Response<Body>> {
+    fn admissible(&self) -> Result<(), Box<Response<Body>>> {
         let inner = self.lock();
         if inner.provider.is_none() {
-            return Err(crate::json_error(
+            return Err(Box::new(crate::json_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "router.no_upstream",
                 "the cmux model router is not connected; open cmux",
-            ));
+            )));
         }
         if !inner.enabled {
             return Err(refusal(FreeState::Off));
@@ -414,7 +414,7 @@ impl FreeTier {
         }
     }
 
-    async fn run_lease(&self) -> Result<(String, String), Response<Body>> {
+    async fn run_lease(&self) -> Result<(String, String), Box<Response<Body>>> {
         let (origin, provider, has_key, platform) = {
             let mut inner = self.lock();
             Self::set_state(&mut inner, FreeState::Checking, None);
@@ -427,7 +427,7 @@ impl FreeTier {
         let result = self.lease_steps(&origin, &provider, has_key, &platform).await;
         let mut inner = self.lock();
         // The provider changed while the lease ran: its answers do not count.
-        if !inner.provider.as_ref().is_some_and(|p| p.generation == provider.generation) {
+        if inner.provider.as_ref().is_none_or(|p| p.generation != provider.generation) {
             return Err(refusal(FreeState::Off));
         }
         let now = unix_now();
@@ -507,11 +507,15 @@ impl FreeTier {
                         // The grant's month ended (or the key is unknown): a fresh key, because
                         // App Attest refuses a second attestation of a key in a later launch
                         // (DCError.invalidKey, probe 1012-230124-237471 on macOS 27.0.1).
-                        Err(LeaseError::Server(403, code)) if code == "free.assertion" => fresh = true,
+                        Err(LeaseError::Server(403, code)) if code == "free.assertion" => {
+                            fresh = true;
+                        }
                         other => return other,
                     }
                 }
-                Err(LeaseError::App(code)) if code == "invalid_key" => fresh = true,
+                Err(LeaseError::App(code)) if code == "invalid_key" => {
+                    fresh = true;
+                }
                 Err(error) => return Err(error),
             }
         }
@@ -545,7 +549,8 @@ impl FreeTier {
 
     async fn challenge(&self, origin: &str) -> Result<String, LeaseError> {
         let reply = self.post(origin, "/v1/inference/free/challenge", &json!({})).await?;
-        let challenge = reply.get("challenge").and_then(Value::as_str).ok_or(LeaseError::Network)?;
+        let challenge =
+            reply.get("challenge").and_then(Value::as_str).ok_or(LeaseError::Network)?;
         if challenge.is_empty() || challenge.len() > 256 {
             return Err(LeaseError::Network);
         }
@@ -560,7 +565,8 @@ impl FreeTier {
     ) -> Result<(Secret<String>, u64), LeaseError> {
         let reply = self.post(origin, path, body).await?;
         let token = reply.get("token").and_then(Value::as_str).ok_or(LeaseError::Network)?;
-        let expires_ms = reply.get("expires_at").and_then(Value::as_u64).ok_or(LeaseError::Network)?;
+        let expires_ms =
+            reply.get("expires_at").and_then(Value::as_u64).ok_or(LeaseError::Network)?;
         if token.is_empty() || token.len() > 8192 || token.contains(['\r', '\n']) {
             return Err(LeaseError::Network);
         }
@@ -589,13 +595,22 @@ impl FreeTier {
             .filter(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '_')
             .take(64)
             .collect();
-        Err(if status >= 500 && status != 503 { LeaseError::Network } else { LeaseError::Server(status, code) })
+        Err(if status >= 500 && status != 503 {
+            LeaseError::Network
+        } else {
+            LeaseError::Server(status, code)
+        })
     }
 }
 
 impl Provider {
     /// One request to the app; the relay holds the lease lock, so only one is open.
-    async fn ask(&self, req: &str, challenge: &str, fresh: Option<bool>) -> Result<Value, LeaseError> {
+    async fn ask(
+        &self,
+        req: &str,
+        challenge: &str,
+        fresh: Option<bool>,
+    ) -> Result<Value, LeaseError> {
         let hash = Sha256::digest(challenge.as_bytes());
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut request = json!({
@@ -635,7 +650,9 @@ fn field(reply: &Value, name: &str) -> Result<String, LeaseError> {
     let value = reply.get(name).and_then(Value::as_str).ok_or(LeaseError::App("failed".into()))?;
     if value.is_empty()
         || value.len() > 16_384
-        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'-' | b'_'))
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'-' | b'_'))
     {
         return Err(LeaseError::App("failed".into()));
     }
@@ -643,7 +660,7 @@ fn field(reply: &Value, name: &str) -> Result<String, LeaseError> {
 }
 
 /// The data-plane answer when no free token can be had (no vendor names).
-fn refusal(state: FreeState) -> Response<Body> {
+fn refusal(state: FreeState) -> Box<Response<Body>> {
     let (status, code, message) = match state {
         FreeState::UsedThisMonth => (
             StatusCode::FORBIDDEN,
@@ -660,18 +677,16 @@ fn refusal(state: FreeState) -> Response<Body> {
             "free.unavailable",
             "Free AI access is not available now. Sign in to use AI models.",
         ),
-        FreeState::Off => (
-            StatusCode::UNAUTHORIZED,
-            "free.sign_in_required",
-            "Sign in to use AI models.",
-        ),
+        FreeState::Off => {
+            (StatusCode::UNAUTHORIZED, "free.sign_in_required", "Sign in to use AI models.")
+        }
         _ => (
             StatusCode::SERVICE_UNAVAILABLE,
             "free.unavailable",
             "Free AI access could not be checked. Try again in a moment.",
         ),
     };
-    crate::json_error(status, code, message)
+    Box::new(crate::json_error(status, code, message))
 }
 
 /// Whether the peer of an admin connection may be the attestation provider:

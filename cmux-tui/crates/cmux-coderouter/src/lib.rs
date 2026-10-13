@@ -803,7 +803,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
         Some(Err(refused)) => return refused,
         None => match state.free.bearer().await {
             Ok((origin, bearer)) => (format!("{origin}{path}"), bearer, true),
-            Err(refused) => return refused,
+            Err(refused) => return *refused,
         },
     };
     let mut forward = state.http.request(method, &url).bearer_auth(bearer);
