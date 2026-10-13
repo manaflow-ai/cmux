@@ -9,6 +9,7 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
+use super::page_files;
 use super::*;
 
 /// A running opt-in WebSocket listener. Dropping it stops accepts and closes clients.
@@ -72,6 +73,20 @@ pub fn serve_websocket_with_access(
     allow_insecure_bind: bool,
     access: &WebSocketAccess,
 ) -> anyhow::Result<WebSocketServer> {
+    serve_websocket_with_pages(mux, addr, token, allow_insecure_bind, access, None)
+}
+
+/// [`serve_websocket_with_access`] that also answers plain `GET /pages/...`
+/// requests with files of the page bundle directory `pages`
+/// (spec/transports.md "App listener and page files"; [`super::page_bundle_dir`]).
+pub fn serve_websocket_with_pages(
+    mux: Arc<Mux>,
+    addr: SocketAddr,
+    token: Option<String>,
+    allow_insecure_bind: bool,
+    access: &WebSocketAccess,
+    pages: Option<PathBuf>,
+) -> anyhow::Result<WebSocketServer> {
     // WebSocket has no TLS here. Remote deployments must explicitly opt in and
     // should put cmux-tui behind a TLS-terminating reverse proxy.
     if !addr.ip().is_loopback() && !allow_insecure_bind {
@@ -89,7 +104,8 @@ pub fn serve_websocket_with_access(
     }
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
-    let policy = Arc::new(websocket_listener_policy(local_addr, access));
+    let policy = websocket_listener_policy(local_addr, access);
+    let rules = Arc::new(ListenerRules { policy, pages });
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
@@ -129,7 +145,7 @@ pub fn serve_websocket_with_access(
             }
             let mux = mux.clone();
             let token = token.clone();
-            let policy = policy.clone();
+            let rules = rules.clone();
             let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
@@ -141,7 +157,7 @@ pub fn serve_websocket_with_access(
                         stream,
                         peer,
                         token.as_deref(),
-                        &policy,
+                        &rules,
                         render_service,
                         Some(permit),
                     );
@@ -164,16 +180,15 @@ pub(super) fn handle_websocket_connection(
     token: Option<&str>,
     render_service: Arc<RenderService>,
 ) {
-    let policy = cmux_local_auth::ListenerPolicy::loopback(0);
-    handle_websocket_connection_with_permit(
-        mux,
-        stream,
-        peer,
-        token,
-        &policy,
-        render_service,
-        None,
-    );
+    let rules = ListenerRules { policy: cmux_local_auth::ListenerPolicy::loopback(0), pages: None };
+    handle_websocket_connection_with_permit(mux, stream, peer, token, &rules, render_service, None);
+}
+
+/// What a listener checks and serves besides the protocol: the Host/Origin
+/// rule and the page bundle directory (none: every page request is a 404).
+struct ListenerRules {
+    policy: cmux_local_auth::ListenerPolicy,
+    pages: Option<PathBuf>,
 }
 
 /// The Origin and Host rule of a daemon WebSocket listener bound on `local`.
@@ -212,16 +227,24 @@ fn handle_websocket_connection_with_permit(
     stream: TcpStream,
     peer: SocketAddr,
     token: Option<&str>,
-    policy: &cmux_local_auth::ListenerPolicy,
+    rules: &ListenerRules,
     render_service: Arc<RenderService>,
     connection_permit: Option<ConnectionPermit>,
 ) {
-    let stream = SynchronizedTcpStream::new(stream);
+    let mut stream = stream;
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
         return;
     }
+    // The request head decides: a WebSocket handshake (replayed to the
+    // handshake below) or a page file request (answered and closed).
+    let Some((head_bytes, head)) = page_files::read_request_head(&mut stream) else { return };
+    if !head.is_websocket_upgrade() {
+        page_files::serve(stream, &head, &rules.policy, rules.pages.as_deref());
+        return;
+    }
+    let stream = SynchronizedTcpStream::with_replay(stream, head_bytes);
     let auth_config = WebSocketConfig::default()
         .read_buffer_size(4 * 1024)
         .write_buffer_size(4 * 1024)
@@ -230,7 +253,7 @@ fn handle_websocket_connection_with_permit(
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
     let callback = |request: &tungstenite::handshake::server::Request,
                     response: tungstenite::handshake::server::Response| {
-        match check_websocket_handshake(policy, request) {
+        match check_websocket_handshake(&rules.policy, request) {
             Ok(()) => Ok(response),
             Err(refusal) => {
                 let mut denied = tungstenite::handshake::server::ErrorResponse::new(Some(

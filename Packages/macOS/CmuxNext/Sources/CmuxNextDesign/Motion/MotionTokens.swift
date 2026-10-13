@@ -27,8 +27,13 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 /// plans/cmux-next/motion.md; change them only there and here.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
-    /// rows, pane and divider frames, pane zoom, toolbar height.
+    /// rows, pane and divider frames, pane unzoom, toolbar height.
     case move
+    /// A pane zooming to fill its screen: it owns the motion (Leo 2026-10-13).
+    case zoom
+    /// The panes a zoom leaves fade out, faster than anything arrives
+    /// (`Motion.exit(nearness:)`: the farthest first).
+    case exit
     /// Something appears or expands: tab grow-in, group expand, row insert,
     /// sidebar show.
     case appear

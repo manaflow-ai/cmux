@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
-    private var clipboardReads: TerminalClipboardReadService?
+    var daemonPrompts: DaemonPrompts?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
     private var ghosttyKeybinds: GhosttyKeybindSync?
     /// Watches the exact Ghostty files libghostty loaded and reloads them live.
@@ -112,9 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
-        let clipboardReads = TerminalClipboardReadService(services: services)
-        self.clipboardReads = clipboardReads
-        clipboardReads.start()
+        daemonPrompts = DaemonPrompts.start(services)
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
