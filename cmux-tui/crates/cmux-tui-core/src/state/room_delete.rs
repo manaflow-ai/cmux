@@ -39,6 +39,8 @@ pub(crate) struct RoomDeleted {
 /// What the delete closes and returns, read before it commits.
 struct Plan {
     closing: Vec<SurfaceId>,
+    /// The closing workspaces with no tab: they close with the others.
+    bare: Vec<WorkspaceId>,
     unpinned: Vec<(String, String)>,
     result: Value,
 }
@@ -92,8 +94,9 @@ impl Mux {
                 .collect::<anyhow::Result<Vec<_>>>()?;
             Ok((closing, pins, refs))
         })?;
-        let closing = self.with_state(|state| {
+        let (closing, bare) = self.with_state(|state| {
             let mut surfaces = Vec::new();
+            let mut bare = Vec::new();
             for (id, key) in &live {
                 if !closing_keys.contains(key) {
                     continue;
@@ -103,16 +106,21 @@ impl Mux {
                 for screen in &state.workspaces[index].screens {
                     screen.root.pane_ids(&mut panes);
                 }
+                let before = surfaces.len();
                 for pane in panes {
                     if let Some(pane) = state.panes.get(&pane) {
                         surfaces.extend(pane.tabs.iter().copied());
                     }
                 }
+                if surfaces.len() == before {
+                    bare.push(*id);
+                }
             }
-            surfaces
+            (surfaces, bare)
         });
         Ok(Plan {
             closing,
+            bare,
             unpinned,
             result: json!({"id": room, "moved_to": null, "unpinned": refs}),
         })
@@ -139,7 +147,7 @@ impl Mux {
         }
         anyhow::ensure!(room != DEFAULT_PROFILE_ID, "the default room cannot be deleted");
         let plan = self.room_delete_plan(room)?;
-        if plan.closing.is_empty() {
+        if plan.closing.is_empty() && plan.bare.is_empty() {
             let result = plan.result.clone();
             let commit = self.commit_state(
                 mutation,
@@ -173,8 +181,7 @@ impl Mux {
             operation,
             fingerprint,
             mutation,
-            &before_patch,
-            plan.result,
+            RoomClose { before_patch: &before_patch, result: plan.result, bare: plan.bare },
         )?;
         let personal_revision = self
             .workspace_registry

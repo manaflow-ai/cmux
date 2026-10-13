@@ -113,7 +113,7 @@ def _coverage(p, o, i):
     return min(1.0, max(0.0, sum((p[k] - o[k]) * (i[k] - o[k]) for k in range(3)) / den))
 
 
-def edge_position(px, w, h, edge, near, span, contrast_min=24):
+def edge_position(px, w, h, edge, near, span, contrast_min=24, min_lines=8):
     """The measured place (device px) of a straight edge near the whole pixel `near`, from the summed coverage
     of the 4 pixel lines around it (the far outside and far inside colours 4 and 3 lines away), the mean over the
     lines across `span` whose contrast is at least `contrast_min`. edge: top or left (inside after the edge) or
@@ -133,7 +133,7 @@ def edge_position(px, w, h, edge, near, span, contrast_min=24):
         if None in c:
             continue
         places.append(near + 2 - sum(c) if first else near - 2 + sum(c))
-    return (sum(places) / len(places), len(places)) if len(places) >= 8 else (None, len(places))
+    return (sum(places) / len(places), len(places)) if len(places) >= min_lines else (None, len(places))
 
 
 def check_rows(check, name, report, path, keys=None, min_rows=3):
@@ -144,7 +144,8 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
     - the drawn balloon's edges are where the app draws them (`balloon`: RowDraw.balloon; an incoming balloon is
       its frame, an outgoing text balloon is a little inside it on macOS 27, MessagesLab 2281879), measured from
       the snapshot's coverage within 0.12 device px and nearer the balloon than the frame (half their distance):
-      top, bottom and, for a bubble 60 pt or taller, the anchored side; every one of them must be measured;
+      top, bottom and the anchored side (a tall incoming row's left; every outgoing row's right, a 1-line
+      pill at its vertical centre); every one of them must be measured; the tolerance has a 0.015 px floor;
     - on a window whose backing scale is not 2, nothing is checked: a SKIP line, and `name` in SKIPPED;
     - an incoming balloon's straight edges have no partial pixels (at most 10 % of their lines).
     `keys`: only these rows."""
@@ -173,18 +174,26 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
         # The frame's edges: where an edge would be if the balloon were drawn on its frame.
         ft, fb = top, (wh - r["y"]) * scale
         fl, fr = r["x"] * scale, (r["x"] + r["width"]) * scale
-        expected = {"top": (bt, ft, range(int(x0), int(x1))), "bottom": (bb, fb, range(int(x0), int(x1)))}
+        expected = {"top": (bt, ft, range(int(x0), int(x1)), 8), "bottom": (bb, fb, range(int(x0), int(x1)), 8)}
         if r["height"] >= 60:
-            expected["right" if r["outgoing"] else "left"] = ((br, fr) if r["outgoing"] else (bl, fl)) + (range(int(y0), int(y1)),)
+            expected["right" if r["outgoing"] else "left"] = ((br, fr) if r["outgoing"] else (bl, fl)) + (range(int(y0), int(y1)), 8)
+        elif r["outgoing"]:
+            # My row's anchored side (MessagesLab 82ccac1: my rows snap their right edge). A 1-line balloon is a pill:
+            # its side is straight only at the vertical centre; the 3 pixel lines there (the curve leaves the
+            # tangent by about 0.04 px within 1.5 px of it at a 15 pt radius, 2x; the 1-line right inset is 0.21 px,
+            # so the tolerance there is 0.106 px).
+            c = (bt + bb) / 2
+            expected["right"] = (br, fr, range(int(c - 1), int(c + 2)), 3)
         line = []
-        for edge, (want, frame_at, span) in expected.items():
-            got, n = edge_position(px, w, h, edge, round(want), span)
+        for edge, (want, frame_at, span, need) in expected.items():
+            got, n = edge_position(px, w, h, edge, round(want), span, min_lines=need)
             if got is None:
                 unmeasured.append({r["key"]: edge, "lines": n})
             # Within 0.12 px, and nearer the balloon than its frame where the two differ (the outgoing top inset
             # is 0.05-0.08 px: a balloon drawn on its frame fails).
             gap = abs(want - frame_at)
-            tol = min(0.12, gap / 2) if gap > 0.001 else 0.12
+            # A floor of 0.015 px (the coverage measurement's own noise) where balloon and frame nearly coincide.
+            tol = max(0.015, min(0.12, gap / 2)) if gap > 0.001 else 0.12
             line.append(f"{edge} {want:.2f}/{'-' if got is None else f'{got:.2f}'}px (frame {frame_at:.2f}, tol {tol:.3f})")
             if got is not None and abs(got - want) > tol:
                 off_edges.append({r["key"]: edge, "drawn": round(want, 3), "frame": round(frame_at, 3), "measured": round(got, 3),

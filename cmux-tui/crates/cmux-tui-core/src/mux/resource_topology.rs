@@ -103,7 +103,7 @@ mod topology_operation;
 #[cfg(test)]
 mod topology_test_hooks;
 mod unpublished_creation;
-pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
+pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
