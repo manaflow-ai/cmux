@@ -248,7 +248,8 @@ struct CodeRouterHandoffClientTests {
     func handoffTimeoutsRemainNestedAndBounded() {
         #expect(CodeRouterHandoffClient.httpTimeoutSeconds == 18)
         #expect(TerminalController.codeRouterHandoffWorkerTimeoutSeconds == 22)
-        #expect(CMUXCLI.coderouterHandoffSocketResponseTimeoutSeconds == 25)
+        // The CLI's 25-second socket response timeout lives in the `cmux` tool
+        // target, which this app-hosted bundle cannot import.
     }
 
     @Test
