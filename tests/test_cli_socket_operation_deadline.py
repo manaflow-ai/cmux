@@ -206,10 +206,18 @@ def capabilities_response_handler(conn: socket.socket, stop_event: threading.Eve
         return
     if not isinstance(request, dict) or request.get("method") != "system.capabilities":
         return
-    conn.sendall(
-        b'{"ok":true,"result":{"socket_path":"/tmp/cmux.sock","protocol":"cmux-socket",'
-        b'"access_mode":"cmuxOnly","version":"test","methods":["zeta","alpha"]}}\n'
-    )
+    response = {
+        "id": request.get("id"),
+        "ok": True,
+        "result": {
+            "socket_path": "/tmp/cmux.sock",
+            "protocol": "cmux-socket",
+            "access_mode": "cmuxOnly",
+            "version": "test",
+            "methods": ["zeta", "alpha"],
+        },
+    }
+    conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
 
 
 def trickle_relay_challenge_handler(conn: socket.socket, stop_event: threading.Event) -> None:
