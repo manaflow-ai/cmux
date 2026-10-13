@@ -2022,35 +2022,16 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
-def test_windows_cargo_cache_is_push_only() -> None:
-    # Chief decision 2026-10-12 (trust note on #13742): published binaries may build from a cargo
-    # cache, but a pull_request_target run builds pull request code and must neither read nor
-    # write that cache. Every cache step of the Windows job is gated on a push event, and no
-    # other cache use exists there.
+def test_package_workflow_uses_no_shared_build_cache() -> None:
+    # Chief decision 2026-10-12 (#13742): the push-only Windows cargo cache was removed. A
+    # pull_request_target job runs pull request code in the base branch's cache scope and gets a
+    # runtime token that can write cache entries, so a cache that published binaries read is a
+    # supply-chain risk. No job of the package workflow may use actions/cache. A later cache needs
+    # a separate, write-protected scope that only release builds can write.
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    cache_steps = [s for s in steps if "actions/cache" in str(s.get("uses", ""))]
-    assert {s["name"] for s in cache_steps} == {
-        "Restore the Windows cargo cache (push builds only)",
-        "Save the Windows cargo cache (push builds only)",
-    }
-    for step in cache_steps:
-        condition = str(step.get("if", ""))
-        assert condition.startswith("github.event_name == 'push'"), step["name"]
-        assert "pull_request" not in condition
-        assert "||" not in condition, step["name"]
-        assert "-push-" in str(step["with"]["key"]) or "cache-primary-key" in str(step["with"]["key"])
-    restore = next(s for s in cache_steps if s["name"].startswith("Restore"))
-    assert "actions/cache/restore@" in restore["uses"]
-    assert all(line.startswith("cmux-tui-win-gnu-push-") for line in str(restore["with"]["restore-keys"]).split())
-    # The save step runs after the build and before any test or smoke step adds outputs.
-    names = [s.get("name") for s in steps]
-    assert names.index("Save the Windows cargo cache (push builds only)") == names.index(
-        "Build libghostty-vt + cmux-tui (Windows GNU)") + 1
-    # No other job of the package workflow uses a cache (pull request builds run them all).
     for name, job in jobs.items():
-        if name == "build-windows" or not isinstance(job, dict):
+        if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
             assert "actions/cache" not in str(step.get("uses", "")), name
