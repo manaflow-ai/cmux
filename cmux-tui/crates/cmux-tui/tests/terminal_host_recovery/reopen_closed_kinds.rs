@@ -804,6 +804,7 @@ fn a_closed_browser_reopens_on_its_url() {
 }
 
 /// The key of the workspace named `name`, once the tree lists it.
+#[cfg(target_os = "linux")]
 fn workspace_key(app: &mut AppConnection, name: &str) -> Option<String> {
     app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
         .as_array()
