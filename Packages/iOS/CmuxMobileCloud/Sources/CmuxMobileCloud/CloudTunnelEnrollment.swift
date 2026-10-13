@@ -20,6 +20,10 @@ public struct CloudTunnelEnrollment: Sendable, Equatable {
     public var endpointHost: String?
     /// The WireGuard endpoint UDP port.
     public var endpointPort: Int
+    /// The server-advertised interface MTU, when the control plane knows it.
+    /// Older responses omit this field and use ``WireGuardQuickConfig/legacyFallbackMTU``
+    /// only when they also omit the complete client config.
+    public var mtu: Int?
     /// CIDRs routed through the tunnel (the peer's `AllowedIPs`).
     public var routes: [String]
     /// This device's IPv4 address on the network, when assigned.
@@ -40,6 +44,7 @@ public struct CloudTunnelEnrollment: Sendable, Equatable {
         serverPublicKey: String,
         endpointHost: String?,
         endpointPort: Int,
+        mtu: Int? = nil,
         routes: [String],
         addressV4: String?,
         addressV6: String?,
@@ -53,6 +58,7 @@ public struct CloudTunnelEnrollment: Sendable, Equatable {
         self.serverPublicKey = serverPublicKey
         self.endpointHost = endpointHost
         self.endpointPort = endpointPort
+        self.mtu = mtu
         self.routes = routes
         self.addressV4 = addressV4
         self.addressV6 = addressV6

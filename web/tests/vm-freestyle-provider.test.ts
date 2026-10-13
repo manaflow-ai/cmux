@@ -16,6 +16,7 @@ import {
   freestylePortAddress,
   freestylePortUrls,
   mapFreestyleState,
+  wireGuardInterfaceMtu,
   normalizeFreestyleExecTimeout,
 } from "../services/vms/drivers/freestyle";
 import type { VMProvider } from "../services/vms/drivers/types";
@@ -166,6 +167,11 @@ describe("Freestyle fork readiness", () => {
 });
 
 describe("Freestyle platform contract", () => {
+  test("exposes the interface MTU from provider-owned tunnel config", () => {
+    expect(wireGuardInterfaceMtu("[Interface]\\nMTU = 1380\\n[Peer]\\nMTU = 9000\\n")).toBe(1380);
+    expect(wireGuardInterfaceMtu("[Interface]\\nMTU = 0\\n")).toBeUndefined();
+  });
+
   test("firewall on a private-network machine: outbound only, no inbound at all", () => {
     // The VPC's members-reach-each-other rule is what admits the daemon port;
     // an inbound rule here would re-expose 1337 to the Internet.
