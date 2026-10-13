@@ -73,12 +73,7 @@ restores `Cargo.lock` afterwards. Host builds use stock nix.
 func connect(baseUrl: String, token: String, teamId: String, deviceId: String,
              macDeviceId: String, transport: Transport,
              observer: LinkObserver?) async throws -> LinkHandle   // throws CnxError
-func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId: String,
-             macDeviceId: String, transport: Transport, options: ConnectOptions,
-             observer: LinkObserver?) async throws -> LinkHandle
 func cnxVersion() -> String
-
-struct ConnectOptions { var relayOnly: Bool = false }   // ConnectOptions() is a plain dial
 
 enum Transport { case webRtc, wireGuard }
 enum LinkPath { case direct, relay, turn }
@@ -115,14 +110,7 @@ enum CnxError: Error {   // uniffi keeps the Rust variant case for errors
 `deviceId` is the phone's Keychain UUID; `macDeviceId` comes from
 `GET /v1/teams/:teamId/macs`. `connect` fetches `GET /v1/ice` (8 s budget; on
 failure it dials with host candidates only), opens the signaling socket and
-dials. The observer is called on a library thread.
-
-`relayOnly` is the app's debug "simulate distant network" mode (Settings →
-Developer). It skips every direct path. WebRTC uses ICE transport policy
-`relay` with the `/v1/ice` TURN servers, so the path is `turn`; with no TURN
-server the dial fails at once (`Transport`). WireGuard sends no endpoints and
-ignores the Mac's, so the path stays `relay` (the backend relay frames). The
-Mac side needs no change. Device ids must be UUIDs
+dials. The observer is called on a library thread. Device ids must be UUIDs
 (WireGuard relay frames carry them as 16 bytes).
 
 ## cnx-hostd
@@ -148,10 +136,39 @@ target/release/cnx-hostd
 | `CNX_DEVICE_NAME` | Default the host name. |
 | `CNX_OWNER_USER_ID` | Admitted Stack user; default the access token's `sub`. |
 | `CNX_TUI_SOCKET_DIR`, `CNX_TUI_SESSION` | cmux-tui sockets, default `$TMPDIR/cmux-tui-<uid>` and `main`. |
+| `CNX_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
+| `CNX_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CNX_LOG` | tracing filter, default `info`. |
+
+Logs go to stderr.
+
+### Supervised by the cmux-next app (`CNX_CONTROL=stdio`)
+
+The cmux-next Mac app bundles cnx-hostd (`Contents/Resources/bin/cnx-hostd`,
+built by `scripts/cmux-next/build-cnx-hostd.sh`) and runs it while
+`mobile.allowIPhoneConnections` (Settings > Mobile > Allow iPhone Connections,
+or cmux.json) is on and an account is signed in
+(`CnxHostSupervisor` in `Packages/macOS/CmuxNext/Sources/CmuxNextMobile/CnxHost`).
+The app keeps the Stack session; hostd never sees a refresh token.
+
+- stdin, one JSON object per line: `{"type":"token","token":…}` (sent at
+  start and whenever hostd asks) and `{"type":"acpmux","url":"ws://127.0.0.1:<port>/","token":…}`.
+  End of stdin exits hostd, so it never outlives the app.
+- stdout, one JSON event per line: `connecting`, `online {device_id, team_id}`,
+  `waiting {reason, retry_in_seconds}`, `need_token` (no token yet, under a
+  minute left, or refused), `need_acpmux` (an `acpmux` open failed; hostd
+  waits 15 s for a new endpoint and retries once), `phone_up {session_id,
+  phone_device_id, transport, path}`, `phone_path {session_id, path}`,
+  `phone_down {session_id, reason}`.
+- The app sets `CNX_TUI_SOCKET` to its own daemon socket, `CNX_DEVICE_ID` to a
+  UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
+  computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
+  and `CNX_FILE_ROOTS` to the chat roots. The service is the dev Worker
+  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build), for production
+sign-in too.
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to
@@ -198,10 +215,9 @@ Services (default deny, `unknown_service` otherwise):
 ## Test binaries (cnx-hostd)
 
 - `cnx-dial`: dials a Mac and prints one JSON line per transport: connect
-  time, path, ping RTT (min, median, p95, max), echo throughput, the number of
-  TURN URLs `/v1/ice` offered, and `daemon` identify.
-  `--transport webrtc|wireguard` (repeatable), `--relay-only` (alias
-  `--force-relay`: TURN-only ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
+  time, path, ping RTT, echo throughput, `daemon` identify.
+  `--transport webrtc|wireguard` (repeatable), `--force-relay` (TURN-only
+  ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
   100.64.0.0/10 Tailscale addresses), `--bytes N`, `--daemon`.
 - `cnx-stub-tui <dir> [session]`: a stand-in cmux-tui socket that answers
   every line `ok`, for Macs without cmux-tui.

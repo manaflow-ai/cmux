@@ -6,7 +6,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
+
+use crate::control;
 
 pub const DEFAULT_STACK_API: &str = "https://api.stack-auth.com";
 /// The dev Stack project (PROTOCOL.md).
@@ -16,6 +18,9 @@ pub const DEFAULT_STACK_PROJECT: &str = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
 pub enum TokenSource {
     /// A fixed access token (expires; fine for tests and short runs).
     Access(String),
+    /// Access tokens the supervising app sends over stdin (`control`); the
+    /// app keeps the Stack session, hostd never sees a refresh token.
+    Supplied(watch::Receiver<Option<String>>),
     Refresh {
         refresh_token: String,
         project_id: String,
@@ -27,8 +32,16 @@ pub enum TokenSource {
 pub struct Tokens {
     source: TokenSource,
     cached: Mutex<Option<(String, Option<u64>)>>,
+    /// A supplied token the backend refused; never handed out again.
+    refused: Mutex<Option<String>>,
     http: reqwest::Client,
 }
+
+/// How long hostd waits for the app's first token before it asks for one.
+const FIRST_TOKEN_GRACE: Duration = Duration::from_secs(2);
+
+/// How long hostd waits for the app to answer `need_token`.
+const SUPPLIED_TOKEN_WAIT: Duration = Duration::from_secs(30);
 
 /// The claims cnx-hostd reads from a Stack access token (no verification:
 /// the token is the Mac's own; the backend verifies it).
@@ -58,11 +71,14 @@ fn now() -> u64 {
 impl Tokens {
     pub fn new(source: TokenSource) -> Self {
         cnx_link::install_crypto_provider();
-        Self { source, cached: Mutex::new(None), http: reqwest::Client::new() }
+        Self { source, cached: Mutex::new(None), refused: Mutex::new(None), http: reqwest::Client::new() }
     }
 
     /// A current access token, refreshed 60 s before it expires.
     pub async fn access_token(&self) -> Result<String> {
+        if let TokenSource::Supplied(receiver) = &self.source {
+            return self.supplied_token(receiver.clone()).await;
+        }
         let mut cached = self.cached.lock().await;
         if let Some((token, exp)) = cached.as_ref()
             && exp.is_none_or(|exp| exp > now() + 60)
@@ -71,6 +87,7 @@ impl Tokens {
         }
         let token = match &self.source {
             TokenSource::Access(token) => token.clone(),
+            TokenSource::Supplied(_) => bail!("supplied tokens are read above"),
             TokenSource::Refresh { refresh_token, project_id, publishable_key, api } => {
                 let mut request = self
                     .http
@@ -97,8 +114,45 @@ impl Tokens {
         Ok(token)
     }
 
+    /// The app's current token while it has more than 60 s left and was not
+    /// refused; otherwise asks the app (`need_token`) and waits for a new one.
+    async fn supplied_token(&self, mut receiver: watch::Receiver<Option<String>>) -> Result<String> {
+        let deadline = tokio::time::Instant::now() + SUPPLIED_TOKEN_WAIT;
+        let mut asked = false;
+        loop {
+            let current = receiver.borrow_and_update().clone();
+            if let Some(token) = current {
+                let refused = self.refused.lock().await.as_deref() == Some(token.as_str());
+                if !refused && claims(&token).exp.is_none_or(|exp| exp > now() + 60) {
+                    return Ok(token);
+                }
+            }
+            if !asked {
+                // At start the app's first token is already on its way: ask only if it
+                // does not arrive soon, or when the token we have expired or was refused.
+                if receiver.borrow().is_none() {
+                    match tokio::time::timeout(FIRST_TOKEN_GRACE, receiver.changed()).await {
+                        Ok(Ok(())) => continue,
+                        Ok(Err(_)) => bail!("the app closed the token channel"),
+                        Err(_) => {}
+                    }
+                }
+                control::emit(&control::Event::NeedToken);
+                asked = true;
+            }
+            match tokio::time::timeout_at(deadline, receiver.changed()).await {
+                Ok(Ok(())) => continue,
+                Ok(Err(_)) => bail!("the app closed the token channel"),
+                Err(_) => bail!("the app sent no access token"),
+            }
+        }
+    }
+
     /// Forget the cached token (after the backend refused it).
     pub async fn invalidate(&self) {
+        if let TokenSource::Supplied(receiver) = &self.source {
+            *self.refused.lock().await = receiver.borrow().clone();
+        }
         *self.cached.lock().await = None;
     }
 }
@@ -115,5 +169,43 @@ mod tests {
         assert_eq!(claims.sub.as_deref(), Some("user-1"));
         assert_eq!(claims.exp, Some(99));
         assert!(super::claims("not-a-jwt").sub.is_none());
+    }
+
+    fn token(exp: u64) -> String {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(format!(r#"{{"sub":"user-1","exp":{exp}}}"#).as_bytes());
+        format!("h.{payload}.s")
+    }
+
+    #[tokio::test]
+    async fn supplied_tokens_wait_for_a_fresh_one() {
+        let (sender, receiver) = watch::channel(Some(token(now() + 10)));
+        let tokens = Tokens::new(TokenSource::Supplied(receiver));
+        let fresh = token(now() + 3600);
+        let send = fresh.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            sender.send_replace(Some(send));
+            // Keep the channel open past the read.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        assert_eq!(tokens.access_token().await.unwrap(), fresh);
+    }
+
+    #[tokio::test]
+    async fn a_refused_supplied_token_is_not_reused() {
+        let first = token(now() + 3600);
+        let (sender, receiver) = watch::channel(Some(first.clone()));
+        let tokens = Tokens::new(TokenSource::Supplied(receiver));
+        assert_eq!(tokens.access_token().await.unwrap(), first);
+        tokens.invalidate().await;
+        let second = token(now() + 7200);
+        let send = second.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            sender.send_replace(Some(send));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        assert_eq!(tokens.access_token().await.unwrap(), second);
     }
 }

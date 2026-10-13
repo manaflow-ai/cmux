@@ -7,12 +7,18 @@ Configuration is read from the environment; see cnx-ios/rust/README.md.
 Required: CNX_BASE_URL, CNX_TEAM_ID, and CNX_REFRESH_TOKEN(_FILE) or
 CNX_ACCESS_TOKEN(_FILE).
 
-  --print-device-id   print this Mac's device id and exit";
+  --print-device-id   print this Mac's device id and exit
+
+CNX_CONTROL=stdio runs supervised by an app: access tokens and the acpmux
+endpoint arrive as JSON lines on stdin, status events leave as JSON lines on
+stdout, logs go to stderr, and the process exits when stdin ends.";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // stdout is the control stream when supervised, so logs always go to stderr.
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_env("CNX_LOG").unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_writer(std::io::stderr)
         .init();
     match std::env::args().nth(1).as_deref() {
         Some("--help" | "-h") => {
@@ -30,7 +36,8 @@ async fn main() -> Result<()> {
         Some(other) => anyhow::bail!("unknown argument {other}\n\n{HELP}"),
         None => {}
     }
-    let config = cnx_hostd::config::HostConfig::from_env()?;
+    let supplied = cnx_hostd::control::enabled().then(cnx_hostd::control::spawn_stdin_reader);
+    let config = cnx_hostd::config::HostConfig::from_env(supplied)?;
     tracing::info!(device_id = config.device_id, team = config.team_id, "starting");
     cnx_hostd::host::run(config).await
 }

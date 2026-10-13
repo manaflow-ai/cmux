@@ -12,6 +12,7 @@ use cnx_link::{DialOptions, LinkConfig, SignalingClient, TransportKind};
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
+use crate::control::{self, Event};
 use crate::services::{self, Peer};
 
 /// How the host answers dials on one signaling connection.
@@ -29,46 +30,68 @@ pub struct AnswerContext {
 #[derive(Clone)]
 pub enum IceSource {
     Fixed(Vec<IceServer>),
-    Api(ApiClient),
+    /// `GET /v1/ice` with a current access token at each session (the
+    /// signaling socket outlives any one token).
+    Api {
+        base_url: String,
+        tokens: Arc<Tokens>,
+    },
 }
 
 impl IceSource {
     async fn servers(&self) -> Vec<IceServer> {
         match self {
             Self::Fixed(servers) => servers.clone(),
-            Self::Api(api) => match api.ice().await {
-                Ok(config) => config.ice_servers,
-                Err(error) => {
-                    tracing::warn!(%error, "GET /v1/ice failed; answering with host candidates only");
-                    Vec::new()
+            Self::Api { base_url, tokens } => {
+                let token = match tokens.access_token().await {
+                    Ok(token) => token,
+                    Err(error) => {
+                        tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
+                        return Vec::new();
+                    }
+                };
+                match ApiClient::new(base_url, &token).ice().await {
+                    Ok(config) => config.ice_servers,
+                    Err(error) => {
+                        tracing::warn!(%error, "GET /v1/ice failed; answering with host candidates only");
+                        Vec::new()
+                    }
                 }
-            },
+            }
         }
     }
 }
 
 /// Run until the process is stopped: reconnect with backoff.
 pub async fn run(config: HostConfig) -> Result<()> {
-    let tokens = Tokens::new(config.tokens.clone());
+    let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let services = Arc::new(config.services.clone());
     let mut backoff = Duration::from_secs(1);
     loop {
-        match connect_once(&config, &tokens, &services).await {
+        control::emit(&Event::Connecting);
+        let reason = match connect_once(&config, &tokens, &services).await {
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
                 backoff = Duration::from_secs(1);
+                reason
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
                 tokens.invalidate().await;
                 backoff = (backoff * 2).min(Duration::from_secs(60));
+                format!("{error:#}")
             }
-        }
+        };
+        control::emit(&Event::Waiting { reason, retry_in_seconds: backoff.as_secs() });
         tokio::time::sleep(backoff).await;
     }
 }
 
-async fn connect_once(config: &HostConfig, tokens: &Tokens, services: &Arc<ServiceConfig>) -> Result<String> {
+async fn connect_once(
+    config: &HostConfig,
+    tokens: &Arc<Tokens>,
+    services: &Arc<ServiceConfig>,
+) -> Result<String> {
     let token = tokens.access_token().await.context("access token")?;
     let owner = config
         .owner_user_id
@@ -91,10 +114,11 @@ async fn connect_once(config: &HostConfig, tokens: &Tokens, services: &Arc<Servi
         .await
         .context("signaling connect")?;
     tracing::info!(device_id = config.device_id, "signaling connected");
+    control::emit(&Event::Online { device_id: config.device_id.clone(), team_id: config.team_id.clone() });
     let context = AnswerContext {
         owner_user_id: owner,
         services: Arc::clone(services),
-        ice: IceSource::Api(api),
+        ice: IceSource::Api { base_url: config.base_url.clone(), tokens: Arc::clone(tokens) },
         include_loopback: config.include_loopback,
         exclude_cgnat: config.exclude_cgnat,
     };
@@ -166,10 +190,30 @@ async fn answer_session(
             return;
         }
     };
-    tracing::info!(session_id, ?kind, path = ?*connected.path.borrow(), phone = peer.device_id, "link up");
+    let path = *connected.path.borrow();
+    tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, "link up");
+    control::emit(&Event::PhoneUp {
+        session_id: session_id.clone(),
+        phone_device_id: peer.device_id.clone(),
+        transport: control::transport_name(kind).into(),
+        path: control::path_name(path).into(),
+    });
+    let mut paths = connected.path.clone();
+    let path_session = session_id.clone();
+    let path_watch = tokio::spawn(async move {
+        while paths.changed().await.is_ok() {
+            let path = *paths.borrow_and_update();
+            control::emit(&Event::PhonePath {
+                session_id: path_session.clone(),
+                path: control::path_name(path).into(),
+            });
+        }
+    });
     while let Some(incoming) = connected.link.accept().await {
         tokio::spawn(services::serve(Arc::clone(&context.services), peer.clone(), incoming));
     }
     let reason = connected.link.closed().await;
+    path_watch.abort();
     tracing::info!(session_id, reason, "link down");
+    control::emit(&Event::PhoneDown { session_id, reason });
 }
