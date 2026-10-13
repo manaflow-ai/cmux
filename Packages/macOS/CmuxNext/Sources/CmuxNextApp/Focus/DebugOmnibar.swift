@@ -2,11 +2,11 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
 
-/// `debug.omnibar` and (DEBUG builds) `debug.mouse` and
+/// `debug.omnibar` and (DEBUG builds) `debug.omnibar_mouse` and
 /// `debug.omnibar_type`: the omnibar of a
 /// browser pane (default: the focused pane of the first window, or of
 /// `window`). `debug.omnibar` reports the state machine next to what the
-/// field editor shows; `debug.mouse` presses, drags and releases over the
+/// field editor shows; `debug.omnibar_mouse` presses, drags and releases over the
 /// omnibar text as AppKit would for a key window, without activating the
 /// app or making the window key (plans/cmux-next/focus.md, section 7);
 /// `debug.omnibar_type` types text and presses Return in the field the same way.

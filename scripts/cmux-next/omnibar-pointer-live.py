@@ -243,10 +243,14 @@ try:
         if above_text:
             check(probe(above_text)[1] == "arrow", f"arrow over the bar around the text while editing {probe(above_text)}")
         snapshot("light-editing")
-        mouse("click", center(text))
+        # The test window is never key, so AppKit drops a raw click on the field editor (it takes no
+        # first mouse); debug.omnibar_mouse presses over the text as AppKit does for a key window.
+        rpc("debug.omnibar_mouse", {"window": WINDOW, "character": 3})
+        print("after second click", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         second = wait_for(lambda: (omnibar().get("selection") or [0, 1])[1] == 0 and omnibar(), "second click places the caret", 5) or omnibar()
         check(second.get("has_focus") and (second.get("selection") or [0, 1])[1] == 0, f"second click places the caret: {second.get('selection')}")
         key("escape")
+        print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         check(bool(wait_for(lambda: not omnibar().get("has_focus"), "Escape blurs", 5)), "Escape with nothing typed returns to the page")
         check(probe(center(text)) == ("text", "arrow"), f"arrow over the text after Escape {probe(center(text))}")
 
@@ -269,7 +273,10 @@ try:
         if quiet_wait(lambda: omnibar().get("phase") == "focused", 1.5):
             break
     reverted = omnibar()
-    check(reverted.get("has_focus") and reverted.get("text") == shown, f"Escape reverts typed text and keeps focus: {reverted.get('phase')} {reverted.get('text')!r}")
+    # The reverted address shows elided again (the host at rest), so compare without the scheme.
+    def bare(value):
+        return (value or "").removeprefix("https://").removeprefix("http://").rstrip("/")
+    check(reverted.get("has_focus") and bare(reverted.get("text")) == bare(shown), f"Escape reverts typed text and keeps focus: {reverted.get('phase')} {reverted.get('text')!r}")
     key("escape")
     check(bool(wait_for(lambda: not omnibar().get("has_focus"), "second Escape blurs", 5)), "a second Escape returns to the page")
     check(omnibar().get("consistent") is True, "the field editor matches the state machine")
