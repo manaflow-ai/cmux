@@ -93,7 +93,7 @@ final class CloudMoveAsks {
                     guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
                     let text = switch retry {
                     case .show: CloudMoveStrings.unfinishedShow
-                    case .move, .askFirst: CloudMoveStrings.unfinishedMove
+                    case .move, .askFirst, .update: CloudMoveStrings.unfinishedMove
                     }
                     asks[tab] = Ask(folder: "", always: false)
                     offered.insert(tab)
