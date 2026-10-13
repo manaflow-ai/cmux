@@ -5,7 +5,9 @@ import Foundation
 /// daemon page listener admits (CmuxNextDaemonService, which does not link CmuxNextPages):
 /// every first-party page may open its own daemon WebSocket and gets its page id from its Origin
 /// (cmux-tui spec/page-router.md; cx-hnmbt.10).
-public nonisolated enum FirstPartyPages {
+public nonisolated struct FirstPartyPages {
+    public nonisolated init() {}
+
     /// A page missing here gets the strict CSP whatever its descriptor asks for: `cmux.home-channels`
     /// lost its `connect-src` and WebKit refused its daemon WebSocket ("The operation is insecure",
     /// cx-hnmbt.6).
