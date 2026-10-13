@@ -17,8 +17,6 @@
 //!
 //! Each mutation appends one `state` journal record with `advisory` replay.
 //! The materialized table is authoritative for restoration, so a restore
-//! preview never counts these records as unsupported required state.
-
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
