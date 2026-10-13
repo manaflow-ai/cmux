@@ -358,9 +358,12 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             .offsetBy(dx: row.field.minX, dy: row.field.minY)
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
         sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
-        // Messages centers the microphone 21 pt in from the field's end.
-        micButton.frame = CGRect(x: field.width - 38, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
-            .offsetBy(dx: row.field.minX, dy: row.field.minY)
+        // Messages centers the glyph 21 pt in from the field's end, on the
+        // plus's row and the pixel grid.
+        let glyph = ComposerBarGeometry.recordGlyphFrame(
+            fieldBottom: row.field.minY + field.height, fieldTrailing: row.field.minX + field.width, scale: traitCollection.displayScale
+        )
+        micButton.frame = glyph.insetBy(dx: -6, dy: -9)
         // A fixed 20 pt continuous corner, not a capsule: the field keeps it
         // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
         fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)

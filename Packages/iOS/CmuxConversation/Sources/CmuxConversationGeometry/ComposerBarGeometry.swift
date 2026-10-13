@@ -61,6 +61,17 @@ public enum ComposerBarGeometry {
     /// shown at 22 pt): five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16,
     /// 8 and 4 pt tall, centered in a 22 pt square.
     public static let recordGlyphSide: CGFloat = 22
+
+    /// The record glyph sits on the "+" row: centered 20 pt above the
+    /// field's bottom (the plus's center) and 21 pt in from its end, on the
+    /// pixel grid (Messages 27: field 516.7...557, glyph 526...548).
+    public static func recordGlyphFrame(fieldBottom: CGFloat, fieldTrailing: CGFloat, scale: CGFloat) -> CGRect {
+        let scale = max(1, scale)
+        let side = recordGlyphSide
+        let minY = ((fieldBottom - plusDiameter / 2 - side / 2) * scale).rounded() / scale
+        let minX = ((fieldTrailing - 21 - side / 2) * scale).rounded() / scale
+        return CGRect(x: minX, y: minY, width: side, height: side)
+    }
     public static let recordGlyphBars: [CGRect] = [4, 8, 16, 8, 4].enumerated().map { index, height in
         CGRect(x: 2 + 4 * CGFloat(index), y: (recordGlyphSide - height) / 2, width: 2, height: height)
     }
