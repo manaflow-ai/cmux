@@ -104,6 +104,9 @@ def run_page(name, url, hangs_on_click, typed=None):
         # Agents cannot open Chromium's own pages; a person types them into the omnibar.
         reply = rpc("debug.omnibar_type", {"text": typed})
         check(reply.get("typed") is True, f"{name}: typed into the omnibar ({reply})")
+        # A debug URL commits nothing; the page still answers until the renderer takes it.
+        hung = quiet_wait(lambda: "error" in rpc("browser.page.eval", {"script": "1", "tab": TAB}, timeout=3), 15)
+        check(bool(hung), f"{name}: the page stops answering")
     time.sleep(3)
     before = set(app_windows())
     click_page()
@@ -114,6 +117,8 @@ def run_page(name, url, hangs_on_click, typed=None):
     shown = quiet_wait(card_shown, HANG_SECONDS)
     check(bool(shown), f"{name}: the pane shows Page unresponsive ({page_status()})")
     if not shown:
+        rpc("action.run", {"action": "closeTab", "origin": "script"})
+        time.sleep(1)
         return
     opened = {id: w for id, w in app_windows().items() if id not in before}
     check(not opened, f"{name}: the card is inline, no window or dialog opened ({opened})")

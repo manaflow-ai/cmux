@@ -25,7 +25,6 @@ extension DebugMouse {
               let target = frame.hitTest(frame.convert(events[0].locationInWindow, from: nil)) else {
             return .object(["error": .string("no view under the point")])
         }
-        SyntheticInput.register(events)
         target.mouseDown(with: events[0])
         target.mouseUp(with: events[1])
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
