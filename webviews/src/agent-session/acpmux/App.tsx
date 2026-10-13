@@ -2843,9 +2843,6 @@ function AcpmuxPane() {
   const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
-  /// The Continue in… this page opened in its own tab (a host without `chat.openTab`): its discard
-  /// returns this tab to the chat it came from rather than closing it.
-  const preparedHere = useRef<string | undefined>(undefined);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
@@ -3605,13 +3602,14 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
-          // A fork and a Continue in… open in a tab of their own, so the chat keeps its tab and stays
-          // in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the floating
-          // chat) gets the new chat in this tab, as before.
+          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
+          // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
+            const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
-            if (!forked || (await openOwnTab(forked))) return forked;
+            if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
             return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
@@ -3646,25 +3644,25 @@ function AcpmuxPane() {
             await client.markSide(sessionId, chat);
             await postNative("chat.sideChat", { sessionId });
           },
+          // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
+          // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
-            const target = await client.continueIn(String(harness), true);
-            if (!target || (await openOwnTab(target))) return target;
-            preparedHere.current = target;
-            return persistSession(await client.select(target));
+            return client.continueIn(String(harness));
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
-          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
-          // A Continue in… in its own tab closes with its discard: the chat it came from has a tab.
-          "chat.handoff.discard": async () => {
-            const target = snapshotRef.current?.sessionId;
-            const ownTab = !!target && preparedHere.current !== target;
-            const source = await client.discardHandoff(ownTab);
-            if (!ownTab) return persistSession(source);
-            if (source) await callNative("pane.action", { id: HEADER_ACTIONS.close }).catch(() => undefined);
-            return source;
+          "chat.handoff.start": async ({ review }) => {
+            const receipt = await client.startHandoff(review as HandoffReviewInput);
+            const source = client.handoff.state.record?.source.sessionId;
+            const target = receipt?.targetSessionId;
+            if (!target || !source || client.selectedSession !== target) return receipt;
+            if (await openOwnTab(target)) {
+              if (client.selectedSession === target) await persistSession(await client.select(source));
+            } else await persistSession(target);
+            return receipt;
           },
+          "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
             client.gitDiff(String(scope), {
               ...(Array.isArray(paths) ? { paths: paths.map(String) } : {}),

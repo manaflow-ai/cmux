@@ -1935,13 +1935,12 @@ export class AcpmuxDirectClient {
   retryAttachmentsFor(rowId: string): ComposerAttachment[] {
     return this.retryAttachments.get(rowId) ?? [];
   }
-  /// Prepares Continue in `harness`; `stay` keeps this chat open and only answers the new one.
-  async continueIn(harness: string, stay = false): Promise<string | undefined> {
+  async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
     const generation = this.selectionGeneration;
     const record = await this.handoff.prepare(harness);
     if (!record || generation !== this.selectionGeneration) return;
-    return stay ? record.target.sessionId : this.select(record.target.sessionId);
+    return this.select(record.target.sessionId);
   }
   saveHandoff(review: HandoffReviewInput) {
     return this.handoff.save(review);
@@ -1949,12 +1948,11 @@ export class AcpmuxDirectClient {
   startHandoff(review: HandoffReviewInput) {
     return this.handoff.start(review);
   }
-  /// Discards the open Continue in…; `stay` answers the chat it came from without opening it.
-  async discardHandoff(stay = false): Promise<string | undefined> {
+  async discardHandoff(): Promise<string | undefined> {
     const generation = this.selectionGeneration;
     const record = await this.handoff.discard();
     if (!record || generation !== this.selectionGeneration) return;
-    return stay ? record.source.sessionId : this.select(record.source.sessionId);
+    return this.select(record.source.sessionId);
   }
   refreshHandoff() {
     return this.handoff.refresh();
