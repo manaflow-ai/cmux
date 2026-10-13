@@ -227,6 +227,8 @@ let package = Package(
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
+                // The window focus rules (cmux-focus-core) run in-process over the app FFI.
+                "CCmuxAppFFI",
             ],
             resources: [
                 .process("Resources"),
