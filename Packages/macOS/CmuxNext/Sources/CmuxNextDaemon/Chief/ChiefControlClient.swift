@@ -44,20 +44,35 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         }
     }
 
+    /// A model acpmux offers for the engine's harness.
+    public struct Model: Decodable, Sendable, Equatable {
+        public var id: String
+        public var name: String
+    }
+
+    /// What a set may pick: acpmux's models for the engine's harness and the
+    /// efforts the brain takes (empty from an older brain).
+    public struct Offered: Decodable, Sendable, Equatable {
+        public var models: [Model] = []
+        public var efforts: [String] = []
+    }
+
     /// What the turns run on (engine.json over the brain's defaults).
     public var engine: Engine
     /// engine.json as saved: the fields the owner chose.
     public var choice: Engine
     /// The newest turn ends, newest first.
     public var recent: [Turn]
+    public var offered: Offered
 
-    enum CodingKeys: String, CodingKey { case engine, choice, recent }
+    enum CodingKeys: String, CodingKey { case engine, choice, recent, offered }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         engine = try c.decode(Engine.self, forKey: .engine)
         choice = try c.decodeIfPresent(Engine.self, forKey: .choice) ?? Engine()
         recent = try c.decodeIfPresent([Turn].self, forKey: .recent) ?? []
+        offered = try c.decodeIfPresent(Offered.self, forKey: .offered) ?? Offered()
     }
 }
 

@@ -8,7 +8,8 @@
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
 //! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
-//! "recent": [<turn.end>...]}`, or `{"error": {"code", "message"}}`.
+//! "recent": [<turn.end>...], "offered": {"models": [{id, name}...],
+//! "efforts": [...]}}`, or `{"error": {"code", "message"}}`.
 
 use serde_json::{Value, json};
 
@@ -139,6 +140,15 @@ impl Brain {
             .filter(|e| e["ev"] == "turn.end")
             .collect();
         let recent: Vec<Value> = ends.iter().rev().take(RECENT).map(turn_summary).collect();
+        // The picker's lists: acpmux's models for the turn harness (none
+        // when it does not answer; the panel then keeps the current one).
+        let models = self
+            .agents
+            .offered_models(&engine.harness)
+            .unwrap_or_else(|e| {
+                (self.log)(&format!("engine answer: acpmux models: {e}"));
+                Vec::new()
+            });
         json!({
             "engine": {
                 "harness": engine.harness,
@@ -152,6 +162,7 @@ impl Brain {
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
             "recent": recent,
+            "offered": {"models": models, "efforts": EFFORTS},
         })
     }
 

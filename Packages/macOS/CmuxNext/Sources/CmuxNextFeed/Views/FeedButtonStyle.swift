@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextDesign
 import SwiftUI
 
 /// Gray buttons: no accent color anywhere. `primary` is the theme's
@@ -80,7 +82,8 @@ private struct FeedButtonBody<Label: View>: View {
     }
 }
 
-/// A plain text field with the theme's faint fill and no focus ring color.
+/// A plain text field with the theme's faint fill and no focus ring color; its text, caret and
+/// placeholder are the scope's inks.
 struct FeedTextField: View {
     let placeholder: String
     @Binding var text: String
@@ -88,15 +91,10 @@ struct FeedTextField: View {
     @Environment(\.feedColors) private var colors
 
     var body: some View {
-        TextField(placeholder, text: $text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 12))
-            .foregroundStyle(colors.primary)
-            .tint(colors.primary)
-            .focusEffectDisabled()
+        ThemedField(text: $text, placeholder: placeholder, font: .systemFont(ofSize: 12), height: 26, boxed: false,
+                    onSubmit: onSubmit)
             .padding(.horizontal, 8)
             .frame(height: 26)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(colors.hover))
-            .onSubmit(onSubmit)
     }
 }
