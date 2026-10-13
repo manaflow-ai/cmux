@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -23,6 +24,8 @@ final class CloudService {
     @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
+    /// This Mac's `cmux link` across the session (cx-rtipa S3).
+    @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -80,6 +83,9 @@ final class CloudService {
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         let identity = installIdentity
+        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
+        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
+                                  connection: { [machines] in machines.local.connection })
         let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
         let clientHeaders = identity.requestHeaders
         credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
@@ -106,6 +112,8 @@ final class CloudService {
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
         CloudMovedChats.app = movedChats
+        link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
+        link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
     }
 
     /// `cmux-<host>`, as the old app named its link device. Reads the kernel
@@ -169,12 +177,17 @@ final class CloudService {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
+                    await self.link.sessionBegan(user: self.auth.user?.id)
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
+                    await self.ensureLink()
                     await self.refresh()
                 } else {
                     self.dropAllMachines()
+                    // The session ended (signed out here or elsewhere, or
+                    // expired): no link keeps running for it.
+                    await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                 }
             }
@@ -204,6 +217,8 @@ final class CloudService {
             // The local tunnel hub stops too; nothing is revoked remotely.
             // task-owner: one teardown hop; hub.stop() is idempotent
             if let hub { Task { await hub.stop() } }
+            // So does this Mac's link (the session stays).
+            link.policyTurnedOff()
         } else {
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
@@ -301,7 +316,9 @@ final class CloudService {
         let session: CloudMachineSession
         switch configuration.linkSource {
         case .appServer:
-            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local))
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local) { [weak self] in
+                await self?.ensureLink()
+            })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                           localIdentity: { [weak local] in local?.identity })
@@ -369,15 +386,27 @@ final class CloudService {
     }
 
     func signOut() async {
+        // No ensure starts from here until the session's final endLink (the
+        // signed-out branch above, after auth.signOut).
+        link.beginEnding()
         dropAllMachines()
+        await link.endLink(final: false)
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
         }
+        // An ensure that slipped in during the revoke: stop that link too.
+        await link.stopLink()
         await auth.signOut()
     }
+
+    /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
+    func ensureLink() async { await link.ensureLink() }
+
+    /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
+    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
     /// mints one token. A failure is logged: the relay mints again when it

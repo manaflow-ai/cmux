@@ -301,6 +301,7 @@
             "rows" : [
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
+              "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
               "sidebar.sectionLook",
@@ -1885,67 +1886,6 @@
       "title" : {
         "key" : "settings.tabs.barOrder",
         "text" : "Tab Bar and Browser Toolbar"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        [
-
-        ],
-        [
-          "ws-1",
-          "2B7F0C3A-workspace"
-        ]
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : [
-
-      ],
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.hiddenButtons.help",
-        "text" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.hiddenButtons",
-      "keywords" : [
-        "toolbar",
-        "split",
-        "buttons",
-        "hide"
-      ],
-      "kind" : "string_list",
-      "page_hidden" : true,
-      "path" : [
-        "tabs",
-        "hiddenButtons"
-      ],
-      "refuses" : [
-        "ws-1",
-        [
-          1
-        ],
-        [
-          ""
-        ],
-        {
-
-        }
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.hiddenButtons",
-        "text" : "Hidden Tab Bar Buttons"
       },
       "validation" : "portable"
     },
@@ -13076,6 +13016,74 @@
     },
     {
       "accepts" : [
+        "same",
+        "separate"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarSurface.same",
+            "text" : "Same as Main Pane"
+          },
+          "value" : "same"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarSurface.separate",
+            "text" : "Separate"
+          },
+          "value" : "separate"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "same",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.surface.help",
+        "text" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.sidebarSurface",
+      "keywords" : [
+        "sidebar",
+        "background",
+        "surface",
+        "shade",
+        "color",
+        "colour",
+        "panel",
+        "separate",
+        "main pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "sidebarSurface"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.surface",
+        "text" : "Sidebar Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -22708,7 +22716,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "60f6deecf151d818e1fd0a0dfe77a83401305302179a3fed7d86c2a97782220b",
+  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
   "sections" : [
     {
       "id" : "general",

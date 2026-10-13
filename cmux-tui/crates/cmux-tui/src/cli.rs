@@ -805,6 +805,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
+  status        Show loading indicators for scripts and agents
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
