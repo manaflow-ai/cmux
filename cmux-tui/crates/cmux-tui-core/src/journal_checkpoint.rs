@@ -1491,9 +1491,7 @@ mod tests {
         assert_eq!(captured.blobs.len(), 1);
 
         let mut decoded = Vec::new();
-        GzDecoder::new(captured.blobs[0].compressed.as_slice())
-            .read_to_end(&mut decoded)
-            .unwrap();
+        GzDecoder::new(captured.blobs[0].compressed.as_slice()).read_to_end(&mut decoded).unwrap();
         let replay: Value = serde_json::from_slice(&decoded).unwrap();
         let replay_bytes = base64::engine::general_purpose::STANDARD
             .decode(replay["bytes_base64"].as_str().unwrap())
