@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { isUsagePlan, USAGE_METER_EVENT, USAGE_PLANS, USAGE_PRODUCT_ID, usagePriceLookupKey, type UsagePlan } from "./billing-catalog.ts"
+import { isUsagePlan, USAGE_METER_EVENT, USAGE_PLANS, USAGE_PRODUCT_ID, usagePriceLookupKey, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -105,6 +105,9 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
   return { subs, truncated }
 }
 
+/** The price set in force: `e2e` only on the development Worker that asks for it; every other environment gets v1. */
+export const usagePriceSet = (env: Env): UsagePriceSet => (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e" ? "e2e" : "v1")
+
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string }): Promise<SyncReport> => {
   const mode = stripeKeyMode(env.STRIPE_USAGE_KEY)
   const report: SyncReport = { mode, checked: 0, items_added: 0, items_moved: 0, pushed: 0, unchanged: 0, skipped: 0, failed: 0 }
@@ -113,10 +116,19 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
     return { ...report, refused: mode === "none" ? "no_key" : mode === "live" ? "live_key" : "invalid_key" }
   }
   const key = env.STRIPE_USAGE_KEY!
-  const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=10&${USAGE_PLANS.map((p) => `lookup_keys[]=${encodeURIComponent(usagePriceLookupKey(p))}`).join("&")}`)
+  const set = usagePriceSet(env)
+  // Every usage price of every set is a usage item (never a plan item); the set in force picks the target.
+  const allSets: UsagePriceSet[] = ["v1", "e2e"]
+  // At most 10 lookup keys per request (Stripe): 2 sets x 4 plans.
+  const asked = new Set(allSets.flatMap((s) => USAGE_PLANS.map((p) => usagePriceLookupKey(p, s))))
+  const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${[...asked].map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
   const priceOf = new Map<UsagePlan, string>()
-  for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan)) priceOf.set(plan, p.id)
-  const usagePrices = new Set(priceOf.values())
+  const usagePrices = new Set<string>()
+  for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
+    if (!asked.has(p.lookup_key)) continue
+    usagePrices.add(p.id)
+    for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan, set)) priceOf.set(plan, p.id)
+  }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
 
   const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`)) as StripeSubscription], truncated: false } : await listActive(key)
