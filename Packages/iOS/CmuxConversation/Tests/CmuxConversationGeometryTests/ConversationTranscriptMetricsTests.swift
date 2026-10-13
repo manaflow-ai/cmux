@@ -55,6 +55,24 @@ import Testing
         #expect(ConversationTranscriptMetrics.space(10, captionLineSpacing: arabic, scale: 3) == 10)
     }
 
+    /// A group sender name's line box is its pixel-rounded line height and
+    /// the bubble starts a run's space under it. Real iPhone 17 Pro Max
+    /// (iOS 26.4, en-US + ar, caption 2 line height 15.13): "Austin Wang"
+    /// cap top 15.67-16.0 pt above the bubble, the date's descender 11.33
+    /// above the name; ours drew a 16 pt box 3 pt above it (cap top 15.33,
+    /// 11.67).
+    @Test func senderNameSitsARunSpaceAboveItsBubble() {
+        let arabic = ConversationTranscriptMetrics.senderNameLine(lineHeight: 15.126953125, captionLineSpacing: 13, scale: 3)
+        #expect(abs(arabic.height - 15.3333) < 0.001)
+        #expect(abs(arabic.bubbleOffset - 19.3333) < 0.001)
+        let english = ConversationTranscriptMetrics.senderNameLine(lineHeight: 13.126953125, captionLineSpacing: 13, scale: 3)
+        #expect(abs(english.height - 13.3333) < 0.001)
+        #expect(abs(english.bubbleOffset - 17.3333) < 0.001)
+        // The space grows with the text size like every other.
+        let xl = ConversationTranscriptMetrics.senderNameLine(lineHeight: 15.513671875, captionLineSpacing: 18, scale: 3)
+        #expect(abs(xl.bubbleOffset - (15.6667 + 5.6667)) < 0.001)
+    }
+
     @Test func spacesScaleWithTheCaptionLineSpacing() {
         func space(_ base: CGFloat, _ line: CGFloat) -> CGFloat {
             ConversationTranscriptMetrics.space(base, captionLineSpacing: line, scale: 3)
