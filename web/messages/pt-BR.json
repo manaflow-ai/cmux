@@ -30,6 +30,21 @@
       "message": "Esta máquina foi criada antes de uma atualização do Cloud e não pode ser conectada.",
       "action": "Crie uma nova máquina, copie seus arquivos com cmux vm pull e cmux vm push e depois exclua esta."
     },
+    "guestUnresponsive": {
+      "title": "A máquina não está respondendo",
+      "message": "Esta máquina não respondeu a tempo, então a solicitação não pôde ser concluída.",
+      "action": "Pause a máquina, depois retome-a e tente novamente. No app para Mac, escolha Pausar máquina e depois Retomar máquina. Em um terminal, execute cmux vm pause '<machine>' e depois cmux vm resume '<machine>'."
+    },
+    "inProgress": {
+      "title": "Ainda em andamento",
+      "message": "O provedor de nuvem ainda não concluiu esta alteração. Ela ainda pode ser concluída.",
+      "action": "Verifique o status da máquina com cmux vm ls ou na lista de máquinas antes de tentar novamente."
+    },
+    "providerTimeout": {
+      "title": "O provedor de nuvem está lento",
+      "message": "O provedor de nuvem não respondeu a tempo.",
+      "action": "Tente novamente em instantes."
+    },
     "networkRuleCapacity": {
       "title": "Regras de rede no limite",
       "message": "Sua política de rede foi salva, mas não foi aplicada: o cmux Cloud atingiu a capacidade de regras de rede.",
@@ -95,6 +110,11 @@
       "vcpuMessage": "Suas VMs já usam {used} de {pool} vCPUs. Esta VM precisa de {requested} vCPUs.",
       "upgradeAction": "Pause ou exclua uma VM, ou faça upgrade para o Max.",
       "action": "Pause ou exclua uma VM."
+    },
+    "activeLimit": {
+      "counted": "Contadas agora: {machines}. Máquinas pausadas não contam.",
+      "provisioning": "{name} (provisionando)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -188,6 +208,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
     "assets": "Recursos",
+    "art": "Arte",
     "openSource": "Código aberto",
     "guides": "Guias",
     "compare": "Comparar"
@@ -1122,7 +1143,7 @@
       "transferUnavailableError": "As transferências estão temporariamente indisponíveis ou a conta está sendo atualizada. Tente novamente em instantes.",
       "shareWithTeam": "Compartilhar com a equipe",
       "makePrivate": "Tornar privado",
-      "privateImportHint": "Novas contas são privadas. Compartilhe uma conta para disponibilizá-la às VMs Cloud desta equipe.",
+      "privateImportHint": "Em uma organização, as novas contas são compartilhadas com a equipe e as VMs do Cloud dela. Na sua equipe pessoal, elas continuam privadas. Use Tornar privado ou Compartilhar com a equipe para alterar uma conta.",
       "description": "As contas compartilhadas ficam disponíveis para as VMs Cloud desta equipe. As contas privadas ficam disponíveis apenas para quem as adicionou.",
       "cancelAction": "Cancelar",
       "apiKeysTitle": "Chaves de API",
@@ -2185,6 +2206,7 @@
           "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica.",
           "showAgentUsage": "Acrescenta o uso do agente de código à entrada de status do Claude Code ou do Codex: modelo e janela de contexto consumida e, no Claude Code, um custo de API estimado (thread principal e subagentes) pelos preços de tabela publicados pela Anthropic. O custo é uma estimativa, não a sua fatura de assinatura; os níveis batch e priority, os preços para parceiros, o modo rápido e as taxas de ferramentas de servidor não são considerados.",
+          "showCloudDeviceIcons": "Mostrar ícones de máquinas Cloud e dispositivos ao lado dos títulos dos espaços de trabalho remotos, independentemente dos detalhes da branch Git e do diretório.",
           "beta": {
             "conversations": {
               "enabled": "Mostrar a visualização unificada de conversas no seletor da barra lateral."
@@ -2209,6 +2231,13 @@
           "indentGuides": "Marca cada nível de indentação com uma linha vertical fina no editor de arquivos integrado.",
           "currentLineHighlight": "Destaca com cor a linha que contém o cursor de texto enquanto nada estiver selecionado.",
           "tabWidth": "Quantas colunas uma parada de tabulação ocupa. As guias de indentação usam o mesmo espaçamento."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "Com um espaço de trabalho tmux remoto selecionado, “Novo espaço de trabalho” inicia uma sessão tmux no host desse espaço."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2279,7 +2308,7 @@
       "plusButtonScreenshotAlt": "Menu de clique direito do botão de mais do cmux mostrando Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "O menu de clique direito segue a ordem de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Ações personalizadas do botão de mais",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> para sobrescrever o que o botão de mais faz. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou o alias <rightClick>rightClick</rightClick>) para definir o menu ordenado do clique direito. Entradas de menu podem ser IDs de ação, objetos de ação ou <separator>{ \"type\": \"separator\" }</separator>. Quando não definido, o menu lista cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada um com seu atalho atual. As opções de nuvem aparecem apenas quando Cloud Machines está habilitado. New Cloud Workspace usa a máquina do último workspace Cloud selecionado e depois a primeira máquina na barra lateral direita; New Cloud Machine provisiona uma máquina deliberadamente.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> para sobrescrever o que o botão de mais faz. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou o alias <rightClick>rightClick</rightClick>) para definir o menu ordenado do clique direito. Entradas de menu podem ser IDs de ação, objetos de ação ou <separator>{ \"type\": \"separator\" }</separator>. Quando não definido, o menu lista cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada um com seu atalho atual. As opções de nuvem aparecem apenas quando Cloud Machines está habilitado. New Cloud Workspace usa a máquina do espaço de trabalho Cloud selecionado mais recentemente e depois a primeira na barra lateral direita; se não houver uma máquina utilizável, abre o New Cloud Machine.",
       "newWorkspaceWorktreeNote": "Este exemplo faz o clique normal no botão de mais executar a ação <action>worktree-agents</action>. O comando de workspace em <commands>commands</commands> usa um terminal de preparação visível para criar primeiro o <worktree>worktree</worktree> do Git. Codex e Claude iniciam ao mesmo tempo, esperam o arquivo de estado específico do workspace e então entram no diretório criado antes de exec.",
       "simpleCommands": "Comandos de shell",
       "simpleCommandsDesc": "A menor entrada é um nome mais uma string command. Ao escolhê-la na Command Palette, essa string é digitada no terminal que está em foco e executada.",
@@ -2898,14 +2927,14 @@
       "reqNoVpn": "Nenhuma configuração de VPN, chave SSH ou encaminhamento de portas. O cmux se conecta às suas máquinas por uma rede privada que inicia automaticamente.",
       "quickstartTitle": "Início rápido",
       "stepSignIn": "Inicie a sessão. Use a aba Cloud na barra lateral direita ou execute o comando de login em um terminal.",
-      "stepCreate": "Crie uma máquina com File › New Cloud Machine ou ⌘Y. Escolha um tamanho e um rótulo opcional. A criação continua em segundo plano, e o cmux mostra uma notificação quando a máquina estiver pronta.",
-      "stepWorkspace": "Abra um espaço de trabalho na máquina com ⇧⌘Y (New Cloud Workspace). Dentro de um espaço de trabalho do Cloud, ⌘N cria outro espaço de trabalho na mesma máquina.",
+      "stepCreate": "Crie uma máquina com File › New Cloud Machine ou ⇧⌘Y. Escolha um tamanho e um rótulo opcional. A criação continua em segundo plano, e o cmux mostra uma notificação quando a máquina estiver pronta.",
+      "stepWorkspace": "Abra um espaço de trabalho na máquina com ⌘Y (New Cloud Workspace). Dentro de um espaço de trabalho do Cloud, ⌘N sempre cria um espaço de trabalho local neste Mac.",
       "stepAgent": "Execute um agente. Claude Code, Codex, OpenCode e Pi já estão instalados na máquina.",
       "stepCli": "Você pode fazer o mesmo pela CLI:",
       "appTitle": "O Cloud no app",
       "appSidebar": "A aba Cloud na barra lateral direita lista suas máquinas. Em cada máquina você vê seus espaços de trabalho, portas encaminhadas, telas VNC e terminais. Clique em um item para abri-lo. Você também pode abrir a árvore do Cloud como painel pela paleta de comandos com Open Cloud as Pane.",
       "appMenu": "Clique com o botão direito em uma máquina para abrir um shell, criar um espaço de trabalho, abrir o desktop, abrir o cliente completo do cmux TUI, redimensioná-la, renomeá-la, copiar o endereço IP, ver o status, criar um checkpoint, fazer um fork ou excluí-la. Você também pode fixar máquinas e mudar a ordem delas.",
-      "appShortcuts": "New Cloud Machine (⌘Y) e New Cloud Workspace (⇧⌘Y) estão no menu File, no menu do botão de mais e na paleta de comandos. Você pode alterar os dois atalhos em Settings ou no cmux.json com as chaves newCloudMachine e newCloudWorkspace.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) e New Cloud Workspace (⌘Y) estão no menu File, no menu do botão de mais e na paleta de comandos. Você pode alterar os dois atalhos em Settings ou no cmux.json com as chaves newCloudMachine e newCloudWorkspace.",
       "cliIntroTitle": "O Cloud pela CLI",
       "cliIntroDesc": "cmux vm e cmux cloud são o mesmo comando. Execute cmux vm sem verbo para listar suas máquinas. Todo verbo tem uma página --help que funciona sem o app, e cmux vm guide imprime um guia completo em Markdown. Adicione --json a qualquer verbo para obter saída legível por máquina.",
       "baseTitle": "Sua máquina base",
@@ -2923,7 +2952,7 @@
       "metaDescription": "Crie, dimensione, redimensione, pause, faça snapshots, forks e exclua máquinas do cmux Cloud, e entenda os limites de cada plano.",
       "intro": "Esta página explica o ciclo de vida de uma máquina do cmux Cloud: como criá-la, quais tamanhos você pode escolher, como os limites do plano se aplicam e como pausar, fazer checkpoints, forks e excluí-la.",
       "createTitle": "Criar uma máquina",
-      "createApp": "No app, use File › New Cloud Machine (⌘Y), o menu do botão de mais, a paleta de comandos ou o botão de mais na barra lateral do Cloud. A janela pede um tamanho e um rótulo opcional.",
+      "createApp": "No app, use File › New Cloud Machine (⇧⌘Y), o menu do botão de mais, a paleta de comandos ou o botão de mais na barra lateral do Cloud. A janela pede um tamanho e um rótulo opcional.",
       "createCli": "Pela CLI, cmux vm new cria uma máquina e abre um espaço de trabalho nela. Use --detach para criá-la sem abrir nada. Se uma solicitação de criação for repetida, o cmux reutiliza a mesma solicitação para que você não fique com duas máquinas.",
       "createFailed": "Se a criação falhar, a notificação permite tentar de novo, mostrar o erro ou copiá-lo para uma solicitação de suporte.",
       "sizesTitle": "Tamanhos",
@@ -3194,8 +3223,8 @@
       "cloudLink": "Como os agentes são configurados nas máquinas do Cloud",
       "teamsTitle": "Equipes e compartilhamento",
       "teamsScope": "As contas pertencem à equipe em que você está com sessão iniciada. cr org list mostra suas equipes, e cr org switch muda a equipe que o cr usa. Os comandos cmux coderouter aceitam --team '<id>'.",
-      "teamsPrivate": "Uma conta nova é privada para quem a adicionou. No painel, \"Compartilhar com a equipe\" a disponibiliza para todos os membros e para as máquinas do Cloud da equipe, e \"Tornar privado\" desfaz isso.",
-      "teamsPersonal": "Na sua equipe pessoal, suas contas privadas também atendem suas próprias máquinas do Cloud. As máquinas do Cloud de uma organização usam apenas contas compartilhadas, então compartilhe a conta antes de esperar que uma máquina a use.",
+      "teamsPrivate": "Uma conta adicionada a uma organização é compartilhada com a equipe, então todos os membros e as máquinas do Cloud da equipe podem usá-la. No painel, Tornar privado a restringe a quem a adicionou, e Compartilhar com a equipe desfaz isso.",
+      "teamsPersonal": "Na sua equipe pessoal, as novas contas são privadas, e suas contas privadas também atendem às suas próprias máquinas do Cloud. As máquinas do Cloud de uma organização usam apenas contas compartilhadas, então uma conta privada precisa ser compartilhada antes que uma máquina possa usá-la.",
       "teamsManage": "Qualquer membro da equipe pode adicionar, renomear, desativar, transferir e remover as contas compartilhadas da equipe. cr transfer move uma conta para outra equipe depois que você confirma.",
       "usageTitle": "Uso e limites",
       "usageLimits": "Cada provedor mede a conta que atendeu a solicitação, conforme o plano e os limites dessa conta. O CodeRouter distribui o trabalho entre as contas, mas não aumenta o limite de nenhuma conta individual.",
@@ -3314,6 +3343,23 @@
   "wallOfLove": {
     "title": "Mural de Amor",
     "description": "O que as pessoas estão dizendo sobre o cmux."
+  },
+  "art": {
+    "metaTitle": "Arte para os fundos do cmux",
+    "metaDescription": "Navegue pelas pinturas em domínio público que o cmux oferece como fundos de janela: Van Gogh, Friedrich, Goya, Doré e outros, com fontes e licenças.",
+    "title": "Arte",
+    "description": "Pinturas e gravuras famosas em domínio público que você pode colocar atrás dos seus terminais. Os artistas de todas as obras morreram há mais de 70 anos, e cada obra foi publicada antes de 1931.",
+    "howToUse": "Em breve no cmux: use qualquer uma destas obras como fundo atrás dos seus terminais.",
+    "loading": "Carregando a coleção…",
+    "unavailable": "Não foi possível carregar a coleção. Tente novamente em alguns minutos.",
+    "collectionsLabel": "Coleções",
+    "source": "Domínio público · Fonte",
+    "collections": {
+      "darkArt": "Arte Sombria",
+      "museumIcons": "Ícones de Museu",
+      "calm": "Calma",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Mais um dia, mais um projeto baseado em libghostty, desta vez um terminal macOS com abas verticais, melhor organização/notificações, navegador integrado/programável voltado especificamente para quem usa muitos workflows de agentes baseados em terminal.",

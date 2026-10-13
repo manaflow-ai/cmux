@@ -171,6 +171,21 @@
       "message": "This machine was created before a Cloud update and can't be attached.",
       "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
     },
+    "guestUnresponsive": {
+      "title": "Machine not responding",
+      "message": "This machine did not respond in time, so the request could not finish.",
+      "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
+    },
+    "inProgress": {
+      "title": "Still in progress",
+      "message": "The cloud provider has not finished this change yet. It may still complete.",
+      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
+    },
+    "providerTimeout": {
+      "title": "Cloud provider is slow",
+      "message": "The cloud provider did not answer in time.",
+      "action": "Try again in a moment."
+    },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
       "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
@@ -244,6 +259,11 @@
       "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
       "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
       "action": "Pause or delete a VM."
+    },
+    "activeLimit": {
+      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "provisioning": "{name} (provisioning)",
+      "separator": ", "
     }
   },
   "ios": {
@@ -612,7 +632,7 @@
       "cancelAction": "Cancel",
       "shareWithTeam": "Share with team",
       "makePrivate": "Make private",
-      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs.",
+      "privateImportHint": "In an organization, new accounts are shared with the team and its Cloud VMs. In your personal team they stay private to you. Use Make private or Share with team to change an account.",
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
@@ -1589,6 +1609,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Compare"
@@ -3426,6 +3447,7 @@
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
           "showAgentUsage": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled.",
+          "showCloudDeviceIcons": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
           "beta": {
             "conversations": {
               "enabled": "Show the unified Conversations view in the sidebar picker."
@@ -3455,6 +3477,13 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3528,7 +3557,7 @@
       "plusButtonScreenshotAlt": "cmux plus button right-click menu showing Codex Worktree, New Terminal, and New Browser",
       "plusButtonScreenshotCaption": "The right-click menu follows the order from ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Custom plus button actions",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. New Cloud Workspace uses the last selected Cloud workspace's machine, then the first machine in the right-hand sidebar; New Cloud Machine provisions a machine deliberately. Cloud rows appear only when Cloud Machines is enabled.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. New Cloud Workspace uses the last selected Cloud workspace's machine, then the first machine in the right-hand sidebar; when no usable machine exists, it opens New Cloud Machine. New Cloud Machine provisions a machine deliberately. Cloud rows appear only when Cloud Machines is enabled.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
       "workspaceActions": "Workspace layouts",
       "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
@@ -4426,14 +4455,14 @@
       "reqNoVpn": "No VPN, SSH key, or port forwarding setup. cmux connects to your machines over a private network that starts automatically.",
       "quickstartTitle": "Quickstart",
       "stepSignIn": "Sign in. Use the Cloud tab in the right sidebar, or run the login command in a terminal.",
-      "stepCreate": "Create a machine with File › New Cloud Machine or ⌘Y. Choose a size and an optional label. Creation continues in the background, and cmux shows a notification when the machine is ready.",
-      "stepWorkspace": "Open a workspace on the machine with ⇧⌘Y (New Cloud Workspace). Inside a Cloud workspace, ⌘N makes another workspace on the same machine.",
+      "stepCreate": "Create a machine with File › New Cloud Machine or ⇧⌘Y. Choose a size and an optional label. Creation continues in the background, and cmux shows a notification when the machine is ready.",
+      "stepWorkspace": "Open a workspace on the machine with ⌘Y (New Cloud Workspace). Inside a Cloud workspace, ⌘N always makes a local workspace on this Mac.",
       "stepAgent": "Run an agent. Claude Code, Codex, OpenCode, and Pi are already installed on the machine.",
       "stepCli": "You can do the same from the CLI:",
       "appTitle": "Cloud in the app",
       "appSidebar": "The Cloud tab in the right sidebar lists your machines. Under each machine you see its workspaces, forwarded ports, VNC displays, and terminals. Click an item to open it. You can also open the Cloud tree as a pane from the command palette with Open Cloud as Pane.",
       "appMenu": "Right-click a machine to open a shell, create a workspace, open its desktop, open the full cmux TUI client, resize it, rename it, copy its IP address, see its status, make a checkpoint, fork it, or delete it. You can also pin machines and change their order.",
-      "appShortcuts": "New Cloud Machine (⌘Y) and New Cloud Workspace (⇧⌘Y) are in the File menu, the plus-button menu, and the command palette. You can change both shortcuts in Settings or in cmux.json with the keys newCloudMachine and newCloudWorkspace.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) and New Cloud Workspace (⌘Y) are in the File menu, the plus-button menu, and the command palette. You can change both shortcuts in Settings or in cmux.json with the keys newCloudMachine and newCloudWorkspace.",
       "cliIntroTitle": "Cloud from the CLI",
       "cliIntroDesc": "cmux vm and cmux cloud are the same command. Run cmux vm with no verb to list your machines. Every verb has a --help page that works without the app, and cmux vm guide prints a full Markdown guide. Add --json to any verb for machine-readable output.",
       "baseTitle": "Your base machine",
@@ -4451,7 +4480,7 @@
       "metaDescription": "Create, size, resize, pause, snapshot, fork, and delete cmux Cloud machines.",
       "intro": "This page explains the life of a cmux Cloud machine: how to create it, what sizes you can choose, how plan limits apply, and how to pause, snapshot, fork, and delete it.",
       "createTitle": "Create a machine",
-      "createApp": "In the app, use File › New Cloud Machine (⌘Y), the plus-button menu, the command palette, or the plus button in the Cloud sidebar. The sheet asks for a size and an optional label.",
+      "createApp": "In the app, use File › New Cloud Machine (⇧⌘Y), the plus-button menu, the command palette, or the plus button in the Cloud sidebar. The sheet asks for a size and an optional label.",
       "createCli": "From the CLI, cmux vm new creates a machine and opens a workspace on it. Use --detach to create it without opening anything. If a create request is retried, cmux reuses the same request so you do not get two machines.",
       "createFailed": "If creation fails, the notification lets you retry, show the error, or copy it for a support request.",
       "sizesTitle": "Sizes",
@@ -4723,8 +4752,8 @@
       "cloudLink": "How agents are configured on Cloud machines",
       "teamsTitle": "Teams and sharing",
       "teamsScope": "Accounts belong to the team you are signed in to. cr org list shows your teams, and cr org switch changes the team that cr uses. cmux coderouter commands take --team '<id>'.",
-      "teamsPrivate": "A new account is private to the person who added it. In the dashboard, Share with team makes it available to every member and to the team's Cloud machines, and Make private reverses that.",
-      "teamsPersonal": "In your personal team, your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so share an account before you expect a machine to use it.",
+      "teamsPrivate": "An account added to an organization is shared with the team, so every member and the team's Cloud machines can use it. In the dashboard, Make private limits it to the person who added it, and Share with team reverses that.",
+      "teamsPersonal": "In your personal team, new accounts are private, and your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so a private account must be shared before a machine can use it.",
       "teamsManage": "Any team member can add, rename, disable, transfer, and remove the team's shared accounts. cr transfer moves an account to another team after you confirm.",
       "usageTitle": "Usage and limits",
       "usageLimits": "Each provider meters the account that served a request, under that account's own plan and limits. CodeRouter spreads work across accounts but does not raise any single account's limit.",
@@ -4937,6 +4966,23 @@
     "description": "What people are saying about cmux.",
     "metaTitle": "Wall of Love — cmux",
     "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
+  },
+  "art": {
+    "metaTitle": "Art for cmux backgrounds",
+    "metaDescription": "Browse the public-domain paintings cmux offers as window backgrounds: Van Gogh, Friedrich, Goya, Doré and more, with sources and licenses.",
+    "title": "Art",
+    "description": "Famous public-domain paintings and prints you can put behind your terminals. Every work's artist died over 70 years ago and it was published before 1931.",
+    "howToUse": "Coming soon to cmux: set any of these as the background behind your terminals.",
+    "loading": "Loading the collection…",
+    "unavailable": "The collection could not be loaded. Try again in a few minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Public domain · Source",
+    "collections": {
+      "darkArt": "Dark Art",
+      "museumIcons": "Museum Icons",
+      "calm": "Calm",
+      "dore": "Doré"
+    }
   },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
@@ -7171,6 +7217,14 @@
     "reserved_port": {
       "message": "Port 1337 is reserved for the Cloud VM's cmux connection and cannot be published.",
       "action": "Publish the port your own server listens on instead."
+    },
+    "rule_capacity": {
+      "message": "The Cloud VM domain was not published: cmux Cloud has reached its network rule capacity.",
+      "action": "The cmux team has been alerted. Run `cmux cloud domains rm <id>` to remove the failed entry, or contact support."
+    },
+    "publication_failed": {
+      "message": "This Cloud VM domain failed to publish.",
+      "action": "Delete it with `cmux cloud domains rm <id>` and publish again, or run `cmux cloud domains verify <id>` to retry."
     }
   },
   "cliAuthIdentity": {

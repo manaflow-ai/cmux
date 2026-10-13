@@ -2462,6 +2462,18 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<bool> {
+        migrate_journal_auto_vacuum(&self.connection)
+    }
+
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+        // Fresh registries opt into SQLite's incremental auto-vacuum. This is
+        // intentionally a small step: journal sealing must release the
+        // registry writer quickly even when a busy VM has many free pages.
+        self.connection.execute_batch("PRAGMA incremental_vacuum(256);")?;
+        Ok(())
+    }
+
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
         let mut statement = self.connection.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
@@ -2497,6 +2509,15 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
+        let end = self.connection.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(end)?)
+    }
+
     pub(crate) fn begin_journal_segment_seal(
         &mut self,
         requested_through: u64,
@@ -2530,7 +2551,7 @@ impl WorkspaceRegistry {
             requested_through <= head,
             "segment through sequence is ahead of the journal"
         );
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2547,9 +2568,15 @@ impl WorkspaceRegistry {
         )?;
         let archived_end = u64::try_from(archived_end)?;
         anyhow::ensure!(
-            through_sequence > archived_end,
+            checkpoint_sequence > archived_end,
             "requested journal range is already sealed"
         );
+        // A checkpoint can cover a very large prefix. Prepare and commit at
+        // most one storage segment per call so terminal writers only wait for
+        // a bounded delete/insert transaction; the caller can continue with
+        // the same checkpoint on its next maintenance tick.
+        let through_sequence = checkpoint_sequence
+            .min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64));
         tx.commit()?;
         Ok(JournalSegmentSealStart::Prepare(JournalSegmentSealPlan {
             requested_through,
@@ -2576,7 +2603,7 @@ impl WorkspaceRegistry {
         )? {
             return Ok(Some(journal_segment_receipt(&tx, origin, idempotency_key, journal)?));
         }
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2590,6 +2617,9 @@ impl WorkspaceRegistry {
             [],
             |row| row.get::<_, i64>(0),
         )?)?;
+        let through_sequence = checkpoint_sequence.map(|checkpoint| {
+            checkpoint.min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64))
+        });
         if through_sequence != Some(plan.through_sequence) || archived_end != plan.archived_end {
             return Ok(None);
         }

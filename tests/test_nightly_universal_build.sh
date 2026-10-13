@@ -662,6 +662,19 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
+# The sign job installs the cmux-tui client and its SSH payloads after the build
+# job's strip, so it must run strip-release-bundle.sh again after that install.
+if ! awk '
+  /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
+  exit 1
+fi
+
 INSTALL_TUI_SCRIPT="$ROOT_DIR/scripts/install-cmux-tui-client.sh"
 for expected in '--expected-commit' '--require-capability' 'required cmux-tui capability is missing'; do
   if ! grep -Fq -- "$expected" "$INSTALL_TUI_SCRIPT"; then
@@ -692,7 +705,7 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
-    /^          \.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
+    /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli_run=NR }
     /^      - name: Notarize app/ { if (!notarize_line) notarize_line=NR }
     END { exit !(smoke_line && cli_line && cli_run && notarize_line && smoke_line < cli_line && cli_line < cli_run && cli_run < notarize_line) }
   ' "$workflow"; then

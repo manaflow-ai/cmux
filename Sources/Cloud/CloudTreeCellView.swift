@@ -309,8 +309,9 @@ final class CloudTreeCellView: NSTableCellView {
     private static func sectionRefreshAction(_ kind: CloudTreeNode.Kind, _ actions: CloudTreeNodeActions?) -> (() -> Void)? {
         guard let actions else { return nil }
         switch kind {
-        // The panel's one refresh: the fleet and the account's other devices.
-        case .cloudMachinesSection, .devicesSection: return { actions.refresh() }
+        // Each header refreshes (and shows a spinner for) its own section.
+        case .cloudMachinesSection: return actions.refreshCloudMachines ?? { actions.refresh() }
+        case .devicesSection: return actions.refreshDevices ?? { actions.refresh() }
         case .coderouterSection: return { actions.refreshCoderouter() }
         default: return nil
         }

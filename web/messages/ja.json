@@ -171,6 +171,21 @@
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
       "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
     },
+    "guestUnresponsive": {
+      "title": "マシンが応答しません",
+      "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
+      "action": "マシンを一時停止してから再開し、もう一度お試しください。Mac アプリでは「マシンを一時停止」を選んでから「マシンを再開」を選びます。ターミナルでは cmux vm pause '<machine>' を実行してから cmux vm resume '<machine>' を実行します。"
+    },
+    "inProgress": {
+      "title": "まだ処理中です",
+      "message": "クラウドプロバイダーはこの変更をまだ完了していません。このあと完了する可能性があります。",
+      "action": "もう一度試す前に、cmux vm ls またはマシン一覧でマシンの状態を確認してください。"
+    },
+    "providerTimeout": {
+      "title": "クラウドプロバイダーの応答が遅れています",
+      "message": "クラウドプロバイダーが時間内に応答しませんでした。",
+      "action": "しばらくしてからもう一度お試しください。"
+    },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",
       "message": "ネットワークポリシーは保存されましたが、適用されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
@@ -244,6 +259,11 @@
       "vcpuMessage": "VM はすでに {pool} vCPU のうち {used} vCPU を使っています。この VM には {requested} vCPU が必要です。",
       "upgradeAction": "VM を一時停止または削除するか、Max にアップグレードしてください。",
       "action": "VM を一時停止または削除してください。"
+    },
+    "activeLimit": {
+      "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
+      "provisioning": "{name}（プロビジョニング中）",
+      "separator": "、"
     }
   },
   "ios": {
@@ -612,7 +632,7 @@
       "cancelAction": "キャンセル",
       "shareWithTeam": "チームと共有",
       "makePrivate": "非公開にする",
-      "privateImportHint": "新しいアカウントは非公開です。共有すると、このチームの Cloud VM で利用できます。",
+      "privateImportHint": "組織では、新しいアカウントはチームとそのCloud VMに共有されます。個人チームでは自分だけの非公開のままです。アカウントごとに「非公開にする」または「チームと共有」で変更できます。",
       "apiKeysTitle": "APIキー",
       "apiKeysDescription": "スクリプトやエージェント用の長期キーを作成できます。秘密鍵は一度だけ表示されます。",
       "apiKeysCount": "{count, plural, one {# 個のキー} other {# 個のキー}}",
@@ -1589,6 +1609,7 @@
     "copyright": "© {year} Manaflow",
     "language": "言語",
     "assets": "アセット",
+    "art": "アート",
     "openSource": "オープンソース",
     "guides": "ガイド",
     "compare": "比較"
@@ -3349,6 +3370,7 @@
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。",
           "showAgentUsage": "Claude Code または Codex のステータス項目にコーディングエージェントの使用状況を追加します。モデルと使用中のコンテキストウィンドウ、さらに Claude Code では Anthropic の公開価格に基づく API コストの概算（メインスレッドとサブエージェント）を表示します。この金額は概算であり、サブスクリプションの請求額ではありません。バッチ／優先ティア、パートナー価格、高速モード、サーバーツールの料金は考慮していません。",
+          "showCloudDeviceIcons": "Git ブランチやディレクトリの詳細とは別に、リモートワークスペースのタイトルの横に Cloud コンピュータとデバイスのアイコンを表示します。",
           "beta": {
             "conversations": {
               "enabled": "サイドバーの選択メニューに、会話をまとめて表示するビューを追加します。"
@@ -3378,6 +3400,13 @@
           "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "リモート tmux ワークスペースを選択している場合、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。"
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -3451,7 +3480,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents、New Terminal、New Browser を表示している cmux プラスボタンの右クリックメニュー",
       "plusButtonScreenshotCaption": "右クリックメニューは ui.newWorkspace.contextMenu の順序に従います。",
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。新しい Cloud ワークスペースは最後に選択した Cloud ワークスペースのマシンを使い、そのマシンが現在のアカウントやチームで利用できない、または無効な場合は右側サイドバーの先頭のマシンを使います。New Cloud Machine はマシンを明示的に作成します。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。新しい Cloud ワークスペースは最後に選択した Cloud ワークスペースのマシン、次に右側サイドバーの先頭のマシンを使い、利用できるマシンがなければ New Cloud Machine を開きます。New Cloud Machine はマシンを明示的に作成します。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
@@ -4338,14 +4367,14 @@
       "reqNoVpn": "VPN、SSH鍵、ポートフォワーディングの設定は不要です。cmuxは自動的に起動するプライベートネットワーク経由でマシンに接続します。",
       "quickstartTitle": "クイックスタート",
       "stepSignIn": "サインインします。右サイドバーのクラウドタブを使うか、ターミナルでログインコマンドを実行します。",
-      "stepCreate": "ファイル › 新規クラウドマシン または ⌘Y でマシンを作成します。サイズと任意のラベルを選びます。作成はバックグラウンドで進み、マシンの準備ができるとcmuxが通知します。",
-      "stepWorkspace": "⇧⌘Y（新規クラウドワークスペース）でマシン上にワークスペースを開きます。Cloudワークスペース内では、⌘N で同じマシン上に別のワークスペースを作成します。",
+      "stepCreate": "ファイル › 新規クラウドマシン または ⇧⌘Y でマシンを作成します。サイズと任意のラベルを選びます。作成はバックグラウンドで進み、マシンの準備ができるとcmuxが通知します。",
+      "stepWorkspace": "⌘Y（新規クラウドワークスペース）でマシン上にワークスペースを開きます。Cloudワークスペース内でも、⌘N は常にこのMac上にローカルワークスペースを作成します。",
       "stepAgent": "エージェントを実行します。Claude Code、Codex、OpenCode、Piはマシンにインストール済みです。",
       "stepCli": "CLIからも同じ操作ができます：",
       "appTitle": "アプリでのCloud",
       "appSidebar": "右サイドバーのクラウドタブにマシンが一覧表示されます。各マシンの下には、ワークスペース、転送中のポート、VNCディスプレイ、ターミナルが表示されます。項目をクリックすると開きます。コマンドパレットの「Cloudをペインで開く」で、Cloudツリーをペインとして開くこともできます。",
       "appMenu": "マシンを右クリックすると、シェルを開く、ワークスペースを作成する、デスクトップを開く、cmux TUIクライアントを開く、サイズを変更する、名前を変更する、IPアドレスをコピーする、状態を確認する、チェックポイントを作成する、フォークする、削除する、といった操作ができます。マシンをピン留めしたり、並び順を変えたりすることもできます。",
-      "appShortcuts": "新規クラウドマシン（⌘Y）と新規クラウドワークスペース（⇧⌘Y）は、ファイルメニュー、プラスボタンのメニュー、コマンドパレットにあります。どちらのショートカットも、設定またはcmux.jsonのキー newCloudMachine と newCloudWorkspace で変更できます。",
+      "appShortcuts": "新規クラウドマシン（⇧⌘Y）と新規クラウドワークスペース（⌘Y）は、ファイルメニュー、プラスボタンのメニュー、コマンドパレットにあります。どちらのショートカットも、設定またはcmux.jsonのキー newCloudMachine と newCloudWorkspace で変更できます。",
       "cliIntroTitle": "CLIでのCloud",
       "cliIntroDesc": "cmux vm と cmux cloud は同じコマンドです。動詞なしで cmux vm を実行するとマシンの一覧が表示されます。すべての動詞にアプリなしで使える --help ページがあり、cmux vm guide は完全なMarkdownガイドを出力します。どの動詞にも --json を付けると機械可読な出力になります。",
       "baseTitle": "ベースマシン",
@@ -4363,7 +4392,7 @@
       "metaDescription": "cmux Cloudマシンの作成、サイズ選択とサイズ変更、一時停止、スナップショット、フォーク、削除について。",
       "intro": "このページでは、cmux Cloudマシンのライフサイクルを説明します。作成方法、選べるサイズ、プランの上限、一時停止、スナップショット、フォーク、削除について扱います。",
       "createTitle": "マシンを作成する",
-      "createApp": "アプリでは、ファイル › 新規クラウドマシン（⌘Y）、プラスボタンのメニュー、コマンドパレット、またはクラウドサイドバーのプラスボタンを使います。表示されるシートでサイズと任意のラベルを指定します。",
+      "createApp": "アプリでは、ファイル › 新規クラウドマシン（⇧⌘Y）、プラスボタンのメニュー、コマンドパレット、またはクラウドサイドバーのプラスボタンを使います。表示されるシートでサイズと任意のラベルを指定します。",
       "createCli": "CLIでは、cmux vm new がマシンを作成し、そのマシン上でワークスペースを開きます。何も開かずに作成するには --detach を使います。作成リクエストが再試行された場合、cmuxは同じリクエストを再利用するため、マシンが2台できることはありません。",
       "createFailed": "作成に失敗した場合は、通知から再試行、エラーの表示、またはサポート依頼用にエラーをコピーできます。",
       "sizesTitle": "サイズ",
@@ -4635,8 +4664,8 @@
       "cloudLink": "Cloudマシンでのエージェントの設定方法",
       "teamsTitle": "チームと共有",
       "teamsScope": "アカウントはサインイン中のチームに属します。cr org listでチームを表示し、cr org switchでcrが使うチームを切り替えます。cmux coderouterのコマンドは--team '<id>'を受け付けます。",
-      "teamsPrivate": "新しいアカウントは、追加した人だけが使える非公開の状態になります。ダッシュボードの「チームと共有」で全メンバーとチームのCloudマシンが使えるようになり、「非公開にする」で元に戻せます。",
-      "teamsPersonal": "個人チームでは、非公開のアカウントも自分のCloudマシンで使われます。組織のCloudマシンは共有アカウントだけを使うため、マシンに使わせたいアカウントは事前に共有してください。",
+      "teamsPrivate": "組織に追加したアカウントはチームに共有され、すべてのメンバーとチームのCloudマシンが使えます。ダッシュボードの「非公開にする」で追加した人だけに限定でき、「チームと共有」で元に戻せます。",
+      "teamsPersonal": "個人チームでは新しいアカウントは非公開で、非公開のアカウントも自分のCloudマシンで使われます。組織のCloudマシンは共有アカウントだけを使うため、非公開のアカウントはマシンで使う前に共有する必要があります。",
       "teamsManage": "チームのメンバーは誰でも、チームの共有アカウントを追加、名前変更、無効化、移管、削除できます。cr transferは確認後にアカウントを別のチームへ移します。",
       "usageTitle": "使用量と上限",
       "usageLimits": "各プロバイダーは、リクエストを処理したアカウントの使用量を、そのアカウント自身のプランと上限に従って計測します。CodeRouterは処理を複数のアカウントに分散しますが、個々のアカウントの上限は引き上げません。",
@@ -4805,6 +4834,23 @@
   "wallOfLove": {
     "title": "みんなの声",
     "description": "cmuxについてみんなが言っていること。"
+  },
+  "art": {
+    "metaTitle": "cmux の背景アート",
+    "metaDescription": "cmux がウィンドウの背景として提供するパブリックドメインの絵画を閲覧できます。ゴッホ、フリードリヒ、ゴヤ、ドレなど、出典とライセンス付き。",
+    "title": "アート",
+    "description": "ターミナルの背景に設定できる、パブリックドメインの名画や版画。どの作品も、作者の没後 70 年以上が経過し、1931 年より前に発表されたものです。",
+    "howToUse": "近日 cmux に登場：これらの作品をターミナルの背景に設定できます。",
+    "loading": "コレクションを読み込んでいます…",
+    "unavailable": "コレクションを読み込めませんでした。数分後にもう一度お試しください。",
+    "collectionsLabel": "コレクション",
+    "source": "パブリックドメイン · 出典",
+    "collections": {
+      "darkArt": "ダークアート",
+      "museumIcons": "名画",
+      "calm": "穏やか",
+      "dore": "ドレ"
+    }
   },
   "testimonials": {
     "mitchellh": "またlibghosttyベースのプロジェクトが登場。今回は縦タブ付きのmacOSターミナルで、ターミナルベースのAIエージェントワークフローを大量に使う人向けに、整理・通知機能や組み込み・スクリプタブルなブラウザを搭載。",
@@ -7081,6 +7127,14 @@
     "reserved_port": {
       "message": "ポート1337はCloud VMのcmux接続用に予約されているため、公開できません。",
       "action": "代わりに、ご自身のサーバーが待ち受けているポートを公開してください。"
+    },
+    "rule_capacity": {
+      "message": "Cloud VM のドメインは公開されませんでした。cmux Cloud のネットワークルールが上限に達しています。",
+      "action": "cmux チームに通知済みです。`cmux cloud domains rm <id>` で失敗した項目を削除するか、サポートにお問い合わせください。"
+    },
+    "publication_failed": {
+      "message": "この Cloud VM ドメインの公開に失敗しました。",
+      "action": "`cmux cloud domains rm <id>` で削除して再度公開するか、`cmux cloud domains verify <id>` で再試行してください。"
     }
   },
   "cliAuthIdentity": {

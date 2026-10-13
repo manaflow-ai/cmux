@@ -152,7 +152,9 @@ For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen v�
 
 | Snarvei | Handling |
 |----------|--------|
-| ⌘ N | Nytt arbeidsområde |
+| ⌘ N | Nytt lokalt arbeidsområde |
+| ⌘ Y | Nytt Cloud-arbeidsområde i den sist brukbare Cloud-konteksten; åpner New Cloud Machine når ingen finnes |
+| ⌘ ⇧ Y | Ny Cloud-maskin |
 | ⌘ 1–8 | Hopp til arbeidsområde 1–8 |
 | ⌘ 9 | Hopp til siste arbeidsområde |
 | ⌃ ⌘ ] | Neste arbeidsområde |

@@ -54,7 +54,8 @@ jobs:
           ./scripts/select-ci-xcode.sh
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -109,7 +110,7 @@ jobs:
         working-directory: cmux-tui
         shell: bash
         env:
-          # The workspace release profile uses thin LTO, which leaves the
+          # The workspace release profile uses LTO, which leaves the
           # staticlib's objects as LLVM bitcode. Apple's nm and ld (LLVM 17)
           # cannot read bitcode from a newer rustc ("Unknown attribute kind"),
           # so the archive would build green and fail to link in Xcode. Build

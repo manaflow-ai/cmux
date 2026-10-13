@@ -105,6 +105,10 @@ const CODEX_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+/// Leaves out `WorktreeCreate` and `WorktreeRemove`, whose hooks replace Claude
+/// Code's own worktree handling. Claude Code reads the new worktree's path from
+/// a `WorktreeCreate` hook's stdout, and skips its `git worktree remove` when a
+/// `WorktreeRemove` hook exits 0.
 const CLAUDE_EVENTS: &[&str] = &[
     "ConfigChange",
     "CwdChanged",
@@ -133,8 +137,6 @@ const CLAUDE_EVENTS: &[&str] = &[
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    "WorktreeCreate",
-    "WorktreeRemove",
 ];
 
 const GEMINI_EVENTS: &[&str] = &[
@@ -1917,6 +1919,70 @@ fn hook_command(provider: &str, event: &str) -> String {
     )
 }
 
+/// Codex's shared app-server may run hooks without the launching terminal's
+/// environment. Carry that route in the command, using the embedded helper
+/// so hosts deployed with only the cmux-tui binary work too.
+#[cfg(unix)]
+fn codex_contextual_hook_command(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> String {
+    format!(
+        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(&socket.to_string_lossy()),
+        shell_quote(terminal),
+        shell_quote(&launcher.to_string_lossy()),
+        shell_quote(event),
+    )
+}
+
+/// Session flags have their own config layer in Codex 0.162. Trust only the
+/// commands generated here, leaving all other hooks' trust decisions intact.
+/// Codex appends hooks from lower layers, so disable the installed cmux copies
+/// for this invocation instead of sending each event twice.
+#[cfg(unix)]
+pub(crate) fn codex_session_hook_settings(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let context = Context::runtime()?;
+    codex_session_hook_settings_with_context(socket, terminal, launcher, &context)
+}
+
+#[cfg(unix)]
+fn codex_session_hook_settings_with_context(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+    context: &Context,
+) -> anyhow::Result<Vec<String>> {
+    let mut settings = Vec::new();
+    let provider = PROVIDERS.iter().copied().find(|provider| provider.id == "codex").unwrap();
+    let path = context.provider_path(provider);
+    let root = read_json_object(&path)?;
+    let key_path =
+        codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    for key in codex_owned_entry_keys(&key_path, &root) {
+        settings.push(format!("hooks.state.{}.enabled=false", toml_edit::Key::new(key)));
+    }
+    for event in CODEX_EVENTS {
+        let command = codex_contextual_hook_command(event, socket, terminal, launcher);
+        let timeout = codex_hook_timeout(event);
+        let label = codex_event_state_label(event)?;
+        let hash = codex_trust_hash(label, &command, timeout);
+        settings.push(format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ));
+        let key = toml_edit::Key::new(format!("/<session-flags>/config.toml:{label}:0:0"));
+        settings.push(format!("hooks.state.{key}.trusted_hash={}", toml_edit::Value::from(hash)));
+    }
+    Ok(settings)
+}
+
 /// The command shape before the tmux fallback. Its codex trust hashes stay
 /// cmux-owned so an upgrade replaces them instead of leaving them behind.
 fn legacy_hook_command(provider: &str, event: &str) -> String {
@@ -3543,6 +3609,40 @@ mod tests {
                 Some(COMMAND_HOOK_TIMEOUT_SECONDS),
                 "{provider} outer timeout must exceed the journal admission window"
             );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn claude_hooks_leave_worktree_handling_to_claude_code() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config = context.home.join(".claude/settings.json");
+        let journal = |event: &str| {
+            json!({"hooks": [{
+                "type": "command",
+                "command": hook_command("claude", event),
+                "timeout": COMMAND_HOOK_TIMEOUT_SECONDS,
+                "async": true,
+            }]})
+        };
+        let own = json!({"hooks": [{"type": "command", "command": "jj-worktree-create"}]});
+        let settings = json!({"hooks": {
+            "WorktreeCreate": [journal("WorktreeCreate"), own],
+            "WorktreeRemove": [journal("WorktreeRemove")],
+        }});
+        atomic_write(&config, &serde_json::to_vec(&settings).unwrap(), Some(0o600)).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        let installed: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(installed["hooks"]["WorktreeCreate"], json!([own]));
+        assert!(installed["hooks"].get("WorktreeRemove").is_none(), "{}", installed["hooks"]);
+        let session = claude_session_hook_settings(None).unwrap();
+        for event in ["WorktreeCreate", "WorktreeRemove"] {
+            assert!(session["hooks"].get(event).is_none(), "{event}: {:?}", session["hooks"]);
         }
     }
 

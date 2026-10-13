@@ -36,6 +36,12 @@ const OPERATOR_FAULT_VM_ERROR_CODES: ReadonlySet<string> = new Set([
  */
 const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_operation_unsupported",
+  // A provider read that missed its route budget (routeDeadline.ts). One slow
+  // read is not an incident; alert on its rate from the error-code attribute.
+  "vm_provider_timeout",
+  // A mutation still running at the provider when its route answered
+  // (routeDeadline.ts): it continues in the background. Alert on its rate.
+  "vm_operation_in_progress",
 ]);
 
 /**

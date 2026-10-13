@@ -317,6 +317,20 @@ private struct CodexMonitorLeaseRecord: Codable {
 
 final class ClaudeHookSessionStore {
     private typealias CursorPendingShellApproval = ClaudeHookSessionRecord.PendingCursorShellApproval
+
+    /// Describes the pane still owned by a session before an accepted move.
+    struct AuthoritativeSessionStartResult {
+        /// The pane the session owned before this SessionStart, when still authoritative.
+        struct PreviousOwnedSurface {
+            let workspaceId: String
+            let surfaceId: String
+        }
+
+        /// Whether the incoming SessionStart established an authoritative owner.
+        let accepted: Bool
+        /// The prior surface when this session moved away from its live owner.
+        let previousOwnedSurface: PreviousOwnedSurface?
+    }
     typealias CursorShellApprovalResolution = (
         matched: Bool,
         hasRemaining: Bool,
@@ -1517,7 +1531,6 @@ final class ClaudeHookSessionStore {
     /// allows replacement or the incoming process is demonstrably newer. This
     /// keeps /clear as an ordering barrier without treating a launch-time
     /// `--resume` argument as identity.
-    @discardableResult
     func upsertAuthoritativeClaudeSessionStart(
         sessionId: String,
         source: String?,
@@ -1529,12 +1542,12 @@ final class ClaudeHookSessionStore {
         launchCommand: AgentHookLaunchCommandRecord? = nil,
         hookEventName: String? = nil,
         turnId: String? = nil
-    ) throws -> Bool {
+    ) throws -> AuthoritativeSessionStartResult {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty,
               let normalizedWorkspaceId = normalizeOptional(workspaceId),
               let normalizedSurfaceId = normalizeOptional(surfaceId) else {
-            return false
+            return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
         }
         return try withLockedState { state in
             let active = state.activeSessionsBySurface[normalizedSurfaceId]
@@ -1552,9 +1565,57 @@ final class ClaudeHookSessionStore {
                 || existing == nil
                 || acceptsReplacement
                 || incomingProcessIsNewer
-            guard accepted else { return false }
+            guard accepted else {
+                return AuthoritativeSessionStartResult(accepted: false, previousOwnedSurface: nil)
+            }
+
+            let previousOwnedSurface: AuthoritativeSessionStartResult.PreviousOwnedSurface? =
+                existing.flatMap { prior in
+                    guard let priorSurfaceId = normalizeOptional(prior.surfaceId),
+                          priorSurfaceId != normalizedSurfaceId,
+                          state.activeSessionsBySurface[priorSurfaceId]?.sessionId == normalizedSessionId else {
+                        return nil
+                    }
+                    return .init(workspaceId: prior.workspaceId, surfaceId: priorSurfaceId)
+                }
 
             let now = Date().timeIntervalSince1970
+            // Installing a new authoritative owner retires the previous
+            // claimant on this pane. Clear its cached StopFailure summary and
+            // lifecycle so store readers cannot keep surfacing a superseded
+            // error after restart, /clear, or auto-resume.
+            // Surface ownership is authoritative for pane retirement. A
+            // workspace slot is only a routing fallback and may point at a
+            // sibling pane in the same workspace.
+            let supersededSessionIDs = Set(
+                [state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId]
+                    .compactMap { $0 }
+                    .filter { $0 != normalizedSessionId }
+            )
+            for supersededSessionId in supersededSessionIDs {
+                if var superseded = state.sessions[supersededSessionId] {
+                    let supersededWorkspaceId = superseded.workspaceId
+                    let ownsTargetSurface = superseded.surfaceId == normalizedSurfaceId
+                    superseded.agentLifecycle = .idle
+                    superseded.lastSubtitle = nil
+                    superseded.lastBody = nil
+                    superseded.lastNotificationStatus = nil
+                    superseded.runtimeStatus = .idle
+                    superseded.hadPendingBackgroundWorkAtStop = nil
+                    superseded.updatedAt = now
+                    state.sessions[supersededSessionId] = superseded
+                    if ownsTargetSurface,
+                       state.activeSessionsByWorkspace[supersededWorkspaceId]?.sessionId == supersededSessionId {
+                        state.activeSessionsByWorkspace.removeValue(forKey: supersededWorkspaceId)
+                    }
+                }
+                // Only the target surface changed ownership. A stale duplicate
+                // mapping on a sibling pane must not be evicted as a side effect
+                // of this boundary; surface ownership is the source of truth.
+                if state.activeSessionsBySurface[normalizedSurfaceId]?.sessionId == supersededSessionId {
+                    state.activeSessionsBySurface.removeValue(forKey: normalizedSurfaceId)
+                }
+            }
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalizedSessionId,
@@ -1581,6 +1642,17 @@ final class ClaudeHookSessionStore {
                 updateRuntimeStatus: false,
                 now: now
             )
+            // A new authoritative boundary cannot inherit a prior turn's
+            // summary or notification dedupe receipt, even when it reuses the
+            // same native session id after recovery.
+            record.lastEmittedNotificationFingerprint = nil
+            record.lastEmittedNotificationAt = nil
+            record.recentEmittedNotificationFingerprints = nil
+            record.lastSubtitle = nil
+            record.lastBody = nil
+            record.lastNotificationStatus = nil
+            record.runtimeStatus = .idle
+            record.hadPendingBackgroundWorkAtStop = nil
             state.sessions[normalizedSessionId] = record
 
             for (workspaceId, activeSession) in state.activeSessionsByWorkspace
@@ -1601,7 +1673,10 @@ final class ClaudeHookSessionStore {
             )
             state.activeSessionsByWorkspace[normalizedWorkspaceId] = activeRecord
             state.activeSessionsBySurface[normalizedSurfaceId] = activeRecord
-            return true
+            return AuthoritativeSessionStartResult(
+                accepted: true,
+                previousOwnedSurface: previousOwnedSurface
+            )
         }
     }
 
@@ -6442,6 +6517,11 @@ struct CMUXCLI {
             return
         }
 
+        try validateBrowserProfileMutationCommandBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
+
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
@@ -6751,11 +6831,10 @@ struct CMUXCLI {
             command: command,
             commandArgs: commandArgs
         )
-        try validateBrowserProfileMutationCommandBeforeSocket(
-            command: command,
-            commandArgs: commandArgs
-        )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if command == "vpn" {
+            _ = try Self.validatedVPNSubcommand(commandArgs)
+        }
         if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
             try validateNotificationCommandArguments(command: command, args: commandArgs)
         }
@@ -7096,25 +7175,31 @@ struct CMUXCLI {
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
+                    // The cap counts running and provisioning machines; paused
+                    // ones are listed above but do not hold a slot.
+                    let activeCount = (limits["activeVmCount"] as? Int) ?? vms.count(where: { vm in
+                        let status = (vm["status"] as? String)?.lowercased()
+                        return status == "running" || status == "provisioning"
+                    })
                     // Absent or null means the plan has no active-machine cap.
                     if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
-                        print(String(format: format, vms.count, maxActiveVms, planId))
+                        print(String(format: format, activeCount, maxActiveVms, planId))
                     } else {
                         let format = String(
                             localized: "cli.vm.list.planMeter.unlimited",
                             defaultValue: "%1$d machines on the %2$@ plan, no limit"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
@@ -7617,7 +7702,7 @@ struct CMUXCLI {
                 if let nameOpt { params["name"] = nameOpt }
                 let response: [String: Any]
                 do {
-                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
                 } catch let error as CLIError {
                     // A definitive backend failure is replayed under its key; only an
                     // in-flight or unknown outcome keeps the key for the retry.
@@ -8524,8 +8609,8 @@ struct CMUXCLI {
                 commandName: "new-split"
             )
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             let direction = try validatedSplitDirection(rem5.first, commandName: "new-split")
             if let unknown = rem5.dropFirst().first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-split: unknown flag '\(unknown)'")
@@ -8758,9 +8843,9 @@ struct CMUXCLI {
                     defaultValue: "Window handle is blank"
                 ))
             }
-            let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = csWsFlag ?? callerWorkspace(owningSurface: surfaceRaw, windowRaw: windowRaw, client: client)
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -8863,15 +8948,15 @@ struct CMUXCLI {
             let explicitWorkspaceArg = tfWsFlag
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let preferTTYFallback = windowRaw == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
-            let callerWorkspaceArg = preferTTYFallback
-                ? nil
-                : (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
             let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowRaw == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil
             let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
+            let callerWorkspaceArg = preferTTYFallback || explicitWorkspaceArg != nil
+                ? nil
+                : callerWorkspace(owningSurface: surfaceArg, windowRaw: windowRaw, client: client)
+            let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
@@ -8932,10 +9017,14 @@ struct CMUXCLI {
             }
 
         case "focus-panel":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let panelRaw = optionValue(commandArgs, name: "--panel") else {
                 throw CLIError(message: "focus-panel requires --panel")
             }
+            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? callerWorkspace(
+                owningSurface: panelRaw,
+                windowRaw: windowFromArgsOrOverride(commandArgs, windowOverride: windowId),
+                client: client
+            )
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -9457,6 +9546,9 @@ struct CMUXCLI {
         case "jump-to-unread":
             let payload = try client.sendV2(method: "notification.jump_to_unread")
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+        case "jump-to-last-prompt":
+            let payload = try client.sendV2(method: "surface.jump_to_last_prompt")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2JumpToLastPromptSummary(payload, idFormat: idFormat))
         case "clear-notifications":
             var socketCmd = "clear_notifications"
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
@@ -11124,6 +11216,56 @@ struct CMUXCLI {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
     }
+    /// The workspace to pair with an explicit surface handle when the caller named no
+    /// workspace or window.
+    ///
+    /// A pane keeps the `CMUX_WORKSPACE_ID` it started with after it moves to another
+    /// workspace, so that value can name a workspace the surface has left. A UUID or
+    /// `surface:<n>` ref names one surface wherever it is, so when the caller's
+    /// workspace does not list it, this looks for the workspace that does. An index
+    /// only means something inside a workspace and keeps the caller's. Outside cmux
+    /// there is no caller workspace and nothing is looked up.
+    func callerWorkspace(
+        owningSurface raw: String?,
+        windowRaw: String?,
+        client: SocketClient
+    ) -> String? {
+        guard windowRaw == nil,
+              let callerWorkspace = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] else {
+            return nil
+        }
+        let handle = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !callerWorkspace.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              isUUID(handle) || (isHandleRef(handle) && handle.lowercased().hasPrefix("surface:")) else {
+            return callerWorkspace
+        }
+
+        func lists(_ params: [String: Any]) -> Bool {
+            guard let listed = try? client.sendV2(method: "surface.list", params: params) else {
+                return false
+            }
+            let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+            return surfaces.contains { surfaceHandleMatches(handle, item: $0) }
+        }
+
+        if let callerWorkspaceId = try? resolveWorkspaceId(callerWorkspace, client: client),
+           lists(["workspace_id": callerWorkspaceId]) {
+            return callerWorkspace
+        }
+        // A relay that cannot enumerate windows keeps the caller's workspace.
+        let windows = (try? client.sendV2(method: "window.list"))?["windows"] as? [[String: Any]] ?? []
+        for window in windows {
+            guard let windowId = window["id"] as? String, !windowId.isEmpty else { continue }
+            let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+            for workspace in listed?["workspaces"] as? [[String: Any]] ?? [] {
+                guard let workspaceId = workspace["id"] as? String, !workspaceId.isEmpty else { continue }
+                if lists(["workspace_id": workspaceId, "window_id": windowId]) {
+                    return workspaceId
+                }
+            }
+        }
+        return callerWorkspace
+    }
     private func validateSurfaceHandleInWindow(
         _ surfaceHandle: String,
         client: SocketClient,
@@ -12126,12 +12268,17 @@ struct CMUXCLI {
 
         let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
         let windowRaw = windowOpt ?? windowOverride
-        let workspaceArg = workspaceOpt ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let tabArg = tabOpt
             ?? surfaceOpt
             ?? (workspaceOpt == nil && windowRaw == nil
                 ? (ProcessInfo.processInfo.environment["CMUX_TAB_ID"] ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
                 : nil)
+        let workspaceArg = workspaceOpt
+            ?? callerWorkspace(
+                owningSurface: tabArg.map(canonicalSurfaceHandleFromTabInput),
+                windowRaw: windowRaw,
+                client: client
+            )
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceId = try normalizeWorkspaceHandle(
@@ -18085,104 +18232,83 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
-    func browserProfileArguments(
+    /// Parses options-free browser arguments through the shared, privacy-safe parser.
+    func browserCommandArguments(
         _ values: [String],
         allowedFlags: Set<String> = [],
         commandName: String
     ) throws -> (positionals: [String], flags: Set<String>) {
-        var positionals: [String] = []
-        var flags: Set<String> = []
-        var pastTerminator = false
-
-        for value in values {
-            if pastTerminator {
-                positionals.append(value)
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                continue
-            }
-            if allowedFlags.contains(value) {
-                flags.insert(value)
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            positionals.append(value)
+        do {
+            let result = try BrowserCommandArgumentParser(
+                allowedFlags: allowedFlags
+            ).parse(values)
+            return (result.positionals, result.flags)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
         }
-        return (positionals, flags)
     }
 
-    func rejectBrowserProfileExtras(_ values: ArraySlice<String>, commandName: String) throws {
-        guard !values.isEmpty else { return }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.readSelection.error.unexpectedArguments",
-                defaultValue: "%@: unexpected arguments: %@"
-            ),
-            commandName,
-            values.joined(separator: " ")
-        ))
+    /// Rejects leftover browser positionals without echoing their contents.
+    func rejectBrowserCommandExtras(_ values: ArraySlice<String>, commandName: String) throws {
+        do {
+            try BrowserCommandArgumentParser.requireNoExtraPositionals(values.count)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
     }
 
-    func validateBrowserProfileMutationArguments(
+    /// Validates raw browser arguments through the shared, privacy-safe parser.
+    func validateBrowserCommandArguments(
         _ values: [String],
         valueOptions: Set<String> = [],
         allowedFlags: Set<String> = [],
+        optionsAllowingEmptyValues: Set<String> = [],
         commandName: String
     ) throws {
-        var index = 0
-        var pastTerminator = false
-        while index < values.count {
-            let value = values[index]
-            if pastTerminator {
-                index += 1
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                index += 1
-                continue
-            }
-            if allowedFlags.contains(value) {
-                index += 1
-                continue
-            }
-            if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
-                let option = String(value[..<equal])
-                let optionValue = String(value[value.index(after: equal)...])
-                if valueOptions.contains(option), !optionValue.isEmpty {
-                    index += 1
-                    continue
-                }
-            }
-            if valueOptions.contains(value) {
-                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: "\(value) requires a value")
-                }
-                index += 2
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            index += 1
+        do {
+            _ = try BrowserCommandArgumentParser(
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                optionsAllowingEmptyValues: optionsAllowingEmptyValues
+            ).parse(values)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
+    }
+
+    /// Maps parser failures to localized CLI errors without including option values or positionals.
+    private func browserCommandArgumentError(
+        _ error: BrowserCommandArgumentParser.ParseError,
+        commandName: String
+    ) -> CLIError {
+        switch error {
+        case .missingValue(let option):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.arguments.error.missingValue",
+                    defaultValue: "%1$@: %2$@ requires a value"
+                ),
+                commandName,
+                option
+            ))
+        case .unknownOption(let name):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                name
+            ))
+        case .unexpectedPositionals:
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                "..."
+            ))
         }
     }
 
@@ -18276,17 +18402,32 @@ struct CMUXCLI {
         }
 
         switch normalizedVerb {
+        case "list":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            try rejectBrowserCommandExtras(
+                parsed.positionals[...],
+                commandName: commandName
+            )
+
         case "create":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--name"],
                 commandName: commandName
             )
             let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-            let parsed = try browserProfileArguments(remaining, commandName: commandName)
+            let parsed = try browserCommandArguments(remaining, commandName: commandName)
             if nameOpt != nil {
-                try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
             }
             let name = nameOpt ?? parsed.positionals.joined(separator: " ")
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18295,19 +18436,19 @@ struct CMUXCLI {
 
         case "rename":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile", "--name"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-            let parsed = try browserProfileArguments(rem2, commandName: commandName)
+            let parsed = try browserCommandArguments(rem2, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil, nameOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if nameOpt != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -18320,43 +18461,43 @@ struct CMUXCLI {
 
         case "clear":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(
+            let parsed = try browserCommandArguments(
                 rem1,
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let positional = parsed.positionals
             if parsed.flags.contains("--all") {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if positional.first != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             } else {
                 throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
             }
 
         case "delete":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(rem1, commandName: commandName)
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18609,6 +18750,19 @@ struct CMUXCLI {
 
             switch normalizedVerb {
             case "list":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                let parsed = try browserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                try rejectBrowserCommandExtras(
+                    parsed.positionals[...],
+                    commandName: commandName
+                )
                 let payload = try client.sendV2(method: "browser.profiles.list")
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -18617,15 +18771,15 @@ struct CMUXCLI {
                 }
             case "create":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--name"],
                     commandName: commandName
                 )
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-                let parsed = try browserProfileArguments(remaining, commandName: commandName)
+                let parsed = try browserCommandArguments(remaining, commandName: commandName)
                 if nameOpt != nil {
-                    try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 }
                 let name = nameOpt ?? parsed.positionals.joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18642,19 +18796,19 @@ struct CMUXCLI {
                 }
             case "rename":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile", "--name"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-                let parsed = try browserProfileArguments(rem2, commandName: commandName)
+                let parsed = try browserCommandArguments(rem2, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil, nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else if nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -18677,14 +18831,14 @@ struct CMUXCLI {
                 }
             case "clear":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(
+                let parsed = try browserCommandArguments(
                     rem1,
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
@@ -18692,13 +18846,13 @@ struct CMUXCLI {
                 let positional = parsed.positionals
                 var params: [String: Any] = [:]
                 if parsed.flags.contains("--all") {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["all"] = true
                 } else if let profileOpt {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["profile"] = profileOpt
                 } else if let profile = positional.first {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                     params["profile"] = profile
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
@@ -18715,18 +18869,18 @@ struct CMUXCLI {
                 }
             case "delete":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(rem1, commandName: commandName)
+                let parsed = try browserCommandArguments(rem1, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -18774,6 +18928,12 @@ struct CMUXCLI {
                 "--create-profile",
                 "--create-destination-profile",
             ]
+            try validateBrowserCommandArguments(
+                importArgs,
+                valueOptions: importValueOptions,
+                allowedFlags: importFlags,
+                commandName: "browser import"
+            )
             func importPositionals(_ values: [String]) -> [String] {
                 var result: [String] = []
                 var index = 0
@@ -19125,11 +19285,23 @@ struct CMUXCLI {
             return
         }
         if subcommand == "history" {
-            let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
+            let commandName = "browser history"
+            try validateBrowserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let verb = parsed.positionals.first?.lowercased() ?? "clear"
             guard verb == "clear" else {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
-            guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
+            try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+            guard parsed.flags.contains("--force") || parsed.flags.contains("--yes") else {
                 throw CLIError(message: "browser history clear permanently deletes the default browser profile's history (same as the View menu's Clear Browser History); pass --force to confirm")
             }
             let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
@@ -19222,6 +19394,15 @@ struct CMUXCLI {
             let sid = try requireSurface()
             var params: [String: Any] = ["surface_id": sid]
 
+            let waitValueOptions: Set<String> = [
+                "--selector", "--text", "--url-contains", "--url", "--load-state",
+                "--function", "--timeout-ms", "--timeout",
+            ]
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: waitValueOptions,
+                commandName: "browser wait"
+            )
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (textOpt, rem2) = parseOption(rem1, name: "--text")
             let (urlContainsOptA, rem3) = parseOption(rem2, name: "--url-contains")
@@ -19230,8 +19411,14 @@ struct CMUXCLI {
             let (functionOpt, rem6) = parseOption(rem5, name: "--function")
             let (timeoutOptMs, rem7) = parseOption(rem6, name: "--timeout-ms")
             let (timeoutOptSec, rem8) = parseOption(rem7, name: "--timeout")
+            let parsed = try browserCommandArguments(rem8, commandName: "browser wait")
+            let positionalCount = selectorOpt == nil && !parsed.positionals.isEmpty ? 1 : 0
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(positionalCount),
+                commandName: "browser wait"
+            )
 
-            if let selector = selectorOpt ?? rem8.first {
+            if let selector = selectorOpt ?? parsed.positionals.first {
                 params["selector"] = selector
             }
             if let textOpt {
@@ -19268,12 +19455,28 @@ struct CMUXCLI {
         }
 
         if ["click", "dblclick", "hover", "focus", "check", "uncheck", "scrollintoview", "scrollinto", "scroll-into-view"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser \(subcommand) requires a selector")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "click": "browser.click",
                 "dblclick": "browser.dblclick",
@@ -19286,7 +19489,7 @@ struct CMUXCLI {
                 "scroll-into-view": "browser.scroll_into_view",
             ]
             var params: [String: Any] = ["surface_id": sid, "selector": selector]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -19377,12 +19580,28 @@ struct CMUXCLI {
         }
 
         if ["press", "key", "keydown", "keyup"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--key"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (keyOpt, rem1) = parseOption(subArgs, name: "--key")
-            let key = keyOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let key = keyOpt ?? parsed.positionals.first
             guard let key else {
                 throw CLIError(message: "browser \(subcommand) requires a key")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(keyOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "press": "browser.press",
                 "key": "browser.press",
@@ -19390,7 +19609,7 @@ struct CMUXCLI {
                 "keyup": "browser.keyup",
             ]
             var params: [String: Any] = ["surface_id": sid, "key": key]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -19399,19 +19618,38 @@ struct CMUXCLI {
         }
 
         if subcommand == "select" {
+            let commandName = "browser select"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector", "--value"],
+                allowedFlags: ["--snapshot-after"],
+                optionsAllowingEmptyValues: ["--value"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
-            let selector = selectorOpt ?? rem2.first
+            let parsed = try browserCommandArguments(
+                rem2,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser select requires a selector")
             }
-            let value = valueOpt ?? (selectorOpt != nil ? rem2.first : rem2.dropFirst().first)
+            let usedForSelector = selectorOpt == nil ? 1 : 0
+            let value = valueOpt ?? parsed.positionals.dropFirst(usedForSelector).first
             guard let value else {
                 throw CLIError(message: "browser select requires a value")
             }
+            let usedPositionals = usedForSelector + (valueOpt == nil ? 1 : 0)
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(usedPositionals),
+                commandName: commandName
+            )
             var params: [String: Any] = ["surface_id": sid, "selector": selector, "value": value]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.select", params: params)
@@ -19676,12 +19914,23 @@ struct CMUXCLI {
                 throw CLIError(message: "browser is requires a subcommand")
             }
             let isArgs = Array(subArgs.dropFirst())
+            let commandName = "browser is \(isVerb)"
+            try validateBrowserCommandArguments(
+                isArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let (selectorOpt, rem1) = parseOption(isArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser is \(isVerb) requires a selector")
             }
 
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "visible": "browser.is.visible",
                 "enabled": "browser.is.enabled",
@@ -19707,6 +19956,32 @@ struct CMUXCLI {
                 throw CLIError(message: "browser find requires a locator (role|text|label|placeholder|alt|title|testid|first|last|nth)")
             }
             let locatorArgs = Array(subArgs.dropFirst())
+            let commandName = "browser find \(locator)"
+            let valueOptions: Set<String>
+            let allowedFlags: Set<String>
+            switch locator {
+            case "role":
+                valueOptions = ["--name"]
+                allowedFlags = ["--exact"]
+            case "text", "label", "placeholder", "alt", "title", "testid":
+                valueOptions = []
+                allowedFlags = ["--exact"]
+            case "first", "last":
+                valueOptions = ["--selector"]
+                allowedFlags = []
+            case "nth":
+                valueOptions = ["--index", "--selector"]
+                allowedFlags = []
+            default:
+                valueOptions = []
+                allowedFlags = []
+            }
+            try validateBrowserCommandArguments(
+                locatorArgs,
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             let method: String
@@ -19714,15 +19989,21 @@ struct CMUXCLI {
             switch locator {
             case "role":
                 let (nameOpt, rem1) = parseOption(locatorArgs, name: "--name")
-                let candidates = nonFlagArgs(rem1)
+                let parsed = try browserCommandArguments(
+                    rem1,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let role = candidates.first else {
                     throw CLIError(message: "browser find role requires <role>")
                 }
                 params["role"] = role
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
                 if let nameOpt {
                     params["name"] = nameOpt
                 }
-                if hasFlag(locatorArgs, name: "--exact") {
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.role"
@@ -19735,27 +20016,37 @@ struct CMUXCLI {
                     "title": "title",
                     "testid": "testid",
                 ]
-                let candidates = nonFlagArgs(locatorArgs)
+                let parsed = try browserCommandArguments(
+                    locatorArgs,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let value = candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a value")
                 }
                 params[keyMap[locator]!] = value
-                if hasFlag(locatorArgs, name: "--exact") {
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.\(locator)"
             case "first", "last":
                 let (selectorOpt, rem1) = parseOption(locatorArgs, name: "--selector")
-                let candidates = nonFlagArgs(rem1)
+                let candidates = try browserCommandArguments(rem1, commandName: commandName).positionals
                 guard let selector = selectorOpt ?? candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a selector")
                 }
                 params["selector"] = selector
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(selectorOpt == nil ? 1 : 0),
+                    commandName: commandName
+                )
                 method = "browser.find.\(locator)"
             case "nth":
                 let (indexOpt, rem1) = parseOption(locatorArgs, name: "--index")
                 let (selectorOpt, rem2) = parseOption(rem1, name: "--selector")
-                let candidates = nonFlagArgs(rem2)
+                let candidates = try browserCommandArguments(rem2, commandName: commandName).positionals
                 let indexRaw = indexOpt ?? candidates.first
                 guard let indexRaw,
                       let index = Int(indexRaw) else {
@@ -19767,6 +20058,11 @@ struct CMUXCLI {
                 }
                 params["index"] = index
                 params["selector"] = selector
+                let usedPositionals = (indexOpt == nil ? 1 : 0) + (selectorOpt == nil ? 1 : 0)
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(usedPositionals),
+                    commandName: commandName
+                )
                 method = "browser.find.nth"
             default:
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
@@ -19778,20 +20074,32 @@ struct CMUXCLI {
         }
 
         if subcommand == "frame" {
+            let commandName = "browser frame"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             guard let frameVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser frame requires <selector|main>")
             }
             if frameVerb == "main" {
+                try rejectBrowserCommandExtras(subArgs.dropFirst(), commandName: commandName)
                 let payload = try client.sendV2(method: "browser.frame.main", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
                 return
             }
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? nonFlagArgs(rem1).first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let payload = try sendBrowserAutomationRequest(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
@@ -19805,10 +20113,9 @@ struct CMUXCLI {
             let remainder = Array(subArgs.dropFirst())
             switch dialogVerb {
             case "accept":
-                let text = remainder.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 var params: [String: Any] = ["surface_id": sid]
-                if !text.isEmpty {
-                    params["text"] = text
+                if !remainder.isEmpty {
+                    params["text"] = remainder.joined(separator: " ")
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.dialog.accept", params: params)
                 output(payload, fallback: "OK")
@@ -19836,13 +20143,30 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let cookieVerb = subArgs.first?.lowercased() ?? "get"
             let cookieArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let commandName = "browser cookies \(cookieVerb)"
+            let cookieValueOptions: Set<String> = [
+                "--name", "--value", "--url", "--domain", "--path", "--expires",
+            ]
+            let cookieFlags: Set<String> = ["--secure", "--all", "--http-only"]
+            try validateBrowserCommandArguments(
+                cookieArgs,
+                valueOptions: cookieValueOptions,
+                allowedFlags: cookieFlags,
+                optionsAllowingEmptyValues: cookieVerb == "set" ? ["--value"] : [],
+                commandName: commandName
+            )
 
             let (nameOpt, rem1) = parseOption(cookieArgs, name: "--name")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
             let (urlOpt, rem3) = parseOption(rem2, name: "--url")
             let (domainOpt, rem4) = parseOption(rem3, name: "--domain")
             let (pathOpt, rem5) = parseOption(rem4, name: "--path")
-            let (expiresOpt, _) = parseOption(rem5, name: "--expires")
+            let (expiresOpt, rem6) = parseOption(rem5, name: "--expires")
+            let parsed = try browserCommandArguments(
+                rem6,
+                allowedFlags: cookieFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             if let nameOpt { params["name"] = nameOpt }
@@ -19850,10 +20174,10 @@ struct CMUXCLI {
             if let urlOpt { params["url"] = urlOpt }
             if let domainOpt { params["domain"] = domainOpt }
             if let pathOpt { params["path"] = pathOpt }
-            if hasFlag(cookieArgs, name: "--secure") {
+            if parsed.flags.contains("--secure") {
                 params["secure"] = true
             }
-            if hasFlag(cookieArgs, name: "--all") {
+            if parsed.flags.contains("--all") {
                 params["all"] = true
             }
             if let expiresOpt {
@@ -19865,26 +20189,35 @@ struct CMUXCLI {
 
             switch cookieVerb {
             case "get":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
                 var setParams = params
-                if hasFlag(cookieArgs, name: "--http-only") {
+                if parsed.flags.contains("--http-only") {
                     setParams["httpOnly"] = true
                 }
-                let positional = nonFlagArgs(cookieArgs)
-                if setParams["name"] == nil, positional.count >= 1 {
-                    setParams["name"] = positional[0]
+                let positional = parsed.positionals
+                var positionalIndex = 0
+                if setParams["name"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["name"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
-                if setParams["value"] == nil, positional.count >= 2 {
-                    setParams["value"] = positional[1]
+                if setParams["value"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["value"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
+                try rejectBrowserCommandExtras(
+                    positional.dropFirst(positionalIndex),
+                    commandName: commandName
+                )
                 guard setParams["name"] != nil, setParams["value"] != nil else {
                     throw CLIError(message: "browser cookies set requires <name> <value> (or --name/--value)")
                 }
                 let payload = try client.sendV2(method: "browser.cookies.set", params: setParams)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -19902,17 +20235,21 @@ struct CMUXCLI {
             }
             let op = storageArgs.count >= 2 ? storageArgs[1].lowercased() : "get"
             let rest = storageArgs.count > 2 ? Array(storageArgs.dropFirst(2)) : []
-            let positional = nonFlagArgs(rest)
+            let commandName = "browser storage \(storageType) \(op)"
+            try validateBrowserCommandArguments(rest, commandName: commandName)
+            let positional = try browserCommandArguments(rest, commandName: commandName).positionals
 
             var params: [String: Any] = ["surface_id": sid, "type": storageType]
             switch op {
             case "get":
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 if let key = positional.first {
                     params["key"] = key
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
+                try rejectBrowserCommandExtras(positional.dropFirst(2), commandName: commandName)
                 guard positional.count >= 2 else {
                     throw CLIError(message: "browser storage \(storageType) set requires <key> <value>")
                 }
@@ -19921,6 +20258,7 @@ struct CMUXCLI {
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.set", params: params)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -19945,13 +20283,18 @@ struct CMUXCLI {
                 tabArgs = subArgs
             }
 
+            let commandName = "browser tab \(tabVerb)"
+            try validateBrowserCommandArguments(tabArgs, commandName: commandName)
+            let parsed = try browserCommandArguments(tabArgs, commandName: commandName)
+
             switch tabVerb {
             case "list":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
                 }
@@ -19960,7 +20303,8 @@ struct CMUXCLI {
             case "switch", "close":
                 let method = (tabVerb == "switch") ? "browser.tab.switch" : "browser.tab.close"
                 var params: [String: Any] = ["surface_id": sid]
-                let target = tabArgs.first
+                try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+                let target = parsed.positionals.first
                 if let target {
                     if let index = Int(target) {
                         params["index"] = index
@@ -21198,7 +21542,7 @@ struct CMUXCLI {
             agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -22716,6 +23060,16 @@ struct CMUXCLI {
               --json                Print JSON
               --id-format <mode>    refs, uuids, or both
             """)
+        case "jump-to-last-prompt":
+            return String(localized: "cli.help.jumpToLastPrompt", defaultValue: """
+            Usage: cmux jump-to-last-prompt
+
+            Focus the surface where you last submitted a prompt to a coding agent, switching workspace and window as needed. With --json, opened is false when there is none.
+
+            Flags:
+              --json                Print JSON
+              --id-format <mode>    refs, uuids, or both
+            """)
         case "clear-notifications":
             return String(localized: "cli.help.clearNotifications", defaultValue: """
             Usage: cmux clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
@@ -23977,6 +24331,13 @@ struct CMUXCLI {
         case .uuids: return id ?? ref ?? "?"
         case .both:  return [ref, id].compactMap({ $0 }).joined(separator: " ")
         }
+    }
+
+    func v2JumpToLastPromptSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        guard (payload["opened"] as? Bool) != false else {
+            return String(localized: "cli.jumpToLastPrompt.noTarget", defaultValue: "No prompt target")
+        }
+        return v2OKSummary(payload, idFormat: idFormat)
     }
 
     func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
@@ -30515,7 +30876,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseClearHistory(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
@@ -30606,7 +30967,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parsePasteBuffer(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let surfaceArg = parsed.surface
             let name = parsed.name ?? "default"
             let store = try loadTmuxCompatStore()
@@ -30633,7 +30994,7 @@ struct CMUXCLI {
             let parsed = try TmuxCompatArgumentParser.parseRespawnPane(commandArgs)
             let effectiveWindowRaw = parsed.window ?? windowOverride
             let workspaceArg = parsed.workspace
-                ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                ?? callerWorkspace(owningSurface: parsed.surface, windowRaw: effectiveWindowRaw, client: client)
             let commandText = parsed.commandText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [
@@ -30874,9 +31235,9 @@ struct CMUXCLI {
                 telemetry: telemetry
             )
             let shouldPromoteActiveSession = !isForkSessionLaunch && (isClearSessionStart || canReplaceStoppedSession)
-            let acceptedSessionId: String? = parsedInput.sessionId.flatMap { sessionId in
+            let sessionStartResult: ClaudeHookSessionStore.AuthoritativeSessionStartResult? = parsedInput.sessionId.flatMap { sessionId in
                 guard sessionId != forkParentSessionId else { return nil }
-                let accepted = (try? sessionStore.upsertAuthoritativeClaudeSessionStart(
+                return try? sessionStore.upsertAuthoritativeClaudeSessionStart(
                     sessionId: sessionId,
                     source: sessionStartSource,
                     workspaceId: workspaceId,
@@ -30887,15 +31248,38 @@ struct CMUXCLI {
                     launchCommand: launchCommand,
                     hookEventName: reportedHookEventName(from: parsedInput) ?? "SessionStart",
                     turnId: parsedInput.turnId
-                )) == true
-                return accepted ? sessionId : nil
+                )
             }
+            let acceptedSessionId = sessionStartResult?.accepted == true ? parsedInput.sessionId : nil
             guard isForkSessionLaunch || acceptedSessionId != nil else {
                 telemetry.breadcrumb("claude-hook.session-start.stale")
                 printClaudeHookAck()
                 return
             }
             if let acceptedSessionId {
+                if !isForkSessionLaunch {
+                    // A SessionStart is a recovery/ownership boundary. Retire the
+                    // previous turn's summary before any notification hook can
+                    // reuse its StopFailure text for the recovered session. The
+                    // accepted upsert clears these fields in the same transaction.
+                    if let priorSurface = sessionStartResult?.previousOwnedSurface,
+                       !suppressVisibleMutations {
+                        // A moved session leaves a physical notification/status
+                        // behind on its old pane; retire that pane explicitly.
+                        _ = try? sendV1Command(
+                            "clear_notifications --tab=\(priorSurface.workspaceId) --panel=\(priorSurface.surfaceId)",
+                            client: client
+                        )
+                        try? setClaudeStatus(
+                            client: client,
+                            workspaceId: priorSurface.workspaceId,
+                            surfaceId: priorSurface.surfaceId,
+                            value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
+                            icon: "pause.circle.fill",
+                            color: "#8E8E93"
+                        )
+                    }
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -30925,8 +31309,8 @@ struct CMUXCLI {
                 )
             }
             // SessionStart establishes session identity and process ownership.
-            // Keep ordinary startup/resume visually quiet; actual work starts at
-            // UserPromptSubmit, while the PID still binds later hooks to this surface.
+            // The pane is idle until UserPromptSubmit, and any prior status or
+            // notification is retired at this boundary.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -30943,13 +31327,19 @@ struct CMUXCLI {
                     client: client
                 )
             }
-            if isClearSessionStart, !suppressVisibleMutations {
+            if acceptedSessionId != nil,
+               !isForkSessionLaunch,
+               !suppressVisibleMutations {
+                // SessionStart is the ownership/recovery boundary. Clear the
+                // pane's previous hook notification and status before the
+                // next turn so a StopFailure cannot remain visible while the
+                // recovered process is idle.
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))", client: client)
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Idle",
+                    value: String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle"),
                     icon: "pause.circle.fill",
                     color: "#8E8E93",
                     pid: claudePid
@@ -35328,7 +35718,53 @@ struct CMUXCLI {
                 )
                 return false
             }
-        } else if !agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: launchCommand) {
+        } else if kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "omp",
+                  launchCommand == nil || ompLaunchCaptureIsUnavailable(launchCommand) {
+            // An OMP hook with no capture can only preserve a binding that is
+            // still owned by this session. A capture-less hook from another
+            // process must not leave its checkpoint available for restore, but
+            // the clear remains guarded by the binding's own checkpoint ID.
+            guard let normalizedSessionID = normalizedHookValue(sessionId) else {
+                return false
+            }
+            let currentBinding: [String: Any]?
+            do {
+                let payload = try client.sendV2(
+                    method: "surface.resume.get",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+                currentBinding = payload["resume_binding"] as? [String: Any]
+            } catch {
+                // A failed read cannot establish ownership. Leave the binding
+                // untouched and avoid synthesizing a PATH-dependent command.
+                return false
+            }
+            guard let currentBinding else {
+                return false
+            }
+            let existingCheckpointID = normalizedHookValue(currentBinding["checkpoint_id"] as? String)
+            guard existingCheckpointID != normalizedSessionID else {
+                return false
+            }
+            _ = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: existingCheckpointID,
+                responseTimeout: responseTimeout,
+                deadline: deadline
+            )
+            return false
+        } else if let launchCommand,
+                  !agentHookSessionHasDurableResumeEvidence(
+                      kind: kind,
+                      launchCommand: launchCommand
+                  ) {
             clearAgentSurfaceResumeBinding(
                 client: client,
                 workspaceId: workspaceId,
@@ -35850,14 +36286,14 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else {
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else {
             return max(timeoutMs, 1)
         }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
     private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
@@ -36924,6 +37360,8 @@ export default {
 
         existing["hooks"] = hooks
         if case .flat = def.format { existing["version"] = 1 }
+        // Muse refuses to start with a settings file that lacks a schema version.
+        if def.name == "muse", existing["schema_version"] == nil { existing["schema_version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -37544,6 +37982,22 @@ export default {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    /// Whether a Muse hook payload belongs to an internal child session.
+    ///
+    /// Muse child sessions report `turn_id == session_id`; top-level turns
+    /// carry a distinct turn id, and session lifecycle events carry none.
+    static func isMuseChildSessionHookPayload(_ payload: [String: Any]?) -> Bool {
+        guard let payload,
+              let sessionId = (payload["session_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty,
+              let turnId = (payload["turn_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return turnId == sessionId
+    }
+
     /// Runs one agent hook event.
     ///
     /// `codex monitor` is the one event that leads to another: when the
@@ -37835,6 +38289,13 @@ export default {
             ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
             ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
+        // Muse runs internal child sessions (reminders, delegated subagents)
+        // whose hooks reuse the session id as the turn id. They must not
+        // replace the main session's binding or drive the pane's status.
+        if def.name == "muse", Self.isMuseChildSessionHookPayload(input.rawObject) {
+            print("OK")
+            return
+        }
         let persistedHookEventName = reportedHookEventName(from: input)
             ?? Self.feedEventName(forClaudeSubcommand: subcommand)
 
@@ -44638,7 +45099,9 @@ export default {
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "pi", action == "extension-source" { return false }
-        if def.name == "grok" {
+        // Grok and Muse clear CMUX_* from hook subprocesses; their pinned
+        // hooks resolve the surface from the agent process instead.
+        if def.name == "grok" || def.name == "muse" {
             return false
         }
         return action != "install" && action != "uninstall"

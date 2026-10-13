@@ -18,7 +18,9 @@ final class ScrollbackTestTerminal {
     private let inputs: AsyncStream<TerminalManualInput>
     private let continuation: AsyncStream<TerminalManualInput>.Continuation
 
-    init(initialInput: String? = nil) throws {
+    /// `ioMode: .manual` also delivers parser-generated replies (DSR, CSI 996)
+    /// to the input stream; `.manualMirror` suppresses them.
+    init(initialInput: String? = nil, ioMode: TerminalSurfaceIOMode = .manualMirror) throws {
         _ = NSApplication.shared
         let pair = AsyncStream<TerminalManualInput>.makeStream()
         inputs = pair.stream
@@ -30,7 +32,7 @@ final class ScrollbackTestTerminal {
             configTemplate: nil,
             initialInput: initialInput,
             focusPlacement: .rightSidebarDock,
-            ioMode: .manualMirror,
+            ioMode: ioMode,
             manualInputHandler: { sink.yield($0) }
         )
         view = surface.hostedView.surfaceView
@@ -77,7 +79,7 @@ final class ScrollbackTestTerminal {
 
     func close() {
         surface.hostedView.removeFromSuperview()
-        // Manual-mirror IO: no shell and no TTY, so nothing to kill first.
+        // Manual IO: no shell and no TTY, so nothing to kill first.
         surface.teardownSurface()
         continuation.finish()
         window.orderOut(nil)
@@ -145,6 +147,24 @@ final class ScrollbackTestTerminal {
             runtime, true, 1, &column, &row, &width
         ))
         #expect(ghostty_surface_has_selection(runtime))
+    }
+
+    /// Reads input bytes until `isComplete` holds for everything read so far.
+    /// Parser replies (DSR, CSI 996) reach the PTY peer from Ghostty's IO
+    /// thread, after a barrier written with `ghostty_surface_text`, so wait for
+    /// the reply itself rather than a barrier.
+    func inputBytes(until isComplete: (Data) -> Bool) async -> Data {
+        var bytes = Data()
+        for await input in inputs {
+            guard case let .bytes(chunk) = input else {
+                Issue.record("Unexpected transport-owned named key")
+                continue
+            }
+            bytes.append(chunk)
+            if isComplete(bytes) { return bytes }
+        }
+        Issue.record("The terminal I/O peer ended before the expected input")
+        return bytes
     }
 
     /// The I/O mailbox orders this marker after earlier wheel/key writes.

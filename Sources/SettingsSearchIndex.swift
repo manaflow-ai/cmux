@@ -142,6 +142,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "path-last-segment-only", String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), "cwd path directory truncate last segment basename viewport"),
         setting(.sidebarAppearance, "show-notification-message", String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), "workspace latest notification"), setting(.sidebarAppearance, "notification-message-line-limit", String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), "sidebar.notificationMessageLineLimit workspace latest notification lines limit"),
         setting(.sidebarAppearance, "show-branch-directory", String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), "git cwd path"),
+        setting(.sidebarAppearance, "show-cloud-device-icons", String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar"), "cloud device computer icon remote workspace"),
         setting(.sidebarAppearance, "show-pull-requests", String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), "review pr mr link"),
         setting(.sidebarAppearance, "watch-git-status", String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), "git status branch watcher index lock"),
         setting(.sidebarAppearance, "make-pr-clickable", String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), "pull requests pull request pr mr review clickable links select workspace row"),
@@ -162,6 +163,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
+        setting(.betaFeatures, "click-by-hint", String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"), "click by hint hints labels keyboard vimium cmd j preview beta"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
@@ -248,6 +250,7 @@ enum SettingsSearchIndex {
 
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
+        "windowHints.beta.enabled": settingID(for: .betaFeatures, idSuffix: "click-by-hint"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .themes, idSuffix: "appearance"),
         "app.accentColor": settingID(for: .themes, idSuffix: "accent-color"),
@@ -313,6 +316,7 @@ enum SettingsSearchIndex {
         "sidebar.showNotificationMessage": settingID(for: .sidebarAppearance, idSuffix: "show-notification-message"),
         "sidebar.notificationMessageLineLimit": settingID(for: .sidebarAppearance, idSuffix: "notification-message-line-limit"),
         "sidebar.showBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "show-branch-directory"),
+        "sidebar.showCloudDeviceIcons": settingID(for: .sidebarAppearance, idSuffix: "show-cloud-device-icons"),
         "sidebar.showPullRequests": settingID(for: .sidebarAppearance, idSuffix: "show-pull-requests"),
         "sidebar.watchGitStatus": settingID(for: .sidebarAppearance, idSuffix: "watch-git-status"),
         "sidebar.makePullRequestsClickable": settingID(for: .sidebarAppearance, idSuffix: "make-pr-clickable"),

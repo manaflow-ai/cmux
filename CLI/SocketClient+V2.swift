@@ -135,6 +135,16 @@ extension SocketClient {
                                ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
                 if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
             }
+            // Keep the cloud control-plane request inside the CLI's remaining
+            // budget, including when the caller retries an admission rejection.
+            let requestDeadline = min(
+                deadline ?? .distantFuture,
+                Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
+            )
+            let remaining = requestDeadline.timeIntervalSinceNow
+            if remaining.isFinite, remaining > 0, remaining < 86_400 {
+                tracedParams["cloud_client_timeout_ms"] = Int(remaining * 1_000)
+            }
         }
         var request: [String: Any] = [
             "id": requestIdentifier,

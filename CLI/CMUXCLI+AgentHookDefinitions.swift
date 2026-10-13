@@ -227,7 +227,48 @@ extension CMUXCLI {
                 materialize: materializeCodexScripts
             )
         }
+        if def.name == "muse" {
+            return museHookScriptCommand(
+                inline,
+                eventTag: event.cmuxSubcommand,
+                materialize: materializeCodexScripts
+            )
+        }
         return inline
+    }
+
+    /// Muse runs a hook command with the user's login shell (`$SHELL -c`), so
+    /// fish and nushell users cannot parse the POSIX dispatch inline. The
+    /// dispatch is written to a cmux-owned `#!/bin/sh` script, and the installed
+    /// command is just that path plus the owned-hook marker, which every shell
+    /// runs. Falls back to the inline command if the script cannot be written
+    /// or its path cannot be quoted the same way in every shell.
+    private static func museHookScriptCommand(
+        _ inlineCommand: String,
+        eventTag: String,
+        materialize: Bool
+    ) -> String {
+        guard materialize,
+              let dir = museHookScriptsDirectory(),
+              let path = writeCodexHookScript(
+                  subcommand: "muse-\(eventTag)", body: inlineCommand, in: dir
+              ),
+              !path.contains("'"), !path.contains("\\") else {
+            return inlineCommand
+        }
+        return "'\(path)' \(musePinnedHookMarker) \(eventTag)"
+    }
+
+    /// Muse hook scripts live in their own subdirectory: Codex garbage-collects
+    /// unreferenced content-addressed scripts directly under `~/.cmux/hooks`.
+    private static func museHookScriptsDirectory() -> URL? {
+        let dir = codexHookScriptsURL().appendingPathComponent("muse", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir
+        } catch {
+            return nil
+        }
     }
 
     /// Wraps a codex persistent hook command as a `#!/bin/sh` script file in the
@@ -332,6 +373,7 @@ extension CMUXCLI {
 
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
+    static let musePinnedHookMarker = "cmux-muse-hook-v1"
 
     static func agentHookShellCommand(
         _ command: String,
@@ -378,11 +420,15 @@ extension CMUXCLI {
     }
 
     static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
+        def.name == "grok" || def.name == "antigravity" || def.name == "muse"
     }
 
     private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
+        switch def.name {
+        case "antigravity": return antigravityPinnedHookMarker
+        case "muse": return musePinnedHookMarker
+        default: return grokPinnedHookMarker
+        }
     }
 
     private static func pinnedAgentHookShellCommand(

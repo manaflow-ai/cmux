@@ -316,7 +316,7 @@ struct SidebarMobileConnectButton: View {
                 height: SidebarFooterButtonMetrics.buttonSize
             )
             .safeHelp(title)
-            .accessibilityLabel(title)
+            .hintableAccessibilityLabel(title)
             .accessibilityIdentifier("SidebarMobileConnectButton")
         }
     }
