@@ -1355,6 +1355,12 @@
       "title" : "Width",
       "type" : "number"
     },
+    "freeModel.enabled" : {
+      "default" : true,
+      "description" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits.",
+      "title" : "Free AI Model Without Sign-In",
+      "type" : "boolean"
+    },
     "history.closed.maxAgeDays" : {
       "default" : 0,
       "description" : "Each machine deletes closed items that are older. 0 keeps them however old they are.",
@@ -2730,6 +2736,25 @@
       ],
       "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
+    },
+    "tabs.toolbarButtons" : {
+      "default" : [
+
+      ],
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
+      "items" : {
+        "enum" : [
+          "splitRight",
+          "splitDown",
+          "openDiffViewer",
+          "file.open",
+          "agentPane.searchChats",
+          "toggleSplitZoom"
+        ],
+        "type" : "string"
+      },
+      "title" : "Tab Bar Buttons",
+      "type" : "array"
     },
     "tasks.layout" : {
       "default" : "inbox",

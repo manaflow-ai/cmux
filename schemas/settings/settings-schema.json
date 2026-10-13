@@ -1901,6 +1901,114 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "toggleSplitZoom",
+          "agentPane.searchChats",
+          "file.open",
+          "openDiffViewer",
+          "splitDown",
+          "splitRight"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.splitRight",
+            "text" : "Split Right"
+          },
+          "value" : "splitRight"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.splitDown",
+            "text" : "Split Down"
+          },
+          "value" : "splitDown"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.diffViewer",
+            "text" : "Diff Viewer"
+          },
+          "value" : "openDiffViewer"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.openFile",
+            "text" : "Open File"
+          },
+          "value" : "file.open"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.searchChats",
+            "text" : "Search Agent Chats"
+          },
+          "value" : "agentPane.searchChats"
+        },
+        {
+          "title" : {
+            "key" : "settings.tabs.toolbarButtons.paneZoom",
+            "text" : "Pane Zoom"
+          },
+          "value" : "toggleSplitZoom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.toolbarButtons.help",
+        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.toolbarButtons",
+      "keywords" : [
+        "toolbar",
+        "split",
+        "buttons",
+        "pin",
+        "more"
+      ],
+      "kind" : "string_list",
+      "ordered" : true,
+      "page_hidden" : true,
+      "path" : [
+        "tabs",
+        "toolbarButtons"
+      ],
+      "refuses" : [
+        "splitRight",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.toolbarButtons",
+        "text" : "Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -3400,6 +3508,58 @@
       "title" : {
         "key" : "settings.computerUse.driver",
         "text" : "Computer Use Driver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.freeModel",
+        "text" : "AI Models"
+      },
+      "help" : {
+        "key" : "settings.freeModel.enabled.help",
+        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "freeModel.enabled",
+      "keywords" : [
+        "ai",
+        "model",
+        "free",
+        "sign in",
+        "agents",
+        "models"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "freeModel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.freeModel.enabled.summary",
+        "text" : "Free AI model while signed out"
+      },
+      "title" : {
+        "key" : "settings.freeModel.enabled",
+        "text" : "Free AI Model Without Sign-In"
       },
       "validation" : "portable"
     },
@@ -22854,7 +23014,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fba2852098774a687edad89c7fd7f9a6e1a13a4bcd281f1c166a521dcfb2b35d",
+  "schema_hash" : "08f810b1d8a4b858fa5a087eaca49b085217d5158f9d9818daa29790441714e9",
   "sections" : [
     {
       "id" : "general",
