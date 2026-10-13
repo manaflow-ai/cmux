@@ -67,7 +67,7 @@ import Testing
         let oneLine: CGFloat = 40.3333
         #expect(ComposerFieldMeasurement.lineCount(textHeight: 120.3333, verticalPadding: 10, lineHeight: fontLine, leading: leading) == 5)
         #expect(abs(ComposerFieldMeasurement.fieldHeight(lines: 5, oneLineHeight: oneLine, lineHeight: fontLine, leading: leading) - 120.3333) < 0.01)
-        #expect(ComposerFieldMeasurement.lineCount(textHeight: 400.3333, verticalPadding: 10, lineHeight: fontLine, leading: leading) == 20)
+        #expect(ComposerFieldMeasurement.lineCount(textHeight: 420.3333, verticalPadding: 10, lineHeight: fontLine, leading: leading) == 20)
         #expect(ComposerFieldMeasurement.fieldHeight(lines: 1, oneLineHeight: oneLine, lineHeight: fontLine, leading: leading) == oneLine)
     }
 }
