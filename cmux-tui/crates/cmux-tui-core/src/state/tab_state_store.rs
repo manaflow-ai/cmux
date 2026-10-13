@@ -179,7 +179,8 @@ pub(crate) fn tab_group_snapshot(
 ) -> anyhow::Result<Option<Value>> {
     let row = connection
         .query_row(
-            "SELECT pane_id, name, color, collapsed, saved_id FROM tab_groups WHERE group_id = ?1",
+            "SELECT pane_id, name, color, collapsed, saved_id, icon
+             FROM tab_groups WHERE group_id = ?1",
             [group_id],
             |row| {
                 Ok((
@@ -188,11 +189,12 @@ pub(crate) fn tab_group_snapshot(
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()?;
-    let Some((pane_id, name, color, collapsed, saved_id)) = row else { return Ok(None) };
+    let Some((pane_id, name, color, collapsed, saved_id, icon)) = row else { return Ok(None) };
     let tabs = {
         let mut statement = connection.prepare(
             "SELECT m.tab_id FROM tab_group_members AS m
@@ -215,6 +217,7 @@ pub(crate) fn tab_group_snapshot(
         "collapsed": collapsed != 0,
         "tab_ids": tabs,
         "saved_tab_group_id": saved_id,
+        "icon": icon,
     })))
 }
 
@@ -280,6 +283,7 @@ fn public_saved(record: &SavedTabGroupRecord, index: usize) -> Value {
         "room_id": record.room,
         "name": record.name,
         "color": record.color,
+        "icon": record.icon,
         "members": record.members.iter().map(public_member).collect::<Vec<_>>(),
         "index": index,
         "updated_at_ms": record.updated_at_ms.to_string(),

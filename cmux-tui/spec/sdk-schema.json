@@ -7026,7 +7026,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties."
+     "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties."
     },
     "text": {
      "type": {
@@ -8219,6 +8219,17 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "bookmark-icon-v1",
+     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>."
     }
    },
    "additional_properties": true
@@ -11254,6 +11265,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
@@ -16677,6 +16702,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
@@ -18644,6 +18683,18 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "bookmark-icon-v1",
+      "description": "Folders only; null clears. Refused on a url node."
      },
      "origin": {
       "type": {

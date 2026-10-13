@@ -424,7 +424,7 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
 /// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
-pub use bookmarks::BOOKMARKS_CAPABILITY;
+pub use bookmarks::{BOOKMARK_ICON_CAPABILITY, BOOKMARKS_CAPABILITY};
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -1235,6 +1235,9 @@ enum Command {
         color: Option<String>,
         #[serde(default)]
         collapsed: Option<bool>,
+        /// `screen-group-icon-v1`: the group's icon; null clears it.
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
     },
     AddScreensToScreenGroup {
         group: String,
@@ -1420,6 +1423,9 @@ enum Command {
         color: Option<String>,
         #[serde(default)]
         collapsed: Option<bool>,
+        /// `tab-group-icon-v1`: the group's icon; null clears it.
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
     },
     AddTabsToTabGroup {
         group: String,
@@ -3271,8 +3277,8 @@ fn handle_command_with_cancellation(
         Command::CreateScreenGroup { screens, name, color } => {
             cmd_screens::create_screen_group(mux, actor, screens, name, color)
         }
-        Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed)
+        Command::UpdateScreenGroup { group, name, color, collapsed, icon } => {
+            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed, icon)
         }
         Command::AddScreensToScreenGroup { group, screens, index } => {
             cmd_screens::add_screens_to_screen_group(mux, actor, group, screens, index)
@@ -3381,8 +3387,8 @@ fn handle_command_with_cancellation(
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
             cmd_tabs::create_tab_group(mux, actor, surfaces, name, color, group, transaction)
         }
-        Command::UpdateTabGroup { group, name, color, collapsed } => {
-            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed)
+        Command::UpdateTabGroup { group, name, color, collapsed, icon } => {
+            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed, icon)
         }
         Command::AddTabsToTabGroup { group, surfaces, transaction } => {
             cmd_tabs::add_tabs_to_tab_group(mux, actor, group, surfaces, transaction)
@@ -3814,6 +3820,10 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/group_icon_raw_tests.rs"]
+mod group_icon_raw_tests;
 
 #[cfg(test)]
 #[path = "server/device_kind_tests.rs"]

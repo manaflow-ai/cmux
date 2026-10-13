@@ -2,7 +2,7 @@ import Foundation
 
 /// A tab group inside one pane's strip (`tab-groups-v1`): named,
 /// colored, collapsible, members contiguous. Wire shape `Pane.tab_groups[]`:
-/// `{id, name, color, collapsed, saved_id, start, count, surfaces}`. Command
+/// `{id, name, color, collapsed, saved_id, start, count, surfaces, icon}`. Command
 /// results carry the same object without the run fields.
 public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
     public var id: TabGroupID
@@ -20,12 +20,15 @@ public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
     public var surfaces: [SurfaceID]
     /// The pane, in `list-tab-groups` rows only.
     public var pane: PaneID?
+    /// The group's icon (`tab-group-icon-v1`): the shared icon string
+    /// (emoji, SF Symbol name or stored asset); nil is none.
+    public var icon: String?
 
     /// Members as `TabGroupMember`s (the pre-15518 shape).
     public var tabs: [TabGroupMember] { surfaces.map(TabGroupMember.surface) }
 
     public init(id: TabGroupID, name: String = "", color: String? = nil, collapsed: Bool = false, savedID: SavedTabGroupID? = nil,
-                start: Int = 0, surfaces: [SurfaceID] = [], pane: PaneID? = nil) {
+                start: Int = 0, surfaces: [SurfaceID] = [], pane: PaneID? = nil, icon: String? = nil) {
         self.id = id
         self.name = name
         self.color = color
@@ -35,6 +38,7 @@ public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
         self.count = surfaces.count
         self.surfaces = surfaces
         self.pane = pane
+        self.icon = icon
     }
 
     @available(*, deprecated, message: "Use init(id:name:color:collapsed:savedID:start:surfaces:pane:)")
@@ -45,7 +49,7 @@ public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, color, collapsed, start, count, surfaces, pane
+        case id, name, color, collapsed, start, count, surfaces, pane, icon
         case savedID = "saved_id"
     }
 
@@ -60,6 +64,7 @@ public struct TabGroupSnapshot: Sendable, Hashable, Decodable, Identifiable {
         start = try c.decodeIfPresent(Int.self, forKey: .start) ?? 0
         count = try c.decodeIfPresent(Int.self, forKey: .count) ?? surfaces.count
         pane = try c.decodeIfPresent(PaneID.self, forKey: .pane)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
     }
 }
 

@@ -286,6 +286,7 @@ fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
         "color": run.group.color,
         "collapsed": run.group.collapsed,
         "saved_id": run.group.saved_id,
+        "icon": run.group.icon,
         "start": run.start,
         "count": run.members.len(),
         "screens": run.members,

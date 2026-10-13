@@ -113,6 +113,23 @@ fn a_reopened_terminal_tab_ignores_a_reported_directory_that_is_gone() {
     mux.shutdown();
 }
 
+/// A tab the user named comes back under that name, not its new shell's title
+/// (nxdog62: the reopened tab's title).
+#[test]
+fn a_reopened_terminal_tab_keeps_the_name_the_user_gave_it() {
+    let mux = Mux::new_for_test("relaunch-name", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let pane = mux.with_state(|state| state.pane_of(tabs[0])).unwrap();
+    let launched = mux.new_tab(Some(pane), Some("/tmp".into()), None).unwrap();
+    let tab = tab_id(&mux, launched.id);
+    mutate(&mux, "tab.rename", json!({"tab": tab, "name": "Build logs"}), "name-rename");
+    let reopened = close_and_reopen(&mux, launched.id, "name");
+    assert_eq!(reopened.name().as_deref(), Some("Build logs"));
+    let tab = tab_id(&mux, reopened.id);
+    assert_eq!(read(&mux, "tab.get", json!({"tab": tab}))["name"], "Build logs");
+    mux.shutdown();
+}
+
 /// The allowlisted environment survives close and reopen; a value whose key
 /// names a secret (TOKEN, KEY, SECRET, PASSWORD, AUTH, COOKIE, CREDENTIAL, in
 /// any case) and every key outside the allowlist never reach SQLite.

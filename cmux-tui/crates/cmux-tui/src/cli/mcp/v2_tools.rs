@@ -315,7 +315,8 @@ impl V2Tool {
     pub(super) fn descriptor_json(&self) -> Value {
         let verb = self.wire.rsplit('.').next().unwrap_or_default();
         let destructive = self.mutation
-            && (matches!(verb, "close" | "delete" | "clear" | "ungroup")
+            // `layout.bulk` closes tabs, panes, screens or workspaces.
+            && (matches!(verb, "close" | "delete" | "clear" | "ungroup" | "bulk")
                 || verb.starts_with("remove"));
         json!({
             "name": self.name,

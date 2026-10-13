@@ -526,6 +526,11 @@ Result<Json> Codec<Bookmark>::encode(const Bookmark& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (value.icon) {
+        auto encoded = encode_value(*value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -589,6 +594,12 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_favicon_key);
         if (!decoded) return std::move(decoded).error();
         result.favicon_key = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        auto decoded = decode_value<std::string>(*field_icon);
+        if (!decoded) return std::move(decoded).error();
+        result.icon = std::move(decoded).value();
     }
     const Json* field_id = value.find("id");
     if (!field_id) {
@@ -654,7 +665,7 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         result.url = std::move(decoded).value();
     }
     for (const auto& [key, item] : *source.value()) {
-        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
+        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "icon" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -28500,6 +28511,11 @@ Result<Json> Codec<UpdateBookmarkRequest>::encode(const UpdateBookmarkRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.last_used_ms.is_absent()) {
         auto encoded = encode_value(value.last_used_ms);
         if (!encoded) return std::move(encoded).error();
@@ -28549,6 +28565,16 @@ Result<UpdateBookmarkRequest> Codec<UpdateBookmarkRequest>::decode(const Json& v
             auto decoded = decode_value<std::string>(*field_favicon_key);
             if (!decoded) return std::move(decoded).error();
             result.favicon_key = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_last_used_ms = value.find("last_used_ms");
@@ -29060,6 +29086,11 @@ Result<Json> Codec<UpdateScreenGroupRequest>::encode(const UpdateScreenGroupRequ
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29101,6 +29132,16 @@ Result<UpdateScreenGroupRequest> Codec<UpdateScreenGroupRequest>::decode(const J
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
     }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_name = value.find("name");
     if (field_name) {
         if (field_name->is_null()) {
@@ -29130,6 +29171,11 @@ Result<Json> Codec<UpdateTabGroupRequest>::encode(const UpdateTabGroupRequest& v
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29170,6 +29216,16 @@ Result<UpdateTabGroupRequest> Codec<UpdateTabGroupRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_name = value.find("name");
     if (field_name) {
@@ -36957,6 +37013,15 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand237FieldRequirements{{
+    {"icon", 12U, "bookmark-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand243FieldRequirements{{
+    {"icon", 12U, "screen-group-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand244FieldRequirements{{
+    {"icon", 12U, "tab-group-icon-v1"},
+}};
 constexpr std::array<CommandMetadata, 253> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -37195,14 +37260,14 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand237FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand243FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand244FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

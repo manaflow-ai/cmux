@@ -53,7 +53,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
-        "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.collapse",
+        "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.setIcon", "tabGroup.clearIcon", "tabGroup.collapse",
         "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn",
         "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow", "tabGroup.newTab",
         "tabGroup.save", "tabGroup.unsave", "tabGroup.deleteSaved", "tabGroup.reopenSaved",         "screen.newWith", "screen.duplicate", "screen.closeOthers", "screen.closeToRight",
@@ -61,7 +61,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screen.clearColor", "screen.setIcon", "screen.clearIcon", "screen.togglePin", "screen.moveLeft",
         "screen.moveRight", "screen.moveToWorkspace", "screen.moveToNewWorkspace", "screen.moveToNewWindow",
         "screenGroup.create", "screenGroup.addScreen", "screenGroup.removeScreen", "screenGroup.newScreen",
-        "screenGroup.rename", "screenGroup.setColor", "screenGroup.collapse", "screenGroup.expand",
+        "screenGroup.rename", "screenGroup.setColor", "screenGroup.setIcon", "screenGroup.clearIcon", "screenGroup.collapse", "screenGroup.expand",
         "screenGroup.ungroup", "screenGroup.close", "screenGroup.moveLeft", "screenGroup.moveRight",
         "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace", "screenGroup.moveToNewWindow",
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
@@ -117,6 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
+        "bookmark.setIcon", "bookmark.clearIcon",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).

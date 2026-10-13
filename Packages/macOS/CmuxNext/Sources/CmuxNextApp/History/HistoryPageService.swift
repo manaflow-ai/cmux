@@ -107,7 +107,7 @@ extension TabContentCache {
     /// wake, engine switch). A tab created later, by anyone, records its
     /// first visit. Typing an app page address (`cmux://history`,
     /// `cmux://bookmarks`, or `chrome://history`, `chrome://bookmarks`:
-    /// `routedChromiumPage`) into the address bar shows that page.
+    /// `ChromiumPageRouter`) into the address bar shows that page.
     func serveAppPages(_ entry: BrowserEntry, key: String) {
         guard let services = pageRequests.services else { return }
         let installedBefore = !services.history.installedPageKeys.insert(key).inserted
@@ -116,7 +116,7 @@ extension TabContentCache {
         }
         entry.chrome.loadOverride = { [weak self, weak chrome = entry.chrome] typed in
             // chrome://history shows cmux's page; chrome://settings opens Settings and nothing loads here.
-            guard let url = services.routedChromiumPage(typed) else {
+            guard let url = ChromiumPageRouter.routed(typed, services: services) else {
                 chrome?.addressBar.showPageURL()
                 return true
             }

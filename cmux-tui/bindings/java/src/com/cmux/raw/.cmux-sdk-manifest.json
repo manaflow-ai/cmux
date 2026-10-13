@@ -127,8 +127,8 @@
     },
     {
       "path": "Bookmark.java",
-      "sha256": "8d08a147728398f6d3e046fdc1454a653e4ea5880149c6509700dceabf6bc0e7",
-      "size": 9769
+      "sha256": "7bec99405a83212c8bc57a42fcf27c12746afa8f10e0d3f7956dbad679b61a30",
+      "size": 10448
     },
     {
       "path": "BookmarkChangeResult.java",
@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b5942f44d9d16cfd8397c4f1130c69b08a705827479f67a0a656e3a41777e40c",
-      "size": 68406
+      "sha256": "4b9bc99896a9c6585d4e2de8475a1e113c24647f97621137f5dbd1b95c4df84f",
+      "size": 68630
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -707,8 +707,8 @@
     },
     {
       "path": "ConversationPart.java",
-      "sha256": "91bef365efc9c902e6435d2977c2ec1225b38591b9cb35d58cc7ab8044a68c49",
-      "size": 7100
+      "sha256": "01378dbc302ce527e57482dea1e62181d3dcd9ac13dc422437da3d8e73b7c9f3",
+      "size": 7143
     },
     {
       "path": "ConversationPartRef.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "73749b2ec60548ad9dc85dde6599f451f08695771f4ecae5e41a796f34b350bd",
+      "sha256": "36e1851ecaf9800081c7672a1f02606f3cac35d16ca95ab9f5fd3047449ed763",
       "size": 6393
     },
     {
@@ -2852,8 +2852,8 @@
     },
     {
       "path": "UpdateBookmarkRequest.java",
-      "sha256": "5f322374be5675bd3b9d96df652f03f7a6480c32e6317a0bcf6d81695e335d7f",
-      "size": 6060
+      "sha256": "f915c036bf986c4e19aa7d157ffb49101abd0fea5b32f6c41659fe5e1db17800",
+      "size": 6714
     },
     {
       "path": "UpdateBrowserProfileRequest.java",
@@ -2882,13 +2882,13 @@
     },
     {
       "path": "UpdateScreenGroupRequest.java",
-      "sha256": "70a5203d636ce4a02a580f5516b00db0ca9f967a8a470b7aa589143f5694f7d2",
-      "size": 3962
+      "sha256": "1fa74820dad220298e2dbea193d8150579d4e320628c862eac525dada8cc7635",
+      "size": 4558
     },
     {
       "path": "UpdateTabGroupRequest.java",
-      "sha256": "b12c5afacef248af036a76f37bc48c3af388a4f82a187edf70be008bc16b7f1b",
-      "size": 3923
+      "sha256": "1977521280a1e4b45204860a218f4d1c4043878291ede80a98d1bf3f3ac7cc9c",
+      "size": 4516
     },
     {
       "path": "UpdateWorkspaceGroupRequest.java",
@@ -3012,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff",
+  "ir_sha256": "7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHomeEngine
 
 /// One window's top pages: one view per route, made on first show and kept
 /// for the window's life, so a page keeps its state (scroll, search, the

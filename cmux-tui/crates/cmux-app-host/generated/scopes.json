@@ -1740,6 +1740,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
     "pairing_request.list",
