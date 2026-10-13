@@ -8,6 +8,7 @@ extension SidebarListView {
         return view
     }
     func recycle(_ view: SidebarRowView) {
+        rowSprings.cancel(view)
         view.removeFromSuperview()
         rowPool.put(view)
     }
@@ -38,6 +39,33 @@ extension SidebarListView {
             }
         default:
             break
+        }
+    }
+    /// Adds views for rows scrolled into range and drops far-away ones.
+    func realizeVisibleRows() {
+        guard !isShiftingViewport else { return }
+        groupEditing.followScroll()
+        let realize = realizationRect()
+        for row in displayed.rows where rowViews[row.key] == nil {
+            let target = frame(for: row)
+            guard target.intersects(realize) else { continue }
+            let view = dequeue(row.key)
+            view.targetSize = target.size
+            configure(view, row: row, animated: false)
+            addSubview(view, positioned: .above, relativeTo: decorations)
+            RowMotion.place(view, at: target, opening: openingRows[row.key] != nil, hidden: suppressed.contains(row.key), in: self)
+            rowViews[row.key] = view
+        }
+        pruneOffscreen()
+        updateHover()
+    }
+    func pruneOffscreen() {
+        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        for row in displayed.rows {
+            guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
+                  inlineRename.session?.key != row.key, row.key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
+            recycle(view)
+            rowViews[row.key] = nil
         }
     }
 }
