@@ -21,18 +21,22 @@ public struct WorkspacesList: View {
     var reconnect: ((String) -> Void)?
     /// Pull to refresh (live only).
     var refresh: (() async -> Void)?
+    /// Moves to another team (the empty state offers the team where a Mac is).
+    var switchTeam: ((String) -> Void)?
     @AppStorage("cnx.workspaces.sort") private var sort: WorkspaceSort = .recent
     @AppStorage("cnx.workspaces.showOffline") private var showsOffline = true
     @State private var isRetrying = false
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
+                switchTeam: ((String) -> Void)? = nil,
                 open: @escaping (Workspace) -> Void) {
         self.store = store
         self.creator = creator
         self.accountEmail = accountEmail
         self.reconnect = reconnect
         self.refresh = refresh
+        self.switchTeam = switchTeam
         self.open = open
     }
 
@@ -82,7 +86,12 @@ public struct WorkspacesList: View {
             )
         case .loaded:
             if macs.isEmpty {
-                ConnectMacEmptyState(email: accountEmail)
+                ConnectMacEmptyState(
+                    email: accountEmail,
+                    teamName: store.teams.count > 1 ? store.activeTeam?.name : nil,
+                    elsewhere: store.teamWithMacsElsewhere(),
+                    switchTeam: switchTeam
+                )
             } else if !macs.contains(where: \.isOnline) && !showsOffline {
                 EmptyState(
                     symbol: "moon.zzz",
@@ -157,11 +166,17 @@ private struct OptionalRefresh: ViewModifier {
     }
 }
 
-/// No Mac yet. Pairing is account based: a Mac signed in to the same account
-/// and team, with iPhone connections allowed, appears by itself, and
-/// presence swaps this state for the list.
+/// No Mac in this team. Pairing is account based: a Mac signed in to the
+/// same account, with iPhone connections allowed, appears by itself, and the
+/// phone moves to its team when it comes online. Says which team the phone
+/// shows, and offers the team where one of the account's Macs already is.
 struct ConnectMacEmptyState: View {
     let email: String?
+    /// The team shown, when the account has several.
+    let teamName: String?
+    /// Another team with one of the account's Macs.
+    let elsewhere: (team: Team, mac: MacDevice)?
+    let switchTeam: ((String) -> Void)?
 
     var body: some View {
         ScrollView {
@@ -175,6 +190,26 @@ struct ConnectMacEmptyState: View {
                     .foregroundStyle(theme.colors.label)
                     .padding(.top, 16)
                     .padding(.bottom, 20)
+                if let teamName {
+                    Text("No Macs in \(teamName) yet.")
+                        .font(theme.type.rowSubtitle)
+                        .foregroundStyle(theme.colors.label2)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, -8)
+                        .padding(.bottom, 20)
+                        .accessibilityIdentifier("workspaces.connect-mac.team")
+                }
+                if let elsewhere, let switchTeam {
+                    VStack(spacing: 12) {
+                        Text("\(elsewhere.mac.name) is in \(elsewhere.team.name).")
+                            .font(theme.type.body)
+                            .foregroundStyle(theme.colors.label)
+                            .multilineTextAlignment(.center)
+                        PrimaryCapsule("Switch to \(elsewhere.team.name)") { switchTeam(elsewhere.team.id) }
+                            .accessibilityIdentifier("workspaces.connect-mac.switch")
+                    }
+                    .padding(.bottom, 28)
+                }
                 ConnectMacSteps(email: email, onlineMac: nil)
             }
             .padding(.horizontal, theme.metrics.sideMargin)

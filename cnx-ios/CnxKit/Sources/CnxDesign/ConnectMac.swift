@@ -4,24 +4,28 @@ import SwiftUI
 private let theme = CnxTheme.standard
 
 /// How a Mac reaches this iPhone: there is no pairing code. A Mac signed in
-/// to the same account and team, with iPhone connections allowed, appears by
-/// itself (PROTOCOL.md). Two numbered steps and a live status line that
-/// flips when the Mac shows up. Used by the Workspaces empty state and the
-/// first-run setup.
+/// to the same account, with iPhone connections allowed, appears by itself
+/// in whichever team or personal space it uses (PROTOCOL.md
+/// `GET /v1/me/macs`). Two numbered steps and a live status line that flips
+/// when the Mac shows up. Used by the Workspaces empty state and the
+/// first-run setup. The Mac's switch lives in its Settings → Mobile.
 public struct ConnectMacSteps: View {
     let email: String?
     /// The first online Mac, once one appears.
     let onlineMac: String?
+    /// The team the Mac was found in, when the account has several.
+    let teamName: String?
 
-    public init(email: String?, onlineMac: String?) {
+    public init(email: String?, onlineMac: String?, teamName: String? = nil) {
         self.email = email
         self.onlineMac = onlineMac
+        self.teamName = teamName
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             step(1, signInText)
-            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → iPhone → Allow iPhone connections").fontWeight(.semibold))."))
+            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
             status
                 .padding(.top, 6)
         }
@@ -55,7 +59,11 @@ public struct ConnectMacSteps: View {
             if let onlineMac {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(theme.colors.success.color)
-                Text("\(onlineMac) is online")
+                if let teamName {
+                    Text("\(onlineMac) is online in \(teamName)")
+                } else {
+                    Text("\(onlineMac) is online")
+                }
             } else {
                 ProgressView().controlSize(.small)
                 Text("Waiting for your Mac…")

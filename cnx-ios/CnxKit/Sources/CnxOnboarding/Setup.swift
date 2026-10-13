@@ -18,13 +18,24 @@ public struct SetupFlow: View {
     let steps: [Step]
     let auth: CnxAuthModel
     let store: AppStore
+    /// The user picked a team: live data moves to it.
+    let teamPicked: (String) -> Void
+    /// The user created a team: live data moves to it.
+    let teamCreated: (AppStore.AccountTeam) -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
 
-    public init(steps: [Step], auth: CnxAuthModel, store: AppStore, finish: @escaping () -> Void) {
+    public init(
+        steps: [Step], auth: CnxAuthModel, store: AppStore,
+        teamPicked: @escaping (String) -> Void = { _ in },
+        teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
+        finish: @escaping () -> Void
+    ) {
         self.steps = steps
         self.auth = auth
         self.store = store
+        self.teamPicked = teamPicked
+        self.teamCreated = teamCreated
         self.finish = finish
     }
 
@@ -38,7 +49,7 @@ public struct SetupFlow: View {
 
     @ViewBuilder private func page(_ step: Step) -> some View {
         switch step {
-        case .team: TeamStep(auth: auth, store: store, next: { advance(from: .team) })
+        case .team: TeamStep(auth: auth, store: store, picked: teamPicked, created: teamCreated, next: { advance(from: .team) })
         case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
         }
@@ -100,17 +111,53 @@ private struct ExplainerRow: View {
     }
 }
 
-/// Pick a team when there are several, or create the first one.
+/// Pick a team when there are several, or create the first one. Until the
+/// account's teams have loaded it shows skeleton rows, never Create Team:
+/// an empty list before the answer is "not loaded", not "no teams".
 private struct TeamStep: View {
     let auth: CnxAuthModel
     let store: AppStore
+    let picked: (String) -> Void
+    let created: (AppStore.AccountTeam) -> Void
     let next: () -> Void
     @State private var name = ""
     @State private var isCreating = false
+    @State private var isRetrying = false
     @State private var error: String?
 
     var body: some View {
-        if store.teams.isEmpty {
+        switch auth.teamList.phase {
+        case .loading:
+            ScrollView { SkeletonList(rows: 3, leadingSquare: 36).padding(.top, 72) }
+                .scrollDisabled(true)
+                .background(theme.colors.bg.color.ignoresSafeArea())
+                .accessibilityIdentifier("setup.teams.loading")
+        case .failed:
+            EmptyState(
+                symbol: "cloud",
+                title: "Couldn't load your teams",
+                message: "Check your connection and try again.",
+                primaryTitle: "Retry",
+                isPrimaryLoading: isRetrying,
+                primary: retry
+            )
+            .background(theme.colors.bg.color.ignoresSafeArea())
+            .accessibilityIdentifier("setup.teams.failed")
+        case .loaded:
+            loaded
+        }
+    }
+
+    private func retry() {
+        isRetrying = true
+        Task {
+            await auth.retryTeams()
+            isRetrying = false
+        }
+    }
+
+    @ViewBuilder private var loaded: some View {
+        if auth.teamList.teams.isEmpty && store.teams.allSatisfy({ $0.id.hasPrefix("personal-") }) {
             SetupPage(symbol: "person.2", title: "Create your team") {
                 VStack(alignment: .leading, spacing: 10) {
                     TextField("Team name", text: $name)
@@ -121,7 +168,10 @@ private struct TeamStep: View {
             } actions: {
                 PrimaryCapsule("Create team", isLoading: isCreating) { create() }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                // Without a team the phone uses the personal space, as the Mac does.
+                TextCTA("Not now", action: next)
             }
+            .accessibilityIdentifier("setup.teams.create")
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Choose a team")
@@ -154,6 +204,7 @@ private struct TeamStep: View {
                 }
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
+            .accessibilityIdentifier("setup.teams.choose")
             #if DEBUG
             .onChange(of: DemoDirector.shared.serial) {
                 if case .setupPickTeam(let index) = DemoDirector.shared.command, store.teams.indices.contains(index) {
@@ -167,7 +218,8 @@ private struct TeamStep: View {
     private func pick(_ team: Team) {
         store.selectTeam(team.id)
         theme.haptics.selection()
-        Task { await auth.selectTeam(team.id) }
+        picked(team.id)
+        if !team.id.hasPrefix("personal-") { Task { await auth.selectTeam(team.id) } }
         next()
     }
 
@@ -178,7 +230,7 @@ private struct TeamStep: View {
             defer { isCreating = false }
             do {
                 let team = try await auth.createTeam(named: name)
-                store.applyAccountTeams([team], selectedID: team.id)
+                created(team)
                 theme.haptics.success()
                 next()
             } catch {
@@ -190,8 +242,9 @@ private struct TeamStep: View {
 }
 
 /// "Connect your Mac": no pairing code. A Mac signed in to the same account
-/// and team with iPhone connections allowed appears by itself; the status
-/// line flips when presence reports it, and Continue appears.
+/// with iPhone connections allowed appears by itself, in whichever team or
+/// personal space it uses: live discovery moves the phone to that team, the
+/// status line flips, and Continue appears.
 private struct PairMacStep: View {
     let email: String?
     let store: AppStore
@@ -203,7 +256,7 @@ private struct PairMacStep: View {
 
     var body: some View {
         SetupPage(symbol: "desktopcomputer", title: "Connect your Mac") {
-            ConnectMacSteps(email: email, onlineMac: onlineMac)
+            ConnectMacSteps(email: email, onlineMac: onlineMac, teamName: store.teams.count > 1 ? store.activeTeam?.name : nil)
         } actions: {
             if onlineMac != nil {
                 PrimaryCapsule("Continue", action: next)

@@ -139,9 +139,71 @@ public final class CnxAuthModel {
         return User(id: user.id, name: name, email: user.primaryEmail)
     }
 
-    /// Stack teams for the signed-in account (empty in mock mode).
+    /// Stack teams for the signed-in account (empty in mock mode, whose
+    /// teams come from the sample store).
     public var teams: [AppStore.AccountTeam] {
-        coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? []
+        isMock ? [] : teamList.teams
+    }
+
+    /// The account's team list as it loads: setup shows a loading state, not
+    /// Create Team, until it is `.loaded` (SPEC 7.1).
+    public var teamList: TeamListState {
+        var state = fetchedTeams
+        state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
+        return state
+    }
+
+    /// This model's own team fetch: the coordinator's list starts empty and
+    /// tolerates a failed fetch silently, so it cannot tell "no teams" from
+    /// "not loaded".
+    private var fetchedTeams = TeamListState()
+    @ObservationIgnored private var teamsUserID: String?
+
+    /// Loads the signed-in account's teams (once per account; again after a
+    /// failure). DEBUG mock mode takes `CNX_MOCK_TEAMS_DELAY` seconds, to
+    /// record the loading state.
+    public func loadTeams() async {
+        guard let user else {
+            teamsUserID = nil
+            fetchedTeams.reset()
+            return
+        }
+        if teamsUserID != user.id {
+            teamsUserID = user.id
+            fetchedTeams.reset()
+        } else if fetchedTeams.isLoaded {
+            return
+        }
+        fetchedTeams.retry()
+        if isMock {
+            #if DEBUG
+            if let delay = ProcessInfo.processInfo.environment["CNX_MOCK_TEAMS_DELAY"].flatMap(Double.init), delay > 0 {
+                // Recording pace, not synchronization: a slow team list.
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            #endif
+            fetchedTeams.fetched(AppStore.mock().teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) })
+            return
+        }
+        guard let stack else { return }
+        do {
+            guard let account = try await stack.getUser(or: .returnNull) else { return }
+            var list: [AppStore.AccountTeam] = []
+            for team in try await account.listTeams() {
+                list.append(AppStore.AccountTeam(id: team.id, name: await team.displayName))
+            }
+            guard teamsUserID == user.id else { return }
+            fetchedTeams.fetched(list)
+        } catch {
+            guard teamsUserID == user.id else { return }
+            authModelLog.error("team list failed: \(String(describing: type(of: error)), privacy: .public)")
+            fetchedTeams.failed("Couldn't load your teams.")
+        }
+    }
+
+    /// Retry after the team list failed to load.
+    public func retryTeams() async {
+        await loadTeams()
     }
 
     public var selectedTeamID: String? { coordinator?.resolvedTeamID }

@@ -104,7 +104,7 @@ final class ShellModel {
         }
         workspacesPath.removeAll()
         sidebar.close()
-        live?.activeTeamChanged()
+        live?.activeTeamChanged(byUser: true)
         guard !id.hasPrefix("personal-") else { return }
         Task { await auth.selectTeam(id) }
     }

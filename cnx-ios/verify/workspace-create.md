@@ -75,8 +75,9 @@ User feedback:
   manually" buttons are removed.
 - `CnxDesign/ConnectMacSteps` shows two steps:
   1. "Open cmux on your Mac and sign in as <account email>."
-  2. "In cmux on your Mac, turn on Settings → iPhone → Allow iPhone
-     connections."
+  2. "In cmux on your Mac, turn on Settings → Mobile → Allow iPhone
+     Connections." (Corrected from "Settings → iPhone" in `verify/pairing.md`:
+     the Mac's section is Mobile.)
 - Below the steps is a live status line. It reads "Waiting for your Mac…"
   with a spinner until presence reports a Mac, then "<Mac> is online" with a
   check.

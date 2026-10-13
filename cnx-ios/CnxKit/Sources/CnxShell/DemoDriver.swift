@@ -25,7 +25,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac", "relay-only"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -49,6 +49,7 @@ struct DemoDriver {
         case "live": await live()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
+        case "connect-mac-elsewhere": await connectMacElsewhere()
         case "relay-only": await relayOnly()
         default: break
         }
@@ -262,6 +263,20 @@ struct DemoDriver {
         step("mac appears")
         shell.store.teams[index].macs = macs
         await pause(2.5)
+    }
+
+    /// The active team has no Mac, another team has one: the empty state
+    /// names the team shown and offers the other; the switch runs the
+    /// button's own action.
+    private func connectMacElsewhere() async {
+        shell.tab = .workspaces
+        guard let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) else { return }
+        shell.store.teams[index].macs = []
+        await pause(3.5)
+        guard let offer = shell.store.teamWithMacsElsewhere() else { return }
+        step("switch to \(offer.team.name)")
+        shell.switchTeam(to: offer.team.id)
+        await pause(3.0)
     }
 
     /// The toolbar's New Workspace bar button view: the visible navigation
