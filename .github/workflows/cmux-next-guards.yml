@@ -55,3 +55,41 @@ jobs:
       # the graph followed seven hours later) and the pinned texts match.
       - name: package-notices.json covers vt-link-graph.json
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
+
+  # The CmuxNextApp size cap (code-quality.md SW14) for pull requests into
+  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips both
+  # (cx-g34i), so only safe-push ran the cap and GitHub merges grew the App past
+  # it. This workflow has no path filter, so the check can be a required one.
+  # Only the size cap runs here: the god-file checks stay warn-only. A pull
+  # request fails on what it grows (its merge commit's first parent is the
+  # base); a push fails on what it grew over the previous tip (event.before), so
+  # a push that went around safe-push turns the tip run red.
+  app-size:
+    name: cmux-next CmuxNextApp size cap
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and its first parent (the base).
+          fetch-depth: 2
+
+      - name: CmuxNextApp size cap
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=()
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base=(--base HEAD^1)
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base=(--base "$BEFORE")
+          else
+            # No previous tip to compare with: the plain cap check.
+            echo "::warning::no previous tip to compare with; checking the plain cap"
+          fi
+          scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
