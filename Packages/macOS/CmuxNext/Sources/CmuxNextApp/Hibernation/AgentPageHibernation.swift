@@ -40,6 +40,11 @@ final class AgentPageHibernation {
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
     /// The acpmux turn state of the tab's chat; injected by the App.
     var turnState: (String) -> AgentTurnState? = { _ in nil }
+    /// The acpmux turn watch is up. While it is down no chat's turn is known, so every chat counts as busy.
+    var turnsWatched: () -> Bool = { true }
+    /// What the page holds that acpmux does not (attachments, shell text, scroll), kept with its
+    /// tab when it lets go (tests set it: their page never loads).
+    var wakeState: @MainActor (AgentPaneView) async -> AgentPaneWakeState? = { await $0.wakeState() }
     var isPinned: (String) -> Bool = { _ in false }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }

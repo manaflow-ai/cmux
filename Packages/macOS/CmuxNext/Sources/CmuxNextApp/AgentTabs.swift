@@ -164,6 +164,9 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
+    /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
+    /// the page built when its tab shows again.
+    var wakeStates: [String: AgentPaneWakeState] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
