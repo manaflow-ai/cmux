@@ -428,6 +428,12 @@ class FailureIssueTests(unittest.TestCase):
         self.assertEqual(self.publication("own", **{"sign-release-notes": "failure", "publish-release-notes": "skipped"}), (True, False))
         self.assertEqual(self.publication("own", **{"sign-release-notes": "skipped", "publish-release-notes": "skipped"}), (True, False))
 
+    def test_a_recovered_publication_after_this_run_s_build_failed_reports(self):
+        # publish-nightly also publishes a recovered build when this run's own
+        # build failed; closing then would race the report of that failure.
+        self.assertEqual(self.publication("recovered", **{"build-sign-notarize-nightly": "failure"}), (True, False))
+        self.assertEqual(self.publication("recovered", **{"build-nightly-app": "failure", "build-sign-notarize-nightly": "skipped"}), (True, False))
+
     def test_a_recovered_publication_that_failed_its_delta_republish_reports(self):
         self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
 
