@@ -20249,7 +20249,7 @@ private extension NSWindow {
                     return true
                 }
 
-                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                if shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
                     firstResponderHasMarkedText: ghosttyView.hasMarkedText(),
