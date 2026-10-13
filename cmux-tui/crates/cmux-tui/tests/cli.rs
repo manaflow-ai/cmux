@@ -3682,6 +3682,9 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[cfg(unix)]
+#[path = "cli/frontend_browser_status.rs"]
+mod frontend_browser_status;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]
