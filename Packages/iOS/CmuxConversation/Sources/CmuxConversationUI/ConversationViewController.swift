@@ -1397,17 +1397,17 @@ public final class ConversationViewController: UIViewController {
     }
 
     /// Loads the page above when `offsetY` (the current offset, or where a
-    /// fling will come to rest) is near the top-of-history spinner. Messages
-    /// checks the fling target at release too, so a hard fling toward the top
-    /// starts its fetch before the deceleration gets there.
+    /// fling will come to rest) is within a few screens of the top-of-history
+    /// spinner (`ConversationHistoryPrefetch`). Messages checks the fling
+    /// target at release too, so a hard fling toward the top starts its
+    /// fetch before the deceleration gets there.
     func maybeLoadOlder(targetOffsetY: CGFloat? = nil) {
         guard hasPositionedInitially, store.hasLoadedNewest, !isScrollingToTop else { return }
         let fromTop = (targetOffsetY ?? collectionView.contentOffset.y) + collectionView.adjustedContentInset.top
-        let viewport = collectionView.bounds.height
-        if fromTop < viewport * 1.5 {
-            store.loadOlder()
-        } else if fromTop > viewport * 3 {
-            store.olderNoLongerWanted()
+        switch ConversationHistoryPrefetch.decision(distanceFromTop: fromTop, viewport: collectionView.bounds.height) {
+        case .load: store.loadOlder()
+        case .stop: store.olderNoLongerWanted()
+        case .none: break
         }
     }
 
