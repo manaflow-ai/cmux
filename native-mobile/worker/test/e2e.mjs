@@ -260,5 +260,17 @@ await step("DELETE /v1/hosts/:id unpairs", async () => {
   await expectRejected(hostId, token);
 });
 
+await step("POST /v1/auth/logout revokes the session and its push device", async () => {
+  const fresh = await api("POST", "/v1/auth/dev", { body: { email: `e2e-${run}@test.cmux.dev`, secret: DEV_SECRET } });
+  const t = fresh.json.session_token;
+  const apns = "ab".repeat(32);
+  const reg = await api("POST", "/v1/push/register", { token: t, body: { apns_token: apns, environment: "sandbox" } });
+  assert.equal(reg.status, 200, JSON.stringify(reg.json));
+  const out = await api("POST", "/v1/auth/logout", { token: t, body: { apns_token: apns } });
+  assert.equal(out.status, 200, JSON.stringify(out.json));
+  const me = await api("GET", "/v1/me", { token: t });
+  assert.equal(me.status, 401);
+});
+
 console.log(`\nall ${passed} steps passed`);
 process.exit(0);

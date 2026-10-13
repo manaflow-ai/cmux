@@ -25,6 +25,13 @@ struct PushAPI: Sendable {
         try await post("/v1/push/register", body)
     }
 
+    /// Revokes the session and drops this phone's push registration.
+    func logout(deviceToken: String?) async throws {
+        var body: [String: Any] = [:]
+        if let deviceToken { body["apns_token"] = deviceToken }
+        try await post("/v1/auth/logout", body)
+    }
+
     func liveActivity(deviceToken: String, hostID: String, surface: Int, activityID: String, pushToken: String?,
                       startedAt: Double?, ended: Bool) async throws {
         var body: [String: Any] = [

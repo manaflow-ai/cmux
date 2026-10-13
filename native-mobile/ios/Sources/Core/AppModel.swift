@@ -83,6 +83,11 @@ final class AppModel {
     }
 
     func signOut() {
+        // Stop alerts with terminal text reaching a signed-out phone: revoke
+        // the session and the push registration before forgetting the token.
+        let api = PushAPI(token: token)
+        let device = PushManager.shared.deviceToken
+        Task { try? await api.logout(deviceToken: device) }
         connection?.stop()
         connection = nil
         tokenStore.value = nil

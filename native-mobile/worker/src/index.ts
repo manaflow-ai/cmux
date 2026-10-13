@@ -498,6 +498,21 @@ async function pushRegister(env: Env, req: Request): Promise<Response> {
   return json({ ok: true, device_id: row.id });
 }
 
+/** Sign out: revoke this session and stop pushing to this phone. */
+async function logout(env: Env, req: Request): Promise<Response> {
+  const token = bearer(req);
+  const user = await userFromToken(env, token);
+  if (!user || !token) return json({ ok: true });
+  const body = await readJson(req).catch(() => ({}) as Record<string, unknown>);
+  const conn = db(env);
+  const apns = typeof body.apns_token === "string" ? body.apns_token.toLowerCase() : null;
+  if (apns && /^[0-9a-f]{32,200}$/.test(apns)) {
+    await conn.execute("DELETE FROM devices WHERE apns_token = ? AND user_id = ?", [apns, user.id]);
+  }
+  await conn.execute("DELETE FROM sessions WHERE token_hash = ?", [await sha256Hex(token)]);
+  return json({ ok: true });
+}
+
 async function signal(env: Env, req: Request, hostId: string): Promise<Response> {
   if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new HttpError(426, "upgrade_required");
   if (!/^[0-9a-f]{32}$/.test(hostId)) throw new HttpError(404, "host_not_found");
@@ -533,6 +548,7 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (p === "/healthz" && m === "GET") return json({ ok: true, service: "cmux-next-native" });
   if (p === "/v1/auth/apple" && m === "POST") return authApple(env, req);
   if (p === "/v1/auth/dev" && m === "POST") return authDev(env, req);
+  if (p === "/v1/auth/logout" && m === "POST") return logout(env, req);
   if (p === "/v1/me" && m === "GET") return json({ user: userJson(await requireUser(env, req)) });
   if (p === "/v1/hosts/register" && m === "POST") return registerHost(env, req);
   if (p === "/v1/hosts/pairing-code" && m === "POST") return hostPairingCode(env, req);
