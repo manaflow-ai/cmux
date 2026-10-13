@@ -264,3 +264,7 @@ pub(super) fn set_terminal(
         mux.personal_mutation(|registry| registry.set_personal_terminal(session, key, theme))?;
     Ok(json!({"terminal": terminal, "changed": changed}))
 }
+
+#[cfg(test)]
+#[path = "session_icon_tests.rs"]
+mod session_icon_tests;
