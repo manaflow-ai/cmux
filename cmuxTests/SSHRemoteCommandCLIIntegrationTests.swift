@@ -109,6 +109,32 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     @Test
+    func testSCPDoesNotPassCmuxRouteMarkerToOpenSSH() {
+        let routeMarker = "__cmux_route_sensitive=" + String(repeating: "a1", count: 32)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "user@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: ["ControlMaster=auto", "ControlPersist=600", routeMarker],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        let session = DetectedSSHSession(configuration: configuration)
+
+        let scpArguments = session.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        #expect(!scpArguments.contains(routeMarker))
+        #expect(configuration.sshOptions.contains(routeMarker))
+    }
+
+    @Test
     func testSSHLeadingTTYDisablePersistsRequestTTYForRestoration() throws {
         let cases: [(name: String, arguments: [String], option: String)] = [
             ("flag", ["-T"], "RequestTTY=no"),
