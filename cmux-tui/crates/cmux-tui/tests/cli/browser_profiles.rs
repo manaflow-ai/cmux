@@ -3,11 +3,8 @@
 use super::*;
 
 fn tree(server: &HeadlessServer) -> serde_json::Value {
-    try_json_socket_request(
-        &server.socket,
-        serde_json::json!({"id": 1, "cmd": "list-workspaces"}),
-    )
-    .expect("list-workspaces response")
+    try_json_socket_request(&server.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}))
+        .expect("list-workspaces response")
 }
 
 fn browser_tab(tree: &serde_json::Value) -> &serde_json::Value {
@@ -26,15 +23,9 @@ fn browser_tab(tree: &serde_json::Value) -> &serde_json::Value {
 fn browser_profile_commands_create_move_open_and_delete_through_the_daemon() {
     let server = HeadlessServer::start("browser-profiles");
 
-    let created = state_cli(
-        &server,
-        None,
-        &["browser", "profile", "create", "--name", "Work"],
-    );
-    let profile_id = created["browser_profile"]["id"]
-        .as_str()
-        .expect("created browser profile id")
-        .to_owned();
+    let created = state_cli(&server, None, &["browser", "profile", "create", "--name", "Work"]);
+    let profile_id =
+        created["browser_profile"]["id"].as_str().expect("created browser profile id").to_owned();
 
     let listed = state_cli(&server, None, &["browser", "profile", "list"]);
     assert_eq!(listed["browser_profiles"][1]["name"], "Work", "{listed}");
@@ -57,11 +48,7 @@ fn browser_profile_commands_create_move_open_and_delete_through_the_daemon() {
     assert!(opened["content_resource_id"].as_str().is_some(), "{opened}");
     assert_eq!(browser_tab(&tree(&server))["browser_profile_id"], profile_id);
 
-    state_cli(
-        &server,
-        None,
-        &["browser", "profile", "move", "--profile", "Work", "--index", "0"],
-    );
+    state_cli(&server, None, &["browser", "profile", "move", "--profile", "Work", "--index", "0"]);
     let moved = state_cli(&server, None, &["browser", "profile", "list"]);
     assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");
 

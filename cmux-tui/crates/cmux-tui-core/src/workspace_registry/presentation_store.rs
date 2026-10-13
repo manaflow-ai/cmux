@@ -1150,6 +1150,19 @@ impl WorkspaceRegistry {
         title: Option<&str>,
         favicon_url: Option<Option<&str>>,
     ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
+        self.update_frontend_browser_with_profile(browser_id, url, title, favicon_url, None)
+    }
+
+    /// Update a frontend browser's location, presentation, or browser
+    /// profile. `Some(None)` clears the profile; `None` leaves it unchanged.
+    pub fn update_frontend_browser_with_profile(
+        &mut self,
+        browser_id: &str,
+        url: Option<&str>,
+        title: Option<&str>,
+        favicon_url: Option<Option<&str>>,
+        profile_id: Option<Option<&str>>,
+    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
         validate_browser_public_id(browser_id)?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -1165,15 +1178,35 @@ impl WorkspaceRegistry {
         if let Some(favicon_url) = favicon_url {
             record.favicon_url = favicon_url.map(str::to_string);
         }
+        if let Some(profile_id) = profile_id {
+            record.profile_id = match profile_id {
+                Some(profile_id) => {
+                    let mut statement = tx.prepare(
+                        "SELECT browser_profile_id FROM browser_profiles
+                         WHERE browser_profile_id = ?1 OR name = ?1
+                         ORDER BY browser_profile_id ASC",
+                    )?;
+                    let ids = statement
+                        .query_map([profile_id], |row| row.get::<_, String>(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
+                    match ids.as_slice() {
+                        [id] => Some(id.clone()),
+                        [] => anyhow::bail!("unknown browser profile {profile_id}"),
+                        _ => anyhow::bail!("browser profile name is ambiguous: {profile_id}"),
+                    }
+                }
+                None => None,
+            };
+        }
         record.validate()?;
         if record == before {
             tx.commit()?;
             return Ok((record, false));
         }
         tx.execute(
-            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4
+            "UPDATE frontend_browser_tabs SET url = ?2, title = ?3, favicon_url = ?4, profile_id = ?5
              WHERE browser_id = ?1",
-            params![browser_id, record.url, record.title, record.favicon_url],
+            params![browser_id, record.url, record.title, record.favicon_url, record.profile_id],
         )?;
         append_presentation_record(
             &tx,
