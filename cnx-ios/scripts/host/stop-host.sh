@@ -2,8 +2,9 @@
 # Stop what run-host.sh started (cnx-hostd, the cmux-tui session daemon, acpmux).
 # Your sign-in, logs and acpmux sessions stay in $CNX_HOST_HOME (default ~/.cnx-host);
 # `run-host.sh --sign-out` forgets the sign-in, and deleting the folder removes everything.
+# --prod stops the production host (~/.cnx-host-prod) instead.
 set -uo pipefail
-home=${CNX_HOST_HOME:-$HOME/.cnx-host}
+if [[ "${1:-}" == --prod ]]; then home=${CNX_HOST_HOME:-$HOME/.cnx-host-prod}; else home=${CNX_HOST_HOME:-$HOME/.cnx-host}; fi
 here=$(cd "$(dirname "$0")" && pwd)
 # Ask the session daemon to stop first (its terminals end with it).
 for sock in "$home"/sock/*.sock; do

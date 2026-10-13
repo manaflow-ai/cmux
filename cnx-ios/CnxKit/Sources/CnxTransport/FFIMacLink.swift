@@ -9,13 +9,14 @@ public struct FFIMacLinkDialer: MacLinkDialer {
     public func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
         let observer = StateObserver()
         do {
-            let handle = try await connect(
+            let handle = try await connectWithOptions(
                 baseUrl: endpoint.baseURL.absoluteString,
                 token: accessToken,
                 teamId: endpoint.teamID,
                 deviceId: endpoint.deviceID,
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
+                options: ConnectOptions(relayOnly: endpoint.relayOnly),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)

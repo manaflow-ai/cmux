@@ -119,8 +119,9 @@ extension MessageCellLayout {
         var y: CGFloat = 0
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            senderNameFrame = CGRect(x: margin + avatarColumn + 15, y: y, width: cardWidth, height: 16)
-            y += 19
+            let name = t.senderNameLine
+            senderNameFrame = CGRect(x: margin + avatarColumn + 15, y: y, width: cardWidth, height: name.height)
+            y += name.bubbleOffset
         }
         if !model.reactionKinds.isEmpty { y += 18 }
         let card = PollStyle.cardLayout(pollModel, width: cardWidth)

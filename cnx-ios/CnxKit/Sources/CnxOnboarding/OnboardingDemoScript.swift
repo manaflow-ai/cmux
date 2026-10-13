@@ -14,8 +14,12 @@ enum OnboardingDemoScript {
     static var isRequested: Bool {
         let arguments = ProcessInfo.processInfo.arguments
         guard let index = arguments.firstIndex(of: "-cnx-demo"), index + 1 < arguments.count else { return false }
-        return arguments[index + 1] == "onboarding"
+        return ["onboarding", "onboarding-restart"].contains(arguments[index + 1])
     }
+
+    /// `-cnx-demo onboarding-restart`: sign in, sign out from setup's footer
+    /// back to Welcome, then sign in again.
+    static var restarts: Bool { ProcessInfo.processInfo.arguments.contains("onboarding-restart") }
 
     static func start() {
         guard !started else { return }
@@ -35,6 +39,14 @@ enum OnboardingDemoScript {
         await step(.onboardingTypeEmail("aziz@cmux.dev"), then: 1.6)
         await step(.onboardingSendCode, then: 1.8)
         await step(.onboardingTypeCode("424242"), then: 3.0)
+        if restarts {
+            await step(.setupSignOut, then: 1.8)
+            await step(.setupConfirmSignOut, then: 5.5)
+            await step(.onboardingOpenEmail, then: 1.6)
+            await step(.onboardingTypeEmail("other@cmux.dev"), then: 1.6)
+            await step(.onboardingSendCode, then: 1.8)
+            await step(.onboardingTypeCode("424242"), then: 3.0)
+        }
         await step(.setupPickTeam(index: 0), then: 2.2)
         await step(.setupNotNow, then: 2.0)
     }

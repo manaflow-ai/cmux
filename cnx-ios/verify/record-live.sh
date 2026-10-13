@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Live end-to-end recording against a real Mac (see verify/live.md).
-# usage: CNX_STACK_EMAIL=... CNX_STACK_PASSWORD=... verify/record-live.sh <udid> <out-dir> [seconds] [demo]
+# usage: CNX_STACK_EMAIL=... CNX_STACK_PASSWORD=... verify/record-live.sh <udid> <out-dir> [seconds] [demo] [transport]
+# transport is wireguard (default) or webrtc. verify/connectivity.md uses demo
+# relay-only to switch Settings → Developer → Relay only on mid-run.
 # Credentials come from the environment only and are passed to the app as
 # SIMCTL_CHILD_* variables; nothing is printed.
 set -euo pipefail
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
-udid=$1; out=$2; seconds=${3:-150}; demo=${4:-live}
+udid=$1; out=$2; seconds=${3:-150}; demo=${4:-live}; transport=${5:-wireguard}
 : "${CNX_STACK_EMAIL:?}" "${CNX_STACK_PASSWORD:?}"
 mkdir -p "$out"
 cd "$(dirname "$0")/.."
@@ -15,7 +17,7 @@ rec=$!
 trap 'kill -INT $rec 2>/dev/null || true' EXIT
 SIMCTL_CHILD_CNX_STACK_EMAIL="$CNX_STACK_EMAIL" SIMCTL_CHILD_CNX_STACK_PASSWORD="$CNX_STACK_PASSWORD" \
   xcrun simctl launch "$udid" dev.cmux.cnx -cnx-tab workspaces -cnx.setupComplete 1 \
-  -cnx.settings.transport wireguard -cnx-demo "$demo" > /dev/null
+  -cnx.settings.transport "$transport" -cnx-demo "$demo" > /dev/null
 xcrun simctl spawn "$udid" log stream --level info --predicate 'subsystem == "dev.cmux.cnx"' --style compact > "$out/app.log" 2>&1 &
 logpid=$!
 # Wall-clock stills alongside the video (the video drops static stretches).

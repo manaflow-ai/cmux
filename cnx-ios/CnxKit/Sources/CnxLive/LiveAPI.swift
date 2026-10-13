@@ -20,13 +20,16 @@ public struct LiveAPI: Sendable {
         public var online: Bool
         public var lastSeenAt: String?
         public var ownerUserId: String?
+        /// The Mac's team (or personal space); only `GET /v1/me/macs` sends it.
+        public var teamId: String?
 
-        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil) {
+        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil) {
             self.deviceId = deviceId
             self.name = name
             self.online = online
             self.lastSeenAt = lastSeenAt
             self.ownerUserId = ownerUserId
+            self.teamId = teamId
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
@@ -59,6 +62,12 @@ public struct LiveAPI: Sendable {
     public func macs(teamID: String) async throws -> [Mac] {
         struct Reply: Decodable { var macs: [Mac] }
         return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/teams/\(teamID)/macs")).macs
+    }
+
+    /// `GET /v1/me/macs`: the account's own Macs in every team and the personal space.
+    public func myMacs() async throws -> [Mac] {
+        struct Reply: Decodable { var macs: [Mac] }
+        return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/macs")).macs
     }
 
     /// `GET /v1/teams/:id/prefs`.

@@ -2,50 +2,59 @@
 import CnxDesign
 import SwiftUI
 
-/// iMessage-style quote of the message an event answers: a small `bubble`
-/// with a tail at its bottom-leading corner and a thin thread line curving
-/// down into the reply. Tap toggles the full text.
+/// iMessage-style quote of the message an event answers. Your own message
+/// is outgoing: right-aligned, tail at its bottom-trailing corner, like a
+/// sent bubble, with the agent's reply left-aligned below. A message the
+/// agent asked you sits on the leading side with a thread line curving down
+/// into the reply. Tap toggles the full text.
 struct QuoteBubble: View {
     let quote: FeedItem.Quote
     @State private var expanded = false
 
+    private var outgoing: Bool { quote.author == .you }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: outgoing ? .trailing : .leading, spacing: 0) {
             HStack(spacing: 4) {
-                Image(systemName: quote.author == .you ? "arrowshape.turn.up.left.fill" : "sparkle")
+                Image(systemName: outgoing ? "arrowshape.turn.up.left.fill" : "sparkle")
                     .font(.system(size: 9, weight: .semibold))
-                Text(quote.author == .you ? "You" : "Asked you")
+                Text(outgoing ? "You" : "Asked you")
                     .font(.caption2.weight(.semibold))
             }
             .foregroundStyle(.tertiary)
-            .padding(.leading, 12)
+            .padding(.horizontal, 12)
             .padding(.bottom, 3)
             HStack(spacing: 0) {
-            Text(quote.text)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(expanded ? nil : 3)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background {
-                    BubbleWithTail().foregroundStyle(Color.cnxBubble)
-                }
-                Spacer(minLength: 28)
+                if outgoing { Spacer(minLength: 28) }
+                Text(quote.text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(expanded ? nil : 3)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background {
+                        BubbleWithTail()
+                            .foregroundStyle(Color.cnxBubble)
+                            .scaleEffect(x: outgoing ? -1 : 1)
+                    }
+                if !outgoing { Spacer(minLength: 28) }
             }
-            .padding(.bottom, 6)
-            ThreadLine()
-                .stroke(Color(uiColor: .separator), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
-                .frame(width: 14, height: 12)
-                .padding(.leading, 0)
-                .padding(.top, -4)
+            .padding(.bottom, outgoing ? 10 : 6)
+            if !outgoing {
+                ThreadLine()
+                    .stroke(Color(uiColor: .separator), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .frame(width: 14, height: 12)
+                    .padding(.top, -4)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: outgoing ? .trailing : .leading)
         .contentShape(.rect)
         .onTapGesture { withAnimation(.cnxSmooth) { expanded.toggle() } }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text("In reply to: \(quote.text)"))
+        .accessibilityLabel(Text(outgoing ? "In reply to your message: \(quote.text)" : "In reply to: \(quote.text)"))
         .accessibilityAddTraits(.isButton)
     }
 }

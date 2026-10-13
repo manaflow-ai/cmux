@@ -59,7 +59,7 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
                 credential: server.credential.clone().unwrap_or_default(),
             })
             .collect(),
-        ice_transport_policy: if options.force_relay {
+        ice_transport_policy: if options.relay_only {
             RTCIceTransportPolicy::Relay
         } else {
             RTCIceTransportPolicy::All

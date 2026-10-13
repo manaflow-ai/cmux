@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxAgentChat
 import CnxAuth
 import CnxDesign
 import CnxLive
@@ -32,8 +33,11 @@ final class ShellModel {
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
+    /// Typed: a workspace page must not nest a SwiftUI NavigationStack (the
+    /// terminal tab hosts its own page), or SwiftUI traps with
+    /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] { didSet { updateInteractiveOpen() } }
-    var feedPath: [String] = [] { didSet { updateInteractiveOpen() } }
+    var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
 
     var toast: CnxToast?
@@ -60,6 +64,24 @@ final class ShellModel {
         creator = WorkspaceCreator(store: store, backend: mockCreation)
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
+        }
+    }
+
+    /// Points terminal tabs and new workspaces at `live`, or back at the mocks
+    /// when it is nil. RootView creates the coordinator when the account
+    /// resolves, which can be after this shell was built (a restored session,
+    /// a DEBUG auto sign-in), so this runs on every change, not once.
+    func attach(live: LiveCoordinator?) {
+        if self.live !== live, self.live != nil { terminalTabs.reset() }
+        self.live = live
+        if let live {
+            terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+            terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
+            creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
+        } else {
+            terminalTabs.sessionProvider = nil
+            terminalTabs.artifactSourceProvider = nil
+            creator.backend = mockCreation
         }
     }
 
@@ -100,7 +122,7 @@ final class ShellModel {
         }
         workspacesPath.removeAll()
         sidebar.close()
-        live?.activeTeamChanged()
+        live?.activeTeamChanged(byUser: true)
         guard !id.hasPrefix("personal-") else { return }
         Task { await auth.selectTeam(id) }
     }

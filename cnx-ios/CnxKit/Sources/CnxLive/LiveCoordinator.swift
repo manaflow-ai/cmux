@@ -12,11 +12,14 @@ import OSLog
 
 private let log = Logger(subsystem: "dev.cmux.cnx", category: "live")
 
-/// Wires the signed-in app to real data: registers this phone in the active
-/// team (the personal space `personal-<userId>` when the account has no
-/// teams), keeps the team's Macs live from presence, holds a link to the
-/// selected online Mac over the Settings transport, and feeds the daemon's
-/// workspaces, acpmux chats, the Feed and Chief from that link.
+/// Wires the signed-in app to real data, from sign-in on (setup included):
+/// registers this phone in the active team (the personal space
+/// `personal-<userId>` when the account has no teams), keeps the team's Macs
+/// live from presence, finds the account's Macs in every other team and the
+/// personal space (`GET /v1/me/macs`) and moves to the one where a Mac is,
+/// holds a link to the selected online Mac over the Settings transport, and
+/// feeds the daemon's workspaces, acpmux chats, the Feed and Chief from that
+/// link.
 @MainActor
 @Observable
 public final class LiveCoordinator {
@@ -24,6 +27,20 @@ public final class LiveCoordinator {
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
     public private(set) var chiefStatus: String?
+    /// The last time the phone moved to another team because one of the
+    /// account's Macs is there (the shell shows a toast).
+    public private(set) var followed: Followed?
+
+    /// A move to the team where the account's Mac is.
+    public struct Followed: Equatable, Sendable {
+        public let serial: Int
+        public let teamID: String
+        public let teamName: String
+        public let macName: String
+    }
+
+    /// Called after a move to another team (persists the Stack selection).
+    @ObservationIgnored public var onFollow: ((String) -> Void)?
 
     public let link: LinkController
     public let workspaces: WorkspaceSync
@@ -41,9 +58,22 @@ public final class LiveCoordinator {
     @ObservationIgnored private var bannerTask: Task<Void, Never>?
     @ObservationIgnored private var everConnected = false
     @ObservationIgnored private var tree: DaemonTree?
+    /// The acpmux session each cached chat store was built for (nil: unbound).
+    @ObservationIgnored private var sourcedSessions: [String: String?] = [:]
     /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
     @ObservationIgnored private var currentLink: (any MacLink)?
+    /// Terminal tabs handed out, reattached on every new link.
+    @ObservationIgnored private var terminals: [WeakTerminal] = []
+    private struct WeakTerminal { weak var session: DaemonTerminalSession? }
     @ObservationIgnored private var chiefLive = false
+    @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+    /// The account's Macs that were online at the last look (nil before the first).
+    @ObservationIgnored private var previouslyOnline: Set<String>?
+    /// A team the user picked in the sidebar: discovery leaves it while it is empty.
+    @ObservationIgnored private var pinnedTeamID: String?
+    /// How often discovery looks while the active team has no online Mac, and otherwise.
+    static let waitingPoll: Duration = .seconds(4)
+    static let idlePoll: Duration = .seconds(30)
 
     /// The personal space id for a user (PROTOCOL.md "Personal space").
     public static func personalTeamID(userID: String) -> String { "personal-\(userID)" }
@@ -55,6 +85,7 @@ public final class LiveCoordinator {
         userID: String,
         deviceName: String,
         transport: CnxTransport.TransportKind,
+        relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
         clock: any Clock<Duration> = ContinuousClock()
@@ -67,7 +98,7 @@ public final class LiveCoordinator {
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
-        link = LinkController(transport: transport, dialer: dialer, clock: clock,
+        link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         link.endpoint = { [weak self] macID in
@@ -88,8 +119,10 @@ public final class LiveCoordinator {
             self.workspaces.setPending(self.acpmux.sessions.mapValues { $0.pendingPermissions > 0 })
         }
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
-            guard let self, let session = self.tree?.agentTabs[summary.id]?.session else {
-                return UnboundAgentSource(summary: summary)
+            let session = self?.tree?.agentTabs[summary.id]?.session
+            self?.sourcedSessions[summary.id] = .some(session)
+            guard let self, let session else {
+                return UnboundAgentSource(summary: summary, macName: self?.link.target?.name)
             }
             return self.acpmux.source(sessionID: session, summary: summary)
         }
@@ -98,17 +131,29 @@ public final class LiveCoordinator {
 
     // MARK: Teams
 
-    /// Applies the account's teams (or the personal space) and starts the active one.
-    public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
-        let list = teams.isEmpty ? [AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")] : teams
-        store.applyLiveTeams(list, selectedID: selectedID)
-        activeTeamChanged()
-        for team in list { loadPrefs(team.id) }
+    private var personal: AppStore.AccountTeam {
+        AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")
     }
 
-    /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets the link.
-    public func activeTeamChanged() {
+    /// Applies the account's teams (or the personal space) and starts the
+    /// active one. The personal space stays listed next to Stack teams while
+    /// one of the account's Macs is in it. Starts Mac discovery.
+    public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
+        var list = teams.isEmpty ? [personal] : teams
+        if !teams.isEmpty, store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty }) { list.append(personal) }
+        // A team the phone already shows (picked, or followed to a Mac) stays active.
+        let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
+        store.applyLiveTeams(list, selectedID: keep)
+        activeTeamChanged()
+        for team in list { loadPrefs(team.id) }
+        if discoveryTask == nil { startDiscovery() }
+    }
+
+    /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets
+    /// the link. `byUser` marks a sidebar pick, which discovery respects.
+    public func activeTeamChanged(byUser: Bool = false) {
         let teamID = store.activeTeamID
+        if byUser { pinnedTeamID = teamID }
         guard !teamID.isEmpty, teamID != registeredTeamID else { return }
         teamTask?.cancel()
         presence?.stop()
@@ -177,15 +222,72 @@ public final class LiveCoordinator {
     private func retarget() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cnx.live.mac.\(team.id)")
-        let mac = team.macs.first { $0.id == remembered && $0.isOnline } ?? team.macs.first(where: \.isOnline)
-            ?? team.macs.first { $0.id == remembered } ?? team.macs.first
+        let mac = LinkMachine.target(in: team.macs, remembered: remembered, current: link.target?.macID)
         link.send(.target(mac.map { LinkMachine.Target(macID: $0.id, name: $0.name, isOnline: $0.isOnline) }))
     }
+
 
     public func select(macID: String) {
         guard let team = store.activeTeam else { return }
         UserDefaults.standard.set(macID, forKey: "cnx.live.mac.\(team.id)")
         retarget()
+    }
+
+    // MARK: Discovery across spaces
+
+    private func startDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = Task { [weak self] in await self?.discover() }
+    }
+
+    private func discover() async {
+        while !Task.isCancelled {
+            await discoverOnce()
+            let waiting = !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false)
+            do { try await clock.sleep(for: waiting ? Self.waitingPoll : Self.idlePoll) } catch { return }
+        }
+    }
+
+    /// One look at the account's Macs everywhere: shows each in its team and
+    /// moves to the team of an online Mac while the active team has none.
+    func discoverOnce() async {
+        do {
+            let macs = try await api.myMacs()
+            guard !Task.isCancelled else { return }
+            let found = macs.compactMap { mac -> DiscoveredMac? in
+                guard let teamID = mac.teamId else { return nil }
+                return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
+            }
+            store.mergeDiscoveredMacs(found, personal: personal)
+            if store.accountMacCount != found.count { store.accountMacCount = found.count }
+            if let team = store.teamToFollow(found, previouslyOnline: previouslyOnline, pinnedTeamID: pinnedTeamID) {
+                follow(team, macName: found.first { $0.teamID == team.id && $0.isOnline }?.name ?? "Your Mac")
+            }
+            previouslyOnline = Set(found.filter(\.isOnline).map(\.placement))
+            retarget()
+        } catch {
+            guard !Task.isCancelled else { return }
+            log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func follow(_ team: Team, macName: String) {
+        log.info("following \(macName, privacy: .private) to team \(team.id, privacy: .private)")
+        store.selectTeam(team.id)
+        activeTeamChanged()
+        followed = Followed(serial: (followed?.serial ?? 0) + 1, teamID: team.id, teamName: team.name, macName: macName)
+        onFollow?(team.id)
+    }
+
+    /// Sign-out: stops discovery, presence and the link.
+    public func stop() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        teamTask?.cancel()
+        presence?.stop()
+        presence = nil
+        registeredTeamID = nil
+        link.send(.target(nil))
     }
 
     // MARK: Prefs and invites
@@ -214,9 +316,16 @@ public final class LiveCoordinator {
         link.send(.transport(transport))
     }
 
+    /// Debug relay-only mode (Settings → Developer); a change redials.
+    public func setRelayOnly(_ relayOnly: Bool) {
+        link.send(.relayOnly(relayOnly))
+    }
+
     /// App foreground: probe or redial the link and the presence socket.
     public func foreground() {
+        log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         presence?.kick()
+        if discoveryTask != nil { startDiscovery() }
         link.send(.foreground)
     }
 
@@ -253,18 +362,35 @@ public final class LiveCoordinator {
             await self.startChief(link)
         }
         // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
-        // own `daemon` channel of this link.
+        // own `daemon` channel of this link; open ones reattach now.
+        terminals.removeAll { $0.session == nil }
+        for terminal in terminals { terminal.session?.reconnect() }
     }
 
-    /// A live session for a terminal tab of the linked Mac (`s<surface>`), or
-    /// nil when the tab is not a daemon surface or there is no link. The
-    /// channel opens when the screen starts the session.
+    /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
+    /// when the tab is not a daemon surface. The channel opens when the screen
+    /// starts the session; without a link it says so and attaches when the
+    /// link comes back (as after any drop).
     public func terminalSession(tabID: String, programName: String) -> DaemonTerminalSession? {
-        guard currentLink != nil, let surface = workspaces.tree?.surfaces[tabID] else { return nil }
-        return DaemonTerminalSession(surface: surface, programName: programName) { [weak self] in
+        guard let surface = workspaces.tree?.surfaces[tabID] else { return nil }
+        // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
+        let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
+        let session = DaemonTerminalSession(surface: surface, programName: program) { [weak self] in
             guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
+        }
+        terminals.removeAll { $0.session == nil }
+        terminals.append(WeakTerminal(session: session))
+        return session
+    }
+
+    /// Files and Links previews for a terminal tab: real files on the linked
+    /// Mac over the `file` service, relative paths resolved against the tab's
+    /// directory.
+    public func terminalArtifactSource(tabID: String) -> any ArtifactSource {
+        LinkFileArtifactSource(macName: link.target?.name ?? "your Mac", baseDirectory: workspaces.tree?.directories[tabID]) { [weak self] in
+            await self?.currentLink
         }
     }
 
@@ -291,6 +417,13 @@ public final class LiveCoordinator {
     private func apply(_ tree: DaemonTree) {
         guard let macID = link.target?.macID else { return }
         self.tree = tree
+        // A chat opened before its tab had a session (a new chat the Mac
+        // started later, or a tab shown from the list before the tree came)
+        // was built unbound and cached; rebuild it on the bound session.
+        for (tabID, used) in sourcedSessions where tree.agentTabs[tabID]?.session != used {
+            sourcedSessions[tabID] = nil
+            AgentSessionDirectory.shared.invalidate(id: tabID)
+        }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
     }
 
@@ -358,22 +491,38 @@ public final class LiveCoordinator {
     }
 }
 
-/// An agent tab with no acpmux session yet (a new chat the Mac has not started).
+/// An agent tab with no acpmux session yet: a new chat on the Mac that has
+/// not had its first message. The Mac starts a chat's session from its own
+/// first send (the daemon starts only `registry:` tabs), so the phone says so;
+/// once the Mac binds the session the coordinator rebuilds the store live.
 @MainActor
 final class UnboundAgentSource: AgentSessionSource {
     let summary: AgentSessionSummary
+    let macName: String
 
-    init(summary: AgentSessionSummary) {
+    init(summary: AgentSessionSummary, macName: String?) {
         self.summary = summary
+        self.macName = macName ?? summary.macName
     }
+
+    static func notStarted(agent: String, mac: String) -> String {
+        "\(agent) hasn't started in this tab yet. Send the first message from cmux on \(mac); the chat continues here."
+    }
+
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
     func events() -> AsyncStream<AgentSessionEvent> {
-        AsyncStream { continuation in
-            continuation.yield(.clientError("This chat hasn't started on the Mac yet."))
-        }
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuation.yield(.clientError(Self.notStarted(agent: summary.agentName, mac: macName)))
+        continuations.append(continuation)
+        return stream
     }
 
-    func send(_ intent: AgentClientIntent) {}
+    /// A prompt can't start the chat from the phone: say why again.
+    func send(_ intent: AgentClientIntent) {
+        let message = Self.notStarted(agent: summary.agentName, mac: macName)
+        for continuation in continuations { continuation.yield(.clientError(message)) }
+    }
 
     var artifactSource: any ArtifactSource {
         LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) { nil }

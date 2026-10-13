@@ -17,16 +17,28 @@
 #                               folders the phone may use for agents and files
 #                               (default: $CNX_HOST_HOME/work)
 #   --seed                      create a "cnx-demo" workspace if the session is empty
-#   CNX_HOST_HOME               state, logs and sockets (default ~/.cnx-host)
-#   CNX_BASE_URL                service (default the dev Worker)
+#   --prod                      sign in to the production Stack project (for the
+#                               production app build, dev.cmux.cnx.prod); state in
+#                               ~/.cnx-host-prod, beside a dev host (also with --sign-out)
+#   CNX_HOST_HOME               state, logs and sockets (default ~/.cnx-host, or ~/.cnx-host-prod)
+#   CNX_BASE_URL                service (default the dev Worker, which accepts both projects)
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 bin=$here/bin
-home=${CNX_HOST_HOME:-$HOME/.cnx-host}
+prod=0
+for a in "$@"; do [[ "$a" != --prod ]] || prod=1; done
 base=${CNX_BASE_URL:-https://cnx-ios-api-dev.debussy.workers.dev}
 stack_api=${CNX_STACK_API:-https://api.stack-auth.com}
-project=${CNX_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}
-pck=${CNX_STACK_PUBLISHABLE_KEY:-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}
+if [[ $prod == 1 ]]; then
+  # Production Stack project: no publishable key, the cmux.com email callback.
+  home=${CNX_HOST_HOME:-$HOME/.cnx-host-prod}
+  project=9790718f-14cd-4f7e-824d-eaf527a82b82 pck="" callback=https://cmux.com/auth/callback
+else
+  home=${CNX_HOST_HOME:-$HOME/.cnx-host}
+  project=${CNX_STACK_PROJECT_ID:-454ecd03-1db2-4050-845e-4ce5b0cd9895}
+  pck=${CNX_STACK_PUBLISHABLE_KEY-pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g}
+  callback=http://localhost:3000/auth/callback
+fi
 session=${CNX_TUI_SESSION:-cnx}
 team=${CNX_TEAM_ID:-}
 name=${CNX_DEVICE_NAME:-}
@@ -37,8 +49,9 @@ while [[ $# -gt 0 ]]; do
     --name) name=$2; shift 2 ;;
     --root) roots+=("$2"); shift 2 ;;
     --seed) seed=1; shift ;;
+    --prod) shift ;;
     --sign-out) rm -f "$home/refresh-token" "$home/user-id"; echo "Signed out."; exit 0 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -64,9 +77,11 @@ tmp=$(mktemp -d "$home/state/tmp.XXXXXX"); trap 'rm -rf "$tmp"' EXIT
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
 stack_post() {  # path body-file out-file [header-file] -> HTTP status
   local extra=(); [[ -z "${4:-}" ]] || extra=(-H "@$4")
+  # Production needs no publishable key; send it only when set.
+  [[ -z "$pck" ]] || extra+=(-H "x-stack-publishable-client-key: $pck")
   curl -sS -o "$3" -w '%{http_code}' -X POST "$stack_api/api/v1$1" \
     -H 'content-type: application/json' -H "x-stack-project-id: $project" \
-    -H 'x-stack-access-type: client' -H "x-stack-publishable-client-key: $pck" \
+    -H 'x-stack-access-type: client' \
     "${extra[@]+"${extra[@]}"}" --data-binary "@$2"
 }
 field() { plutil -extract "$1" raw -o - "$2" 2>/dev/null; }
@@ -85,7 +100,7 @@ if [[ ! -s "$home/refresh-token" ]]; then
     save_refresh "$tmp/out"
   else
     read -r -p "Email for cmux sign-in: " email
-    printf '{"email":%s,"callback_url":"http://localhost:3000/auth/callback"}' "$(json_str "$email")" > "$tmp/body"
+    printf '{"email":%s,"callback_url":"%s"}' "$(json_str "$email")" "$callback" > "$tmp/body"
     status=$(stack_post /auth/otp/send-sign-in-code "$tmp/body" "$tmp/out")
     [[ "$status" == 200 ]] || { echo "error: could not send a code (HTTP $status)" >&2; exit 1; }
     nonce=$(field nonce "$tmp/out")
@@ -102,7 +117,7 @@ fi
 printf 'x-stack-refresh-token: %s\n' "$(cat "$home/refresh-token")" > "$tmp/hdr"
 echo '{}' > "$tmp/body"
 status=$(stack_post /auth/sessions/current/refresh "$tmp/body" "$tmp/out" "$tmp/hdr")
-[[ "$status" == 200 ]] || { echo "error: the saved session was refused (HTTP $status); run $0 --sign-out and sign in again" >&2; exit 1; }
+[[ "$status" == 200 ]] || { echo "error: the saved session was refused (HTTP $status); run $0 $([[ $prod == 1 ]] && echo "--prod ")--sign-out and sign in again" >&2; exit 1; }
 payload=$(field access_token "$tmp/out" | cut -d. -f2 | tr '_-' '/+')
 while (( ${#payload} % 4 )); do payload+="="; done
 user_id=$(base64 -D <<<"$payload" | plutil -extract sub raw -o - - 2>/dev/null)

@@ -98,50 +98,6 @@ extension ConversationViewController {
     }
 }
 
-#if DEBUG
-extension ConversationViewController {
-    /// DEBUG lab (`timestamps <points> <seconds> <hold>`): a scripted
-    /// leftward drag through the drawer's own pan steps (begin, a smoothstep
-    /// move each frame, then the release after `hold` seconds still), so a
-    /// headless simulator records the drawer without synthesized touches.
-    func labTimestampDrag(points: CGFloat, seconds: Double, hold: Double) {
-        stopTimestampDrawerRelease()
-        if timestampDrawer.offset == 0 {
-            timestampDrawer.maxOffset = MessageCell.timestampRevealDistance()
-            timestampDrawer.peekDistance = Self.timestampDrawerPeekDistance
-            applyTimestampRevealDistance(timestampDrawer.maxOffset)
-        }
-        timestampDrawer.begin(translation: .zero)
-        let start = CACurrentMediaTime()
-        let target = LabTimestampDragTarget { [weak self] link in
-            guard let self else { return true }
-            let t = link.targetTimestamp - start
-            let x = min(1, t / max(seconds, 0.001))
-            let eased = x * x * (3 - 2 * x)
-            self.timestampDrawer.update(translation: CGPoint(x: -points * CGFloat(eased), y: 0))
-            self.setTimestampReveal(self.timestampDrawer.fraction)
-            guard t >= seconds + hold else { return false }
-            if let release = self.timestampDrawer.end(velocity: .zero, stillFor: hold) {
-                self.startTimestampDrawerRelease(release)
-            }
-            return true
-        }
-        let link = CADisplayLink(target: target, selector: #selector(LabTimestampDragTarget.step(_:)))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
-        link.add(to: .main, forMode: .common)
-    }
-}
-
-@MainActor
-private final class LabTimestampDragTarget: NSObject {
-    let tick: (CADisplayLink) -> Bool
-    init(_ tick: @escaping (CADisplayLink) -> Bool) { self.tick = tick }
-    @objc func step(_ link: CADisplayLink) {
-        if tick(link) { link.invalidate() }
-    }
-}
-#endif
-
 /// Holds the controller weakly so the display link never keeps it alive.
 @MainActor
 private final class TimestampDrawerFrameTarget: NSObject {

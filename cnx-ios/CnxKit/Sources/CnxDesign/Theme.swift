@@ -8,6 +8,10 @@ public struct CnxTypography: Sendable {
     public var screenTitle = Font.headline
     public var sidebarTitle = Font.title2.weight(.semibold)
     public var heroTitle = Font.title.weight(.bold)
+    /// The welcome headline: a quiet serif display line (SPEC 5.2).
+    public var welcomeTitle = Font.system(.title, design: .serif)
+    /// The "cmux" wordmark beside the chevron at the top of the welcome.
+    public var welcomeWordmark = Font.title2.weight(.semibold)
     public var sheetTitle = Font.title3.weight(.semibold)
     public var emptyTitle = Font.headline
     public var body = Font.body

@@ -42,10 +42,7 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            trailingSymbol: "clock.arrow.circlepath",
-            // Every bubble slides left to show send times, as in the
-            // package's lab host (user feedback: only the blue ones moved).
-            incomingRowsFollowTimestampDrawer: true
+            trailingSymbol: "clock.arrow.circlepath"
         )
     }
 }
@@ -78,15 +75,17 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     }
 }
 
-/// Holds the conversation as a child so the pushed screen keeps the
-/// navigation controller's left-edge swipe back. SwiftUI turns the system
-/// recognizer off while the bar is hidden; this turns it back on while
-/// Chief is up, and makes the transcript's reply swipe wait for it so a drag
-/// from the edge pops instead of quoting the bubble under it.
+/// Holds the conversation as a child, as the package's lab host does with
+/// its navigation controller (bar hidden; the package draws the header,
+/// backdrop and composer and owns safe areas and the keyboard), and keeps the
+/// left-edge swipe back that SwiftUI turns off while the bar is hidden. The
+/// transcript's pans wait for that swipe, so a drag from the edge pops
+/// instead of replying to the bubble under it or opening the send times.
 public final class ChiefConversationContainer: UIViewController, UIGestureRecognizerDelegate {
     let conversation: ConversationViewController
-    private weak var popRecognizer: UIGestureRecognizer?
-    private weak var previousPopDelegate: (any UIGestureRecognizerDelegate)?
+    private var popRecognizers: [UIGestureRecognizer] = []
+    private var previousPopDelegates: [ObjectIdentifier: WeakDelegate] = [:]
+    private struct WeakDelegate { weak var value: (any UIGestureRecognizerDelegate)? }
 
     init(conversation: ConversationViewController) {
         self.conversation = conversation
@@ -105,30 +104,85 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.didMove(toParent: self)
     }
 
+    /// The back button's count of other unread conversations, the way the
+    /// package's lab host feeds it (`ConversationUnreadBadge`). Setting it
+    /// also configures the header from the store; the shared Chief store is
+    /// usually connected before this screen exists, so no later store change
+    /// would configure it once the header is in a window.
+    var backUnreadCount = 0 {
+        didSet { if isViewLoaded, view.window != nil { conversation.setBackUnreadCount(backUnreadCount) } }
+    }
+
+    public override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        conversation.setBackUnreadCount(backUnreadCount)
+    }
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        guard let navigation = navigationController, let pop = navigation.interactivePopGestureRecognizer else { return }
-        if pop.delegate !== self { previousPopDelegate = pop.delegate }
-        pop.isEnabled = true
-        pop.delegate = self
-        popRecognizer = pop
+        enableEdgePop()
+    }
+
+    /// SwiftUI turns the edge pop off again whenever it updates the hidden
+    /// bar (appear and layout), as the workspace screen found
+    /// (verify/navigation.md), so it is re-enabled on every layout.
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if view.window != nil { enableEdgePop() }
+    }
+
+    /// The back swipe from the left edge, as in Messages. On iOS 26 and later
+    /// UIKit drives that swipe with the content pop recognizer, which also
+    /// takes a rightward drag anywhere; Chief limits it to the edge strip,
+    /// because a rightward drag on a bubble replies to it and a leftward
+    /// drag on the transcript reveals send times.
+    private func enableEdgePop() {
+        guard let navigation = navigationController else { return }
+        var recognizers: [UIGestureRecognizer] = []
+        if let pop = navigation.interactivePopGestureRecognizer { recognizers.append(pop) }
+        if #available(iOS 26.0, *), let content = navigation.interactiveContentPopGestureRecognizer { recognizers.append(content) }
+        for recognizer in recognizers {
+            if recognizer.delegate !== self { previousPopDelegates[ObjectIdentifier(recognizer)] = WeakDelegate(value: recognizer.delegate) }
+            recognizer.isEnabled = true
+            recognizer.delegate = self
+        }
+        guard popRecognizers.map(ObjectIdentifier.init) != recognizers.map(ObjectIdentifier.init) else { return }
+        popRecognizers = recognizers
+        // Every pan of the transcript waits for the back swipe to fail: the
+        // reply swipe, the composer swipe, and the transcript's scroll pan,
+        // which also tracks sideways drags (the send-time drawer) and would
+        // otherwise take an edge swipe before the pop could begin. The pops
+        // fail as soon as a drag starts outside the edge strip.
         for recognizer in conversation.view.allGestureRecognizersInSubtree()
-        where recognizer is UIPanGestureRecognizer && recognizer !== pop && !(recognizer.view is UIScrollView && recognizer === (recognizer.view as? UIScrollView)?.panGestureRecognizer) {
-            recognizer.require(toFail: pop)
+        where recognizer is UIPanGestureRecognizer && !recognizers.contains(recognizer) {
+            for pop in recognizers { recognizer.require(toFail: pop) }
         }
     }
+
+    /// The strip along the left edge where a back swipe may start.
+    static let backSwipeEdgeWidth: CGFloat = 16
+    /// How far the finger has moved when the content pop asks to begin.
+    static let contentPopSlop: CGFloat = 30
 
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        // Hand the recognizer back to UIKit's own delegate for the next screen.
-        if let pop = popRecognizer, pop.delegate === self {
-            pop.delegate = previousPopDelegate
+        // Hand the recognizers back to their own delegates for the next screen.
+        for recognizer in popRecognizers where recognizer.delegate === self {
+            recognizer.delegate = previousPopDelegates[ObjectIdentifier(recognizer)]?.value
         }
+        popRecognizers = []
     }
 
     public func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard recognizer === popRecognizer else { return true }
-        return (navigationController?.viewControllers.count ?? 0) > 1
+        guard popRecognizers.contains(recognizer) else { return true }
+        guard let navigation = navigationController, navigation.viewControllers.count > 1 else { return false }
+        // UIKit already limits the edge pop to the screen edge.
+        if recognizer === navigation.interactivePopGestureRecognizer { return true }
+        // On iOS 26 and later the content pop drives the edge swipe too, and
+        // it would take a rightward drag anywhere: only from the edge strip
+        // here. UIKit asks once the finger has travelled its slop (measured:
+        // a drag from x = 1 is asked at x = 31, with no translation yet).
+        return recognizer.location(in: view).x <= Self.backSwipeEdgeWidth + Self.contentPopSlop
     }
 
     public func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
@@ -174,6 +228,13 @@ public final class ChiefDemoHook {
     public func attachPhoto(_ image: UIImage) {
         guard let controller, let data = image.jpegData(compressionQuality: 0.85) else { return }
         controller.store.send(text: "", images: [(data: data, width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), mimeType: "image/jpeg")])
+    }
+
+    /// Tapbacks the newest incoming message, as picking one in the bar does.
+    public func react(_ name: String) {
+        guard let reaction = ConversationReaction(rawValue: name), let store = controller?.store,
+              let message = store.messages.last(where: { $0.senderID != store.meID && $0.seq != nil }) else { return }
+        store.react(messageID: message.id, reaction: reaction)
     }
 
     /// Scrolls the transcript to the top (true) or the bottom (false).

@@ -22,7 +22,8 @@ struct CnxApp: App {
                 RootView(auth: auth, store: .mock())
             }
             #else
-            RootView(auth: auth, store: .mock())
+            // Release and Production: no sample data; live data fills it once signed in.
+            RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
         }
     }

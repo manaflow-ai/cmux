@@ -76,3 +76,59 @@ the simulator's video encoder, not the app.
   part of this change.
 - Apple, Google and GitHub sign-in were not run end to end. The buttons and
   their busy and disabled states are unchanged.
+
+# Pass 2: choreographed intro (Claude reference)
+
+Feedback: "the login doesn't look like Claude's or ChatGPT's, make it more beautiful. like a
+5 second animation that Claude has". The Claude recording is decomposed frame by frame in
+`verify/login-claude-reference.md`. Evidence (git-ignored) is in
+`cnx-ios/verify/evidence/2026-10-13/login2/`.
+
+## Change
+
+Welcome now has Claude's structure with cmux's identity (SPEC 5.2): a "> cmux" lockup at the
+top, a line-drawn Mac and iPhone with a serif headline in the middle, the unchanged four-button
+stack at the bottom. A ~5 s intro runs on one frame-driven clock (`TimelineView` + `Canvas`):
+the launch chevron glides into the lockup, text and buttons are in by 0.65 s, the Mac and phone
+draw themselves, a gradient network grows from a `>_` prompt to the phone, sways, folds in and
+blooms as the chevron. It settles at 5.2 s and the timeline stops. A short sync pulse runs 4 s
+later and every 9 s. Reduce Motion crossfades. `CADisableMinimumFrameDurationOnPhone` is set so
+ProMotion devices can run it at 120 Hz.
+
+## How it was run
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+verify/build.sh <ios26 udid> <ios27 udid>
+verify/login-timeline.sh <udid> dark|light <dir>       # frozen intro at 16 exact times
+python3 verify/login-compare.py <claude.mp4> 1.383 <dir> <label> ... <out.png>
+CNX_CLEAR_AUTH=1 CNX_RECORD_CODEC=h264 verify/record.sh <udid> <out.mp4> 14 dark -cnx-intro-hold 2
+```
+
+DEBUG launch arguments for verification: `-cnx-intro-freeze <s>` holds the intro at a time,
+`-cnx-pulse-freeze <s>` holds the idle pulse, `-cnx-intro-hold <s>` rests on the launch mark
+first. At the end of each intro a DEBUG build logs frame pacing (`dev.cmux.cnx`, category
+`welcome`).
+
+## Results
+
+| Artifact | Shows | Result |
+| --- | --- | --- |
+| `timeline.png` | Claude vs cmux at t = 0 to 6.5 s, iOS 27 and 26, dark and light | Same acts: continuous handoff, controls in first, line drawing, accent bloom, fold, settle |
+| `rest-compare.png` | Settled screen: Claude, cmux dark, cmux light | Same composition and weight |
+| `interrupt.png` | Email tapped 2.6 s into the intro (`-cnx-demo onboarding`) | The sheet opens mid-intro; email and code steps work |
+| `reduce.png` | Reduce Motion at 0.15 s and 3 s | Crossfade from the launch mark to the settled screen |
+| `pulse.png` | Idle pulse at 0.4 to 1.5 s | Dots travel Mac → phone, chevron glow beats |
+| `pacing.txt` | In-app frame pacing over the intro, 4 runs | iOS 27: 309-310 frames, p50 16.7 ms, 2-3 frames of 33 ms. iOS 26: one run with 1 frame of 33 ms; one run (dark) with 14 long frames, max 233 ms |
+
+The host's load average was 450-770 during these runs (other sessions' builds and
+simulators). The simulator recorder retimed and dropped frames under that load: its videos
+showed the intro skipping ahead while the app's own clock and simultaneous screenshots showed
+it running in real time. So the timeline sheet uses frozen-time screenshots, and jank is
+measured in the app instead of from the video. The 233 ms hitch on iOS 26 is consistent with
+host contention; the other three runs were clean at the simulator's 60 Hz.
+
+## Gaps
+
+- Not run on a ProMotion device; 120 Hz is enabled but unverified.
+- The Claude reference is dark mode only; cmux light mode follows the same structure.

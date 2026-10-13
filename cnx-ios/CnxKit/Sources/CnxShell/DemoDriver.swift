@@ -25,7 +25,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -41,6 +41,10 @@ struct DemoDriver {
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
         case "chief-parity": await chiefParity()
+        case "chief-open":
+            // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
+            shell.tab = .home
+            shell.homePath.append(ChiefRoute())
         case "ws-terminal": await workspaceTerminal()
         case "tour-a": await tourHomeAndWorkspaces()
         case "tour-b": await tourFeedChatDiff()
@@ -49,6 +53,8 @@ struct DemoDriver {
         case "live": await live()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
+        case "connect-mac-elsewhere": await connectMacElsewhere()
+        case "relay-only": await relayOnly()
         default: break
         }
     }
@@ -104,6 +110,26 @@ struct DemoDriver {
         // Close by tapping the card.
         shell.sidebar.close()
         await pause(1.2)
+    }
+
+    /// Live link with the default dial, then Settings → Developer → Relay
+    /// only switched on (as a tap would, through the same `UserDefaults` key
+    /// the toggle is bound to), then back to Workspaces, where the Mac's
+    /// status line shows the TURN or relay path.
+    private func relayOnly() async {
+        UserDefaults.standard.set(false, forKey: DeveloperOptions.relayOnlyKey)
+        shell.tab = .workspaces
+        await pause(14)
+        demoLog.info("demo: settings developer")
+        shell.tab = .settings
+        await pause(1.0)
+        shell.settingsScrollTarget = "bottom"
+        await pause(2.0)
+        demoLog.info("demo: relay only on")
+        UserDefaults.standard.set(true, forKey: DeveloperOptions.relayOnlyKey)
+        await pause(3.0)
+        shell.tab = .workspaces
+        demoLog.info("demo: workspaces")
     }
 
     private func rubber() async {
@@ -241,6 +267,20 @@ struct DemoDriver {
         step("mac appears")
         shell.store.teams[index].macs = macs
         await pause(2.5)
+    }
+
+    /// The active team has no Mac, another team has one: the empty state
+    /// names the team shown and offers the other; the switch runs the
+    /// button's own action.
+    private func connectMacElsewhere() async {
+        shell.tab = .workspaces
+        guard let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) else { return }
+        shell.store.teams[index].macs = []
+        await pause(3.5)
+        guard let offer = shell.store.teamWithMacsElsewhere() else { return }
+        step("switch to \(offer.team.name)")
+        shell.switchTeam(to: offer.team.id)
+        await pause(3.0)
     }
 
     /// The toolbar's New Workspace bar button view: the visible navigation
@@ -407,9 +447,8 @@ struct DemoDriver {
         await pause(2.6)
         hook.lab("send thanks! what's the status?")
         await pause(6.5)
-        hook.lab("doubletap last")
-        await pause(1.8)
-        hook.lab("react thumbsup")
+        // The tapback bar has no lab verb upstream; react through the store.
+        hook.react("thumbsup")
         await pause(2.2)
         hook.lab("send yes, allow it")
         await pause(6.5)
@@ -465,18 +504,10 @@ struct DemoDriver {
         mark("compose chief send")
         hook.composeLab("send")
         await pause(7.0)
-        mark("timestamps")
-        hook.lab("timestamps 150 0.7 1.6")
-        await pause(4.0)
-        mark("timestamps quick")
-        hook.lab("timestamps 90 0.35 0.0")
-        await pause(2.5)
+        // The send-time drawer is swiped with real touches (verify/imsg-parity.sh).
         mark("photo")
         hook.attachPhoto(Self.samplePhoto())
         await pause(6.5)
-        mark("timestamps photo")
-        hook.lab("timestamps 150 0.7 1.2")
-        await pause(3.5)
         mark("photos drawer")
         hook.photoLab("drawer")
         await pause(3.0)

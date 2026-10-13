@@ -267,9 +267,22 @@ impl ChannelHandle {
     }
 }
 
+/// Dial options beyond the transport. Every field has a default, so
+/// `ConnectOptions()` in Swift is the plain dial.
+#[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
+pub struct ConnectOptions {
+    /// Debug "simulate distant network": skip every direct path. WebRTC
+    /// uses ICE transport policy `relay` with the service's TURN servers
+    /// (path `Turn`; no TURN server fails the dial), WireGuard uses only the
+    /// backend relay frames (path `Relay`).
+    #[uniffi(default = false)]
+    pub relay_only: bool,
+}
+
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
 /// `base_url` is the backend (`https://cnx-ios-api-…workers.dev`), `token`
 /// a Stack access token, `team_id` the team whose signaling hub to use.
+/// Same as `connect_with_options` with default options.
 #[uniffi::export]
 pub async fn connect(
     base_url: String,
@@ -280,6 +293,32 @@ pub async fn connect(
     transport: Transport,
     observer: Option<Arc<dyn LinkObserver>>,
 ) -> Result<Arc<LinkHandle>, CnxError> {
+    connect_with_options(
+        base_url,
+        token,
+        team_id,
+        device_id,
+        mac_device_id,
+        transport,
+        ConnectOptions::default(),
+        observer,
+    )
+    .await
+}
+
+/// `connect` with `options` (relay only).
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub async fn connect_with_options(
+    base_url: String,
+    token: String,
+    team_id: String,
+    device_id: String,
+    mac_device_id: String,
+    transport: Transport,
+    options: ConnectOptions,
+    observer: Option<Arc<dyn LinkObserver>>,
+) -> Result<Arc<LinkHandle>, CnxError> {
     let request = ConnectRequest {
         base_url,
         token,
@@ -288,6 +327,7 @@ pub async fn connect(
         mac_device_id,
         transport,
         include_loopback: false,
+        relay_only: options.relay_only,
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -307,6 +347,7 @@ pub struct ConnectRequest {
     pub mac_device_id: String,
     pub transport: Transport,
     pub include_loopback: bool,
+    pub relay_only: bool,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -394,8 +435,12 @@ async fn dial(request: &ConnectRequest) -> Result<(cnx_link::Connected, Signalin
         SignalingClient::connect(&request.base_url, &request.token, &request.team_id, &request.device_id)
             .await
             .map_err(|e| CnxError::Signaling { message: e.to_string() })?;
-    let options =
-        DialOptions { ice_servers, include_loopback: request.include_loopback, ..DialOptions::default() };
+    let options = DialOptions {
+        ice_servers,
+        include_loopback: request.include_loopback,
+        relay_only: request.relay_only,
+        ..DialOptions::default()
+    };
     match cnx_link::dial::connect(
         &signaling,
         &request.mac_device_id,

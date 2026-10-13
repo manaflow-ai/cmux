@@ -5,6 +5,47 @@ import Testing
 /// Header frames read from MobileSMS (iOS 26.5 and 27.0 simulators) and a
 /// dark-mode iPhone 17 Pro Max screenshot of real Messages (440 pt @3x).
 @Suite struct ConversationHeaderGeometryTests {
+    /// A group's three avatars on the header's 60 pt disc, from a real
+    /// iPhone 17 Pro Max (iOS 26.4, dark, "3 People"): first 28.33 pt at
+    /// (7.33, 7.33), second 21.67 at (34, 24.33), third 17.33 at
+    /// (17.17, 37.33). They never overlap (about 2 pt apart) and carry no
+    /// ring; ours overlapped 32/24/18 discs with 1.5 pt rings.
+    @Test func groupClusterMatchesMessages() {
+        let slots = ConversationHeaderGeometry.groupClusterSlots
+        let real: [CGRect] = [
+            CGRect(x: 7.33, y: 7.33, width: 28.33, height: 28.33),
+            CGRect(x: 34, y: 24.33, width: 21.67, height: 21.67),
+            CGRect(x: 17.17, y: 37.33, width: 17.33, height: 17.33),
+        ]
+        #expect(slots.count == 3)
+        for (slot, ref) in zip(slots, real) {
+            #expect(abs(slot.minX - ref.minX) <= 0.34 && abs(slot.minY - ref.minY) <= 0.34)
+            #expect(abs(slot.width - ref.width) <= 0.34 && slot.width == slot.height)
+        }
+        for i in 0..<slots.count {
+            for j in (i + 1)..<slots.count {
+                let a = slots[i], b = slots[j]
+                let gap = hypot(a.midX - b.midX, a.midY - b.midY) - (a.width + b.width) / 2
+                #expect(gap > 1.5 && gap < 2.5)
+            }
+            #expect(slots[i].minX >= 0 && slots[i].maxX <= 60 && slots[i].maxY <= 60)
+        }
+        #expect(ConversationHeaderGeometry.groupClusterRingWidth == 0)
+    }
+
+    /// The details page draws the same cluster on its 80 pt disc. Real
+    /// iPhone 17 Pro Max (iOS 26.4): discs 37.67, 28.33 and 23.33 pt, the
+    /// first 10 pt in from the disc's top-left, the second 45.33 pt in; no
+    /// rings (ours: 42.67/32/24 pt discs with 2 pt rings).
+    @Test func detailsClusterScalesTheHeaderCluster() {
+        let square = CGRect(x: 100, y: 50, width: 80, height: 80)
+        let slots = ConversationHeaderGeometry.groupClusterSlots(in: square)
+        #expect(slots.count == 3)
+        #expect(abs(slots[0].minX - 110) < 0.5 && abs(slots[0].minY - 60) < 0.5 && abs(slots[0].width - 37.67) < 0.5)
+        #expect(abs(slots[1].minX - 145.33) < 0.5 && abs(slots[1].width - 28.33) < 0.7)
+        #expect(abs(slots[2].width - 23.33) < 0.5)
+    }
+
     @Test func buttonsSitOnTheSystemLayoutMargin() {
         // iPhone 17 Pro (402 pt): BackButton at x 16; Pro Max (440 pt): x 20.
         #expect(ConversationHeaderGeometry.sideMargin(layoutMargin: 16) == 16)

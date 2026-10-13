@@ -425,8 +425,6 @@ final class ConversationDetailsHeaderView: UIView {
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
             view.configure(initials: participant.initials, colorHex: nil)
-            view.layer.borderWidth = info.kind == .group ? 2 : 0
-            view.layer.borderColor = UIColor.black.withAlphaComponent(0.25).cgColor
             addSubview(view)
             return view
         }
@@ -443,13 +441,9 @@ final class ConversationDetailsHeaderView: UIView {
             avatars.first?.frame = square
         } else {
             // The header's 60 pt cluster, scaled to the square.
-            let k = square.width / 60
             clusterDisc.frame = square
             clusterDisc.layer.cornerRadius = square.width / 2
-            let origin = square.origin
-            avatars[0].frame = CGRect(x: origin.x + 5 * k, y: origin.y + 6 * k, width: 32 * k, height: 32 * k)
-            if avatars.count > 1 { avatars[1].frame = CGRect(x: origin.x + 32 * k, y: origin.y + 18 * k, width: 24 * k, height: 24 * k) }
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: origin.x + 16 * k, y: origin.y + 36 * k, width: 18 * k, height: 18 * k) }
+            for (avatar, slot) in zip(avatars, ConversationHeaderGeometry.groupClusterSlots(in: square)) { avatar.frame = slot }
         }
         titleLabel.transform = .identity
         titleLabel.bounds = CGRect(x: 0, y: 0, width: Self.titleWidth(in: bounds.width), height: titleHeight(width: bounds.width))

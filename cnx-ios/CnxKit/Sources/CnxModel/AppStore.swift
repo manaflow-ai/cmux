@@ -21,6 +21,10 @@ public final class AppStore {
     /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// How many Macs the signed-in account has in any team or its personal
+    /// space (`GET /v1/me/macs`); nil until discovery first answers, and in
+    /// mock mode. Zero means the Mac, if any, is signed in to another account.
+    public var accountMacCount: Int?
     /// Optimistic workspaces still being created on their Mac. A tree
     /// refresh keeps them until the creation settles.
     public private(set) var pendingWorkspaceIDs: Set<String> = []

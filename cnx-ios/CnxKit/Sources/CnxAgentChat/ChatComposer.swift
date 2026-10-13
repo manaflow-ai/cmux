@@ -22,7 +22,11 @@ struct ChatComposer: View {
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
-    private var collapsed: Bool { collapsible && !focus.wrappedValue && !hasContent }
+    /// A tap on the collapsed capsule: expand first, then focus the field once
+    /// it exists. Setting focus while the field is not yet in the hierarchy is
+    /// dropped by SwiftUI (the capsule then never opened from a tap).
+    @State private var expanding = false
+    private var collapsed: Bool { collapsible && !focus.wrappedValue && !hasContent && !expanding }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -54,9 +58,13 @@ struct ChatComposer: View {
             .ignoresSafeArea()
         }
         .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: focus.wrappedValue) { _, focused in
+            if focused { expanding = false }
+        }
     }
 
     private var card: some View {
@@ -73,6 +81,9 @@ struct ChatComposer: View {
                     .padding(.top, 14)
                     .padding(.bottom, 6)
                     .accessibilityLabel(placeholder)
+                    .task(id: expanding) {
+                        if expanding { focus.wrappedValue = true }
+                    }
             }
             HStack(spacing: 8) {
                 plusMenu
@@ -81,7 +92,9 @@ struct ChatComposer: View {
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
-                        .onTapGesture { focus.wrappedValue = true }
+                        .onTapGesture { expanding = true }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction { expanding = true }
                 } else {
                     if store.currentModelName != nil { modelPill }
                     Spacer(minLength: 0)
@@ -319,9 +332,13 @@ struct ChatComposer: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                attachments.append(AgentAttachment(kind: .image, name: "Photo", data: data))
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
+            // HEIC and other formats agents do not accept go over as JPEG.
+            if attachment.imageMIMEType == nil, let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
+                attachment.data = jpeg
             }
+            attachments.append(attachment)
         }
         photoItems = []
     }
@@ -330,7 +347,8 @@ struct ChatComposer: View {
 /// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge.
 struct AttachmentThumb: View {
     let attachment: AgentAttachment
-    let remove: () -> Void
+    /// nil: a sent attachment (no remove badge).
+    var remove: (() -> Void)?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -352,16 +370,18 @@ struct AttachmentThumb: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.cnxOnAccent)
-                    .frame(width: 20, height: 20)
-                    .background(Color.cnxAccent, in: .circle)
+            if let remove {
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.cnxOnAccent)
+                        .frame(width: 20, height: 20)
+                        .background(Color.cnxAccent, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+                .accessibilityLabel("Remove attachment")
             }
-            .buttonStyle(.plain)
-            .offset(x: 6, y: -6)
-            .accessibilityLabel("Remove attachment")
         }
         .padding(.top, 6)
         .padding(.trailing, 6)

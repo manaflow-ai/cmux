@@ -57,6 +57,17 @@ import Testing
         #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 4, macID: "m1", transport: .webRTC)])
     }
 
+    @Test func relayOnlyChangeRedials() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.relayOnly(false)) == [])
+        #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.relayOnly)
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC TURN")
+    }
+
     @Test func dropReconnectsAndForegroundProbes() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
@@ -81,7 +92,9 @@ import Testing
 
 struct MockDialer: MacLinkDialer {
     let fail: Bool
+    var dialed: (@Sendable (LinkEndpoint) -> Void)?
     func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink {
+        dialed?(endpoint)
         if fail { throw LinkError(code: "timeout", message: "") }
         return MockMacLink(transport: transport)
     }
@@ -98,6 +111,18 @@ struct MockDialer: MacLinkDialer {
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         #expect(controller.phase.isConnected)
         #expect(handed != nil)
+    }
+
+    @Test func relayOnlyReachesTheDialer() async throws {
+        let seen = Seen()
+        let dialer = MockDialer(fail: false, dialed: { endpoint in seen.append(endpoint.relayOnly) })
+        let controller = LinkController(transport: .webRTC, relayOnly: true, dialer: dialer, accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        controller.send(.relayOnly(false))
+        for _ in 0..<200 where !(controller.phase.isConnected && seen.values.count == 2) { await Task.yield() }
+        #expect(seen.values == [true, false])
     }
 
     @Test func dialFailureWaitsWithReadableReason() async throws {
@@ -397,7 +422,7 @@ final class Counter: @unchecked Sendable {
 /// an allow is refused as for a remote connection.
 @MainActor
 @Suite struct AcpmuxSourceTests {
-    static func fakeAcpmux() -> MockMacLink {
+    static func fakeAcpmux(_ log: CommandLog? = nil) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -413,7 +438,8 @@ final class Counter: @unchecked Sendable {
                 ]
             case "_acpmux/permission_respond":
                 let params = object["params"] as? [String: Any]
-                if params?["optionId"] as? String == "allow" {
+                log?.append("respond:\(params?["optionId"] as? String ?? "-")", nil)
+                if ["allow", "allow_once"].contains(params?["optionId"] as? String) {
                     return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"person required","data":{"reason":"permission.person_required"}}}"#.utf8)]
                 }
                 return [reply("{}"), Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s1","seq":5,"at":5,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm","outcome":{"outcome":"selected","optionId":"deny"}}}}"#.utf8)]
@@ -475,6 +501,36 @@ final class Counter: @unchecked Sendable {
     }
 }
 
+@MainActor
+@Suite struct FeedQuestionDeclineTests {
+    /// A phone's answer to a question is refused (only the Mac may answer);
+    /// Decline sends the question's reject option and resolves the card.
+    @Test func refusedAnswerThenDeclineReachesTheMac() async throws {
+        let log = CommandLog()
+        let link = AcpmuxSourceTests.fakeAcpmux(log)
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let feedStore = FeedStore(items: [])
+        let feed = LiveFeed(store: feedStore, hub: hub, place: { _ in LiveFeed.Place(workspaceID: "ws", tabID: "s7", workspaceTitle: "cmux") })
+        feedStore.actions = feed
+        let request = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"toolCall":{"toolCallId":"q1","title":"Question","kind":"other","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A"},{"label":"B"}],"multiSelect":false}]}},"options":[{"optionId":"allow_once","name":"Answer","kind":"allow_once"},{"optionId":"reject_once","name":"Reject","kind":"reject_once"}]}"#.utf8))
+        feed.handle(.permissionPending(sessionID: "s1", permissionID: "pq", request: request), sessions: hub.sessions)
+        let item = try #require(feedStore.items.first)
+        guard case .question(let question) = item.kind else { Issue.record("not a question"); return }
+        let first = try #require(question.items.first?.options.first)
+        feedStore.answer(item.id, answer: AgentQuestionAnswer(selections: [question.items[0].id: .init(optionIDs: [first.id])]))
+        for _ in 0..<500 where feedStore.items.first?.error == nil { await Task.yield() }
+        #expect(feedStore.items.first?.needsYou == true)
+
+        feedStore.decline(item.id)
+        #expect(feedStore.items.first?.resolution == "Declined")
+        #expect(feedStore.items.first?.needsYou == false)
+        for _ in 0..<500 where !log.contains("respond:reject_once") { await Task.yield() }
+        #expect(log.contains("respond:reject_once"))
+        #expect(feedStore.items.first?.error == nil)
+    }
+}
+
 /// A source that replays fixed events (store reducer tests).
 @MainActor
 final class ScriptedSource: AgentSessionSource {
@@ -507,6 +563,27 @@ final class ScriptedSource: AgentSessionSource {
     }
 }
 
+// MARK: Prompt content blocks
+
+@Suite struct PromptBlockTests {
+    @Test @MainActor func imagesBecomeACPImageBlocks() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+        let image = AgentAttachment(kind: .image, name: "Photo", data: png)
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "look", attachments: [image, AgentAttachment(kind: .file, name: "a.txt")])
+        #expect(blocks == [
+            .object(["type": .string("text"), "text": .string("look")]),
+            .object(["type": .string("image"), "mimeType": .string("image/png"), "data": .string(png.base64EncodedString())]),
+        ])
+    }
+
+    @Test @MainActor func imageOnlyPromptHasNoEmptyTextBlock() {
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0])
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: [AgentAttachment(kind: .image, name: "Photo", data: jpeg)])
+        #expect(blocks.count == 1)
+        #expect(blocks.first?["mimeType"]?.stringValue == "image/jpeg")
+    }
+}
+
 // MARK: Subagents and handoff over acpmux
 
 @Suite struct AcpmuxParityTests {
@@ -532,5 +609,54 @@ final class ScriptedSource: AgentSessionSource {
         let record = json(#"{"handoffId":"h1","revision":2,"state":"draft","target":{"coverage":[{"item":"transcript","status":"summarized","detail":null}]},"capsule":{"text":"ctx","maxBytes":65536,"checkpoint":null},"promptId":null}"#)
         let draft = AcpmuxSessionSource.handoffDraft(record, target: targets[0])
         #expect(draft?.id == "h1" && draft?.revision == 2 && draft?.capsule == "ctx" && draft?.coverage.first?.status == .summarized)
+    }
+}
+
+final class Seen: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Bool] = []
+    func append(_ value: Bool) { lock.withLock { stored.append(value) } }
+    var values: [Bool] { lock.withLock { stored } }
+}
+
+@Suite struct MacTargetTests {
+    let e2e = MacDevice(id: "e2e", name: "cnx e2e mini", isOnline: false)
+    let stale = MacDevice(id: "stale", name: "cmux mini", isOnline: false)
+
+    /// The linked Mac went offline and no other is online: keep it (the
+    /// banner names it), not the first Mac of the list.
+    @Test func keepsTheLinkedMacWhenItGoesOffline() {
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: nil, current: "e2e")?.id == "e2e")
+    }
+
+    @Test func prefersOnlineThenRememberedThenLinked() {
+        var online = stale
+        online.isOnline = true
+        #expect(LinkMachine.target(in: [online, e2e], remembered: nil, current: "e2e")?.id == "stale")
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: "stale", current: "e2e")?.id == "stale")
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: nil, current: nil)?.id == "stale")
+        #expect(LinkMachine.target(in: [], remembered: nil, current: nil) == nil)
+    }
+}
+
+@Suite struct ProbeRaceTests {
+    /// A ping that ignores cancellation (the FFI ping on a link the Mac
+    /// already dropped) must not hold the probe past its timeout.
+    @Test func timeoutWinsOverAnUncancellablePing() async {
+        let start = ContinuousClock.now
+        let result = await LinkController.race(timeout: .milliseconds(50), clock: ContinuousClock()) {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { continuation.resume() }
+            }
+            return 7
+        }
+        #expect(ContinuousClock.now - start < .seconds(1))
+        guard case .failure(let error) = result else { Issue.record("expected a timeout"); return }
+        #expect((error as? LinkError)?.code == "timeout")
+    }
+
+    @Test func pingWinsWhenItAnswers() async {
+        let result = await LinkController.race(timeout: .seconds(5), clock: ContinuousClock()) { 3 }
+        #expect((try? result.get()) == 3)
     }
 }

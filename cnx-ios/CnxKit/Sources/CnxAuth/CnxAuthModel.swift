@@ -5,7 +5,10 @@ import CmuxAuthRuntime
 import CnxModel
 import Foundation
 import Observation
+import OSLog
 import StackAuth
+
+private let authModelLog = Logger(subsystem: "dev.cmux.cnx", category: "auth")
 
 /// The app's auth surface over the shared `AuthCoordinator` (Stack Auth:
 /// Apple, Google, GitHub, email code). Views read observable state and call
@@ -52,8 +55,10 @@ public final class CnxAuthModel {
         self.mockSignedIn = isMock
     }
 
-    /// Builds the live model for this process. Reads launch overrides from the
-    /// environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
+    /// Builds the live model for this process. Non-DEBUG builds (Release,
+    /// Production) use the production Stack project and its
+    /// `https://cmux.com/auth/callback`, and never read launch overrides.
+    /// Reads launch overrides from the environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
     /// `CNX_MOCK_AUTH=1` (or Settings → Developer → Mock data) signs in a
     /// local mock user, and
     /// `CNX_STACK_EMAIL` / `CNX_STACK_PASSWORD` auto-login a Stack test account.
@@ -102,12 +107,19 @@ public final class CnxAuthModel {
             )
         )
         coordinator.start()
-        return CnxAuthModel(
-            coordinator: coordinator,
-            stack: stack,
-            apiBase: environment["CNX_API_BASE"].flatMap(URL.init(string:)) ?? (isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil),
-            isMock: false
-        )
+        let apiBase = Self.apiBase(environment: isDebug ? environment : [:], infoValue: Bundle.main.object(forInfoDictionaryKey: "CNXAPIBase") as? String, isDebug: isDebug)
+        // Which backend this build talks to (public ids only, no tokens).
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
+        return CnxAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)
+    }
+
+    /// The `cnx-ios-api` base URL: the `CNX_API_BASE` launch override (DEBUG
+    /// only), else the build's `CNXAPIBase` Info.plist value (set by the
+    /// Production configuration), else the dev Worker in DEBUG builds.
+    static func apiBase(environment: [String: String], infoValue: String?, isDebug: Bool) -> URL? {
+        if let override = environment["CNX_API_BASE"], let url = URL(string: override) { return url }
+        if let infoValue, !infoValue.isEmpty, let url = URL(string: infoValue) { return url }
+        return isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil
     }
 
     /// Whether launch auth has resolved (a cached session counts immediately).
@@ -127,9 +139,71 @@ public final class CnxAuthModel {
         return User(id: user.id, name: name, email: user.primaryEmail)
     }
 
-    /// Stack teams for the signed-in account (empty in mock mode).
+    /// Stack teams for the signed-in account (empty in mock mode, whose
+    /// teams come from the sample store).
     public var teams: [AppStore.AccountTeam] {
-        coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? []
+        isMock ? [] : teamList.teams
+    }
+
+    /// The account's team list as it loads: setup shows a loading state, not
+    /// Create Team, until it is `.loaded` (SPEC 7.1).
+    public var teamList: TeamListState {
+        var state = fetchedTeams
+        state.published(coordinator?.availableTeams.map { AppStore.AccountTeam(id: $0.id, name: $0.displayName) } ?? [])
+        return state
+    }
+
+    /// This model's own team fetch: the coordinator's list starts empty and
+    /// tolerates a failed fetch silently, so it cannot tell "no teams" from
+    /// "not loaded".
+    private var fetchedTeams = TeamListState()
+    @ObservationIgnored private var teamsUserID: String?
+
+    /// Loads the signed-in account's teams (once per account; again after a
+    /// failure). DEBUG mock mode takes `CNX_MOCK_TEAMS_DELAY` seconds, to
+    /// record the loading state.
+    public func loadTeams() async {
+        guard let user else {
+            teamsUserID = nil
+            fetchedTeams.reset()
+            return
+        }
+        if teamsUserID != user.id {
+            teamsUserID = user.id
+            fetchedTeams.reset()
+        } else if fetchedTeams.isLoaded {
+            return
+        }
+        fetchedTeams.retry()
+        if isMock {
+            #if DEBUG
+            if let delay = ProcessInfo.processInfo.environment["CNX_MOCK_TEAMS_DELAY"].flatMap(Double.init), delay > 0 {
+                // Recording pace, not synchronization: a slow team list.
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            #endif
+            fetchedTeams.fetched(AppStore.mock().teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) })
+            return
+        }
+        guard let stack else { return }
+        do {
+            guard let account = try await stack.getUser(or: .returnNull) else { return }
+            var list: [AppStore.AccountTeam] = []
+            for team in try await account.listTeams() {
+                list.append(AppStore.AccountTeam(id: team.id, name: await team.displayName))
+            }
+            guard teamsUserID == user.id else { return }
+            fetchedTeams.fetched(list)
+        } catch {
+            guard teamsUserID == user.id else { return }
+            authModelLog.error("team list failed: \(String(describing: type(of: error)), privacy: .public)")
+            fetchedTeams.failed("Couldn't load your teams.")
+        }
+    }
+
+    /// Retry after the team list failed to load.
+    public func retryTeams() async {
+        await loadTeams()
     }
 
     public var selectedTeamID: String? { coordinator?.resolvedTeamID }
@@ -236,8 +310,11 @@ public final class CnxAuthModel {
         return forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await coordinator.accessToken()
     }
 
-    /// Local-first sign-out.
+    /// Local-first sign-out: the Stack session and its Keychain tokens (the
+    /// coordinator) and this model's team list.
     public func signOut() async {
+        teamsUserID = nil
+        fetchedTeams.reset()
         if isMock {
             mockSignedIn = false
             return

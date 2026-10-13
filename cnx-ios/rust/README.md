@@ -26,6 +26,11 @@ The tests need no network: they start a fake signaling server on loopback.
 - `cnx-link/tests/loopback.rs`: the same `Link` over WebRTC, WireGuard direct
   and WireGuard through the relay frames (endpoints stripped), 200 KB echo,
   `unknown_service` refusal, ping; dialing another user's Mac is refused.
+  WireGuard through an in-process TURN server: relay only settles on `turn`,
+  and a Mac whose OS refuses UDP to the phone's LAN address settles on the
+  phone's relayed address without the path flapping.
+- `cnx-link` `link::tests`: a ping overtakes 4 MiB of queued data on a slow
+  stream, and the keepalive counts any inbound frame as life.
 - `cnx-hostd/tests/host.rs`: hostd over all three paths with every service
   (`echo`, `daemon` against a fake cmux-tui socket with allowed and denied
   lines, `file` inside and outside the roots, `acpmux` against a fake
@@ -73,7 +78,12 @@ restores `Cargo.lock` afterwards. Host builds use stock nix.
 func connect(baseUrl: String, token: String, teamId: String, deviceId: String,
              macDeviceId: String, transport: Transport,
              observer: LinkObserver?) async throws -> LinkHandle   // throws CnxError
+func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId: String,
+             macDeviceId: String, transport: Transport, options: ConnectOptions,
+             observer: LinkObserver?) async throws -> LinkHandle
 func cnxVersion() -> String
+
+struct ConnectOptions { var relayOnly: Bool = false }   // ConnectOptions() is a plain dial
 
 enum Transport { case webRtc, wireGuard }
 enum LinkPath { case direct, relay, turn }
@@ -110,7 +120,15 @@ enum CnxError: Error {   // uniffi keeps the Rust variant case for errors
 `deviceId` is the phone's Keychain UUID; `macDeviceId` comes from
 `GET /v1/teams/:teamId/macs`. `connect` fetches `GET /v1/ice` (8 s budget; on
 failure it dials with host candidates only), opens the signaling socket and
-dials. The observer is called on a library thread. Device ids must be UUIDs
+dials. The observer is called on a library thread.
+
+`relayOnly` is the app's debug "simulate distant network" mode (Settings →
+Developer). It skips every direct path. WebRTC uses ICE transport policy
+`relay` with the `/v1/ice` TURN servers, so the path is `turn`; with no TURN
+server the dial fails at once (`Transport`). WireGuard never sends plain UDP:
+with a TURN server it offers only its relayed address and the path is
+`turn`; without one it sends no endpoints, ignores the Mac's, and the path
+stays `relay` (the backend relay frames). The Mac side needs no change. Device ids must be UUIDs
 (WireGuard relay frames carry them as 16 bytes).
 
 ## cnx-hostd
@@ -202,22 +220,35 @@ Services (default deny, `unknown_service` otherwise):
   servers from `GET /v1/ice`. The path is `turn` when the selected pair uses a
   relay candidate, otherwise `direct`.
 - WireGuard: a fresh Curve25519 key pair and UDP socket per session. Each side
-  sends its host and STUN-reflexive endpoints in `wg-init` / `wg-resp`. Until
-  a UDP datagram from the peer authenticates, every WireGuard datagram goes
-  through the backend relay frames and is also sent to each peer endpoint
-  (the hole punch). Receiving the peer's UDP proves only one direction, so a
-  side goes UDP-only (path `direct`) only after the peer confirms, with the
-  `0xff` relay marker, that our UDP reaches it. A refused UDP send, or a
-  direct path silent for 25 s while relay datagrams arrive, falls back to
-  `relay`. The link is a smoltcp TCP stream to `overlayIP:7420`
-  (MTU 1280, keepalive 10 s).
+  sends its host and STUN-reflexive endpoints in `wg-init` / `wg-resp`; the
+  dialer also allocates a TURN relay (the first `turn:` UDP URL of
+  `/v1/ice`, 3 s budget, alongside STUN) and adds the relayed address. Until
+  the peer confirms a route, every WireGuard datagram goes through the
+  backend relay frames and is also sent to each peer endpoint (plain UDP, and
+  through TURN to the peer's public endpoints): the hole punch. Receiving the
+  peer's datagrams proves only one direction, so a side leaves the relay
+  (path `direct`, or `turn` when the route is the TURN allocation) only after
+  the peer confirms with the `0xff` relay marker. Plain UDP is preferred over
+  TURN while it keeps arriving. An address the OS refuses UDP to is never the
+  route again (no flapping between a refused LAN address and TURN). A
+  changed route needs a new confirmation. A refused send, or a route silent
+  for 14 s, falls back to `relay` (the peer's marker re-confirms the route
+  if it still works). The link is a smoltcp TCP stream to `overlayIP:7420`
+  (MTU 1280, 256 KiB socket buffers, Nagle off, CUBIC, WireGuard keepalive
+  10 s).
+- Link keepalive: a ping every 15 s; pings and pongs go ahead of queued
+  channel data, and the link closes only after 20 s with no inbound frame
+  at all.
 
 ## Test binaries (cnx-hostd)
 
 - `cnx-dial`: dials a Mac and prints one JSON line per transport: connect
-  time, path, ping RTT, echo throughput, `daemon` identify.
-  `--transport webrtc|wireguard` (repeatable), `--force-relay` (TURN-only
-  ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
+  time, path, ping RTT (min, median, p95, max), echo throughput, the number of
+  TURN URLs `/v1/ice` offered, and `daemon` identify.
+  `--transport webrtc|wireguard` (repeatable), `--relay-only` (alias
+  `--force-relay`: TURN-only ICE, or WireGuard through TURN only),
+  `--no-turn` (drop the TURN servers, so WireGuard relay only measures the
+  backend relay frames), `--exclude-cgnat` (never offer or use
   100.64.0.0/10 Tailscale addresses), `--bytes N`, `--daemon`.
 - `cnx-stub-tui <dir> [session]`: a stand-in cmux-tui socket that answers
   every line `ok`, for Macs without cmux-tui.
@@ -232,5 +263,6 @@ Services (default deny, `unknown_service` otherwise):
 - One slow channel consumer stalls the whole link (per-channel queues of 1024
   frames, then the reader waits).
 - No ICE restart or WireGuard re-dial after a network change; the app redials.
-- A backend `error` message during a dial fails every dial in progress on that
-  socket (errors carry no session id).
+- A backend `error` message without a `sessionId` fails every dial in
+  progress on that socket; one naming a session fails only that session's
+  dial.

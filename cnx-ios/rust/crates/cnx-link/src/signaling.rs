@@ -103,6 +103,8 @@ pub enum SignalMessage {
         code: String,
         #[serde(default)]
         message: String,
+        #[serde(default, rename = "sessionId")]
+        session_id: Option<String>,
     },
 }
 
@@ -158,9 +160,18 @@ pub enum SessionEvent {
 /// sessions nobody subscribed to.
 #[derive(Debug, Clone)]
 pub enum SignalingEvent {
-    Hello { you: String, macs: Vec<MacPresence> },
+    Hello {
+        you: String,
+        macs: Vec<MacPresence>,
+    },
     Presence(MacPresence),
-    Error { code: String, message: String },
+    /// A backend refusal; `session_id` names the session it concerns, when
+    /// the backend says.
+    Error {
+        code: String,
+        message: String,
+        session_id: Option<String>,
+    },
     Disconnected(String),
 }
 
@@ -387,8 +398,8 @@ impl Shared {
             SignalMessage::Presence { mac } => {
                 let _ = self.events.send(SignalingEvent::Presence(mac));
             }
-            SignalMessage::Error { code, message } => {
-                let _ = self.events.send(SignalingEvent::Error { code, message });
+            SignalMessage::Error { code, message, session_id } => {
+                let _ = self.events.send(SignalingEvent::Error { code, message, session_id });
             }
             SignalMessage::Signal(envelope) => {
                 let mut sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);

@@ -53,6 +53,11 @@ public struct RootView: View {
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
     @State private var launchFinished = false
+    /// Live data from sign-in on (setup included); nil in mock mode.
+    @State private var live: LiveCoordinator?
+    /// Setup's steps, fixed once the team list has loaded so a Mac appearing
+    /// mid-setup does not swap the page under the user.
+    @State private var setupPlan: [SetupFlow.Step]?
     /// Set right after the launch handoff: later Welcome insertions (sign-out)
     /// crossfade instead of replaying the launch intro.
     @State private var handoffDone = false
@@ -86,12 +91,17 @@ public struct RootView: View {
                     case .welcome:
                         WelcomeView(auth: auth, playsLaunchIntro: !handoffDone, initialEmail: options.initialEmail)
                     case .setup:
-                        SetupFlow(steps: setupSteps, auth: auth, store: store) {
+                        SetupFlow(
+                            steps: setupSteps, auth: auth, store: store,
+                            signOut: { Task { await auth.signOut() } },
+                            teamPicked: { _ in live?.activeTeamChanged() },
+                            teamCreated: teamCreated
+                        ) {
                             setupComplete = true
                             theme.haptics.success()
                         }
                     case .shell:
-                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, options: options)
+                        ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options)
                     }
                 }
                 .transition(.opacity.animation(theme.motion.gentle.animation))
@@ -115,19 +125,19 @@ public struct RootView: View {
                 withAnimation(theme.motion.gentle.animation) { launchFinished = true }
             }
             #if DEBUG
-            if options.setupPairDemo, let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) {
-                // Recording pace, not synchronization: the Mac "comes online" 4 s in.
-                let macs = store.teams[index].macs
-                store.teams[index].macs = []
-                try? await Task.sleep(for: .seconds(4))
-                store.teams[index].macs = macs
-            }
+            if options.setupPairDemo { await runSetupPairDemo() }
             #endif
         }
+        // Signed in (or out): live data and the team list follow the account.
+        .task(id: auth.isResolved ? auth.user?.id : nil) {
+            accountChanged()
+            await auth.loadTeams()
+        }
         .onChange(of: launchFinished) { _, finished in handoffDone = finished }
-        .onChange(of: auth.teams) { _, _ in syncTeams() }
+        .onChange(of: auth.teamList) { _, _ in syncTeams() }
+        .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: auth.isSignedIn) { _, signedIn in
-            if signedIn { theme.haptics.success() }
+            if signedIn { theme.haptics.success() } else { signedOut() }
         }
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
@@ -136,24 +146,137 @@ public struct RootView: View {
 
     private var setupSteps: [SetupFlow.Step] {
         if options.setupPairDemo { return [.pairMac, .notifications] }
+        // Until the team list loads, the team step shows its loading state.
+        return setupPlan ?? [.team, .pairMac, .notifications]
+    }
+
+    /// Fixes setup's steps once the account's teams are known.
+    private func planSetup() {
+        guard auth.teamList.isLoaded, setupPlan == nil else { return }
         var steps: [SetupFlow.Step] = []
-        if store.teams.isEmpty || store.teams.count >= 2 { steps.append(.team) }
-        if store.activeTeam?.macs.isEmpty ?? true { steps.append(.pairMac) }
+        let count = auth.isMock ? store.teams.count : auth.teamList.teams.count
+        if count != 1 { steps.append(.team) }
+        if !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false) { steps.append(.pairMac) }
         steps.append(.notifications)
-        return steps
+        setupPlan = steps
     }
 
     private func syncTeams() {
         let teams = auth.teams
         log.info("Stack teams: \(teams.count, privacy: .public)")
+        if let live {
+            // Live: Macs come from the cnx-ios service, never the samples. An
+            // account with no team uses its personal space, once that is known.
+            guard auth.teamList.isLoaded else { return }
+            live.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+            return
+        }
         guard !teams.isEmpty else { return }
         if auth.isMock {
             store.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
         } else {
-            // Live: Macs come from the cnx-ios service, never the samples.
             store.applyLiveTeams(teams, selectedID: auth.selectedTeamID)
         }
     }
+
+    private func teamCreated(_ team: AppStore.AccountTeam) {
+        guard let live else {
+            store.applyAccountTeams([team], selectedID: team.id)
+            return
+        }
+        var teams = auth.teams
+        if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
+        live.applyAccountTeams(teams, selectedID: team.id)
+    }
+
+    /// Every sign-out path (setup's footer, Settings → Log out, a session the
+    /// service ended) lands here: live data stops, the account's teams, Macs,
+    /// workspaces and stored preferences go, the device ids are replaced (the
+    /// service binds them to their first user), and Welcome replays its intro.
+    private func signedOut() {
+        live?.stop()
+        live = nil
+        setupPlan = nil
+        store.resetForSignOut()
+        if !auth.isMock { DeviceIdentity.reset() }
+        setupComplete = false
+        handoffDone = false
+        log.info("signed out: account state reset")
+    }
+
+    /// Starts live data for a signed-in account (before setup, so setup sees
+    /// real Macs) and stops it on sign-out.
+    private func accountChanged() {
+        guard let user = auth.user, auth.isSignedIn else {
+            live?.stop()
+            live = nil
+            setupPlan = nil
+            return
+        }
+        if auth.isMock, store.teams.isEmpty {
+            // Mock mode signed in again after a sign-out: the sample data comes back.
+            let sample = AppStore.mock()
+            store.teams = sample.teams
+            store.activeTeamID = sample.activeTeamID
+            store.workspaces = sample.workspaces
+        }
+        guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
+        let api = LiveAPI(baseURL: base) { [auth] in try await auth.accessToken(forceRefresh: $0) }
+        let coordinator = LiveCoordinator(
+            store: store,
+            api: api,
+            identity: DeviceIdentity.load(),
+            userID: user.id,
+            deviceName: UIDevice.current.name,
+            transport: settings.transport.link,
+            relayOnly: DeveloperOptions.relayOnly,
+            dialer: FFIMacLinkDialer()
+        )
+        coordinator.onFollow = { [auth] teamID in
+            guard !teamID.hasPrefix("personal-") else { return }
+            Task { await auth.selectTeam(teamID) }
+        }
+        live = coordinator
+        log.info("live data on \(base.host() ?? "", privacy: .public)")
+        syncTeams()
+    }
+
+    #if DEBUG
+    /// `-cnx-setup-pair`: the active team's Macs vanish, then a Mac comes
+    /// online 4 s in (recording pace, not synchronization). With
+    /// `-cnx-setup-pair-elsewhere` it comes online in another team, and the
+    /// phone follows it there as live discovery does. With
+    /// `-cnx-setup-pair-other-account` no Mac uses the account at all.
+    private func runSetupPairDemo() async {
+        guard let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) else { return }
+        let macs = store.teams[index].macs
+        if ProcessInfo.processInfo.arguments.contains("-cnx-setup-pair-other-account") {
+            // No Mac uses this account anywhere: the setup step says so.
+            for i in store.teams.indices { store.teams[i].macs = [] }
+            store.accountMacCount = 0
+            return
+        }
+        let elsewhere = ProcessInfo.processInfo.arguments.contains("-cnx-setup-pair-elsewhere")
+        if elsewhere {
+            for i in store.teams.indices { store.teams[i].macs = [] }
+        } else {
+            store.teams[index].macs = []
+        }
+        try? await Task.sleep(for: .seconds(4))
+        guard elsewhere else {
+            store.teams[index].macs = macs
+            return
+        }
+        guard let other = store.teams.first(where: { $0.id != store.activeTeamID }) else { return }
+        let mac = macs.first(where: \.isOnline) ?? MacDevice(id: "mac-elsewhere", name: "Aziz's MacBook Pro", isOnline: true)
+        let found = [DiscoveredMac(id: mac.id, name: mac.name, isOnline: true, teamID: other.id)]
+        store.mergeDiscoveredMacs(found)
+        if let team = store.teamToFollow(found, previouslyOnline: nil) {
+            log.info("setup demo: following the Mac to \(team.name, privacy: .public)")
+            store.selectTeam(team.id)
+        }
+    }
+    #endif
 
     private func applyAppearance(_ mode: AppearanceMode) {
         let style: UIUserInterfaceStyle = switch mode {
@@ -174,10 +297,16 @@ struct ShellView: View {
     @State private var shell: ShellModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var inviteEmail = ""
+    /// Settings → Developer "Relay only"; read through `DeveloperOptions`,
+    /// which ignores it outside DEBUG builds.
+    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
     private let options: ShellLaunchOptions
+    /// RootView's coordinator; it can arrive after the shell is built.
+    private let live: LiveCoordinator?
 
-    init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
+    init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
+        shell.attach(live: live)
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings
@@ -185,6 +314,7 @@ struct ShellView: View {
         }
         _shell = State(initialValue: shell)
         self.options = options
+        self.live = live
     }
 
     var body: some View {
@@ -216,47 +346,29 @@ struct ShellView: View {
         } message: {
             Text("They'll get an email invitation to join.")
         }
-        .onChange(of: shell.auth.teams) { _, teams in
-            shell.live?.applyAccountTeams(teams, selectedID: shell.store.activeTeamID)
+        .onChange(of: shell.live?.followed) { _, followed in
+            guard let followed else { return }
+            shell.toast = CnxToast(symbol: "desktopcomputer", text: "\(followed.macName) is in \(followed.teamName). Switched to it.")
         }
         .onChange(of: shell.settings.transport) { _, transport in
             shell.live?.setTransport(transport.link)
         }
+        .onChange(of: relayOnlyPreference) { _, _ in
+            shell.live?.setRelayOnly(DeveloperOptions.relayOnly)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { shell.live?.foreground() }
         }
+        .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
+            shell.attach(live: live)
+        }
         .task {
-            startLive()
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
-    }
-}
-
-extension ShellView {
-    /// Signed in for real with a service URL: replace mocks with live data.
-    @MainActor
-    private func startLive() {
-        let auth = shell.auth
-        guard shell.live == nil, !auth.isMock, let base = auth.apiBaseURL, let user = auth.user else { return }
-        let api = LiveAPI(baseURL: base) { try await auth.accessToken(forceRefresh: $0) }
-        let live = LiveCoordinator(
-            store: shell.store,
-            api: api,
-            identity: DeviceIdentity.load(),
-            userID: user.id,
-            deviceName: UIDevice.current.name,
-            transport: shell.settings.transport.link,
-            dialer: FFIMacLinkDialer()
-        )
-        shell.live = live
-        shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
-        shell.creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
-        live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
-        log.info("live data on \(base.host() ?? "", privacy: .public)")
     }
 }
 
@@ -281,7 +393,7 @@ struct ShellTabs: View {
             }
             .badge(shell.store.activeWorkspaces.filter(\.needsAttention).count)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
-                CnxFeed.FeedScreen { SidebarToolbarItem(sidebar: shell.sidebar) }
+                CnxFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {

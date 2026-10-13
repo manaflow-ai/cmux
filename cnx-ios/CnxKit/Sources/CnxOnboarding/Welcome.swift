@@ -2,6 +2,11 @@
 import CnxAuth
 import CnxDesign
 import SwiftUI
+#if DEBUG
+import os
+
+private let welcomeLog = Logger(subsystem: "dev.cmux.cnx", category: "welcome")
+#endif
 
 private let theme = CnxTheme.standard
 
@@ -18,45 +23,90 @@ public struct LaunchMarkView: View {
     }
 }
 
-/// Signed-out welcome (SPEC 5.2): the cmux mark and one line, centered above
-/// the sign-in stack (ChatGPT / Claude composition), legal footer. On a cold
-/// launch the mark starts exactly where the launch screen left it and glides up
-/// into place while it takes the app icon's gradient.
+/// Signed-out welcome (SPEC 5.2), composed like Claude's: the cmux lockup at
+/// the top, an illustration and one serif line in the middle, the sign-in
+/// stack and legal footer at the bottom. On a cold launch it plays a ~5 s intro
+/// on one clock: the launch mark glides into the lockup while the text and
+/// buttons fade in (usable within 0.3 s), then the illustration draws itself.
+/// Afterwards it rests; a short sync pulse runs now and then.
 public struct WelcomeView: View {
     let auth: CnxAuthModel
     let initialEmail: String?
     @State private var showsEmail = false
-    /// The mark has left the launch position (drives every intro animation).
-    @State private var settled: Bool
-    /// The intro overlay has landed; the in-layout hero mark takes over.
-    @State private var introDone: Bool
-    @State private var screenMidY: CGFloat = 0
-    @State private var heroMarkMidY: CGFloat = 0
-    @State private var breathe = false
+    /// The intro has started (the lockup slot is measured).
+    @State private var started: Bool
+    /// The timeline runs only while something moves.
+    @State private var animating = true
+    @State private var pulseStart: Date?
+    @State private var lockupMark: CGRect = .zero
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// `playsLaunchIntro`: the welcome replaces the launch screen (cold launch);
-    /// false after sign-out, where the root crossfades it in.
+    /// false after sign-out, where the root crossfades it in, settled.
     /// `initialEmail` (DEBUG verification) opens the email sheet on the code step.
     public init(auth: CnxAuthModel, playsLaunchIntro: Bool = true, initialEmail: String? = nil) {
         self.auth = auth
         self.initialEmail = initialEmail
-        _settled = State(initialValue: !playsLaunchIntro)
-        _introDone = State(initialValue: !playsLaunchIntro)
+        // The intro's clock is per process: a Welcome rebuilt mid-intro picks
+        // it up where it is instead of replaying or skipping to the end.
+        let clock = WelcomeIntroClock.shared
+        if !playsLaunchIntro, clock.t == nil { clock.t = .infinity }
+        _started = State(initialValue: clock.t != nil)
+        _lockupMark = State(initialValue: clock.lockupMark)
     }
 
+    private static let lockupMarkSize: CGFloat = 22
+    private static let launchMarkSize: CGFloat = 72
+
     public var body: some View {
-        ZStack {
-            // Full-screen, like the launch screen whose mark the intro continues.
+        TimelineView(.animation(paused: !animating)) { context in
+            let t = WelcomeIntroClock.shared.time(at: context.date)
+            content(t: t, pulse: pulseTime(at: context.date))
+        }
+        .sheet(isPresented: $showsEmail) {
+            EmailSignInSheet(auth: auth, initialEmail: initialEmail)
+        }
+        .task(id: started) { await runClock() }
+        // Leaving Welcome (signed in) ends the intro; a later sign-out shows it settled.
+        .onDisappear { WelcomeIntroClock.shared.t = .infinity }
+        .cnxSensoryFeedback(.error, trigger: auth.errorMessage)
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            if DemoDirector.shared.command == .onboardingOpenEmail { showsEmail = true }
+        }
+        .task {
+            if OnboardingDemoScript.isRequested { OnboardingDemoScript.start() }
+        }
+        #endif
+    }
+
+    private func content(t rawT: Double, pulse: Double?) -> some View {
+        typealias E = IntroEase
+        // Reduce Motion: everything crossfades into its settled state.
+        let fade = reduceMotion ? E.seg(rawT, 0, 0.35) : 1
+        let t = reduceMotion ? .infinity : rawT
+        let text = E.seg(t, 0.08, 0.5)
+        return ZStack {
             theme.colors.bg.color.ignoresSafeArea()
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { y in
-                    screenMidY = y
-                    startIntroIfReady()
-                }
             VStack(spacing: 0) {
-                hero
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                buttons
+                lockup(t: t)
+                    .opacity(fade)
+                    .padding(.top, 6)
+                VStack(spacing: 26) {
+                    WelcomeArt(t: t, pulse: reduceMotion ? nil : pulse)
+                        .opacity(fade)
+                    Text("Your Macs, in your pocket.")
+                        .font(theme.type.welcomeTitle)
+                        .foregroundStyle(theme.colors.label)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, theme.metrics.sideMargin)
+                        .opacity(E.out(text) * fade)
+                        .blur(radius: 8 * (1 - E.out(text)))
+                        .offset(y: 8 * (1 - E.out(text)))
+                        .accessibilityAddTraits(.isHeader)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                buttons(t: t, fade: fade)
                     .padding(.horizontal, theme.metrics.sideMargin)
                 if let error = auth.errorMessage {
                     Text(error)
@@ -71,105 +121,126 @@ public struct WelcomeView: View {
                 legal
                     .padding(.top, 14)
                     .padding(.bottom, 8)
-                    .opacity(settled ? 1 : 0)
-                    .animation(theme.motion.gentle.animation.delay(0.45), value: settled)
+                    .opacity(E.seg(t, 0.35, 0.75) * fade)
             }
-            if !introDone { introMark }
+            launchMark(t: rawT)
         }
-        .sheet(isPresented: $showsEmail) {
-            EmailSignInSheet(auth: auth, initialEmail: initialEmail)
-        }
-        .onAppear {
-            if introDone { finishIntro() }
-        }
-        .cnxSensoryFeedback(.error, trigger: auth.errorMessage)
-        #if DEBUG
-        .onChange(of: DemoDirector.shared.serial) {
-            if DemoDirector.shared.command == .onboardingOpenEmail { showsEmail = true }
-        }
-        .task {
-            if OnboardingDemoScript.isRequested { OnboardingDemoScript.start() }
-        }
-        #endif
     }
 
-    // MARK: Hero
+    // MARK: Lockup
 
-    private static let markSize: CGFloat = 60
-    private static let launchMarkSize: CGFloat = 72
-
-    private var hero: some View {
-        VStack(spacing: 30) {
-            WelcomeMark(gradient: 1, glow: breathe ? 1 : 0.6)
-                .frame(width: Self.markSize, height: Self.markSize)
-                .opacity(introDone || (reduceMotion && settled) ? 1 : 0)
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { y in
-                    heroMarkMidY = y
-                    startIntroIfReady()
+    /// The chevron slot (drawn by `launchMark`) and the "cmux" wordmark.
+    private func lockup(t: Double) -> some View {
+        typealias E = IntroEase
+        let word = E.outQuint(E.seg(t, 0.3, 0.85))
+        return HStack(spacing: 7) {
+            Color.clear
+                .frame(width: Self.lockupMarkSize, height: Self.lockupMarkSize)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                    lockupMark = rect
+                    let clock = WelcomeIntroClock.shared
+                    clock.lockupMark = rect
+                    if clock.t == nil, rect.width > 0 { clock.t = -WelcomeIntroClock.debugHold }
+                    if !started, clock.t != nil { started = true }
                 }
-            Text("Your Macs, in your pocket.")
-                .font(theme.type.heroTitle)
+            Text(verbatim: "cmux")
+                .font(theme.type.welcomeWordmark)
                 .foregroundStyle(theme.colors.label)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, theme.metrics.sideMargin)
-                .opacity(settled ? 1 : 0)
-                .blur(radius: settled || reduceMotion ? 0 : 6)
-                .offset(y: settled || reduceMotion ? 0 : 10)
-                .animation(theme.motion.gentle.animation.delay(reduceMotion ? 0 : 0.22), value: settled)
+                .opacity(word)
+                .offset(x: -8 * (1 - word))
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "cmux"))
     }
 
-    /// The launch mark, at the launch screen's size and position on the first
-    /// frame, gliding to the hero slot.
-    private var introMark: some View {
-        let delta = heroMarkMidY - screenMidY
-        let moves = settled && !reduceMotion
-        return WelcomeMark(gradient: settled ? 1 : 0, glow: settled ? 0.6 : 0, opaqueBase: true)
-            .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
-            .scaleEffect(moves ? Self.markSize / Self.launchMarkSize : 1)
-            .offset(y: moves ? delta : 0)
-            .opacity(reduceMotion && settled ? 0 : 1)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+    /// The launch screen's mark (72 pt, centered, `label`) on the first frame,
+    /// gliding into the lockup slot while it takes the app icon's gradient.
+    /// It stays the lockup's chevron afterwards, so nothing is swapped.
+    private func launchMark(t: Double) -> some View {
+        typealias E = IntroEase
+        return GeometryReader { proxy in
+            let center = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            let target = CGPoint(x: lockupMark.midX, y: lockupMark.midY)
+            let glide = reduceMotion ? 1 : E.outQuint(E.seg(t, 0.04, 0.68))
+            let size = E.lerp(Self.launchMarkSize, Self.lockupMarkSize, glide)
+            let colour = reduceMotion ? E.seg(t, 0, 0.35) : E.seg(t, 0.12, 0.6)
+            ZStack {
+                if reduceMotion {
+                    WelcomeMark(gradient: 0, glow: 0)
+                        .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
+                        .position(center)
+                        .opacity(1 - colour)
+                }
+                WelcomeMark(gradient: colour, glow: 0.3 * colour, opaqueBase: !reduceMotion)
+                    .frame(width: size, height: size)
+                    .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
+                    .opacity(reduceMotion ? colour : 1)
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
-    private func startIntroIfReady() {
-        guard !settled, screenMidY > 0, heroMarkMidY > 0 else { return }
-        let animation = reduceMotion ? theme.motion.snap.animation : Animation.spring(duration: 0.7, bounce: 0).delay(0.12)
-        withAnimation(animation, completionCriteria: .logicallyComplete) {
-            settled = true
-        } completion: {
-            introDone = true
-            finishIntro()
+    /// Seconds into the current idle pulse, or nil between pulses.
+    private func pulseTime(at date: Date) -> Double? {
+        #if DEBUG
+        if let frozen = WelcomeIntroClock.debugPulseFreeze { return frozen }
+        #endif
+        guard let pulseStart else { return nil }
+        let u = date.timeIntervalSince(pulseStart)
+        return u < WelcomeArt.pulseDuration ? u : nil
+    }
+
+    /// Stops the timeline when the intro settles, then wakes it for a short
+    /// sync pulse every so often. These are intentional, bounded pauses on the
+    /// clock the intro already runs on, not synchronization.
+    private func runClock() async {
+        guard started else { return }
+        let clock = ContinuousClock()
+        let end = reduceMotion ? 0.4 : WelcomeArt.introDuration + 0.05
+        while let t = WelcomeIntroClock.shared.t, t < end {
+            try? await clock.sleep(for: .seconds(end - t))
+            guard !Task.isCancelled else { return }
+        }
+        animating = false
+        WelcomeIntroClock.shared.logFramePacing()
+        openRequestedEmail()
+        if reduceMotion { return }
+        var wait: Double = 4
+        while !Task.isCancelled {
+            try? await clock.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            pulseStart = .now
+            animating = true
+            try? await clock.sleep(for: .seconds(WelcomeArt.pulseDuration + 0.05))
+            animating = false
+            wait = 9
         }
     }
 
-    private func finishIntro() {
-        if !reduceMotion {
-            withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) { breathe = true }
-        }
-        // DEBUG verification opens the sheet the way a tap would.
+    /// DEBUG verification opens the sheet the way a tap would.
+    private func openRequestedEmail() {
         if initialEmail != nil, !showsEmail { showsEmail = true }
     }
 
     // MARK: Buttons
 
-    private var buttons: some View {
-        VStack(spacing: 10) {
-            ProviderButton(title: "Continue with Apple", index: 0, visible: settled, isBusy: auth.busyProvider == .apple, kind: .apple) {
+    private func buttons(t: Double, fade: Double) -> some View {
+        let reveal = { (index: Int) -> Double in
+            IntroEase.out(IntroEase.seg(t, 0.12 + Double(index) * 0.045, 0.52 + Double(index) * 0.045)) * fade
+        }
+        return VStack(spacing: 10) {
+            ProviderButton(title: "Continue with Apple", reveal: reveal(0), isBusy: auth.busyProvider == .apple, kind: .apple) {
                 Image(systemName: "apple.logo").font(.system(size: 19, weight: .medium))
             } action: { Task { await auth.signIn(with: .apple) } }
-            ProviderButton(title: "Continue with Google", index: 1, visible: settled, isBusy: auth.busyProvider == .google, kind: .provider) {
+            ProviderButton(title: "Continue with Google", reveal: reveal(1), isBusy: auth.busyProvider == .google, kind: .provider) {
                 Image("GoogleLogo", bundle: .module).resizable().frame(width: 18, height: 18)
             } action: { Task { await auth.signIn(with: .google) } }
-            ProviderButton(title: "Continue with GitHub", index: 2, visible: settled, isBusy: auth.busyProvider == .github, kind: .provider) {
+            ProviderButton(title: "Continue with GitHub", reveal: reveal(2), isBusy: auth.busyProvider == .github, kind: .provider) {
                 Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: 18, height: 18)
             } action: { Task { await auth.signIn(with: .github) } }
-            ProviderButton(title: "Continue with email", index: 3, visible: settled, isBusy: false, kind: .provider) {
+            ProviderButton(title: "Continue with email", reveal: reveal(3), isBusy: false, kind: .provider) {
                 Image(systemName: "envelope").font(.system(size: 17, weight: .medium))
             } action: { showsEmail = true }
         }
@@ -185,6 +256,75 @@ public struct WelcomeView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.sideMargin)
             .environment(\.openURL, OpenURLAction { _ in .systemAction })
+    }
+}
+
+/// When this process's welcome intro started (it plays once per cold launch),
+/// and where the lockup's chevron sits.
+/// It advances with rendered frames, each step capped at 1/30 s, so a stalled
+/// main thread (first launch, font loading) pauses the intro instead of
+/// skipping part of it.
+@MainActor
+private final class WelcomeIntroClock {
+    static let shared = WelcomeIntroClock()
+    /// Seconds of intro shown; nil until it starts, `.infinity` when settled.
+    var t: Double?
+    var lockupMark: CGRect = .zero
+    private var lastFrame: Date?
+
+    #if DEBUG
+    private var frameSteps: [Double] = []
+    /// `-cnx-intro-hold <s>` (verification): rest on the launch mark first, so
+    /// a screen recorder is past the launch burst when the intro starts.
+    static var debugHold: Double {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let i = arguments.firstIndex(of: "-cnx-intro-hold"), i + 1 < arguments.count else { return 0 }
+        return Double(arguments[i + 1]) ?? 0
+    }
+
+    /// Frame pacing of the intro, measured in the app (the simulator's recorder
+    /// retimes frames under load, so its timestamps cannot show jank).
+    func logFramePacing() {
+        guard !frameSteps.isEmpty else { return }
+        let sorted = frameSteps.sorted()
+        let p50 = sorted[sorted.count / 2], worst = sorted[sorted.count - 1]
+        let long = frameSteps.filter { $0 > p50 * 1.5 }.count
+        welcomeLog.info("intro pacing: frames=\(self.frameSteps.count, privacy: .public) p50=\(p50 * 1000, privacy: .public)ms max=\(worst * 1000, privacy: .public)ms long=\(long, privacy: .public)")
+        frameSteps = []
+    }
+    /// `-cnx-intro-freeze <s>` (verification): hold the intro at that time, for
+    /// exact timeline screenshots.
+    static let debugFreeze: Double? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let i = arguments.firstIndex(of: "-cnx-intro-freeze"), i + 1 < arguments.count else { return nil }
+        return Double(arguments[i + 1])
+    }()
+    /// `-cnx-pulse-freeze <s>` (verification): hold the idle pulse at that time.
+    static let debugPulseFreeze: Double? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let i = arguments.firstIndex(of: "-cnx-pulse-freeze"), i + 1 < arguments.count else { return nil }
+        return Double(arguments[i + 1])
+    }()
+    #else
+    static let debugHold: Double = 0
+    func logFramePacing() {}
+    #endif
+
+    func time(at date: Date) -> Double {
+        guard var t else { return 0 }
+        #if DEBUG
+        if let frozen = Self.debugFreeze { return frozen }
+        #endif
+        if let lastFrame {
+            let step = date.timeIntervalSince(lastFrame)
+            t += min(max(step, 0), 1.0 / 30)
+            #if DEBUG
+            if step > 0, t > 0, t < WelcomeArt.introDuration { frameSteps.append(step) }
+            #endif
+        }
+        lastFrame = date
+        self.t = t
+        return t
     }
 }
 
@@ -209,7 +349,7 @@ struct WelcomeMark: View {
             CmuxMark().fill(theme.colors.label).opacity(opaqueBase ? 1 : 1 - gradient)
             CmuxMark()
                 .fill(Self.iconGradient)
-                .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 10 + 8 * glow)
+                .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 4 + 8 * glow)
                 .opacity(gradient)
         }
         .accessibilityHidden(true)
@@ -222,14 +362,13 @@ private struct ProviderButton<Icon: View>: View {
     enum Kind { case apple, provider }
 
     let title: LocalizedStringKey
-    let index: Int
-    let visible: Bool
+    /// Intro progress, 0 (hidden, 14 pt low) to 1 (in place).
+    let reveal: Double
     let isBusy: Bool
     let kind: Kind
     @ViewBuilder let icon: () -> Icon
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -244,9 +383,8 @@ private struct ProviderButton<Icon: View>: View {
         }
         .buttonStyle(ProviderStyle(isApple: kind == .apple))
         .opacity(isEnabled || isBusy ? 1 : 0.5)
-        .opacity(visible ? 1 : 0)
-        .offset(y: visible || reduceMotion ? 0 : 12)
-        .animation(theme.motion.snappy.animation.delay(0.3 + Double(index) * theme.motion.staggerStep), value: visible)
+        .opacity(reveal)
+        .offset(y: 14 * (1 - reveal))
     }
 }
 

@@ -38,11 +38,6 @@ extension ConversationViewController {
         guard let verb = parts.first else { return "error empty" }
         let argument = parts.count > 1 ? parts[1] : ""
         switch verb {
-        case "timestamps":
-            // Swipe left for send times: points to drag, seconds, seconds held.
-            let numbers = argument.split(separator: " ").compactMap { Double($0) }
-            labTimestampDrag(points: CGFloat(numbers.first ?? 120), seconds: numbers.count > 1 ? numbers[1] : 0.5, hold: numbers.count > 2 ? numbers[2] : 1)
-            return "ok"
         case "send":
             composer.text = argument
             composerDidTapSend(composer)
@@ -74,13 +69,6 @@ extension ConversationViewController {
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
                   let model = cell.model else { return "error no row" }
             presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
-            return "ok"
-        case "react":
-            // Picks a tapback in the open tapback bar ("doubletap" first),
-            // through the same path as tapping it.
-            guard let reaction = ConversationReaction(rawValue: argument),
-                  let overlay = view.subviews.compactMap({ $0 as? MessageActionOverlay }).last else { return "error no tapback bar" }
-            overlay.onReaction?(reaction)
             return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.

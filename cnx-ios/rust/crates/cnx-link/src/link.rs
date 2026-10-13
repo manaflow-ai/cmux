@@ -23,6 +23,10 @@ use crate::frame::{Frame, FrameCodec, FrameType, MAX_PAYLOAD};
 const CHANNEL_DEPTH: usize = 1024;
 /// Frames queued for the writer.
 const WRITE_DEPTH: usize = 1024;
+/// Control frames (ping, pong) queued ahead of data. A keepalive ping must
+/// not wait behind megabytes of queued channel data: on a 4 Mbit/s relay a
+/// 10 MiB write held the ping for 20 s and closed a healthy link.
+const CONTROL_DEPTH: usize = 64;
 
 /// Which end of the link this is: the phone opens odd channel ids, the Mac
 /// even ones. Channel 0 carries pings.
@@ -54,7 +58,8 @@ impl Role {
 pub struct LinkConfig {
     /// Interval between keepalive pings; `None` disables them.
     pub keepalive: Option<Duration>,
-    /// How long a keepalive ping may go unanswered before the link closes.
+    /// How long the link may go without receiving anything (a pong or any
+    /// other frame) after a keepalive ping before it closes.
     pub keepalive_timeout: Duration,
 }
 
@@ -110,6 +115,11 @@ enum WriterMsg {
 struct Inner {
     role: Role,
     out: mpsc::Sender<WriterMsg>,
+    /// Ping and pong frames; the writer sends these before queued data.
+    control: mpsc::Sender<Frame>,
+    /// When the reader last received a frame. Any inbound frame proves the
+    /// peer is alive, so a busy link never times out on a slow pong.
+    last_rx: Mutex<Instant>,
     channels: Mutex<HashMap<u32, mpsc::Sender<ChannelEvent>>>,
     next_channel: AtomicU32,
     next_nonce: AtomicU64,
@@ -143,6 +153,25 @@ impl Inner {
 
     fn try_send_frame(&self, frame: Frame) {
         let _ = self.out.try_send(WriterMsg::Frame(frame));
+    }
+
+    /// Queue a ping or pong ahead of channel data.
+    async fn send_control(&self, frame: Frame) -> Result<(), LinkError> {
+        if let Some(reason) = self.closed_reason() {
+            return Err(LinkError::Closed(reason));
+        }
+        self.control
+            .send(frame)
+            .await
+            .map_err(|_| LinkError::Closed(self.closed_reason().unwrap_or_else(|| "writer stopped".into())))
+    }
+
+    fn received(&self) {
+        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
+
+    fn last_received(&self) -> Instant {
+        *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Mark the link closed (once) and tell every channel.
@@ -200,10 +229,13 @@ impl Link {
     {
         let (read_half, write_half) = tokio::io::split(stream);
         let (out_tx, out_rx) = mpsc::channel(WRITE_DEPTH);
+        let (control_tx, control_rx) = mpsc::channel(CONTROL_DEPTH);
         let (incoming_tx, incoming_rx) = mpsc::channel(64);
         let inner = Arc::new(Inner {
             role,
             out: out_tx,
+            control: control_tx,
+            last_rx: Mutex::new(Instant::now()),
             channels: Mutex::new(HashMap::new()),
             next_channel: AtomicU32::new(role.first_channel()),
             next_nonce: AtomicU64::new(1),
@@ -214,8 +246,12 @@ impl Link {
             tasks: Mutex::new(Vec::new()),
             transport: Mutex::new(transport),
         });
-        let writer =
-            tokio::spawn(write_loop(Arc::clone(&inner), FramedWrite::new(write_half, FrameCodec), out_rx));
+        let writer = tokio::spawn(write_loop(
+            Arc::clone(&inner),
+            FramedWrite::new(write_half, FrameCodec),
+            out_rx,
+            control_rx,
+        ));
         let reader =
             tokio::spawn(read_loop(Arc::clone(&inner), FramedRead::new(read_half, FrameCodec), incoming_tx));
         let mut tasks = vec![writer, reader];
@@ -228,12 +264,27 @@ impl Link {
                         () = tokio::time::sleep(interval) => {}
                         _ = closed.wait_for(Option::is_some) => return,
                     }
-                    match tokio::time::timeout(config.keepalive_timeout, link.ping()).await {
-                        Ok(Ok(_)) => {}
-                        Ok(Err(_)) => return,
-                        Err(_) => {
-                            link.inner.shut("keepalive timed out");
-                            return;
+                    let sent = Instant::now();
+                    let ping = link.ping();
+                    tokio::pin!(ping);
+                    loop {
+                        // Wait for the pong, but count any inbound frame as
+                        // life: a pong can trail a full transmit queue.
+                        let deadline = link.inner.last_received().max(sent) + config.keepalive_timeout;
+                        tokio::select! {
+                            result = &mut ping => {
+                                if result.is_err() {
+                                    return;
+                                }
+                                break;
+                            }
+                            () = tokio::time::sleep_until(deadline) => {
+                                let quiet_since = link.inner.last_received().max(sent);
+                                if quiet_since + config.keepalive_timeout <= Instant::now() {
+                                    link.inner.shut("keepalive timed out");
+                                    return;
+                                }
+                            }
                         }
                     }
                 }
@@ -272,7 +323,7 @@ impl Link {
         let (tx, rx) = oneshot::channel();
         self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).insert(nonce, tx);
         let started = Instant::now();
-        self.inner.send_frame(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec())).await?;
+        self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec())).await?;
         let answered = rx
             .await
             .map_err(|_| LinkError::Closed(self.inner.closed_reason().unwrap_or_else(|| "closed".into())))?;
@@ -314,34 +365,43 @@ async fn write_loop<W>(
     inner: Arc<Inner>,
     mut sink: FramedWrite<W, FrameCodec>,
     mut rx: mpsc::Receiver<WriterMsg>,
+    mut control: mpsc::Receiver<Frame>,
 ) where
     W: AsyncWrite + Send + Unpin,
 {
-    while let Some(message) = rx.recv().await {
-        match message {
-            WriterMsg::Frame(frame) => {
-                // Feed what is queued, then flush once.
-                let mut result = sink.feed(frame).await;
-                while result.is_ok() {
-                    match rx.try_recv() {
-                        Ok(WriterMsg::Frame(frame)) => result = sink.feed(frame).await,
-                        Ok(WriterMsg::Shutdown) => {
-                            let _ = sink.flush().await;
-                            let _ = sink.close().await;
-                            return;
-                        }
-                        Err(_) => break,
-                    }
-                }
-                if let Err(error) = result.and(sink.flush().await) {
-                    inner.shut(&format!("write failed: {error}"));
+    loop {
+        // Control frames first, then data; feed what is queued, flush once.
+        let message = tokio::select! {
+            biased;
+            Some(frame) = control.recv() => WriterMsg::Frame(frame),
+            message = rx.recv() => match message {
+                Some(message) => message,
+                None => return,
+            },
+        };
+        let WriterMsg::Frame(frame) = message else {
+            let _ = sink.close().await;
+            return;
+        };
+        let mut result = sink.feed(frame).await;
+        while result.is_ok() {
+            if let Ok(frame) = control.try_recv() {
+                result = sink.feed(frame).await;
+                continue;
+            }
+            match rx.try_recv() {
+                Ok(WriterMsg::Frame(frame)) => result = sink.feed(frame).await,
+                Ok(WriterMsg::Shutdown) => {
+                    let _ = sink.flush().await;
+                    let _ = sink.close().await;
                     return;
                 }
+                Err(_) => break,
             }
-            WriterMsg::Shutdown => {
-                let _ = sink.close().await;
-                return;
-            }
+        }
+        if let Err(error) = result.and(sink.flush().await) {
+            inner.shut(&format!("write failed: {error}"));
+            return;
         }
     }
 }
@@ -359,8 +419,11 @@ async fn read_loop<R>(
             Some(Err(error)) => break format!("read failed: {error}"),
             None => break "peer closed the link".to_owned(),
         };
+        inner.received();
         match frame.kind {
-            FrameType::Ping => inner.try_send_frame(Frame::new(0, FrameType::Pong, frame.payload)),
+            FrameType::Ping => {
+                let _ = inner.control.try_send(Frame::new(0, FrameType::Pong, frame.payload));
+            }
             FrameType::Pong => {
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
                     let nonce = u64::from_be_bytes(bytes);
@@ -565,6 +628,124 @@ mod tests {
         let mac = server.await.unwrap();
         phone.close("bye");
         assert_eq!(mac.closed().await, "peer closed the link");
+    }
+
+    /// A stream that accepts at most `chunk` bytes every `pause`, like a
+    /// slow relay path.
+    struct Throttled {
+        inner: tokio::io::DuplexStream,
+        chunk: usize,
+        pause: Duration,
+        sleep: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    }
+
+    impl AsyncRead for Throttled {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for Throttled {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            use std::task::Poll;
+            if let Some(sleep) = self.sleep.as_mut() {
+                if sleep.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
+                self.sleep = None;
+            }
+            let len = buf.len().min(self.chunk);
+            let result = std::pin::Pin::new(&mut self.inner).poll_write(cx, &buf[..len]);
+            if matches!(result, Poll::Ready(Ok(_))) {
+                let pause = self.pause;
+                self.sleep = Some(Box::pin(tokio::time::sleep(pause)));
+            }
+            result
+        }
+
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+
+    use std::future::Future;
+
+    /// A ping must not queue behind bulk data: on a slow relay a 10 MiB
+    /// echo held the keepalive ping for 20 s and closed the link.
+    #[tokio::test]
+    async fn ping_overtakes_queued_bulk_data() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        // About 1.6 MB/s from the phone.
+        let a = Throttled { inner: a, chunk: 16 * 1024, pause: Duration::from_millis(10), sleep: None };
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let sink = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            let mut total = 0;
+            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                total += bytes.len();
+            }
+            (mac, total)
+        });
+        let channel = phone.open("sink", serde_json::json!({})).await.unwrap();
+        // 4 MiB queued takes about 2.6 s to drain.
+        for _ in 0..64 {
+            channel.send(Bytes::from(vec![1u8; 64 * 1024])).await.unwrap();
+        }
+        let started = Instant::now();
+        let rtt = phone.ping().await.unwrap();
+        assert!(rtt < Duration::from_millis(1500), "ping waited {rtt:?} behind queued data");
+        assert!(started.elapsed() < Duration::from_millis(1500));
+        drop(channel);
+        phone.close("done");
+        let _ = sink.await;
+    }
+
+    /// Any inbound frame proves the peer is alive: a link receiving data
+    /// stays up even when no pong comes back, and closes once it goes quiet.
+    #[tokio::test]
+    async fn keepalive_counts_any_inbound_frame() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let config = LinkConfig {
+            keepalive: Some(Duration::from_millis(50)),
+            keepalive_timeout: Duration::from_millis(600),
+        };
+        let phone = Link::new(a, Role::Phone, config, None);
+        // A peer that streams data frames and never answers pings.
+        let (_read, write) = tokio::io::split(b);
+        let mut peer = FramedWrite::new(write, FrameCodec);
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_millis(1200) {
+            peer.send(Frame::new(2, FrameType::Data, vec![0u8; 16])).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        assert!(
+            !phone.is_closed(),
+            "closed while data was arriving: {:?}",
+            phone.closed_state().borrow().clone()
+        );
+        let reason =
+            tokio::time::timeout(Duration::from_secs(2), phone.closed()).await.expect("closes once quiet");
+        assert_eq!(reason, "keepalive timed out");
     }
 
     #[tokio::test]

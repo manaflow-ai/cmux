@@ -18,7 +18,6 @@ struct TeamSidebar: View {
     @State private var joiningTeam = false
     @State private var newTeamName = ""
     @State private var inviteLink = ""
-    @State private var confirmsLeave: Team?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -66,14 +65,6 @@ struct TeamSidebar: View {
                 .keyboardType(.URL)
             Button("Cancel", role: .cancel) { inviteLink = "" }
             Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
-        }
-        .alert(item: $confirmsLeave) { team in
-            Alert(
-                title: Text("Leave \(team.name)?"),
-                message: Text("You'll lose access to this team's Macs and workspaces."),
-                primaryButton: .destructive(Text("Leave")) { shell.toast = CnxToast(symbol: "exclamationmark.circle", text: "Leaving teams isn't available yet") },
-                secondaryButton: .cancel()
-            )
         }
     }
 
@@ -127,8 +118,6 @@ struct TeamSidebar: View {
                 UIPasteboard.general.string = team.name
                 theme.haptics.copy()
             }
-            Divider()
-            Button("Leave team", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmsLeave = team }
         }
     }
 

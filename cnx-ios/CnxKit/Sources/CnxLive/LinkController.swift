@@ -35,11 +35,12 @@ public final class LinkController {
 
     public init(
         transport: TransportKind,
+        relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
-        machine = LinkMachine(transport: transport)
+        machine = LinkMachine(transport: transport, relayOnly: relayOnly)
         self.dialer = dialer
         self.clock = clock
         self.accessToken = accessToken
@@ -47,6 +48,7 @@ public final class LinkController {
 
     public var target: LinkMachine.Target? { machine.target }
     public var transport: TransportKind { machine.transport }
+    public var relayOnly: Bool { machine.relayOnly }
 
     public func send(_ event: LinkMachine.Event) {
         let effects = machine.handle(event)
@@ -74,10 +76,12 @@ public final class LinkController {
         case .dial(let generation, let macID, let transport):
             dialTask?.cancel()
             retryTask?.cancel()
-            guard let endpoint = endpoint(macID) else {
+            guard var endpoint = endpoint(macID) else {
                 send(.dialFailed(generation: generation, reason: "not registered yet"))
                 return
             }
+            endpoint.relayOnly = machine.relayOnly
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -108,17 +112,8 @@ public final class LinkController {
             let clock = clock
             Task { [weak self] in
                 // The ping races a timeout: a frozen Mac never answers.
-                let result = await withTaskGroup(of: Result<UInt32, any Error>?.self) { group in
-                    group.addTask { do { return .success(try await link.ping()) } catch { return .failure(error) } }
-                    group.addTask {
-                        do { try await clock.sleep(for: Self.probeTimeout) } catch { return nil }
-                        return .failure(LinkError(code: "timeout", message: ""))
-                    }
-                    let first = await group.next() ?? nil
-                    group.cancelAll()
-                    return first
-                }
-                guard let self, let result else { return }
+                let result = await Self.race(timeout: Self.probeTimeout, clock: clock) { try await link.ping() }
+                guard let self else { return }
                 switch result {
                 case .success(let rtt):
                     guard case .connected(_, let path, _) = self.phase else { return }
@@ -168,6 +163,32 @@ public final class LinkController {
         }
     }
 
+    /// `operation`'s result, or a timeout failure after `timeout`, whichever
+    /// comes first. Not a task group: a group waits for every child before it
+    /// returns, and the FFI ping ignores cancellation, so a ping on a link the
+    /// Mac had already dropped (the app was suspended) held the probe until
+    /// the link's own keepalive gave up 20 s later; input typed meanwhile was
+    /// lost.
+    nonisolated static func race(
+        timeout: Duration, clock: any Clock<Duration>, _ operation: @escaping @Sendable () async throws -> UInt32
+    ) async -> Result<UInt32, any Error> {
+        let once = RaceOnce()
+        return await withCheckedContinuation { continuation in
+            let work = Task {
+                let result: Result<UInt32, any Error>
+                do { result = .success(try await operation()) } catch { result = .failure(error) }
+                if once.claim() { continuation.resume(returning: result) }
+            }
+            Task {
+                try? await clock.sleep(for: timeout)
+                if once.claim() {
+                    work.cancel()
+                    continuation.resume(returning: .failure(LinkError(code: "timeout", message: "")))
+                }
+            }
+        }
+    }
+
     /// A short, display-safe reason for a dial or link error.
     nonisolated static func reason(_ error: any Error) -> String {
         if let error = error as? LinkError {
@@ -182,5 +203,17 @@ public final class LinkController {
         }
         if error is LiveAPI.Failure { return "the cmux service refused the request" }
         return String(error.localizedDescription.prefix(80))
+    }
+}
+
+/// One winner for ``LinkController/race(timeout:clock:_:)``.
+private final class RaceOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool {
+        lock.withLock {
+            defer { done = true }
+            return !done
+        }
     }
 }

@@ -56,11 +56,11 @@ final class CnxGhosttyApp {
                 event = nil
             }
             guard let event, let userdata = ghostty_surface_userdata(surface) else { return false }
-            let pointer = UInt(bitPattern: userdata)
-            let deliver = { @MainActor in
-                guard let raw = UnsafeRawPointer(bitPattern: pointer) else { return }
-                Unmanaged<TerminalSurfaceView>.fromOpaque(raw).takeUnretainedValue().receive(event)
-            }
+            // Userdata is the surface's InputBox (not the view): it stays alive
+            // until the surface is freed, and it is retained here for the hop,
+            // so a closed tab's event finds a nil view instead of freed memory.
+            let box = SendableBox(Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue())
+            let deliver = { @MainActor in box.value.view?.receive(event) }
             if Thread.isMainThread {
                 MainActor.assumeIsolated { deliver() }
             } else {
@@ -125,5 +125,10 @@ enum TerminalSurfaceEvent: Sendable {
     case bell
     /// A feed finished parsing on the output queue.
     case outputProcessed
+}
+/// Carries a main-actor object across the main-queue hop above.
+private struct SendableBox<Value: AnyObject>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }
 #endif

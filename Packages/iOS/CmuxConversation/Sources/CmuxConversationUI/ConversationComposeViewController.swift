@@ -13,10 +13,6 @@ public final class ConversationComposeViewController: UIViewController {
     /// Called when the person picks + (Add Contact). Without a handler the
     /// sheet lists every contact the directory knows.
     public var onAddContact: (() -> Void)?
-    /// Replaces the "iMessage / Encrypted" line under the To: field (the
-    /// SMS line keeps Messages' wording), as `ConversationPresentationOptions`
-    /// replaces it in a conversation's start header.
-    public var serviceLine: (title: String, subtitle: String)?
 
     let recipientField = ComposeRecipientField()
     private lazy var recipientHeight = recipientField.heightAnchor.constraint(equalToConstant: recipientField.preferredHeight)
@@ -210,13 +206,7 @@ public final class ConversationComposeViewController: UIViewController {
         let service = session.draft.service
         serviceTitle.text = switch service {
         case .sms: String(localized: "conversation.compose.service.sms", defaultValue: "Text Message • SMS", bundle: .module)
-        case .iMessage, nil: serviceLine?.title ?? "iMessage"
-        }
-        if let serviceLine, service != .sms {
-            serviceSubtitle.attributedText = NSAttributedString(
-                string: serviceLine.subtitle,
-                attributes: [.font: UIFont.systemFont(ofSize: 11), .foregroundColor: ConversationTheme.timestampText]
-            )
+        case .iMessage, nil: "iMessage"
         }
         let hidden = service == nil || !session.suggestions.isEmpty
         serviceTitle.isHidden = hidden

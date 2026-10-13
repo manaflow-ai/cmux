@@ -56,7 +56,6 @@ public struct TerminalScreen: View {
                         Label(tab.title, systemImage: tab.isCurrent ? "checkmark" : tab.systemImage)
                     }
                 }
-                Button("New terminal tab", systemImage: "plus") {}
             }
             Section("Connection") {
                 Text("Mock session · local")

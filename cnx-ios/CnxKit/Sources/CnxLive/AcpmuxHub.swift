@@ -134,6 +134,16 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
+    /// Declines a question (its reject option). A phone may always decline,
+    /// while an answer needs the Mac's person proof.
+    public func decline(_ question: AgentQuestion) async throws {
+        guard let reply = question.declineReply() else {
+            throw AcpmuxConnection.RPCError(code: 0, message: "This question can't be declined", reason: nil)
+        }
+        let params = try AcpmuxRecords.convert(reply.params, to: JSONValue.self)
+        _ = try await request("_acpmux/permission_respond", params)
+    }
+
     private func handle(_ notification: AcpmuxConnection.Notification) {
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
@@ -205,10 +215,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         Task {
             do {
                 switch intent {
-                case .prompt(let text, _, let steer):
+                case .prompt(let text, let attachments, let steer):
                     let meta: JSONValue = .object(["acpmux": .object(["promptId": .string(UUID().uuidString.lowercased()), "steer": .bool(steer)])])
                     _ = try await hub.request("session/prompt", .object([
-                        "sessionId": session, "prompt": .array([.object(["type": .string("text"), "text": .string(text)])]), "_meta": meta,
+                        "sessionId": session, "prompt": .array(Self.promptBlocks(text: text, attachments: attachments)), "_meta": meta,
                     ]))
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
@@ -230,6 +240,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 self.emit(.clientError(AcpmuxSessionSource.message(error)))
             }
         }
+    }
+
+    /// ACP prompt content: the text, then one `image` block (base64 data and
+    /// its MIME type) per attached image. File chips carry no contents yet,
+    /// so they are not sent.
+    static func promptBlocks(text: String, attachments: [AgentAttachment]) -> [JSONValue] {
+        var blocks: [JSONValue] = []
+        if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
+        for attachment in attachments {
+            if let mime = attachment.imageMIMEType, let data = attachment.data {
+                blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
+            }
+        }
+        if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
+        return blocks
     }
 
     // MARK: Parity
@@ -316,9 +341,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         _ = try? await hub?.request("_acpmux/handoff_discard", .object(["handoffId": .string(draft.id)]))
     }
 
+    /// Relative references resolve against the session's folder as acpmux
+    /// reports it (absolute); the summary's is the workspace's, abbreviated
+    /// with `~` for display, which can't be resolved on the phone.
+    var baseDirectory: String {
+        if let cwd = hub?.sessions[sessionID]?.cwd, cwd.hasPrefix("/") { return cwd }
+        return summary.cwd
+    }
+
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) {
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
             await MainActor.run { hub?.macLink }
         }
     }

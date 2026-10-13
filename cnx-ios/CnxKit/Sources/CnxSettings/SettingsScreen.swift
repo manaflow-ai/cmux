@@ -354,6 +354,7 @@ private struct DeveloperSection: View {
     let auth: CnxAuthModel
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
+    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
     @State private var launchedWithMock = DeveloperOptions.mockData
 
     var body: some View {
@@ -361,6 +362,10 @@ private struct DeveloperSection: View {
             Toggle(isOn: $mockData) {
                 SettingsLabel("Mock data", symbol: "theatermasks")
             }
+            Toggle(isOn: $relayOnly) {
+                SettingsLabel("Relay only (simulate distant network)", symbol: "point.3.connected.trianglepath.dotted")
+            }
+            .toggleStyle(.cnxSwitch)
             Picker(selection: $launchDemo) {
                 Text("None").tag("")
                 ForEach(DeveloperOptions.demos, id: \.id) { demo in
@@ -387,7 +392,7 @@ private struct DeveloperSection: View {
         } header: {
             Text("Developer")
         } footer: {
-            Text("Mock data signs in as a sample user with sample teams, Macs and chats. Changes apply at the next launch: quit, then open cmux again. To sign in with the dev test account, enter 42 as the email.")
+            Text("Mock data signs in as a sample user with sample teams, Macs and chats. Changes apply at the next launch: quit, then open cmux again. Relay only applies at once: links skip direct paths, so WebRTC goes through TURN and WireGuard through the cmux relay, as from a distant network. To sign in with the dev test account, enter 42 as the email.")
         }
     }
 }

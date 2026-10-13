@@ -8,7 +8,21 @@ import Observation
 @MainActor
 @Observable
 public final class ChiefSession {
-    public static let shared = ChiefSession(backend: ChiefMockBackend())
+    public static let shared = ChiefSession(backend: defaultBackend())
+
+    /// The mock Chief, or in DEBUG builds the package's conversation
+    /// simulator (`services/conversation-sim`) when `CNX_CHIEF_SIM` names its
+    /// WebSocket (`ws://127.0.0.1:4870/ws?conversation=direct`), so Chief can
+    /// be compared with the package's own lab host on the same data
+    /// (verify/imsg-parity.md).
+    static func defaultBackend() -> any ConversationBackend {
+        #if DEBUG
+        if let raw = ProcessInfo.processInfo.environment["CNX_CHIEF_SIM"], let url = URL(string: raw) {
+            return ConversationSimBackend(endpoint: url)
+        }
+        #endif
+        return ChiefMockBackend()
+    }
 
     public private(set) var store: ConversationStore
     public private(set) var lastMessage: ConversationMessage?

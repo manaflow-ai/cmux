@@ -120,6 +120,7 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         pan.delegate = self
         pan.maximumNumberOfTouches = 1
         view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(EdgeSwipePriority())
 
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (self: Self, _) in
             self.strokeView.layer.borderColor = theme.colors.cardStroke.uiColor.resolvedColor(with: self.traitCollection).cgColor
@@ -293,7 +294,23 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
             return velocity.x < 0
         }
         guard velocity.x > 0, model.allowsInteractiveOpen else { return false }
-        return !touchIsInHorizontalScroller(pan.location(in: view))
+        let location = pan.location(in: view)
+        return !touchIsInPushedScreen(location) && !touchIsInHorizontalScroller(location)
+    }
+
+    /// The drawer only opens from a tab root. Any navigation controller under
+    /// the touch with something to pop (a chat, workspace, diff, settings page,
+    /// in any tab's stack) owns the rightward swipe for its back gesture, so
+    /// this does not depend on each stack reporting its depth to the shell.
+    private func touchIsInPushedScreen(_ point: CGPoint) -> Bool {
+        var responder: UIResponder? = view.hitTest(point, with: nil)
+        while let current = responder, current !== self {
+            if let navigation = current as? UINavigationController, navigation.viewControllers.count > 1 {
+                return true
+            }
+            responder = current.next
+        }
+        return false
     }
 
     /// Pushed screens keep the system back swipe: the drawer pan waits for the
@@ -346,6 +363,48 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
             hit = current.superview
         }
         return false
+    }
+}
+
+/// Gives a pushed screen's back swipe priority over horizontal scrollers at
+/// the leading edge (markdown tables, code cards, chip rows). When a touch
+/// lands near the edge, each horizontally scrollable view under it waits for
+/// the navigation controller's edge pop to fail; the pop fails at once for a
+/// touch that is not an edge swipe, so the scroller still scrolls. It never
+/// recognizes or delays touches itself.
+private final class EdgeSwipePriority: UIGestureRecognizer {
+    private static let edgeWidth: CGFloat = 28
+    private var linked = NSHashTable<UIGestureRecognizer>.weakObjects()
+
+    init() {
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        defer { state = .failed }
+        guard let view, let touch = touches.first else { return }
+        let point = touch.location(in: view)
+        let leading = view.effectiveUserInterfaceLayoutDirection == .leftToRight ? point.x : view.bounds.width - point.x
+        guard leading <= Self.edgeWidth, let hit = view.hitTest(point, with: event) else { return }
+        var scrollers: [UIScrollView] = []
+        var responder: UIResponder? = hit
+        while let current = responder {
+            if let scroll = current as? UIScrollView, scroll.contentSize.width > scroll.bounds.width + 1 {
+                scrollers.append(scroll)
+            }
+            if let navigation = current as? UINavigationController, navigation.viewControllers.count > 1 {
+                guard let pop = navigation.interactivePopGestureRecognizer else { return }
+                for scroll in scrollers where !linked.contains(scroll.panGestureRecognizer) {
+                    scroll.panGestureRecognizer.require(toFail: pop)
+                    linked.add(scroll.panGestureRecognizer)
+                }
+                return
+            }
+            responder = current.next
+        }
     }
 }
 

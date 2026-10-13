@@ -43,6 +43,9 @@ public final class DemoDirector {
         case handoffPick(id: String)
         case handoffFill(reference: String)
         case handoffStart
+        /// Setup's footer Sign out, then its confirmation.
+        case setupSignOut
+        case setupConfirmSignOut
         // Feed swipe actions and composer attachments.
         case feedSwipe(event: String, edge: String)
         case feedSwipeAction(event: String, action: String)
