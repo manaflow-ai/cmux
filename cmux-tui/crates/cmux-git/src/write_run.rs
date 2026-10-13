@@ -18,13 +18,13 @@ use std::time::Duration;
 
 use wait_timeout::ChildExt;
 
-use super::run::{GitFailure, GitOutput};
+use crate::run::{GitFailure, GitOutput};
 
 const MAX_STDERR_BYTES: usize = 16 * 1024;
 
 /// How long a write run may take.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Bound {
+pub enum Bound {
     /// Preparation that writes nothing a reader depends on (hashing,
     /// listing): stopped with its process group past the deadline.
     Deadline(Duration),
@@ -34,7 +34,7 @@ pub(super) enum Bound {
 
 /// A repository's top level, its filter overrides and the owner's empty
 /// hooks directory.
-pub(super) struct WriteGit<'a> {
+pub struct WriteGit<'a> {
     pub root: &'a Path,
     pub overrides: &'a [String],
     pub hooks: &'a Path,
@@ -43,7 +43,7 @@ pub(super) struct WriteGit<'a> {
 impl WriteGit<'_> {
     /// Runs `git <arguments>` with `stdin` as its input. `index`, when given,
     /// is the temporary index file the run reads and writes.
-    pub(super) fn run(
+    pub fn run(
         &self,
         index: Option<&Path>,
         arguments: &[&std::ffi::OsStr],
@@ -93,9 +93,14 @@ impl WriteGit<'_> {
         }
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-        let mut input = child.stdin.take().expect("git stdin is piped");
-        let stdout = child.stdout.take().expect("git stdout is piped");
-        let stderr = child.stderr.take().expect("git stderr is piped");
+        // All three are piped above; a missing one is a spawn failure, not a
+        // panic.
+        let (Some(mut input), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            stop(&mut child);
+            return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
+        };
         let bytes = stdin.to_vec();
         let writer = thread::spawn(move || {
             let _ = input.write_all(&bytes);

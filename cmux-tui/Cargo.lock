@@ -1065,6 +1065,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-git"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1504,6 +1512,7 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-git",
  "cmux-history",
  "cmux-layout-reducer",
  "cmux-link",

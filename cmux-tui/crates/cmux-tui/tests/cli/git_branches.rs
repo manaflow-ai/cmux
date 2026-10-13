@@ -138,6 +138,17 @@ fn git_branches_lists_the_repository_branches_through_a_real_daemon() {
     assert_eq!(limited["branches"].as_array().unwrap().len(), 1, "{limited}");
     assert_eq!(limited["truncated"], true, "{limited}");
 
+    // An upstream whose ref is gone is marked, and nothing is counted.
+    git(&repo, &["push", "-q", "origin", "--delete", "feature"]);
+    let gone = git_cli(&server, &repo, &["branches"]);
+    assert_success(&gone);
+    let gone = json_output(&gone);
+    let feature = branch(&gone, "feature");
+    assert_eq!(feature["upstream"], "origin/feature", "{gone}");
+    assert_eq!(feature["upstream_gone"], true, "{gone}");
+    assert!(feature.get("ahead").is_none(), "{gone}");
+    assert_eq!(branch(&gone, "main")["ahead"], 0, "{gone}");
+
     // A detached HEAD has no current branch.
     git(&repo, &["checkout", "-q", "--detach", "main"]);
     let detached = git_cli(&server, &repo, &["branches"]);
