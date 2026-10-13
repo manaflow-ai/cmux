@@ -27,7 +27,7 @@ final class IconPickerService {
         let panel: IconPickerPanel
         let provider: IconPickerProvider
         let page: PageWebView
-        /// `workspace:<id>`, `screen:<id>`, `space:<id>`, `browserProfile:<id>`.
+        /// `workspace:<id>`, `screen:<id>`, `screenGroup:<id>`, `tabGroup:<id>`, `space:<id>`, `browserProfile:<id>`.
         let target: String
         /// The anchor in screen coordinates.
         let anchor: NSRect
@@ -41,7 +41,7 @@ final class IconPickerService {
         let provider: IconPickerProvider
     }
 
-    private weak var services: AppServices?
+    private(set) weak var services: AppServices?
     private lazy var prefs = IconPickerPrefsStore(services: services)
     private let symbols = IconPickerSymbols()
     /// The system SF Symbol catalog, loaded off the main actor at the first open; nil until then.

@@ -8842,6 +8842,60 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "tab-group set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabGroup.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Tab Group Icon…",
+      "title_key" : "action.tabGroup.setIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab-group clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tabGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tabGroup.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Tab Group Icon",
+      "title_key" : "action.tabGroup.clearIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "familyMember",
       "cli_name" : "tab-group toggle-collapse",
       "context_menu" : "offered",
@@ -10542,6 +10596,60 @@
       "palette_suggested" : null,
       "title" : "Set Screen Group Color…",
       "title_key" : "action.screenGroup.setColor",
+      "title_table" : "ScreenActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "screen-group set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "screenGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "screenGroup.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.screen",
+        "order" : 103,
+        "title" : "Screens",
+        "title_key" : "category.screen",
+        "title_table" : "ScreenActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Screen Group Icon…",
+      "title_key" : "action.screenGroup.setIcon",
+      "title_table" : "ScreenActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "screen-group clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "screenGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "screenGroup.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.screen",
+        "order" : 103,
+        "title" : "Screens",
+        "title_key" : "category.screen",
+        "title_table" : "ScreenActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Screen Group Icon",
+      "title_key" : "action.screenGroup.clearIcon",
       "title_table" : "ScreenActions"
     },
     {
@@ -30628,10 +30736,129 @@
         {
           "children" : [
             {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.grey",
-              "kind" : "action",
+              "children" : [
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.grey",
+                  "kind" : "action",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.blue",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.red",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.yellow",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.green",
+                  "kind" : "action",
+                  "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.pink",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.purple",
+                  "kind" : "action",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.cyan",
+                  "kind" : "action",
+                  "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "screenGroup.color.orange",
+                  "kind" : "action",
+                  "order" : 8,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "id" : "screenGroup.setColor",
+              "kind" : "submenu",
               "order" : 0,
+              "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30642,8 +30869,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.blue",
+              "id" : "screenGroup.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
@@ -30655,87 +30883,10 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.red",
+              "id" : "screenGroup.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.yellow",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.green",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.pink",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.purple",
-              "kind" : "action",
-              "order" : 6,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.cyan",
-              "kind" : "action",
-              "order" : 7,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "screenGroup.color.orange",
-              "kind" : "action",
-              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -30745,17 +30896,12 @@
               }
             }
           ],
-          "id" : "screenGroup.setColor",
-          "kind" : "submenu",
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 3,
-          "title_from" : "action",
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
@@ -32918,10 +33064,129 @@
         {
           "children" : [
             {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.grey",
-              "kind" : "action",
+              "children" : [
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.grey",
+                  "kind" : "action",
+                  "order" : 0,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.blue",
+                  "kind" : "action",
+                  "order" : 1,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.red",
+                  "kind" : "action",
+                  "order" : 2,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.yellow",
+                  "kind" : "action",
+                  "order" : 3,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.green",
+                  "kind" : "action",
+                  "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.pink",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.purple",
+                  "kind" : "action",
+                  "order" : 6,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.cyan",
+                  "kind" : "action",
+                  "order" : 7,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "tabGroup.color.orange",
+                  "kind" : "action",
+                  "order" : 8,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                }
+              ],
+              "id" : "tabGroup.setColor",
+              "kind" : "submenu",
               "order" : 0,
+              "title_from" : "action",
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -32932,8 +33197,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.blue",
+              "id" : "tabGroup.setIcon",
               "kind" : "action",
+              "label" : "Set Icon…",
               "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
@@ -32945,87 +33211,10 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.red",
+              "id" : "tabGroup.clearIcon",
               "kind" : "action",
+              "label" : "Remove Icon",
               "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.yellow",
-              "kind" : "action",
-              "order" : 3,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.green",
-              "kind" : "action",
-              "order" : 4,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.pink",
-              "kind" : "action",
-              "order" : 5,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.purple",
-              "kind" : "action",
-              "order" : 6,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.cyan",
-              "kind" : "action",
-              "order" : 7,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tabGroup.color.orange",
-              "kind" : "action",
-              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33035,17 +33224,12 @@
               }
             }
           ],
-          "id" : "tabGroup.setColor",
-          "kind" : "submenu",
+          "folder" : "appearance",
+          "kind" : "folder",
           "order" : 3,
-          "title_from" : "action",
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",

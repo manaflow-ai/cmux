@@ -191,6 +191,8 @@ nonisolated extension ActionSurfaceCatalog {
         "tabGroup.removeTab": [p(.tab, .organize, 302, folder: .group)],
         "tabGroup.rename": [p(.tabGroup, .identity, 1)],
         "tabGroup.setColor": [p(.tabGroup, .identity, 2, .submenu, folder: .appearance)],
+        "tabGroup.setIcon": [p(.tabGroup, .identity, 5, folder: .appearance, label: IconMenuLabels.setIcon)],
+        "tabGroup.clearIcon": [p(.tabGroup, .identity, 6, folder: .appearance, label: IconMenuLabels.removeIcon)],
         "tabGroup.toggleCollapsed": [p(.tabGroup, .organize, 3)],
         "tabGroup.ungroup": [p(.tabGroup, .close, 300)],
         "tabGroup.close": [p(.tabGroup, .close, 301)],
