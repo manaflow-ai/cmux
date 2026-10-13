@@ -561,6 +561,10 @@
       "scope": "finder:write",
       "class": "mutation"
     },
+    "git.branches": {
+      "scope": "git:read",
+      "class": "read"
+    },
     "git.checkpoint.create": {
       "scope": "git:write",
       "class": "mutation"
