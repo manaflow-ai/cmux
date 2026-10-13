@@ -1167,8 +1167,8 @@ export type UsageSummary = {
   readonly month: string
   readonly meters: ReadonlyArray<UsageMeterLine>
   readonly total_usd: number | "Infinity" | "-Infinity" | "NaN"
-  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN"
-  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly stopped: UsageStopReason | null
 }
@@ -2928,7 +2928,7 @@ export interface CloudOps {
       readonly is_default: boolean
     }
   }
-  /** Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit. */
+  /** Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). The limit can be lowered; raising it above the default of 200 is not available yet. Owners, admins and billing members, in a person's session only. Recorded in the billing audit. */
   readonly "team.ai_limit.set": {
     readonly params: {
       readonly user_monthly_limit_usd: number | "Infinity" | "-Infinity" | "NaN" | null

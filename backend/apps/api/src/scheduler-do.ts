@@ -313,7 +313,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
         trigger: run.trigger,
         body: runBody(engine.rows, run),
         ...(stored ? { input: JSON.parse(stored.json) as unknown } : {}),
-        ...(chargedUser(engine.rows, run.automation) ? { charged_user: chargedUser(engine.rows, run.automation) } : {})
+        // Who started the run (scheduler-runs.ts startRun); a run row from before names none: the automation's creator.
+        ...((run.charged_user ?? chargedUser(engine.rows, run.automation)) ? { charged_user: run.charged_user ?? chargedUser(engine.rows, run.automation) } : {})
       }
       try {
         await this.env.AUTOMATION_RUN.create({ id: run.id, params })
