@@ -139,25 +139,30 @@ fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
     )
 }
 
-/// The home folder rule for a Trust answer (see the module doc).
-fn home_rule(params: &TrustParams) -> Result<(), Refusal> {
-    if params.level.as_deref() != Some("trusted") {
-        return Ok(());
-    }
+/// The home folder rule of a remote chat's folder (see the module doc),
+/// shared with `agent-session-start`: `/` and the folders above this user's
+/// home folder are refused, the home folder needs `home_confirmed`. Fails
+/// closed: with no home folder known, every folder needs `home_confirmed`.
+pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> {
     let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
-    let Some(home) = std::env::var_os("HOME").and_then(|home| canonical(home.as_ref())) else {
-        return Ok(());
-    };
     // A folder that does not exist is acpmux's to refuse.
-    let Some(cwd) = canonical(params.cwd.as_ref()) else { return Ok(()) };
+    let Some(cwd) = canonical(cwd.as_ref()) else { return Ok(()) };
+    if cwd.parent().is_none() {
+        return Err(Refusal::AboveHome);
+    }
+    let Some(home) = crate::platform::home_dir().and_then(|home| canonical(&home)) else {
+        return if home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
+    };
     if cwd == home {
-        return if params.home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
+        return if home_confirmed { Ok(()) } else { Err(Refusal::HomeUnconfirmed) };
     }
     if home.starts_with(&cwd) { Err(Refusal::AboveHome) } else { Ok(()) }
 }
 
 fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Value, Refusal> {
-    home_rule(params)?;
+    if params.level.as_deref() == Some("trusted") {
+        home_rule(&params.cwd, params.home_confirmed)?;
+    }
     let link = connect(mux, socket)?;
     let result = match &params.level {
         None => link.call("acp.trust.get", json!({"cwd": params.cwd}), CALL_TIMEOUT),
