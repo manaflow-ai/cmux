@@ -88,6 +88,9 @@ pub(crate) struct TabStateUpdate {
     /// an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, or a stored
     /// `image:`/`svg:` asset, `icon-assets-v1`, checked by `state_update_tab`).
     pub(crate) icon: Option<Option<String>>,
+    /// The device a browser tab emulates (`browser.tab.emulate`,
+    /// `browser.tab.emulate.clear`), resolved in the writing transaction.
+    pub(crate) emulation: Option<crate::state::browser_devices::EmulationChange>,
 }
 
 impl TabStateUpdate {
@@ -138,6 +141,13 @@ pub(crate) fn update_tab_state(
         transaction
             .execute("UPDATE tab_state SET icon = ?2 WHERE tab_id = ?1", params![tab_id, icon])?;
     }
+    if let Some(change) = &update.emulation {
+        let stored = crate::state::browser_devices::stored_emulation(transaction, tab_id, change)?;
+        transaction.execute(
+            "UPDATE tab_state SET emulation_json = ?2 WHERE tab_id = ?1",
+            params![tab_id, stored],
+        )?;
+    }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
             let stored = (!list.is_empty()).then(|| serde_json::to_string(list)).transpose()?;
@@ -150,7 +160,7 @@ pub(crate) fn update_tab_state(
     transaction.execute(
         "DELETE FROM tab_state
          WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL
-           AND icon IS NULL",
+           AND icon IS NULL AND emulation_json IS NULL",
         [tab_id],
     )?;
     if let Some(owner) = &update.owner {

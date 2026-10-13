@@ -1,0 +1,468 @@
+//! Browser device emulation (`browser-devices-v1`, cx-ocbf3): the devices of
+//! Chrome's device toolbar for every browser tab, CEF and WebKit alike.
+//!
+//! The daemon is the one owner. The built-in list is one data file compiled
+//! in (`data/emulated-devices.json`): Chrome DevTools' own list, verbatim
+//! (Chrome's JSONV1 keys, Chrome's order; `scripts/cmux-next/
+//! import-chrome-devices.py` refreshes it), then newer devices Chrome does not
+//! list yet (`"origin": "cmux"`, each with its `sources`). Custom devices
+//! (`browser.devices.add_custom`) are rows of the home session's store, in
+//! the same format. `browser.tab.emulate` keeps the chosen device and
+//! orientation on the tab (`tab_state.emulation_json`), and every tab
+//! snapshot shows the resolved values as `extra.emulation`: the numbers an
+//! engine applies, and for Chromium the exact DevTools calls Chrome's device
+//! mode sends. Frontends apply that record and decide nothing.
+
+use std::sync::OnceLock;
+
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::{Map, Value, json};
+
+/// `browser.devices.*`, `browser.tab.emulate*` and `extra.emulation`.
+pub const CAPABILITY: &str = "browser-devices-v1";
+/// The resource kind of the custom device list on `session.events`.
+pub(crate) const RESOURCE: &str = "browser_device";
+/// The id of the one custom device list.
+pub(crate) const ID: &str = "custom";
+
+const BUILT_IN: &str = include_str!("../../data/emulated-devices.json");
+/// Most custom devices kept (Chrome has no limit; this bounds the row set).
+pub(crate) const MAX_CUSTOM: usize = 200;
+/// Largest stored device object.
+const MAX_DEVICE_BYTES: usize = 16 * 1024;
+const MAX_TITLE_CHARS: usize = 128;
+/// Chrome's device editor limits (DeviceModeModel MinDeviceSize/MaxDeviceSize,
+/// MaxDeviceScaleFactor).
+const MIN_SIZE: i64 = 50;
+const MAX_SIZE: i64 = 9999;
+const MAX_SCALE: f64 = 10.0;
+
+struct BuiltIn {
+    chrome: Value,
+    /// The Chromium milestone of the list ("154"): the version a device's
+    /// "%s" becomes.
+    chromium: String,
+    devices: Vec<Value>,
+}
+
+fn built_in() -> &'static BuiltIn {
+    static LIST: OnceLock<BuiltIn> = OnceLock::new();
+    LIST.get_or_init(|| {
+        let file: Value = serde_json::from_str(BUILT_IN).expect("emulated-devices.json parses");
+        let chrome = file.get("chrome").cloned().unwrap_or(Value::Null);
+        let chromium =
+            chrome.get("chromium").and_then(Value::as_str).unwrap_or_default().to_string();
+        let devices = file
+            .get("devices")
+            .and_then(Value::as_array)
+            .map(|list| list.iter().filter(|device| check(device).is_ok()).cloned().collect())
+            .unwrap_or_default();
+        BuiltIn { chrome, chromium, devices }
+    })
+}
+
+pub(crate) fn create_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS browser_custom_devices (
+           title TEXT PRIMARY KEY NOT NULL,
+           device_json TEXT NOT NULL,
+           position INTEGER NOT NULL
+         );",
+    )?;
+    Ok(())
+}
+
+/// Additive: a `tab_state` table an older build created has no emulation
+/// column. Older builds name their columns, so they keep using the table.
+pub(crate) fn add_tab_emulation_column(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_column = transaction
+        .prepare("PRAGMA table_info(tab_state)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "emulation_json");
+    if !has_column {
+        transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN emulation_json TEXT;")?;
+    }
+    Ok(())
+}
+
+/// The custom devices, oldest first.
+fn custom(connection: &Connection) -> anyhow::Result<Vec<Value>> {
+    let mut statement = connection
+        .prepare("SELECT device_json FROM browser_custom_devices ORDER BY position, title")?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let mut devices = Vec::new();
+    for row in rows {
+        // A row that no longer reads is left out alone (as Chrome does).
+        if let Ok(device) = serde_json::from_str::<Value>(&row?) {
+            devices.push(device);
+        }
+    }
+    Ok(devices)
+}
+
+/// `browser.devices.list`: the custom devices, then the built-in ones.
+pub(crate) fn list(connection: &Connection) -> anyhow::Result<Value> {
+    let list = built_in();
+    let mut devices = custom(connection)?;
+    devices.extend(list.devices.iter().cloned());
+    Ok(json!({"chrome": list.chrome, "devices": devices}))
+}
+
+/// `browser.devices.add_custom`: stores `device` (Chrome's JSONV1 format);
+/// a custom device with the same title is replaced in place. Returns the
+/// stored device (with `origin: "custom"`).
+pub(crate) fn add_custom(transaction: &Transaction<'_>, device: &Value) -> anyhow::Result<Value> {
+    let mut device = device.clone();
+    check(&device).map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
+    if let Some(object) = device.as_object_mut() {
+        object.insert("origin".into(), json!("custom"));
+    }
+    let text = serde_json::to_string(&device)?;
+    anyhow::ensure!(
+        text.len() <= MAX_DEVICE_BYTES,
+        "bad request: a device is at most {MAX_DEVICE_BYTES} bytes of JSON"
+    );
+    let title = device["title"].as_str().unwrap_or_default().to_string();
+    let exists = transaction
+        .query_row("SELECT 1 FROM browser_custom_devices WHERE title = ?1", [&title], |_| Ok(()))
+        .optional()?
+        .is_some();
+    if exists {
+        transaction.execute(
+            "UPDATE browser_custom_devices SET device_json = ?2 WHERE title = ?1",
+            params![title, text],
+        )?;
+    } else {
+        let count: i64 =
+            transaction
+                .query_row("SELECT COUNT(*) FROM browser_custom_devices", [], |row| row.get(0))?;
+        anyhow::ensure!(
+            (count as usize) < MAX_CUSTOM,
+            "bad request: at most {MAX_CUSTOM} custom devices; remove one first"
+        );
+        transaction.execute(
+            "INSERT INTO browser_custom_devices(title, device_json, position)
+             VALUES(?1, ?2, COALESCE((SELECT MAX(position) + 1 FROM browser_custom_devices), 0))",
+            params![title, text],
+        )?;
+    }
+    Ok(device)
+}
+
+/// `browser.devices.remove_custom`: whether a device was removed. Tabs that
+/// emulate it keep their own copy.
+pub(crate) fn remove_custom(transaction: &Transaction<'_>, title: &str) -> anyhow::Result<bool> {
+    Ok(transaction.execute("DELETE FROM browser_custom_devices WHERE title = ?1", [title])? > 0)
+}
+
+/// What `browser.tab.emulate` asks for.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EmulationChange {
+    /// A device by title (`device`), an inline device (`custom`), or neither
+    /// (another orientation of the device the tab emulates).
+    Set {
+        device: Option<String>,
+        custom: Option<Value>,
+        orientation: Option<String>,
+    },
+    Clear,
+}
+
+/// The stored emulation of a tab after `change`: `{device, orientation}`,
+/// the device object copied in, so the tab keeps it when the list changes.
+/// `None` clears. Errors start with "bad request: ".
+pub(crate) fn stored_emulation(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    change: &EmulationChange,
+) -> anyhow::Result<Option<String>> {
+    let EmulationChange::Set { device, custom, orientation } = change else {
+        return Ok(None);
+    };
+    let device = match (device, custom) {
+        (Some(_), Some(_)) => anyhow::bail!("bad request: give device or custom, not both"),
+        (Some(name), None) => find(transaction, name)?,
+        (None, Some(custom)) => {
+            check(custom).map_err(|reason| anyhow::anyhow!("bad request: {reason}"))?;
+            let mut custom = custom.clone();
+            if let Some(object) = custom.as_object_mut() {
+                object.insert("origin".into(), json!("custom"));
+            }
+            custom
+        }
+        (None, None) => {
+            let current: Option<String> = transaction
+                .query_row(
+                    "SELECT emulation_json FROM tab_state WHERE tab_id = ?1",
+                    [tab_id],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            let current = current.and_then(|text| serde_json::from_str::<Value>(&text).ok());
+            match current.and_then(|stored| stored.get("device").cloned()) {
+                Some(device) => device,
+                None => anyhow::bail!(
+                    "bad request: the tab emulates no device; name one (browser.devices.list lists them)"
+                ),
+            }
+        }
+    };
+    let orientation = pick_orientation(&device, orientation.as_deref())?;
+    Ok(Some(serde_json::to_string(&json!({"device": device, "orientation": orientation}))?))
+}
+
+/// The device titled `name`: an exact title first (custom devices win), then
+/// a match that ignores case, spaces and punctuation.
+fn find(connection: &Connection, name: &str) -> anyhow::Result<Value> {
+    let name = name.trim();
+    let mut all = custom(connection)?;
+    all.extend(built_in().devices.iter().cloned());
+    let title = |device: &Value| device["title"].as_str().unwrap_or_default().to_string();
+    if let Some(device) = all.iter().find(|device| title(device) == name) {
+        return Ok(device.clone());
+    }
+    let key = |text: &str| -> String {
+        text.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '+')
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    all.iter().find(|device| key(&title(device)) == key(name)).cloned().ok_or_else(|| {
+        anyhow::anyhow!(
+            "bad request: no device named {name:?}; browser.devices.list lists the devices"
+        )
+    })
+}
+
+/// Chrome's mode orientations, and the names a person types for them.
+fn orientation_name(value: &str) -> Option<&'static str> {
+    Some(match value.trim().to_ascii_lowercase().as_str() {
+        "vertical" | "portrait" => "vertical",
+        "horizontal" | "landscape" => "horizontal",
+        "vertical-spanned" | "unfolded-portrait" => "vertical-spanned",
+        "horizontal-spanned" | "unfolded-landscape" => "horizontal-spanned",
+        _ => return None,
+    })
+}
+
+/// The orientations `device` has, in Chrome's mode order; a device without
+/// modes has vertical and horizontal (Chrome's default).
+fn orientations(device: &Value) -> Vec<&'static str> {
+    let named: Vec<String> = match device.get("modes").and_then(Value::as_array) {
+        Some(modes) => modes
+            .iter()
+            .filter_map(|mode| mode.get("orientation").and_then(Value::as_str).map(str::to_string))
+            .collect(),
+        None => vec!["vertical".into(), "horizontal".into()],
+    };
+    let mut seen = Vec::new();
+    for name in named {
+        if let Some(name) = orientation_name(&name)
+            && !seen.contains(&name)
+            && device["screen"].get(name).is_some_and(Value::is_object)
+        {
+            seen.push(name);
+        }
+    }
+    seen
+}
+
+fn pick_orientation(device: &Value, asked: Option<&str>) -> anyhow::Result<&'static str> {
+    let available = orientations(device);
+    let title = device["title"].as_str().unwrap_or_default();
+    let Some(asked) = asked else {
+        return available
+            .first()
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("bad request: {title:?} has no orientation"));
+    };
+    let name = orientation_name(asked).ok_or_else(|| {
+        anyhow::anyhow!(
+            "bad request: unknown orientation {asked:?}; use vertical, horizontal, vertical-spanned or horizontal-spanned"
+        )
+    })?;
+    anyhow::ensure!(
+        available.contains(&name),
+        "bad request: {title:?} has no {name} orientation; it has {}",
+        available.join(", ")
+    );
+    Ok(name)
+}
+
+/// Why `device` cannot be emulated, if it cannot: Chrome's editor limits.
+fn check(device: &Value) -> Result<(), String> {
+    let object = device.as_object().ok_or("a device is a JSON object")?;
+    let title = object.get("title").and_then(Value::as_str).unwrap_or_default();
+    if title.trim().is_empty() || title.chars().count() > MAX_TITLE_CHARS {
+        return Err(format!("title must be 1 to {MAX_TITLE_CHARS} characters"));
+    }
+    let screen = object.get("screen").and_then(Value::as_object).ok_or("screen is missing")?;
+    let ratio = screen.get("device-pixel-ratio").and_then(Value::as_f64).unwrap_or(0.0);
+    if !(ratio > 0.0 && ratio <= MAX_SCALE) {
+        return Err(format!("{title}: device-pixel-ratio must be above 0 and at most {MAX_SCALE}"));
+    }
+    for name in ["vertical", "horizontal", "vertical-spanned", "horizontal-spanned"] {
+        let Some(size) = screen.get(name) else {
+            if matches!(name, "vertical" | "horizontal") {
+                return Err(format!("{title}: screen.{name} is missing"));
+            }
+            continue;
+        };
+        for side in ["width", "height"] {
+            let value = size.get(side).and_then(Value::as_i64).unwrap_or(0);
+            if !(MIN_SIZE..=MAX_SIZE).contains(&value) {
+                return Err(format!(
+                    "{title}: screen.{name}.{side} must be {MIN_SIZE} to {MAX_SIZE}"
+                ));
+            }
+        }
+    }
+    if object.get("user-agent").is_some_and(|agent| !agent.is_string()) {
+        return Err(format!("{title}: user-agent must be a string"));
+    }
+    if let Some(capabilities) = object.get("capabilities")
+        && !capabilities.as_array().is_some_and(|list| list.iter().all(Value::is_string))
+    {
+        return Err(format!("{title}: capabilities must be a list of strings"));
+    }
+    Ok(())
+}
+
+/// The user agent with Chrome's version in place of "%s", as DevTools
+/// patches it (`patchUserAgentWithChromeVersion`): the first "%s" is the
+/// reduced version "<major>.0.0.0", the second "<major>.0.100.0".
+fn patch_user_agent(agent: &str, major: &str) -> String {
+    if major.is_empty() {
+        return agent.to_string();
+    }
+    let mut result = agent.to_string();
+    for value in [format!("{major}.0.0.0"), format!("{major}.0.100.0")] {
+        match result.find("%s") {
+            Some(index) => result.replace_range(index..index + 2, &value),
+            None => break,
+        }
+    }
+    result
+}
+
+/// `extra.emulation` of a tab: the resolved values of the stored
+/// `{device, orientation}`, or `None` when it does not resolve.
+pub(crate) fn resolve(stored: &str) -> Option<Value> {
+    let stored: Value = serde_json::from_str(stored).ok()?;
+    let device = stored.get("device")?;
+    check(device).ok()?;
+    let orientation = pick_orientation(device, stored.get("orientation")?.as_str()).ok()?;
+    let screen = &device["screen"];
+    let size = &screen[orientation];
+    let (width, height) = (size["width"].as_i64()?, size["height"].as_i64()?);
+    let ratio = screen["device-pixel-ratio"].as_f64()?;
+    let capabilities: Vec<&str> = device
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let mobile = capabilities.contains(&"mobile");
+    let touch = capabilities.contains(&"touch");
+    let major = built_in().chromium.clone();
+    let user_agent = patch_user_agent(device["user-agent"].as_str().unwrap_or_default(), &major);
+    let portrait = matches!(orientation, "vertical" | "vertical-spanned");
+    let screen_orientation = json!({
+        "type": if portrait { "portraitPrimary" } else { "landscapePrimary" },
+        "angle": if portrait { 0 } else { 90 },
+    });
+    // A spanned (open) foldable with a hinge: the fold as a display feature.
+    let display_feature = orientation
+        .ends_with("-spanned")
+        .then(|| size.get("hinge"))
+        .flatten()
+        .filter(|hinge| hinge.is_object())
+        .map(|hinge| {
+            let vertical = orientation == "vertical-spanned";
+            json!({
+                "orientation": if vertical { "vertical" } else { "horizontal" },
+                "offset": if vertical { &hinge["x"] } else { &hinge["y"] },
+                "maskLength": if vertical { &hinge["width"] } else { &hinge["height"] },
+            })
+        });
+    let posture = if display_feature.is_some() { "folded" } else { "continuous" };
+    // Client hints go with a user agent only (DevTools sends them together).
+    let metadata = device
+        .get("user-agent-metadata")
+        .filter(|meta| meta.is_object() && !user_agent.is_empty())
+        .map(|meta| {
+            let text = |key: &str| meta.get(key).and_then(Value::as_str).unwrap_or_default();
+            let brands = |version: String| {
+                json!([
+                    {"brand": "Chromium", "version": version},
+                    {"brand": "Not_A Brand", "version": "24"},
+                ])
+            };
+            json!({
+                "brands": brands(major.clone()),
+                "fullVersionList": brands(format!("{major}.0.0.0")),
+                "fullVersion": format!("{major}.0.0.0"),
+                "platform": text("platform"),
+                "platformVersion": text("platformVersion"),
+                "architecture": text("architecture"),
+                "model": text("model"),
+                "mobile": meta.get("mobile").and_then(Value::as_bool).unwrap_or(mobile),
+            })
+        });
+    let mut metrics = Map::new();
+    for (key, value) in [
+        ("width", json!(width)),
+        ("height", json!(height)),
+        ("deviceScaleFactor", json!(ratio)),
+        ("mobile", json!(mobile)),
+        ("scale", json!(1)),
+        ("screenWidth", json!(width)),
+        ("screenHeight", json!(height)),
+        ("positionX", json!(0)),
+        ("positionY", json!(0)),
+        // The view keeps the pane's size (DevTools sends it too).
+        ("dontSetVisibleSize", json!(true)),
+        ("screenOrientation", screen_orientation.clone()),
+        ("devicePosture", json!({"type": posture})),
+    ] {
+        metrics.insert(key.into(), value);
+    }
+    if let Some(feature) = &display_feature {
+        metrics.insert("displayFeature".into(), feature.clone());
+    }
+    let mut agent = json!({"userAgent": user_agent});
+    if let Some(metadata) = &metadata {
+        agent["userAgentMetadata"] = metadata.clone();
+    }
+    let touch_call = if touch {
+        json!({"enabled": true, "maxTouchPoints": 1})
+    } else {
+        json!({"enabled": false})
+    };
+    let chromium_calls = json!([
+        {"method": "Emulation.setDeviceMetricsOverride", "params": metrics},
+        {"method": "Emulation.setUserAgentOverride", "params": agent},
+        {"method": "Emulation.setTouchEmulationEnabled", "params": touch_call},
+        {"method": "Emulation.setEmitTouchEventsForMouse",
+         "params": {"enabled": touch, "configuration": if mobile { "mobile" } else { "desktop" }}},
+    ]);
+    Some(json!({
+        "device": device["title"],
+        "origin": device.get("origin").cloned().unwrap_or(json!("custom")),
+        "orientation": orientation,
+        "orientations": orientations(device),
+        "width": width,
+        "height": height,
+        "device_scale_factor": ratio,
+        "mobile": mobile,
+        "touch": touch,
+        "user_agent": user_agent,
+        "user_agent_metadata": metadata,
+        "screen_orientation": screen_orientation,
+        "display_feature": display_feature,
+        "device_posture": posture,
+        "chromium_calls": chromium_calls,
+    }))
+}
