@@ -1141,6 +1141,13 @@ body,
   border-bottom: 1px solid var(--hc-border, rgba(128, 128, 128, 0.25));
   font-size: 12px;
 }
+.hc-instance-url {
+  margin-inline-start: auto;
+  font-family: ui-monospace, monospace;
+  opacity: 0.7;
+  user-select: text;
+  -webkit-user-select: text;
+}
 .hc-gate {
   max-width: 420px;
   margin: 15vh auto 0;
