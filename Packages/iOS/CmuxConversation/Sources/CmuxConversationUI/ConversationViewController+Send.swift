@@ -50,9 +50,11 @@ extension ConversationViewController: ConversationComposerViewDelegate {
         pickedAssets = [:]
         guard let rowID = store.send(text: text, images: images, replyToID: replyTo, mentions: mentions, textRuns: textRuns, linkPreview: linkPreview, effect: effect, files: files) else {
             pendingFlight = nil
+            pendingFlightRowIDs = []
             return
         }
         pendingFlight = nil
+        pendingFlightRowIDs = []
         if replyTarget != nil { exitReplyMode(settling: false) }
         if flies { launch(flight, rowID: rowID) }
         if effect != nil { playSentEffect(rowID: rowID) }

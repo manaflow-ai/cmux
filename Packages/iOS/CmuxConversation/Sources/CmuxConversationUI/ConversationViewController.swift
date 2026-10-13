@@ -51,6 +51,10 @@ public final class ConversationViewController: UIViewController {
     var composerHeightConstraint: NSLayoutConstraint?
     /// Set while `composerDidTapSend` inserts the optimistic row.
     var pendingFlight: SendFlight?
+    /// The rows that send inserts, named by its own change. Only these fly:
+    /// what waited (`ConversationLiveChangeGate`) applies first and can
+    /// insert another row of mine (one sent from my other device).
+    var pendingFlightRowIDs: Set<String> = []
     var composerBottomConstraint: NSLayoutConstraint?
     /// Shown until the newest page arrives (slow links can take seconds).
     let initialSpinner = UIActivityIndicatorView(style: .medium)
@@ -673,9 +677,13 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
-            // Live traffic waits while a landed page is measured or the
-            // finger drags (see `ConversationLiveChangeGate`); anything else
-            // first applies what waited, so changes keep their order.
+            if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
+                pendingFlightRowIDs = Set(insertedRowIDs)
+            }
+            // Live traffic waits while a landed page is measured, the finger
+            // drags or a send flies (see `ConversationLiveChangeGate`);
+            // anything else first applies what waited, so changes keep
+            // their order.
             if liveGate.hold(change) { return }
             if let held = liveGate.release() {
                 if change == .prepended {
@@ -1152,7 +1160,7 @@ public final class ConversationViewController: UIViewController {
             let id = newIDs[indexPath.item]
             guard appearances[id] == nil else { continue }
             switch newRows[indexPath.item] {
-            case let .message(model) where model.isOutgoing && pendingFlight != nil:
+            case let .message(model) where model.isOutgoing && pendingFlightRowIDs.contains(id):
                 appearances[id] = .sent
                 flyingRowIDs.insert(id)
             case let .message(model) where !model.isOutgoing && animateLive && model.message.effect != nil:
