@@ -34,7 +34,7 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
-                "status_glyphs": .array(DebugStatusGlyphs.report(in: sidebar)),
+                "status_glyphs": .array(sidebar.debugStatusGlyphs().map(statusGlyph)),
                 "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in
                     .object([
@@ -67,6 +67,18 @@ enum DebugSidebarRows {
                 "window_frame": item.windowFrame.map(rect) ?? .null,
             ])
         }
+    }
+
+    /// A shown status glyph (sidebar-status-glyph-live.py); rects as [x, y, width, height].
+    private static func statusGlyph(_ g: SidebarDebugStatusGlyph) -> JSONValue {
+        func box(_ r: CGRect?) -> JSONValue { r.map { r in .array([r.minX, r.minY, r.width, r.height].map { .number((Double($0) * 100).rounded() / 100) }) } ?? .null }
+        func num(_ v: CGFloat?) -> JSONValue { v.map { .number(Double($0)) } ?? .null }
+        return .object([
+            "state": .string(g.state), "frame": box(g.frame), "scale": num(g.scale), "badge_height": num(g.badgeHeight),
+            "drawn": box(g.drawn), "glyph_side": num(g.glyphSide), "badge": box(g.badge),
+            "soft_1x": g.soft1x.map(JSONValue.number) ?? .null, "soft_2x": g.soft2x.map(JSONValue.number) ?? .null,
+            "title": g.title.map { .object(["text": .string($0), "cap_center_y": num(g.titleCapCenterY)]) } ?? .null,
+        ])
     }
 
     /// The last drop resolution of a live drag: card edge, hit row, zone, target.
