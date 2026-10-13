@@ -95,7 +95,7 @@ export function SubagentGroupHeader({
         {agents.length > STACK && <span className="cv-subagents__more">+{agents.length - STACK}</span>}
       </span>
       <span className="cv-subagents__text">
-        <span className="cv-subagents__title">{t("subagents.count", { n: agents.length })}</span>
+        <span className="cv-subagents__title">{t(agents.length === 1 ? "subagents.count.one" : "subagents.count", { n: agents.length })}</span>
         <span className="cv-subagents__status" data-live={live || undefined}>
           {status}
         </span>

@@ -1,10 +1,28 @@
-/* The header's summary button and popover (summary/SummaryButton.tsx): a menu surface of titled lists. Rows are 28px, text truncates, every control has the theme's hover, press and focus steps on the Motion hover fade. */
+/* The header's summary button and the summary card (summary/SummaryButton.tsx, SummaryCard.tsx): a card of titled lists at the pane's top right, over the transcript and never over the composer (the card lives in .acpmux-stage, the composer below it). Rows are 28px, text truncates, every control has the theme's hover, press and focus steps on the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
 .acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-button:hover,.acpmux-summary-button[aria-expanded="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-summary-popover{width:288px;max-height:min(540px,70vh);overflow:auto;padding:4px 6px 6px;box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-size:var(--text-control);line-height:18px;outline:none}
+.acpmux-summary-card{position:absolute;z-index:3;top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
+.acpmux-reviewing>.acpmux-summary-card{visibility:hidden}
+.acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:2px;padding:4px 4px 4px 6px}
+.acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
+.acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
+.acpmux-summary-card__title{flex:none;font-weight:500}
+.acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
+.acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-summary-card__fold,.acpmux-summary-card__close{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-card__fold:hover,.acpmux-summary-card__close:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-card__close:hover{color:var(--agent-text)}
+.acpmux-summary-card__fold:focus-visible,.acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
+.acpmux-summary-agent[aria-current=true]{background:var(--acpmux-menu-hover)}
+.acpmux-summary-agent__name{font-weight:inherit}
+.acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-summary-agent__state{min-width:52px;text-align:right}
+.acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-warning)}
+.acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-title{margin:0;padding:8px 8px 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500;line-height:16px}
 .acpmux-summary-list{margin:0;padding:0;list-style:none}
@@ -29,15 +47,15 @@
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-none{color:var(--agent-muted)}
-/* Lineage (subagents/Lineage.tsx): a status dot on each agent's icon, its state in muted text. */
+/* A subagent row's icon (SubagentStatusList.tsx): a status dot, the accent while it runs, the warning colour while it waits on the user. */
 .acpmux-lineage__icon{position:relative;flex:none;display:inline-flex;color:var(--agent-muted)}
 .acpmux-lineage__icon::after{content:"";position:absolute;right:-2px;bottom:-2px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--surface-popup);background:var(--agent-muted)}
 .acpmux-lineage__icon[data-state=running]::after{background:var(--agent-accent)}
+.acpmux-lineage__icon[data-state=waiting]::after{background:var(--acpmux-warning)}
+.acpmux-lineage__icon[data-state=done]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=completed]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
-.acpmux-lineage__state{min-width:52px;text-align:right}
-.acpmux-lineage__previous{display:flex;align-items:center;gap:6px}
-@media (prefers-reduced-motion:no-preference){.acpmux-summary-popover{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+@media (prefers-reduced-motion:no-preference){.acpmux-summary-card{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}

@@ -98,6 +98,8 @@ import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
+import { SummaryCard } from "./summary/SummaryCard";
+import { useSummaryCard } from "./summary/cardState";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
@@ -183,7 +185,14 @@ import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
 import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
+import {
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  type SubagentRows,
+  childView,
+  isSubagentGroup,
+  subagentRowsFrom,
+} from "./subagents/subagentRows";
 import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
@@ -2286,16 +2295,17 @@ function AcpmuxPane() {
       return withMoveRows(withShellRows(subagents.rows, chatShellRuns), sessionMoves);
     });
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
-  /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
-  const lineage = useMemo(
+  /// The summary card's subagents: the shown one, and a row's click shows its view.
+  const cardSubagents = useMemo(
     () => ({
       views: snapshot.subagentViews,
       current: childRows ? subagentView : undefined,
-      chat: chatName,
       onOpen: setSubagentView,
     }),
-    [snapshot.subagentViews, childRows, subagentView, chatName],
+    [snapshot.subagentViews, childRows, subagentView],
   );
+  const hasSubagents = useMemo(() => snapshot.rows.some(isSubagentGroup), [snapshot.rows]);
+  const summaryCard = useSummaryCard(snapshot.sessionId, hasSubagents);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   useEffect(() => setSubagentView(undefined), [shownSessionId]);
@@ -4809,16 +4819,7 @@ function AcpmuxPane() {
                         );
                       }}
                       summary={
-                        <SummaryButton
-                          // Another chat closes its summary and gallery, as it does the image viewer.
-                          key={snapshot.sessionId}
-                          rows={snapshot.rows}
-                          changes={quick ? undefined : lastChanges}
-                          onOpenChanges={toggleLastChanges}
-                          onOpenOutput={quick ? undefined : openOutput}
-                          onOpenImage={quick ? undefined : openImage}
-                          lineage={lineage}
-                        />
+                        <SummaryButton card={summaryCard} />
                       }
                       menu={chatMenu}
                       onMenuOpen={readTabState}
@@ -4827,6 +4828,17 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                <SummaryCard
+                  // Another chat closes this one's gallery, as it does the image viewer.
+                  key={snapshot.sessionId}
+                  card={summaryCard}
+                  rows={snapshot.rows}
+                  changes={quick ? undefined : lastChanges}
+                  onOpenChanges={toggleLastChanges}
+                  onOpenOutput={quick ? undefined : openOutput}
+                  onOpenImage={quick ? undefined : openImage}
+                  subagents={cardSubagents}
+                />
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">

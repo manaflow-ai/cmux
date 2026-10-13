@@ -110,6 +110,8 @@ export type AcpmuxPermission = {
   turnId?: string;
   title?: string;
   kind?: string;
+  /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
+  toolCallId?: string;
   pending: boolean;
   options: { id: string; name: string; allow: boolean }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
