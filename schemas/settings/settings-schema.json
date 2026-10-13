@@ -13952,13 +13952,14 @@
       },
       "help" : {
         "key" : "settings.sidebar.cards.tips.help",
-        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."
+        "text" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.cards.tips",
       "keywords" : [
         "sidebar",
         "tips",
+        "hints",
         "did you know",
         "cards",
         "learn",
@@ -13979,11 +13980,11 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.cards.tips.summary",
-        "text" : "A daily tip about a feature you haven't used"
+        "text" : "A daily hint about a feature you haven't used"
       },
       "title" : {
         "key" : "settings.sidebar.cards.tips",
-        "text" : "Show Tips"
+        "text" : "Show Hints"
       },
       "validation" : "portable"
     },
@@ -22716,7 +22717,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
+  "schema_hash" : "f6cd49bdb75c8376d138695e5656c8705d8e170b315df17fff07f799946588f4",
   "sections" : [
     {
       "id" : "general",
