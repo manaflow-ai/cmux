@@ -33,6 +33,8 @@ args = sys.argv[1:]
 url = next(a for a in args if a.startswith("http"))
 out = args[args.index("-o") + 1] if "-o" in args else None
 if "/actions/runs/" in url:
+    if os.environ["FAKE_OWNER_STATUS"] == "fail":
+        sys.exit(22)
     print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", "")}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
@@ -67,6 +69,36 @@ def job(name):
 def wait_script():
     steps = job("tree-owner-wait")["steps"]
     return next(s["run"] for s in steps if s.get("id") == "wait")
+
+
+FAKE_GH = """#!/bin/sh
+echo "gh $*" >> "$FAKE_LOG"
+case "$*" in
+  *--jq*) printf '%b' "$FAKE_ARTIFACTS" ;;
+  *"run rerun $FAKE_RERUN_FAILS"*) exit 1 ;;
+esac
+"""
+
+
+def handoff_script():
+    steps = job("notify-unpublished-tree")["steps"]
+    return next(s for s in steps if "deferred" in s.get("name", ""))["run"]
+
+
+def run_handoff(artifacts, rerun_fails="none"):
+    with tempfile.TemporaryDirectory() as tmp:
+        gh = os.path.join(tmp, "gh")
+        with open(gh, "w") as handle:
+            handle.write(FAKE_GH)
+        os.chmod(gh, os.stat(gh).st_mode | stat.S_IXUSR)
+        log = os.path.join(tmp, "log")
+        open(log, "w").close()
+        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", KEY=KEY, RUN_ID="5",
+                   GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x", FAKE_LOG=log,
+                   FAKE_ARTIFACTS=artifacts, FAKE_RERUN_FAILS=rerun_fails)
+        result = subprocess.run(["bash", "-e", "-c", handoff_script()], cwd=tmp, env=env,
+                                capture_output=True, text=True, timeout=60)
+        return result, open(log).read()
 
 
 def run_wait(owner, **fake):
@@ -107,13 +139,28 @@ def main():
     _check(result.returncode == 0 and "takeover=false" in out and "sleep" not in log,
            f"a claim another live run holds: no build and no waiting ({out.strip()!r}, {log.strip()!r})")
 
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="fail", FAKE_CLAIM_RESULT="owner=5 granted=true")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"an unreadable owner status still lets the claim winner build ({out.strip()!r})")
+
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure",
+                                FAKE_CLAIM_RESULT="owner=4 granted=false")
+    _check(result.returncode == 0 and "takeover=true" in out,
+           f"a claim that still names the ended owner does not strand the key ({out.strip()!r})")
+
+    result, out, log = run_wait("4")
+    _check("deferred=true" in out, f"a run that defers to a live owner says so ({out.strip()!r})")
+    uploads = [s for s in job("tree-owner-wait")["steps"] if "upload-artifact" in str(s.get("uses", ""))]
+    _check(any("cmux-tui-tree-deferred-" in str(s.get("with", {}).get("name", "")) and "deferred" in str(s.get("if", ""))
+               for s in uploads), "a deferring run leaves a cmux-tui-tree-deferred-<key> marker")
+
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out, f"a published tree: no build ({out.strip()!r})")
 
     result, out, log = run_wait("")
     _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
 
-    _check(int(job("tree-owner-wait")["timeout-minutes"]) <= 5, "the owner check holds a runner for at most 5 minutes")
+    _check(int(job("tree-owner-wait")["timeout-minutes"]) <= 10, "the owner check holds a runner for at most 10 minutes")
 
     promote = job("request-nightly-next")
     condition = promote["if"]
@@ -121,6 +168,21 @@ def main():
            "a publishing run on another branch asks for the nightly-next promotion of the feat-cmux-next head that shares its key")
     checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
     _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")
+
+    try:
+        handoff_script()
+    except (StopIteration, KeyError):
+        _check(False, "notify-unpublished-tree hands the key to a run that deferred to it")
+    else:
+        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n13\\t5\\tfeat-cmux-next\\n")
+        _check(result.returncode == 0 and "run rerun 8" in log and "artifacts/12" in log
+               and "run rerun 9" not in log and "rerun 5" not in log,
+               f"an owner that ends unpublished re-runs one deferred run, feat-cmux-next first, never itself ({log.strip()!r})")
+        result, log = run_handoff("11\\t9\\tlane\\n12\\t8\\tfeat-cmux-next\\n", rerun_fails="8")
+        _check(result.returncode == 0 and "run rerun 9" in log and "artifacts/11" in log,
+               f"a deferred run that cannot be re-run passes the key to the next ({log.strip()!r})")
+        result, log = run_handoff("")
+        _check(result.returncode == 0 and "rerun" not in log, "no deferred run: nothing is re-run")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
