@@ -27,10 +27,12 @@ import CmuxConversationCore
 ///
 /// Held changes are merged into one and applied once nothing holds them
 /// (after the measured page, at the lift, at the landing), each with its
-/// own motion. Only
-/// changes from other people wait: a change I made (a send, an Undo Send)
-/// and anything that is not live traffic are applied at once; the caller
-/// then releases what the gate held first, so changes keep their order.
+/// own motion. Only live changes the store does not mark as mine wait: a
+/// send (with its ack or failure) and anything that is not live traffic
+/// are applied at once; the caller then releases what the gate held first,
+/// so changes keep their order. The store marks some changes I make like
+/// other people's (an edit, Undo Send, Delete for me, a translation); they
+/// wait too, at most a flight's second after a send.
 public struct ConversationLiveChangeGate: Sendable, Equatable {
     /// Whether a page is being measured.
     public private(set) var isMeasuring = false

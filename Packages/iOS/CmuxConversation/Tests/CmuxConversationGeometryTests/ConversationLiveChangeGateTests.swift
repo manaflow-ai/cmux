@@ -177,6 +177,17 @@ import Testing
         let landed = gate.endFlight()
         #expect(landed == .typing)
 
+        // The finger lifting while a send is in the air: what waited
+        // follows the landing.
+        gate.beginDragging()
+        gate.beginFlight()
+        let r5 = gate.hold(.typing)
+        #expect(r5)
+        let liftedMidFlight = gate.endDragging()
+        #expect(liftedMidFlight == nil)
+        let landedAfterLift = gate.endFlight()
+        #expect(landedAfterLift == .typing)
+
         // A landing with nothing in the air changes nothing.
         let extra = gate.endFlight()
         #expect(extra == nil)
