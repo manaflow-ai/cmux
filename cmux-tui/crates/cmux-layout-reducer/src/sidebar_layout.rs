@@ -23,6 +23,8 @@ use serde_json::{Map, Value};
 pub const MAX_SECTIONS: usize = 32;
 pub const MAX_ITEMS: usize = 200;
 pub const MAX_TITLE_CHARS: usize = 80;
+/// Longest stored item icon, in bytes (an asset reference is 71).
+pub const MAX_ICON_BYTES: usize = 128;
 pub const MAX_ROWS: std::ops::RangeInclusive<i64> = 1..=50;
 pub const GAP_RANGE: std::ops::RangeInclusive<i64> = 0..=32;
 /// Grid columns, and an item's grid span.
@@ -117,6 +119,17 @@ fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Defau
     deserializer: D,
 ) -> Result<T, D::Error> {
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+/// A string, or none for any other value: a stored row whose field holds
+/// something else (an older or newer writer) still reads (L5).
+fn string_or_none<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Ok(match Value::deserialize(deserializer)? {
+        Value::String(text) => Some(text),
+        _ => None,
+    })
 }
 
 fn yes() -> bool {
@@ -216,13 +229,18 @@ pub struct Item {
     /// Columns the item takes on a grid line (1...12); absent = one tile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<i64>,
+    /// The user's icon for the item (the shared icon value: an SF Symbol
+    /// name, one emoji, `image:` or `svg:sha256-<hex>`), drawn instead of the
+    /// item's own glyph; absent = the item's own (a custom Home icon, S14).
+    #[serde(default, deserialize_with = "string_or_none", skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
 impl Item {
     fn new(id: &str, reference: ItemRef, shows_label: bool) -> Self {
-        Item { id: id.into(), reference, shows_label, span: None, extra: Map::new() }
+        Item { id: id.into(), reference, shows_label, span: None, icon: None, extra: Map::new() }
     }
 }
 
@@ -381,13 +399,31 @@ pub enum Op {
         #[serde(rename = "ref")]
         reference: ItemRef,
     },
+    /// Changes the fields it names: `shows_label`, and `icon` (a value sets
+    /// the item's icon, `null` clears it, absent keeps it).
     #[serde(rename = "item.update")]
-    ItemUpdate { id: String, shows_label: bool },
+    ItemUpdate {
+        id: String,
+        #[serde(default)]
+        shows_label: Option<bool>,
+        #[serde(default)]
+        icon: Update<String>,
+    },
     #[serde(rename = "layout.reset")]
     Reset,
 }
 
 impl Op {
+    /// The item icon this op would store (an item added with one, or an
+    /// update that sets one), which its owner checks before it stores it.
+    pub fn introduced_icon(&self) -> Option<&str> {
+        match self {
+            Op::ItemAdd { item, .. } => item.icon.as_deref(),
+            Op::ItemUpdate { icon: Update::Set(icon), .. } => Some(icon),
+            _ => None,
+        }
+    }
+
     /// The region or content value this op would store that the app cannot
     /// decode (`SidebarRegion` and `SectionContent` are strict in the app),
     /// as `(field, value)`.
@@ -422,6 +458,7 @@ pub enum Reject {
     InvalidContribution,
     ItemsNotAllowed,
     TooMany,
+    InvalidIcon,
 }
 
 impl Reject {
@@ -438,6 +475,7 @@ impl Reject {
             Reject::InvalidContribution => "invalid_contribution",
             Reject::ItemsNotAllowed => "items_not_allowed",
             Reject::TooMany => "too_many",
+            Reject::InvalidIcon => "invalid_icon",
         }
     }
 }
@@ -503,9 +541,16 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
                 section.items.retain(|item| !item.reference.same(reference));
             }
         }
-        Op::ItemUpdate { id, shows_label } => {
+        Op::ItemUpdate { id, shows_label, icon } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
-            sections[s].items[i].shows_label = *shows_label;
+            if let Update::Set(icon) = icon {
+                validate_icon(icon)?;
+            }
+            let item = &mut sections[s].items[i];
+            if let Some(shows_label) = shows_label {
+                item.shows_label = *shows_label;
+            }
+            icon.apply(&mut item.icon);
         }
         Op::Reset => sections = defaults().sections,
     }
@@ -595,6 +640,13 @@ fn validate_max_rows(max_rows: Option<i64>) -> Result<(), Reject> {
         Some(rows) if !MAX_ROWS.contains(&rows) => Err(Reject::InvalidMaxRows),
         _ => Ok(()),
     }
+}
+
+/// An item icon's shape: non-empty and at most `MAX_ICON_BYTES`. The owner
+/// checks the value itself (a symbol, one emoji, or an asset it holds) when
+/// it stores an op (`require_icon_asset`).
+fn validate_icon(icon: &str) -> Result<(), Reject> {
+    if icon.is_empty() || icon.len() > MAX_ICON_BYTES { Err(Reject::InvalidIcon) } else { Ok(()) }
 }
 
 /// L4: an item's grid span is 1...12, like the arrangement's columns.
@@ -717,6 +769,9 @@ fn add_item(
     let s = find_section(section, sections)?;
     ensure_items(&sections[s])?;
     validate_span(item.span)?;
+    if let Some(icon) = &item.icon {
+        validate_icon(icon)?;
+    }
     if locate(&item.id, sections).is_some()
         || sections.iter().any(|existing| existing.id == item.id)
     {

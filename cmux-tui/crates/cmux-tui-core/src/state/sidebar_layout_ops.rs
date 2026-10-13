@@ -11,6 +11,7 @@ use crate::state::prelude::*;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
+use crate::workspace_registry::personal_store::blobs::require_icon_asset;
 use crate::workspace_registry::personal_store::commit_personal;
 
 /// The largest op a client may send (a section with its items).
@@ -43,6 +44,11 @@ impl Mux {
             None,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
+                // An icon names a symbol, an emoji or an asset this store
+                // holds, like every other icon field (icon-assets-v1).
+                if let Some(icon) = parsed.introduced_icon() {
+                    require_icon_asset(transaction, icon)?;
+                }
                 let current = store::document(transaction)?;
                 let next = sidebar_layout::reduce(&current, &parsed)
                     .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;

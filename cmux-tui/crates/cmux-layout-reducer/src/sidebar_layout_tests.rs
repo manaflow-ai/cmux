@@ -588,7 +588,7 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
         7 if flag => Op::ItemRemove { id: item },
         7 => Op::ItemRemoveRef { reference: ItemRef::new("built_in", &reference) },
         _ if rows == 0 => Op::Reset,
-        _ => Op::ItemUpdate { id: item, shows_label: flag },
+        _ => Op::ItemUpdate { id: item, shows_label: Some(flag), icon: Update::Keep },
     }
 }
 
