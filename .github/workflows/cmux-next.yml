@@ -116,6 +116,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/cmux-next/gen-settings-sources.py
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -244,6 +245,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/cmux-next/gen-settings-sources.py
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -909,6 +911,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
 
+      # The hand-edited settings sources in schemas/settings (retired keys so
+      # far, cx-d5b5d) and their generated Swift copies; the daemon embeds the JSON.
+      - name: Settings source copies
+        id: settings-sources
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -1118,6 +1127,7 @@ jobs:
             ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
+            ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
