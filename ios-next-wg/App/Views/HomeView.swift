@@ -131,6 +131,7 @@ struct TerminalList: View {
                             Button { open(terminal.surface) } label: {
                                 TerminalRow(terminal: terminal)
                             }
+                            .buttonStyle(.plain)
                             .swipeActions {
                                 Button("Close", role: .destructive) {
                                     Task { await connection.close(terminal) }
@@ -151,6 +152,12 @@ struct TerminalList: View {
         .background(Color.black)
         .refreshable { await connection.refresh() }
         .task { connection.connect() }
+        #if DEBUG
+        // Simulator checks: `-openFirstTerminal` opens the first terminal once listed.
+        .onChange(of: connection.terminals.first?.surface) { _, surface in
+            if let surface, CommandLine.arguments.contains("-openFirstTerminal") { open(surface) }
+        }
+        #endif
     }
 }
 
