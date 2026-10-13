@@ -61,7 +61,7 @@ struct DecoderTests {
     @Test func hextileBackgroundAndSubrects() async throws {
         let framebuffer = Framebuffer(width: 16, height: 16)
         // background + foreground + one 2x2 subrect at (1,1).
-        let body: [UInt8] = [2 | 4 | 8] + bgrx(blue) + bgrx(red) + [1, 0x11, 0x11]
+        let body: [UInt8] = [UInt8(2 | 4 | 8)] + bgrx(blue) + bgrx(red) + [UInt8(1), 0x11, 0x11]
         _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 16, height: 16, encoding: 5), body: body, into: framebuffer)
         #expect(framebuffer.pixels[0] == blue)
         #expect(framebuffer.pixels[1 * 16 + 1] == red)
@@ -73,9 +73,9 @@ struct DecoderTests {
         let framebuffer = Framebuffer(width: 4, height: 2)
         let decoder = RFBRectangleDecoder()
         // Rect 1: solid tile. Rect 2: packed palette (2 colours, 1 bit). Rect 3: palette RLE.
-        let solid: [UInt8] = [1] + cpixel(green)
-        let packed: [UInt8] = [2] + cpixel(red) + cpixel(blue) + [0b0101_0000, 0b1010_0000]
-        let paletteRLE: [UInt8] = [130] + cpixel(red) + cpixel(green) + [0x80, 2, 0x81, 4]
+        let solid: [UInt8] = [UInt8(1)] + cpixel(green)
+        let packed: [UInt8] = [UInt8(2)] + cpixel(red) + cpixel(blue) + [UInt8(0b0101_0000), UInt8(0b1010_0000)]
+        let paletteRLE: [UInt8] = [UInt8(130)] + cpixel(red) + cpixel(green) + [UInt8(0x80), 2, 0x81, 4]
         // One deflate stream across rectangles (z_stream must not move: heap-allocated).
         let deflater = Deflater()
         func compress(_ input: [UInt8]) -> [UInt8] { deflater.deflate(input) }
@@ -106,7 +106,7 @@ struct DecoderTests {
 
     @Test func cursorAppliesMask() async throws {
         let framebuffer = Framebuffer(width: 1, height: 1)
-        let body = bgrx(red) + bgrx(blue) + [0b1000_0000]
+        let body: [UInt8] = bgrx(red) + bgrx(blue) + [UInt8(0b1000_0000)]
         let effect = try await decode(RFBRectangleHeader(x: 1, y: 0, width: 2, height: 1, encoding: -239), body: body, into: framebuffer)
         #expect(effect == .cursor(VNCCursor(width: 2, height: 1, hotspotX: 1, hotspotY: 0, pixels: [red, 0])))
     }
