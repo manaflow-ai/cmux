@@ -28,13 +28,6 @@ private enum AgentRestoreAdmissionDecision: Sendable {
 }
 
 extension TerminalController {
-    /// How long one admission request waits for a scan that started after it.
-    /// A census over thousands of processes can take most of the default
-    /// budget, and a request that arrives mid-scan may need that scan plus its
-    /// own, so admission waits longer while staying inside the CLI's 30-second
-    /// response timeout (#20186).
-    nonisolated static let agentRestoreAdmissionIndexTimeoutNanoseconds: UInt64 = 20_000_000_000
-
     /// Validates current surface ownership, refreshes live process evidence off-main,
     /// and atomically claims a managed session immediately before the CLI execs it.
     #if compiler(>=6.2)
@@ -83,7 +76,6 @@ extension TerminalController {
             indexComplete = evidence.isComplete
         } else {
             switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
-                timeoutNanoseconds: Self.agentRestoreAdmissionIndexTimeoutNanoseconds,
                 freshAfterUptimeNanoseconds: AgentRestoreAdmissionFreshnessAnchors.shared.anchor(for: inputs)
             ) {
             case .index(let index):

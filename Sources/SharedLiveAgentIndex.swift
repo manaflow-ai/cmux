@@ -142,8 +142,9 @@ final class SharedLiveAgentIndex {
     private let ownershipRefreshTimeoutNanoseconds: UInt64
     // A full scan may outlive the request that started it; the other waiters
     // and later requests still need its result. This only bounds a loader that
-    // never returns, so a slow process census still publishes an index (#20186).
-    nonisolated static let defaultIndexLoaderTimeoutNanoseconds: UInt64 = 30_000_000_000
+    // never returns, so a census over thousands of processes still publishes
+    // an index (#20186).
+    nonisolated static let defaultIndexLoaderTimeoutNanoseconds: UInt64 = 180_000_000_000
     private let indexLoaderTimeoutNanoseconds: UInt64
 
     nonisolated private static func remainingOwnershipRefreshNanoseconds(
@@ -525,17 +526,17 @@ final class SharedLiveAgentIndex {
     /// failed every concurrent restore, so after a relaunch with many agent
     /// panes some deadline always expired first and none was admitted (#20186).
     ///
-    /// - Parameter timeoutNanoseconds: This request's deadline; `nil` uses the
-    ///   instance default.
+    /// - Parameter freshAfterUptimeNanoseconds: Accept any full scan that
+    ///   started at or after this uptime. A caller that retries one operation
+    ///   passes the operation's first request time, so a scan slower than one
+    ///   request's deadline still answers the retries; `nil` means this request.
     func indexForOwnershipDecision(
-        timeoutNanoseconds: UInt64? = nil,
         freshAfterUptimeNanoseconds: UInt64? = nil
     ) async -> SharedLiveAgentIndexRefreshOutcome {
         ensureWatchingHookStoreDirectory()
         let requestedAt = DispatchTime.now().uptimeNanoseconds
         let freshAfter = min(freshAfterUptimeNanoseconds ?? requestedAt, requestedAt)
-        let ownershipRefreshDeadline = requestedAt
-            &+ (timeoutNanoseconds ?? ownershipRefreshTimeoutNanoseconds)
+        let ownershipRefreshDeadline = requestedAt &+ ownershipRefreshTimeoutNanoseconds
         while true {
             guard !Task.isCancelled else { return .cancelled }
             if let index,
@@ -1522,6 +1523,9 @@ final class SharedLiveAgentIndex {
         panelIdsByWorkspaceId: [UUID: Set<UUID>]
     ) {
         let loader = startIndexLoaderIfNeeded()
+#if DEBUG
+        let loaderWaitStartedAt = ContinuousClock.now
+#endif
         guard let result = await awaitIndexLoaderResult(
             loader.task,
             generation: loader.generation,
@@ -1533,6 +1537,13 @@ final class SharedLiveAgentIndex {
             )
             return (false, [:])
         }
+#if DEBUG
+        let loaderWait = loaderWaitStartedAt.duration(to: .now).components
+        cmuxDebugLog(
+            "liveAgentIndex.loaded ms=\(loaderWait.seconds * 1_000 + loaderWait.attoseconds / 1_000_000_000_000_000) " +
+            "complete=\(result.index.isComplete ? 1 : 0)"
+        )
+#endif
         guard !Task.isCancelled else {
             removeOrMarkCancelledForkValidationRequests(pendingRequestIDsToRemoveOnCancellation)
             return (false, [:])
