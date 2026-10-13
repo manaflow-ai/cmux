@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +10,39 @@ import Testing
 
 @Suite(.serialized)
 struct CmuxMainStartupTests {
+
+    @Test
+    func startupPreparationPreservesRestoreOrderingAndCleansCheckpoints() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CmuxMainStartupTests.\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.app.test",
+            appSupportDirectory: directory
+        )
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 1,
+            windows: [SessionWindowSnapshot(
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )]
+        )
+        #expect(store.save(snapshot, fileURL: nil))
+        let primaryURL = try #require(store.defaultSnapshotFileURL())
+        let checkpoints = SessionScrollbackCheckpointStore(primarySnapshotURL: primaryURL)
+        try FileManager.default.createDirectory(at: checkpoints.directoryURL, withIntermediateDirectories: true)
+        try Data("stale".utf8).write(to: checkpoints.fileURL(panelId: UUID()))
+        let preparation = StartupSessionSnapshotPreparation(
+            store: store, previousLaunchWasUnclean: false,
+            crashOnlyPrimarySnapshotRemovalMarker: false, shouldAttemptRestore: true,
+            didHandleExplicitOpenIntent: false, shouldInstallOverwriteGuard: false, environment: [:]
+        )
+        let result = await preparation.run()
+        #expect(result.startupSnapshot?.windows.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: checkpoints.directoryURL.path))
+    }
+
     /// Verifies the policy helper defaults to fatal while preserving overrides.
     @Test
     func exceptionCrashPolicyDefaultsToFatalAndPreservesExplicitOverrides() throws {
