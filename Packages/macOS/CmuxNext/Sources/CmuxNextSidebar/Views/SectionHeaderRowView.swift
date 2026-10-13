@@ -175,7 +175,7 @@ final class SectionHeaderRowView: SidebarRowView {
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }
-        var trailing = b.width - Metrics.space2
+        var trailing = b.width - SidebarStyle.horizontalInset
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
@@ -193,7 +193,8 @@ final class SectionHeaderRowView: SidebarRowView {
         trailing -= chevronSide + Metrics.space2
         let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: nameX, y: (b.height - nh) / 2, width: nw, height: nh)
+        // The label cell draws inside its frame: the text starts where row titles do.
+        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
         let dot = SidebarStyle.dotSize
         status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2

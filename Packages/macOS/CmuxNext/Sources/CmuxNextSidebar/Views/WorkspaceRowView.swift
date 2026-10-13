@@ -295,7 +295,7 @@ final class WorkspaceRowView: SidebarRowView {
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
         // activity.
-        var trailing = b.width - Metrics.space3
+        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
         let control = SidebarStyle.controlSize
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
         setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
@@ -364,7 +364,7 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= w + Metrics.space2
         }
 
-        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
+        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1

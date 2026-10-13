@@ -3,7 +3,8 @@ import CmuxNextDesign
 import Observation
 import QuartzCore
 
-/// Unread badge: a count in a small rounded rectangle, or a round dot, drawn
+/// Unread badge: a count in a quiet small-radius rectangle as tall as the
+/// status glyph (tabular digits, no hairline), or a round dot, drawn
 /// in the Debug Settings look (`NotificationBadgeLook`, cx-epgo). Every look
 /// keeps the same frame, so a switch repaints without moving the row.
 final class UnreadBadgeView: NSView {
@@ -109,8 +110,12 @@ final class UnreadBadgeView: NSView {
 
     override func layout() {
         super.layout()
-        let h = label.intrinsicContentSize.height
-        label.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+        // Optically centered: the digits' cap height sits in the middle of
+        // the rect (the label's line box puts them high), on the pixel grid.
+        let h = label.intrinsicContentSize.height, font = label.font ?? SidebarStyle.badgeFont
+        let scale = window?.backingScaleFactor ?? 2
+        let y = (((bounds.height - font.capHeight) / 2 + font.descender) * scale).rounded() / scale
+        label.frame = NSRect(x: 0, y: y, width: bounds.width, height: h)
         needsDisplay = true
     }
 }
