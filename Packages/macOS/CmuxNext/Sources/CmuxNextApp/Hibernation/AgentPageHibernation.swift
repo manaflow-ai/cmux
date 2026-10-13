@@ -25,6 +25,8 @@ import os
 @MainActor
 final class AgentPageHibernation {
     static let minimumHidden: Double = 10
+    /// How soon a due page still in its window is first looked at again.
+    static let onScreenRecheck: Double = 1
 
     /// The agent tab store once the App made it (no agent tab yet: nothing to release).
     private let store: () -> AgentTabStore?
@@ -58,7 +60,9 @@ final class AgentPageHibernation {
         self.init(tabs: { [weak services] in services?.madeAgentTabs })
         isPinned = { [weak services] key in services?.locateTab(key)?.0.pinned ?? false }
         turnState = { [weak services] key in
-            guard let tabs = services?.madeAgentTabs, let (record, _) = tabs.lookup(tabs.resolve(key)) else { return nil }
+            guard let tabs = services?.madeAgentTabs, var (record, _) = tabs.lookup(tabs.resolve(key)) else { return nil }
+            // The session the page runs, as its rebuild uses it: a refused bind leaves the record on the old one.
+            record.session = tabs.existingView(key)?.model.sessionId ?? tabs.session(of: key)
             return AgentTurnStateStore.shared.state(for: record)
         }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
@@ -129,12 +133,18 @@ final class AgentPageHibernation {
         }
         let current = now()
         var next: Double?
-        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key) == nil {
+        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
             let remaining = threshold - (current - at).seconds
-            if remaining <= 0 {
+            if remaining > 0 {
+                next = min(next ?? remaining, remaining)
+            } else if keepsPage(key) == nil {
                 release(key)
             } else {
-                next = min(next ?? remaining, remaining)
+                // Still in its window: a hide comes before the pane swaps its content, and
+                // the swap sends no event of its own. Look again, backing off the longer it
+                // stays (as long as it is overdue), so a page kept in a window wakes rarely.
+                let again = max(Self.onScreenRecheck, -remaining)
+                next = min(next ?? again, again)
             }
         }
         if let next {
@@ -144,10 +154,11 @@ final class AgentPageHibernation {
         }
     }
 
-    /// Why tab `key`'s hidden page stays, or nil when it can go.
-    func keepsPage(_ key: String) -> HibernationPlanner.Exemption? {
+    /// Why tab `key`'s hidden page stays, or nil when it can go. `onScreen: false` leaves out
+    /// whether its view is still in a window (planning a deadline: the pane takes it out after the hide).
+    func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? {
         if !setting.isEnabled { return .disabled }
-        guard let tabs = store(), Self.canRelease(key, in: tabs) else { return .unsupported }
+        guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
         if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
         return nil
@@ -155,9 +166,9 @@ final class AgentPageHibernation {
 
     /// A chat of this Mac's acpmux with a session, off screen, not a New Tab page, and no shell
     /// command run in it.
-    private static func canRelease(_ key: String, in tabs: AgentTabStore) -> Bool {
+    private static func canRelease(_ key: String, in tabs: AgentTabStore, onScreen: Bool) -> Bool {
         let key = tabs.resolve(key)
-        guard let view = tabs.views[key], !isOnScreen(view), view.model.newTab == nil, !view.model.shell.hasRuns,
+        guard let view = tabs.views[key], !(onScreen && isOnScreen(view)), view.model.newTab == nil, !view.model.shell.hasRuns,
               tabs.newTabPages[key] == nil, let (record, _) = tabs.lookup(key),
               AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost) == .local,
               tabs.daemonForTab(key)?.isLocal != false else { return false }
