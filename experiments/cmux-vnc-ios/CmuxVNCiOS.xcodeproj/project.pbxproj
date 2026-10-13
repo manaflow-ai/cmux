@@ -14,6 +14,7 @@
 		2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 70719AB65CB7047B142F5467 /* CmuxVNC */; };
 		3DE4EA9698154D6BF09451C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
 		4A8640D01932E12BFE02CF3A /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
+		8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
 		8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
 		A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
 		BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
@@ -25,6 +26,7 @@
 /* Begin PBXFileReference section */
 		0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3922A291E66A69D6BB43CE46 /* KeyInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInputView.swift; sourceTree = "<group>"; };
+		3FF8B403BAE7CCD08C35184D /* SeedImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedImport.swift; sourceTree = "<group>"; };
 		516E107D77ED1D54537104D0 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSession.swift; sourceTree = "<group>"; };
 		62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteScreenViewController.swift; sourceTree = "<group>"; };
 		763951F27B0C01E5C5523742 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
@@ -104,6 +106,7 @@
 				E34218DA8A55EF28C184DB10 /* Autopilot.swift */,
 				763951F27B0C01E5C5523742 /* HostStore.swift */,
 				516E107D77ED1D54537104D0 /* RemoteSession.swift */,
+				3FF8B403BAE7CCD08C35184D /* SeedImport.swift */,
 				789676ADCF30DB0BD93352BC /* Snapshotter.swift */,
 			);
 			path = Model;
@@ -211,6 +214,7 @@
 				BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */,
 				0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */,
 				E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */,
+				8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */,
 				FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -10,7 +10,10 @@ struct CmuxVNCApp: App {
         WindowGroup {
             ConnectionsView()
                 .environment(hosts)
-                .onAppear { Snapshotter().start() }
+                .onAppear {
+                    SeedImport().run(into: hosts)
+                    Snapshotter().start()
+                }
         }
     }
 }
