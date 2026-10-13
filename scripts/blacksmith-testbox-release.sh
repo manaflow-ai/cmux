@@ -2,7 +2,8 @@
 # Usage: scripts/blacksmith-testbox-release.sh <tbx_id> [wait-seconds]
 #
 # Ends your Testbox so its warm cmux-tui target dir is committed as the shared
-# sticky disk `cmux-tui-target-v1` for the next box. Use it instead of
+# sticky disk of its branch family (`cmux-tui-target-v2-main` or
+# `cmux-tui-target-v2-next`) for the next box. Use it instead of
 # `blacksmith testbox stop`: stop destroys the VM before the warmup job's post
 # steps run, so nothing is committed on that path.
 #

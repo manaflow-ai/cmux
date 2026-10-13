@@ -71,6 +71,9 @@ final class CloudWorkspaceProjectionCoordinator {
     /// Daemon generation last reported per machine. A persistent re-requester
     /// would otherwise report once for every graph revision.
     private var reportedNonConvergence: [SurfaceMachineID: String] = [:]
+    /// The most recent non-empty plan per machine, so a non-convergence report
+    /// names what the passes kept trying to add and retire.
+    private var lastPlanShape: [SurfaceMachineID: CloudWorkspaceProjectionPlanShape] = [:]
 
     /// Reports non-convergence once per daemon generation, so a trigger outside
     /// this loop that keeps restarting it cannot flood crash reporting.
@@ -81,13 +84,15 @@ final class CloudWorkspaceProjectionCoordinator {
         let generation = state.cursor?.generation ?? ""
         guard reportedNonConvergence[machine] != generation else { return }
         reportedNonConvergence[machine] = generation
+        var data: [String: Any] = [
+            "passes": budget.passes, "idlePasses": budget.idlePasses,
+            "generation": generation, "revision": state.cursor?.revision ?? 0,
+        ]
+        if let shape = lastPlanShape[machine] { data.merge(shape.sentryData) { current, _ in current } }
         sentryCaptureWarning(
             "Cloud workspace projection did not converge",
             category: "cloud.projection",
-            data: [
-                "passes": budget.passes, "idlePasses": budget.idlePasses,
-                "generation": generation, "revision": state.cursor?.revision ?? 0,
-            ]
+            data: data
         )
     }
 
@@ -131,6 +136,7 @@ final class CloudWorkspaceProjectionCoordinator {
         requested.remove(machine)
         localMutations[machine] = nil
         reportedNonConvergence[machine] = nil
+        lastPlanShape[machine] = nil
         let bindings = environment.bindings()
         failures = failures.filter { bindings[$0.key]?.vmID != machine.rawValue }
     }
@@ -172,6 +178,14 @@ final class CloudWorkspaceProjectionCoordinator {
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
             let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
+            if !plan.missing.isEmpty || !plan.obsolete.isEmpty {
+                lastPlanShape[machine] = CloudWorkspaceProjectionPlanShape(plan)
+            }
+            // `project` may satisfy a missing placement by rewriting an obsolete
+            // pane's coordinates. That pane now shows the placement; closing it
+            // would make the next pass rebuild it, forever. A pane reused with
+            // its old coordinates still does not show it and is still retired.
+            var projectedPanels = Set<UUID>()
             do {
                 for placement in plan.missing {
                     guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
@@ -184,13 +198,18 @@ final class CloudWorkspaceProjectionCoordinator {
                     )
                     let (projection, _) = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
+                    if projection.resource == placement.resource,
+                       projection.remoteWorkspaceID == placement.remoteWorkspaceID,
+                       projection.remoteTabID == placement.remoteTabID {
+                        projectedPanels.insert(projection.panelID)
+                    }
                     adoptOrphanedDisplayMembership(placement, replacedBy: projection, state: state, catalog: catalog)
                 }
                 guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
                     if !Task.isCancelled { requested.insert(machine) }
                     return
                 }
-                for projection in plan.obsolete {
+                for projection in plan.obsolete where !projectedPanels.contains(projection.panelID) {
 #if DEBUG
                     cmuxDebugLog("cloudWorkspace.projection.obsolete workspace=\(workspaceID) panel=\(projection.panelID) resource=\(projection.resource.rawValue) remoteWorkspace=\(projection.remoteWorkspaceID ?? "nil") tab=\(projection.remoteTabID ?? "nil") desired=\(desired.count)")
 #endif
@@ -214,6 +233,28 @@ final class CloudWorkspaceProjectionCoordinator {
         }
         let live = Set(environment.bindings().keys)
         failures = failures.filter { live.contains($0.key) }
+    }
+}
+
+/// Privacy-safe summary of one reconcile plan: counts and the kinds of
+/// placement each side holds, never resource, tab or workspace identifiers.
+struct CloudWorkspaceProjectionPlanShape: Equatable {
+    let missing: [String]
+    let obsolete: [String]
+
+    init(_ plan: CloudWorkspaceProjectionPlan) {
+        missing = plan.missing.map { Self.kind($0.resource.kind, tab: $0.remoteTabID, workspace: $0.remoteWorkspaceID) }
+        obsolete = plan.obsolete.map { Self.kind($0.resource.kind, tab: $0.remoteTabID, workspace: $0.remoteWorkspaceID) }
+    }
+
+    private static func kind(_ kind: SurfaceResourceKind, tab: String?, workspace: String?) -> String {
+        "\(kind.rawValue):\(tab == nil ? "untabbed" : "tab"):\(workspace == nil ? "unplaced" : "placed")"
+    }
+
+    var sentryData: [String: Any] {
+        ["missing": missing.count, "obsolete": obsolete.count,
+         "missingKinds": missing.sorted().joined(separator: ","),
+         "obsoleteKinds": obsolete.sorted().joined(separator: ",")]
     }
 }
 
