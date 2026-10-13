@@ -119,7 +119,7 @@ extension AgentPaneModel {
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
         case .sideChat(let fork):
             return await openSideChat(fork)
-        case .openTab(let chat):
+        case .chatTab(let chat):
             // Only a chat this pane made (its fork's or Continue in…'s reply put it in the pane's
             // scope), never the chat itself, and not from a New Tab page.
             guard let sessionId, newTab == nil, chat != sessionId, transport.sessions.contains(chat), let header else {
