@@ -2302,7 +2302,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A shell command that runs a while shows as busy.</string>
 			<key>pfm_name</key>
@@ -2671,11 +2671,11 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
+			<string>A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.</string>
 			<key>pfm_name</key>
 			<string>sidebar.cards.tips</string>
 			<key>pfm_title</key>
-			<string>Show Tips</string>
+			<string>Show Hints</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -3501,42 +3501,6 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Second Line Order</string>
-			<key>pfm_type</key>
-			<string>array</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<array>
-				<string>media</string>
-				<string>zoom</string>
-				<string>downloads</string>
-			</array>
-			<key>pfm_description</key>
-			<string>Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.</string>
-			<key>pfm_name</key>
-			<string>browser.toolbarButtons</string>
-			<key>pfm_subkeys</key>
-			<array>
-				<dict>
-					<key>pfm_name</key>
-					<string>Item</string>
-					<key>pfm_range_list</key>
-					<array>
-						<string>media</string>
-						<string>zoom</string>
-						<string>favorites</string>
-						<string>downloads</string>
-						<string>designMode</string>
-						<string>profile</string>
-						<string>theme</string>
-						<string>devTools</string>
-					</array>
-					<key>pfm_type</key>
-					<string>string</string>
-				</dict>
-			</array>
-			<key>pfm_title</key>
-			<string>Toolbar Buttons</string>
 			<key>pfm_type</key>
 			<string>array</string>
 		</dict>
