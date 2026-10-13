@@ -138,9 +138,6 @@ public final class ConversationComposeViewController: UIViewController {
         // Messages' compose composer: no placeholder, apps disabled until a conversation exists.
         composer.placeholderText = ""
         composer.plusButton.isEnabled = false
-        // Messages' New Message field shows the record waveform, dimmed
-        // with the field until a recipient is in.
-        composer.showRecordGlyph()
         // The keyboard is up for the whole of New Message: the bar keeps
         // its keyboard side inset (16 pt), as Messages' does.
         composer.keyboardProgress = 1

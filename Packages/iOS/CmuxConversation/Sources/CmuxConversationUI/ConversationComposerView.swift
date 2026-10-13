@@ -173,9 +173,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration), for: .normal)
         plusButton.tintColor = .label
         // Disabled (New Message before a recipient) Messages draws the plus
-        // at 30 % ink: 176 on the light glass (iOS 27.0), where UIKit's own
-        // disabled dimming read 137.
-        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(UIColor.label.withAlphaComponent(0.3), renderingMode: .alwaysOriginal), for: .disabled)
+        // lighter than UIKit's own dimming (137 on the light glass).
+        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(UIColor.label.withAlphaComponent(ComposerBarGeometry.disabledPlusAlpha(iOS27: Self.isIOS27)), renderingMode: .alwaysOriginal), for: .disabled)
         plusButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             self.delegate?.composerDidTapPlus(self)
@@ -264,6 +263,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         micButton.isUserInteractionEnabled = false
         micButton.isAccessibilityElement = false
         insertSubview(micButton, aboveSubview: placeholder)
+        if ComposerBarGeometry.showsRecordGlyph(iOS27: Self.isIOS27, sentAudio: false) { showRecordGlyph() }
         applyInkCompositing()
 
         sendLaterChip.isHidden = true
@@ -272,9 +272,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         fieldGlass.contentView.addSubview(sendLaterChip)
     }
 
-    /// Messages' record-audio waveform in place of the microphone: New
-    /// Message shows it from the start (iOS 26.5 and 27.0), a conversation
-    /// once you have sent audio in it.
+    /// Messages' record-audio waveform in place of the microphone
+    /// (`ComposerBarGeometry.showsRecordGlyph`).
     func showRecordGlyph() {
         micButton.setImage(UIImage(systemName: "waveform", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
     }
