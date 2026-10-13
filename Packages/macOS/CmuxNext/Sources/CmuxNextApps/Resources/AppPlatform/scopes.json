@@ -1409,6 +1409,10 @@
       "scope": "team_vm:read",
       "class": "read"
     },
+    "team.ai_limit.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -1770,6 +1774,8 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.ai_limit.member.set",
+    "team.ai_limit.set",
     "team.audit.list",
     "team.enrollment_token.create",
     "team.enrollment_token.list",

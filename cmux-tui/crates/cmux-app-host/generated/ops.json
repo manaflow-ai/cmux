@@ -343,6 +343,7 @@
     "tab_group.remove_tabs",
     "tab_group.ungroup",
     "tab_group.update",
+    "team.ai_limit.get",
     "team.device.compliance",
     "team.device.enroll",
     "team.device.policy",
