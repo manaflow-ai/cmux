@@ -20,8 +20,9 @@ import type { StackServer } from "./stack-server.ts"
  * Only a team.deleted delivery that Stack confirms (TEAM_NOT_FOUND) makes the tombstone. Any
  * other delivery that finds no team changes nothing and asks Stack again later (review P2-2), so
  * one wrong 404 never deletes a team. A delivery processed to the end is recorded by its svix-id
- * (stack_webhook_events, 30 days, past Svix's retry schedule): a replay answers `duplicate` and
- * asks Stack nothing. A tombstoned team's members leave through team.member.remove from the
+ * (stack_webhook_events, 30 days, past Svix's retry schedule) when it arrives: a replay answers
+ * `duplicate` and asks Stack nothing. Since cx-f5tk4 every delivery is kept as a pending row and read
+ * from Stack only with a token of the shared pace; see deliver(). A tombstoned team's members leave through team.member.remove from the
  * alarm, with backoff, and a member whose removal makes no progress is set aside and logged
  * (review P2-3).
  */
@@ -49,7 +50,7 @@ export interface StackSyncDeps {
 }
 
 const SEEN_RETENTION_MS = 30 * 24 * 60 * 60_000
-/** Svix waits about 15 s for an answer; a delivery queued behind slower ones answers 503 before that (it still runs, so the retry is a duplicate). */
+/** Svix waits about 15 s for an answer; a delivery still waiting behind slower ones answers 200 `queued` before that (its row stays). */
 export const DELIVERY_DEADLINE_MS = 10_000
 /** When a delivery found no team: ask Stack again after these delays, then stop (a real deletion sends team.deleted). */
 const RECHECK_DELAYS_MS = [60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000, 6 * 60 * 60_000]
@@ -65,7 +66,9 @@ export const SYNC_MAX_FAILS = 50
 export const syncBackoffMs = (fails: number, random: () => number = Math.random) =>
   Math.round(Math.min(SYNC_BACKOFF_MS.max, SYNC_BACKOFF_MS.first * 2 ** Math.max(0, fails - 1)) * (0.8 + 0.4 * random()))
 
-type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; attempts: number; fails: number }
+type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; due_at: number; attempts: number; fails: number; gen: number; merged: number }
+/** While a row's Stack read runs, the row waits this long (a lease): a restart mid-read leaves it for the alarm. */
+export const SYNC_LEASE_MS = 5 * 60_000
 
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16)
 
@@ -82,11 +85,12 @@ export class StackTeamSync {
   constructor(private readonly deps: () => StackSyncDeps) {}
 
   /**
-   * One delivery (cx-f5tk4). It is first recorded durably: its svix-id (dedupe) and a pending sync row of its
-   * team in stack_team_recheck, so the 200 that follows never loses it. Then, one at a time per team and only
-   * with a pace token, it is reconciled at once and answers its outcome. Without a token, on a Stack failure
-   * (429 included) or past the deadline it answers 200 `queued`: the alarm syncs the team later, with backoff.
-   * The pending row of a team is one row, so queued deliveries of one team merge into one current-state read.
+   * One delivery (cx-f5tk4). It is first recorded durably: its svix-id (dedupe) and a pending row of its team
+   * in stack_team_recheck, so the 200 that follows never loses it. Then, one at a time per team and only with
+   * a pace token, it is reconciled at once and answers its outcome. Without a token, on a Stack failure (429
+   * included), past the deadline, or while the row waits (backoff or a re-check), it answers 200 `queued` and
+   * the alarm syncs the team later. Deliveries of one team share the row: once a second one merged in, the
+   * row runs as one full team sync (the team and its whole member list as Stack has them now).
    */
   deliver(ev: StackEvent, deadlineMs = DELIVERY_DEADLINE_MS): Promise<StackSyncReply> {
     const deps = this.deps()
@@ -94,7 +98,7 @@ export class StackTeamSync {
     if (deps.sql.exec(`SELECT 1 FROM stack_webhook_events WHERE svix_id = ?`, ev.svix_id).toArray().length > 0) return Promise.resolve({ ok: true, outcome: "duplicate", duplicate: true })
     if (!deps.stack) return Promise.resolve({ ok: false, reason: "stack_server_not_configured" })
     const now = Date.now()
-    const { k, fresh } = enqueue(deps.sql, ev, now)
+    const k = enqueue(deps.sql, ev, now)
     deps.sql.exec(`INSERT OR REPLACE INTO stack_webhook_events (svix_id, at, outcome) VALUES (?, ?, ?)`, ev.svix_id, now, "queued")
     deps.sql.exec(`DELETE FROM stack_webhook_events WHERE at < ?`, now - SEEN_RETENTION_MS)
     const expires = now + deadlineMs
@@ -103,11 +107,9 @@ export class StackTeamSync {
       // Past its deadline the caller already answered: the row stays for the alarm.
       if (Date.now() >= expires) return queued
       const row = readRow(deps.sql, k)
-      // A row in backoff waits for its time; another delivery's run may already have synced the team.
-      if (!row || row.fails > 0) return queued
-      // A row this delivery created runs as the delivery itself (its exact outcome); a row that already held
-      // merged deliveries runs as the team sync, so none of them is lost.
-      const out = await this.runRow(deps, row, fresh ? ev : undefined, Date.now())
+      // A row that waits (backoff, a re-check, a lease) keeps its time; another run may have synced the team.
+      if (!row || row.due_at > Date.now()) return queued
+      const out = await this.runRow(deps, row.k, ev)
       if (out === undefined) return queued
       deps.sql.exec(`INSERT OR REPLACE INTO stack_webhook_events (svix_id, at, outcome) VALUES (?, ?, ?)`, ev.svix_id, Date.now(), out)
       return { ok: true, outcome: out }
@@ -121,31 +123,43 @@ export class StackTeamSync {
 
   /**
    * One pending row: a pace token, then Stack read as it is now and committed. Returns the outcome, or
-   * undefined when it could not read now (the row is back with backoff, or ended after SYNC_MAX_FAILS).
-   * `ev`, when given, is the delivery that runs it at once (its own type and member, for its exact outcome).
+   * undefined when it could not read now (back with backoff, or abandoned after SYNC_MAX_FAILS). The row is
+   * leased, never deleted, while Stack is read: a restart mid-read leaves it for the alarm after the lease.
+   * `ev` is the delivery that runs it at once; it runs as itself only while no other delivery merged in.
    */
-  private async runRow(deps: StackSyncDeps, row: QueueRow, ev: StackEvent | undefined, now: number): Promise<string | undefined> {
-    const event: StackEvent = ev ?? {
-      svix_id: `${row.type}:${row.k}:${row.attempts}:${now}`,
-      // A merged sync reads the whole team and its member list (a team event); a re-check keeps its own shape.
-      type: row.type === "sync" ? "team.updated" : row.type,
-      stack_team: row.stack_team,
-      ...(row.stack_user ? { stack_user: row.stack_user } : {})
-    }
+  private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined): Promise<string | undefined> {
     const paced = deps.pace ? await deps.pace().catch(() => false) : true
-    if (!paced) return void backoff(deps, row, now, "paced")
-    // Removed before the read: a re-check this sync schedules writes its own row, and a failure puts this one back.
-    deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ?`, row.k)
+    // Read again after the await: a delivery may have merged in, or another run synced it.
+    const row = readRow(deps.sql, k)
+    if (!row) return undefined
+    if (!paced) return void backoff(deps, row, "paced")
+    const own = ev !== undefined && row.merged === 0
+    const event: StackEvent = own
+      ? ev
+      : {
+          svix_id: `${row.type}:${row.k}:${row.attempts}:${Date.now()}`,
+          // A merged sync reads the whole team and its member list (a team event); a re-check keeps its shape.
+          type: row.type === "sync" ? "team.updated" : row.type,
+          stack_team: row.stack_team,
+          ...(row.stack_user ? { stack_user: row.stack_user } : {})
+        }
+    deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ?`, Date.now() + SYNC_LEASE_MS, k)
     let out: string
     try {
       out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts)
     } catch (e) {
-      // A Stack failure (never its body): the sync waits and tries again.
-      console.error(JSON.stringify({ msg: "stack webhook lookup failed", svix_id: event.svix_id, error: String(e).slice(0, 200) }))
-      return void backoff(deps, row, now, "lookup")
+      // A Stack failure (never its body, never a user id): the row waits and tries again.
+      console.error(JSON.stringify({ msg: "stack webhook lookup failed", team: deps.team, type: row.type, error: String(e).slice(0, 200) }))
+      const current = readRow(deps.sql, k)
+      if (current) backoff(deps, current, "lookup")
+      return undefined
     }
-    // A reject ends this sync (logged with its code, never a user id); a later delivery syncs the team again.
+    // A reject ends this sync (logged with its code); a later delivery syncs the team again.
     if (out.startsWith("reject:")) console.error(JSON.stringify({ msg: "stack team sync rejected; ended", team: deps.team, code: out.slice("reject:".length) }))
+    // Done: remove the row unless something changed it meanwhile (a merged delivery or a re-check that
+    // reconcile scheduled bumps gen). A merged delivery's row runs again at once, as a full sync.
+    const changed = deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND gen = ?`, k, row.gen).rowsWritten === 0
+    if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, Date.now(), k)
     return out
   }
 
@@ -155,12 +169,11 @@ export class StackTeamSync {
     // Personal teams never mirror Stack; a team not mirrored yet may hold a re-check.
     if (deps.state().team?.kind === "personal") return
     ensureTables(deps.sql)
-    const due = deps.sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, attempts, fails FROM stack_team_recheck WHERE due_at <= ? ORDER BY due_at LIMIT 20`, now).toArray()
+    const due = deps.sql.exec<{ k: string }>(`SELECT k FROM stack_team_recheck WHERE due_at <= ? ORDER BY due_at LIMIT 20`, now).toArray()
     for (const r of due) {
       const run = async () => {
         // Run only if it is still there and still due (another run may have synced or rescheduled it).
-        const row = deps.sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, attempts, fails FROM stack_team_recheck WHERE k = ? AND due_at <= ?`, r.k, now).toArray()[0]
-        if (row) await this.runRow(deps, row, undefined, now)
+        if (deps.sql.exec(`SELECT 1 FROM stack_team_recheck WHERE k = ? AND due_at <= ?`, r.k, now).toArray().length > 0) await this.runRow(deps, r.k, undefined)
       }
       if (deps.stack) await (this.queue = this.queue.then(run, run))
     }
@@ -304,28 +317,35 @@ const ensureTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS stack_webhook_events (svix_id TEXT PRIMARY KEY, at INTEGER NOT NULL, outcome TEXT NOT NULL)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS stack_webhook_events_at ON stack_webhook_events (at)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS stack_team_recheck (k TEXT PRIMARY KEY, type TEXT NOT NULL, stack_team TEXT NOT NULL, stack_user TEXT, due_at INTEGER NOT NULL, attempts INTEGER NOT NULL)`)
-  // Read failures of a pending row (backoff, cx-f5tk4); `attempts` stays the team-missing re-check count.
-  if (!sql.exec<{ name: string }>(`PRAGMA table_info(stack_team_recheck)`).toArray().some((c) => c.name === "fails")) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN fails INTEGER NOT NULL DEFAULT 0`)
+  // Pending syncs (cx-f5tk4): read failures (backoff), a generation bumped by every change, and whether a
+  // second delivery merged in. `attempts` stays the team-missing re-check count. Checked once per instance.
+  if (!migrated.has(sql)) {
+    const have = new Set(sql.exec<{ name: string }>(`PRAGMA table_info(stack_team_recheck)`).toArray().map((c) => c.name))
+    for (const c of ["fails", "gen", "merged"]) if (!have.has(c)) sql.exec(`ALTER TABLE stack_team_recheck ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`)
+    migrated.add(sql)
+  }
 }
+const migrated = new WeakSet<SqlStorage>()
 
 const syncKey = (stackTeam: string) => `sync|${stackTeam}|`
 
 const readRow = (sql: SqlStorage, k: string): QueueRow | undefined =>
-  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, attempts, fails FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
+  sql.exec<QueueRow>(`SELECT k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged FROM stack_team_recheck WHERE k = ?`, k).toArray()[0]
 
 /**
  * Records a delivery's pending sync, durably, before any Stack read (cx-f5tk4). A team.deleted keeps its own
- * row (only a confirmed delete deletes); every other event merges into the team's one sync row, which reads
- * the team and its whole member list. An existing row keeps its time, so a new delivery never bypasses a backoff.
+ * row (only a confirmed delete deletes); every other event shares the team's sync row. A delivery that finds
+ * the row there marks it merged (it runs as a full team sync) and bumps its generation; the row keeps its
+ * time, so a new delivery never bypasses a backoff or a re-check wait.
  */
-const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): { k: string; fresh: boolean } => {
+const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): string => {
   const [k, type] = ev.type === "team.deleted" ? [`team.deleted|${ev.stack_team}|`, "team.deleted"] : [syncKey(ev.stack_team), "sync"]
-  const fresh = sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails) VALUES (?, ?, ?, NULL, ?, -1, 0) ON CONFLICT(k) DO NOTHING`, k, type, ev.stack_team, now).rowsWritten > 0
-  return { k, fresh }
+  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged) VALUES (?, ?, ?, NULL, ?, -1, 0, 0, 0) ON CONFLICT(k) DO UPDATE SET gen = gen + 1, merged = 1`, k, type, ev.stack_team, now)
+  return k
 }
 
-/** A pending row that could not read Stack now: back with backoff, or ended (logged) after SYNC_MAX_FAILS. */
-const backoff = (deps: StackSyncDeps, row: QueueRow, now: number, why: "paced" | "lookup") => {
+/** A pending row that could not read Stack now: back with backoff, or abandoned (logged) after SYNC_MAX_FAILS. */
+const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup") => {
   const fails = row.fails + 1
   if (fails > SYNC_MAX_FAILS) {
     deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ?`, row.k)
@@ -333,7 +353,7 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, now: number, why: "paced" |
     console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
-  deps.sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails) VALUES (?, ?, ?, ?, ?, ?, ?)`, row.k, row.type, row.stack_team, row.stack_user, now + syncBackoffMs(fails), row.attempts, fails)
+  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, Date.now() + syncBackoffMs(fails), fails, row.k)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */
@@ -341,13 +361,14 @@ const schedule = (sql: SqlStorage, ev: StackEvent, attempt: number, now: number)
   ensureTables(sql)
   const next = attempt + 1
   if (next >= RECHECK_DELAYS_MS.length) {
-    console.error(JSON.stringify({ msg: "stack team still missing after re-checks; dropped", svix_id: ev.svix_id }))
+    console.error(JSON.stringify({ msg: "stack team still missing after re-checks; dropped", type: ev.type }))
     return false
   }
   // A pending delete and a membership re-check of the same team are separate rows.
   const type = ev.type === "team.deleted" ? "team.deleted" : "recheck"
   const k = `${type}|${ev.stack_team}|${ev.stack_user ?? ""}`
-  sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts) VALUES (?, ?, ?, ?, ?, ?)`, k, type, ev.stack_team, ev.stack_user ?? null, now + RECHECK_DELAYS_MS[next]!, next)
+  // A re-check bumps the row's generation, so a sync that holds this key never removes it (cx-f5tk4).
+  sql.exec(`INSERT INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails, gen, merged) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0) ON CONFLICT(k) DO UPDATE SET type = excluded.type, stack_user = excluded.stack_user, due_at = excluded.due_at, attempts = excluded.attempts, fails = 0, gen = gen + 1, merged = 0`, k, type, ev.stack_team, ev.stack_user ?? null, now + RECHECK_DELAYS_MS[next]!, next)
   return true
 }
 

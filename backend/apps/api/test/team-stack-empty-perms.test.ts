@@ -120,6 +120,8 @@ describe("Stack members with no permission entries (cx-6wc8)", { timeout: 60_000
     const r = await teamUpdated(t.stackTeam)
     expect(r.status).toBe(200)
     expect(r.body.outcome).toBe("queued")
+    // The sync waits with backoff (cx-f5tk4): one pending row with one failure.
+    expect(await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec<{ fails: number }>(`SELECT fails FROM stack_team_recheck WHERE k LIKE 'sync|%'`).toArray())).toEqual([{ fails: 1 }])
     expect(await rolesOf(t.creator.token, t.team)).toEqual({ [t.creator.user]: "owner", [admin.user]: "admin" })
     expect((await teamState(t.team)).member_count).toBe(before.member_count)
   })
