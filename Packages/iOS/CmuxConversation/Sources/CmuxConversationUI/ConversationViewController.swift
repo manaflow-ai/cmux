@@ -650,11 +650,11 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
-            // Live traffic waits while a landed page is measured (see
-            // `ConversationPageMeasureGate`); anything else first applies
-            // what waited, so changes keep their order.
-            if pageMeasure.hold(change) { return }
-            if let held = pageMeasure.release() { rebuild(change: held) }
+            // Live traffic waits while a landed page is measured or the
+            // finger drags (see `ConversationLiveChangeGate`); anything else
+            // first applies what waited, so changes keep their order.
+            if liveGate.hold(change) { return }
+            if let held = liveGate.release() { rebuild(change: held) }
             rebuild(change: change)
         }
     }
@@ -740,7 +740,7 @@ public final class ConversationViewController: UIViewController {
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
         let work = MeasureWork(models: pending)
-        pageMeasure.beginMeasuring()
+        liveGate.beginMeasuring()
         Task { [weak self] in
             let measured = await Task.detached(priority: .userInitiated) {
                 var result: [MessageLayoutCache.Measured] = []
@@ -756,11 +756,11 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
-            let held = self.pageMeasure.finishMeasuring()
+            let held = self.liveGate.finishMeasuring()
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
             // What arrived meanwhile follows the page, with its own motion
             // (or waits again, when the store had another page to measure).
-            if let held, !self.pageMeasure.hold(held) { self.rebuild(change: held) }
+            if let held, !self.liveGate.hold(held) { self.rebuild(change: held) }
         }
         return true
     }
@@ -792,7 +792,7 @@ public final class ConversationViewController: UIViewController {
     /// Fewer new rows than this measure in place (a page is 50).
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
-    private var pageMeasure = ConversationPageMeasureGate()
+    private var liveGate = ConversationLiveChangeGate()
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
@@ -1592,6 +1592,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         landAllFlights()
         dismissPhotoDrawer()
         isScrollingToTop = false
+        // As in Messages, nothing changes the transcript under the finger.
+        liveGate.beginDragging()
         #if DEBUG
         transcriptDynamics?.dragBegan(atContentY: scrollView.panGestureRecognizer.location(in: scrollView).y)
         #endif
@@ -1602,6 +1604,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isPinnedToBottom = isNearBottom(tolerance: 44)
             trimHistoryIfResting()
         }
+        // What arrived while the finger dragged applies at the lift.
+        if let held = liveGate.endDragging() { rebuild(change: held) }
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
