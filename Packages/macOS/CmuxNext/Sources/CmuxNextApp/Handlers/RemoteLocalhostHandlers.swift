@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// Set Workspace Localhost (cx-d0d.41, plans/cmux-next/remote-localhost.md 9):
 /// whose localhost a workspace's browser tabs reach is the person's own
@@ -43,10 +44,8 @@ enum RemoteLocalhostHandlers {
             // The sheet goes before the caller stops waiting (the router never
             // cancels tracked work): a change nobody waits for never happens.
             let sheet = Task { await UserOnlySettingConfirmation.ask(prompt, services: services) }
-            let deadline = Task {
-                try? await Task.sleep(for: ActionDescriptor.resultDeadline - .seconds(5))
-                sheet.cancel()
-            }
+            let deadline = DemandTimer(owner: "remote-localhost-approval")
+            deadline.schedule(after: ActionDescriptor.resultDeadline - .seconds(5)) { sheet.cancel() }
             defer { deadline.cancel() }
             guard await sheet.value, !sheet.isCancelled else {
                 return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.localhostChoiceNotApproved)
