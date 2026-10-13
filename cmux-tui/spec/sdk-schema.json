@@ -18986,6 +18986,104 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "merge-bookmarks": {
+   "authority": "control",
+   "since": 12,
+   "capability": "bookmarks-merge-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "merge_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "chromium_bookmarks": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "merged": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "False when this merge_key was already merged for the profile: nothing changed."
+     },
+     "created": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Nodes written."
+     },
+     "skipped": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Chromium nodes cmux already had (same id, or same URL in the same folder), folders merged into one with the same title, and nodes refused by the limits."
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "create-profile": {
    "authority": "control",
    "since": 12,

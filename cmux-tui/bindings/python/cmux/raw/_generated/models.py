@@ -3163,6 +3163,26 @@ class MarkWorkspacesProviderManagedRequest:
 
 
 @dataclass(frozen=True)
+class MergeBookmarksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/merge-bookmarks/request'
+    browser_profile_id: str
+    chromium_bookmarks: str
+    merge_key: str
+    mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MergeBookmarksResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/merge-bookmarks/result'
+    created: int
+    merged: bool
+    replayed: bool
+    skipped: int
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
@@ -5614,6 +5634,8 @@ __all__ = [
     'MachineListeningTcpRequest',
     'MachineUsageRequest',
     'MarkWorkspacesProviderManagedRequest',
+    'MergeBookmarksRequest',
+    'MergeBookmarksResult',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',

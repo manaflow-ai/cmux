@@ -429,7 +429,7 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
 /// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
-pub use bookmarks::{BOOKMARK_ICON_CAPABILITY, BOOKMARKS_CAPABILITY};
+pub use bookmarks::{BOOKMARK_ICON_CAPABILITY, BOOKMARKS_CAPABILITY, BOOKMARKS_MERGE_CAPABILITY};
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -1603,6 +1603,7 @@ enum Command {
     MoveBookmark(bookmarks::MoveParams),
     DeleteBookmark(bookmarks::DeleteParams),
     ImportBookmarks(bookmarks::ImportParams),
+    MergeBookmarks(bookmarks::MergeParams),
     /// The local feed owner (`feed-local-owner-v1`, server/feed_local.rs).
     FeedLocalList(feed_local::ListParams),
     FeedLocalRead(feed_local::ReadParams),
@@ -3450,6 +3451,7 @@ fn handle_command_with_cancellation(
         Command::MoveBookmark(params) => bookmarks::move_to(mux, &actor, params),
         Command::DeleteBookmark(params) => bookmarks::delete(mux, &actor, params),
         Command::ImportBookmarks(params) => bookmarks::import(mux, &actor, params),
+        Command::MergeBookmarks(params) => bookmarks::merge(mux, &actor, params),
         cmd @ (Command::FeedLocalList(_)
         | Command::FeedLocalRead(_)
         | Command::FeedLocalHandoffBegin(_)

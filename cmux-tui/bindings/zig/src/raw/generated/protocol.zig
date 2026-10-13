@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815";
+pub const ir_sha256 = "f79071389e332add53d980448d5f6b72dc4bfe9e5855fb96ecaec482a9f74eb3";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5673,6 +5673,37 @@ pub fn markWorkspacesProviderManaged(client: anytype, request: MarkWorkspacesPro
     );
 }
 
+pub const MergeBookmarksRequest = struct {
+    browser_profile_id: []const u8,
+    chromium_bookmarks: []const u8,
+    merge_key: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+};
+
+pub const MergeBookmarksResult = struct {
+    /// Nodes written.
+    created: u64,
+    /// False when this merge_key was already merged for the profile: nothing changed.
+    merged: bool,
+    replayed: bool,
+    /// Chromium nodes cmux already had (same id, or same URL in the same folder), folders merged into one with the same title, and nodes refused by the limits.
+    skipped: u64,
+};
+
+pub fn mergeBookmarks(client: anytype, request: MergeBookmarksRequest) !wire.Decoded(MergeBookmarksResult) {
+    return client.callTyped(
+        MergeBookmarksResult,
+        .{
+            .name = "merge-bookmarks",
+            .authority = "control",
+            .since = 12,
+            .capability = "bookmarks-merge-v1",
+        },
+        request,
+    );
+}
+
 pub const MintTerminalRendererRequest = struct {
     surface: Id,
     ttl_ms: ?u64 = null,
@@ -10221,7 +10252,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 254;
+pub const command_count: usize = 255;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10342,6 +10373,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
+    .{ .name = "merge-bookmarks", .authority = "control", .since = 12, .capability = "bookmarks-merge-v1", .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },

@@ -11,8 +11,8 @@ use super::Mux;
 use crate::Actor;
 use crate::workspace_registry::WorkspaceMutation;
 use crate::workspace_registry::personal_bookmarks::{
-    BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkOp, BookmarkUpdate,
-    invalid_bookmark,
+    BookmarkError, BookmarkImport, BookmarkImportNode, BookmarkInput, BookmarkMerge, BookmarkOp,
+    BookmarkUpdate, invalid_bookmark,
 };
 
 /// One bookmark tree per browser profile in the home session: the
@@ -23,6 +23,10 @@ pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
 /// A bookmark folder's `icon`: set or cleared by `update-bookmark`, shown by
 /// `list-bookmarks` (one emoji, an SF Symbol name or a stored asset).
 pub const BOOKMARK_ICON_CAPABILITY: &str = "bookmark-icon-v1";
+
+/// `merge-bookmarks`: the first sync of a Chromium bookmark store keeps
+/// the bookmarks only Chromium has (plans/cmux-next/bookmarks.md section 4).
+pub const BOOKMARKS_MERGE_CAPABILITY: &str = "bookmarks-merge-v1";
 
 /// `list-bookmarks`.
 #[derive(Deserialize)]
@@ -116,6 +120,16 @@ pub(super) struct ImportParams {
     nodes: Vec<Value>,
 }
 
+/// `merge-bookmarks`: a Chromium `Bookmarks` file, once per merge key.
+#[derive(Deserialize)]
+pub(super) struct MergeParams {
+    #[serde(flatten)]
+    key: Key,
+    browser_profile_id: String,
+    merge_key: String,
+    chromium_bookmarks: String,
+}
+
 /// The `error_code` of a refused bookmark command.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<BookmarkError>().map(|error| error.code().to_string())
@@ -179,6 +193,15 @@ pub(super) fn import(mux: &Mux, actor: &Actor, params: ImportParams) -> anyhow::
         nodes,
     };
     apply(mux, actor, params.key, BookmarkOp::Import(import))
+}
+
+pub(super) fn merge(mux: &Mux, actor: &Actor, params: MergeParams) -> anyhow::Result<Value> {
+    let merge = BookmarkMerge {
+        browser_profile_id: params.browser_profile_id,
+        merge_key: params.merge_key,
+        chromium_bookmarks: params.chromium_bookmarks,
+    };
+    apply(mux, actor, params.key, BookmarkOp::Merge(merge))
 }
 
 fn apply(mux: &Mux, actor: &Actor, key: Key, op: BookmarkOp) -> anyhow::Result<Value> {

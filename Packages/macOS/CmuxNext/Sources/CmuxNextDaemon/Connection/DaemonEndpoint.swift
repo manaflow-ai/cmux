@@ -174,6 +174,9 @@ public struct DaemonCapabilities: Sendable {
     public let bookmarks = "bookmarks-v1"
     /// A bookmark folder's `icon` on `list-bookmarks` and `update-bookmark` (null clears).
     public let bookmarkIcon = "bookmark-icon-v1"
+    /// `merge-bookmarks`: a Chromium bookmark store's own bookmarks merge into
+    /// the profile's tree once, before the bridge's first sync.
+    public let bookmarksMerge = "bookmarks-merge-v1"
     /// The daemon history module (react-pages.md H3): page visits, the merged read model,
     /// removal with restore ids, and `history-changed`.
     public let history = "history-v1"
@@ -325,7 +328,7 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, bookmarksMerge, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,

@@ -369,6 +369,9 @@ class GeneratedClientMixin:
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
 
+    def merge_bookmarks(self, browser_profile_id: str, chromium_bookmarks: str, merge_key: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> MergeBookmarksResult:
+        return self._invoke_command('merge-bookmarks', MergeBookmarksRequest(browser_profile_id=browser_profile_id, chromium_bookmarks=chromium_bookmarks, merge_key=merge_key, mutation_id=mutation_id, origin=origin))
+
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
 
@@ -894,6 +897,7 @@ GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspace
 GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
+GeneratedClientMixin.merge_bookmarks.__cmux_command__ = COMMANDS['merge-bookmarks']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']

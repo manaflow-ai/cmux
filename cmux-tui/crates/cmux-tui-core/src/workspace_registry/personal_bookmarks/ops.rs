@@ -406,6 +406,11 @@ fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Opti
             let (root_ids, count) = import_in(tx, import)?;
             (json!({"root_ids": root_ids, "count": count}), Some(profile))
         }
+        BookmarkOp::Merge(merge) => {
+            let profile = merge.browser_profile_id.clone();
+            let (result, changed) = super::merge::merge_in(tx, merge)?;
+            (result, changed.then_some(profile))
+        }
     })
 }
 

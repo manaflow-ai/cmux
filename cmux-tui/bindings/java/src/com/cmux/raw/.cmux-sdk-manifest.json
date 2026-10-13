@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "c7f2dd71413592ea07571866a331ebcdb785ef0693a4e64eccfc34d2cb27a5d6",
-      "size": 68976
+      "sha256": "d89cbc884ae81da2f4e8c0685f10af38052308a7889ad7b05cc4456a2739affe",
+      "size": 69212
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1097,8 +1097,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "68f6a7957092ef21d6250ad3864f6e09d9a54f79fb36b56786b5a78095e2bd16",
-      "size": 60075
+      "sha256": "cd003c36d9222379f542f47c1b3205aebf0a7ead7866ce3a369dd9d87caf25f6",
+      "size": 60320
     },
     {
       "path": "GetBlobRequest.java",
@@ -1441,6 +1441,16 @@
       "size": 2275
     },
     {
+      "path": "MergeBookmarksRequest.java",
+      "sha256": "9bfdfea2d2cabfdfa54ee424f3b4fb25dd6aaddd2de08f2399c207a484b3d926",
+      "size": 5296
+    },
+    {
+      "path": "MergeBookmarksResult.java",
+      "sha256": "4f3b4e34afedb33aeea35b75dfec9d8b6c889741dd387ea3f40e4417923600e8",
+      "size": 5259
+    },
+    {
       "path": "MintTerminalRendererByTerminalRequest.java",
       "sha256": "dc51740173526cc60375f80299ae6c753ba2dcdacb899e0712e79ce069dbc7cc",
       "size": 2852
@@ -1772,7 +1782,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f395d701186bd2d33ed66977111e025312fca58c40409a2fdb7cf460122e7f1c",
+      "sha256": "8a197ec5bd207f096903175b7af71941d0bd5edfa8556aa45cf7e362b2e9b855",
       "size": 6393
     },
     {
@@ -3017,7 +3027,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815",
+  "ir_sha256": "f79071389e332add53d980448d5f6b72dc4bfe9e5855fb96ecaec482a9f74eb3",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

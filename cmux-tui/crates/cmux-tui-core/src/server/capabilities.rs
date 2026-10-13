@@ -147,6 +147,7 @@ pub(super) fn advertised_capabilities(
         PERSONAL_REMOTE_LOCALHOST_CAPABILITY,
         BOOKMARKS_CAPABILITY,
         BOOKMARK_ICON_CAPABILITY,
+        BOOKMARKS_MERGE_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
         crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815";
+inline constexpr std::string_view kProtocolIrSha256 = "f79071389e332add53d980448d5f6b72dc4bfe9e5855fb96ecaec482a9f74eb3";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -360,6 +360,8 @@ struct ListWorkspacesRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MergeBookmarksRequest;
+struct MergeBookmarksResult;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -3086,6 +3088,24 @@ struct MachineUsageResult {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MergeBookmarksRequest {
+    std::string browser_profile_id{};
+    std::string chromium_bookmarks{};
+    std::string merge_key{};
+    Field<std::string> mutation_id{};
+    Field<std::string> origin{};
+    friend bool operator==(const MergeBookmarksRequest&, const MergeBookmarksRequest&) = default;
+};
+
+struct MergeBookmarksResult {
+    std::uint64_t created{};
+    bool merged{};
+    bool replayed{};
+    std::uint64_t skipped{};
+    Json::Object additional_properties{};
+    friend bool operator==(const MergeBookmarksResult&, const MergeBookmarksResult&) = default;
 };
 
 struct MintTerminalRendererByTerminalRequest {
@@ -7367,6 +7387,18 @@ template <>
 struct Codec<MarkWorkspacesProviderManagedRequest> {
     static Result<Json> encode(const MarkWorkspacesProviderManagedRequest& value);
     static Result<MarkWorkspacesProviderManagedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MergeBookmarksRequest> {
+    static Result<Json> encode(const MergeBookmarksRequest& value);
+    static Result<MergeBookmarksRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MergeBookmarksResult> {
+    static Result<Json> encode(const MergeBookmarksResult& value);
+    static Result<MergeBookmarksResult> decode(const Json& value);
 };
 
 template <>

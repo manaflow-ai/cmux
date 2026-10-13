@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815. */
+/* cmux-tui mux protocol 12, IR f79071389e332add53d980448d5f6b72dc4bfe9e5855fb96ecaec482a9f74eb3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815" as const;
+export const SDK_IR_SHA256 = "f79071389e332add53d980448d5f6b72dc4bfe9e5855fb96ecaec482a9f74eb3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1393,6 +1393,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Authority must match the value provisioned before this mux generation accepted control clients."
+    ]
+  },
+  "merge-bookmarks": {
+    "authority": "control",
+    "since": 12,
+    "capability": "bookmarks-merge-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "mint-terminal-renderer": {
@@ -17643,6 +17653,97 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "merge-bookmarks": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "browser_profile_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "chromium_bookmarks": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "merge_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": true,
+      "fields": {
+        "created": {
+          "description": "Nodes written.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "merged": {
+          "description": "False when this merge_key was already merged for the profile: nothing changed.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "skipped": {
+          "description": "Chromium nodes cmux already had (same id, or same URL in the same folder), folders merged into one with the same title, and nodes refused by the limits.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "mint-terminal-renderer": {

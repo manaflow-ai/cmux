@@ -8,6 +8,7 @@
     "attach-identity-v1",
     "batch-close-v1",
     "bookmark-icon-v1",
+    "bookmarks-merge-v1",
     "bookmarks-v1",
     "browser-host-provider-v1",
     "browser-profiles-v1",
