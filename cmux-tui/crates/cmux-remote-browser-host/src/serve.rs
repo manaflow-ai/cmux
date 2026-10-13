@@ -3,7 +3,8 @@
 //!
 //! Threads: the CEF UI thread (the process main thread) owns the tab, the
 //! pump and the encoder, and runs every shim call. A network thread accepts
-//! one viewer at a time and does the rd handshake; a reader thread per
+//! callers and admits each on its own thread (`launch::accept_viewers`), then
+//! serves the admitted viewers one at a time; a reader thread per
 //! viewer posts its frames to the UI thread with `rb_shim_post`; a writer
 //! thread per viewer writes what the UI thread sends, so a slow socket never
 //! blocks the UI thread. Captured IOSurfaces are encoded on the UI thread
