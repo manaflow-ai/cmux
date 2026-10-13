@@ -5,6 +5,7 @@ import { noOwnerOf } from "./domains/team-stack.ts"
 import { stackRole } from "./domains/team-roles.ts"
 import type { TeamState } from "./domains/team.ts"
 import { userIdFor } from "./domains/user.ts"
+import { storePlan } from "./inference/plan.ts"
 import type { StackServer } from "./stack-server.ts"
 
 /**
@@ -190,6 +191,9 @@ export class StackTeamSync {
     }
     const mirrored = commit("team.stack_mirror", { team: deps.team, stack_team: ev.stack_team, display_name: displayName(team.display_name, "Team") })
     if (mirrored) return mirrored
+    // The team's paid plan for the model router (inference/plan.ts): web billing's write to the
+    // team metadata sends team.updated, so this copy follows a purchase or a lapse at once.
+    storePlan(deps.sql, team.plan, Date.now())
     // Stack sends no membership event for a team's creator or a sign-up personal team: a team event mirrors Stack's member list.
     if (ev.stack_user === undefined) return (await this.syncMembers(deps, stack, ev, attempt, commit)) ?? "team_mirrored"
     const member = await stack.getTeamMember(ev.stack_team, ev.stack_user)
