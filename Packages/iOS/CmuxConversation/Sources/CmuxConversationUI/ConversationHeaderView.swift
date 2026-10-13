@@ -84,6 +84,13 @@ final class ConversationHeaderView: UIView {
         // keeps VoiceOver reading the photo before the name.
         avatarContainer.layer.zPosition = Self.avatarZPosition
         avatarContainer.isUserInteractionEnabled = false
+        // The details zoom morphs out of this view; ChatKit's avatar button
+        // shadow keeps the close free of UIKit's card platter and shadow.
+        let shadow = ConversationHeaderGeometry.avatarShadow
+        avatarContainer.layer.shadowOpacity = shadow.opacity
+        avatarContainer.layer.shadowRadius = shadow.radius
+        avatarContainer.layer.shadowOffset = shadow.offset
+        avatarContainer.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: shadow.pathDiameter, height: shadow.pathDiameter)).cgPath
         addSubview(avatarContainer)
         avatarContainer.addSubview(clusterDisc)
         addSubview(avatarTapButton)
