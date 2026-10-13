@@ -34,7 +34,7 @@ struct FeedScreen: View {
             ToolbarItem(placement: .topBarTrailing) { filterMenu }
         }
         .navigationDestination(item: $openTerminal) { tab in
-            if let connection = app.connection { TerminalScreen(connection: connection, tab: tab) }
+            if let connection = app.connection { TerminalScreen(connection: connection, tab: tab, onReconnect: { app.reconnect() }) }
         }
     }
 

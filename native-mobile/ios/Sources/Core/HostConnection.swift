@@ -137,6 +137,7 @@ final class HostConnection {
             try? await client.setClientInfo(deviceID: Self.deviceID, name: UIDevice.current.name)
             try await client.subscribe()
             control = client
+            AppModel.log.info("link: control ready")
             startHeartbeat(client)
             // Terminals attached over the previous link reattach on this one.
             for session in terminalSessions.values { session.reattach() }
@@ -149,6 +150,7 @@ final class HostConnection {
                 if await services.isClosed {
                     let channel = try await link.openChannel(label: "svc")
                     await services.rebind(channel)
+                    AppModel.log.info("link: svc reopened")
                 }
             } else {
                 let svc = ServiceClient(channel: try await link.openChannel(label: "svc"))
@@ -156,6 +158,7 @@ final class HostConnection {
                 services = svc
             }
             await refresh()
+            AppModel.log.info("link: refreshed, connected")
             phase = .connected
             onConnected?()
         } catch {

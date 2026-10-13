@@ -32,8 +32,12 @@ struct TerminalScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
 
-    init(connection: HostConnection, tab: DaemonTab) {
+    /// Retry from the status capsule (AppModel.reconnect).
+    let onReconnect: () -> Void
+
+    init(connection: HostConnection, tab: DaemonTab, onReconnect: @escaping () -> Void) {
         self.connection = connection
+        self.onReconnect = onReconnect
         self.tab = tab
         _session = State(initialValue: connection.terminalSession(for: tab.surface))
     }
@@ -59,6 +63,16 @@ struct TerminalScreen: View {
         .ignoresSafeArea(.container, edges: [.top, .bottom])
         .ignoresSafeArea(.keyboard)
         .background(Color(uiColor: Theme.terminalBackground))
+        // The last screen stays readable while the link is down; the capsule
+        // says so (the terminal had no status at all, only the sidebar did).
+        .overlay(alignment: .top) {
+            if let kind = connection.phase.statusKind(hostName: connection.host.name) {
+                ConnectionStatusCapsule(kind: kind, onRetry: onReconnect)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.smooth(duration: 0.3), value: connection.phase)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
         .toolbar {

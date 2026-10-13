@@ -70,7 +70,7 @@ struct MainContent: View {
             case .terminal(let surface):
                 NavigationStack {
                     if let connection = app.connection, let tab = connection.tab(surface: surface) {
-                        TerminalScreen(connection: connection, tab: tab)
+                        TerminalScreen(connection: connection, tab: tab, onReconnect: { app.reconnect() })
                             .toolbar { sidebarButton }
                     } else {
                         ConnectingState(hostName: app.connection?.host.name, path: nil)

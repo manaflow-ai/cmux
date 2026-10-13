@@ -100,6 +100,7 @@ owner-handoff (written up for the owning agent).
 | 75 | Hosts | Review (qa5): reconnect() saved the automatic Mac as the user's pick, and a stale cached online flag left the app on an offline Mac. Reconnect no longer saves; a fresh list moves an unconnected automatic pick to an online Mac (AutoSwitchHostTests). | fixed | qa5 |
 | 76 | Diff | Review (qa5): pull-to-refresh waited for the end-of-file reads, and a reload during them could write one file's contents into another file's slot. Reads run in a cancelled-on-reload task; every write after an await checks the load generation, and expand checks it too. | fixed | qa5 |
 | 77 | Composer/Feed/Files/scripts | Review (qa5): Return during an upload added a newline to the draft; Feed replies of only newlines sent; the Browse title menu rebuilt the whole Files sheet on a tab switch; phone-install.sh zipped the previous app after a failed build; scroll-ab.sh waited forever. All fixed. | fixed | qa5 |
+| 78 | Terminal | With the Mac's host down, the terminal kept its last screen but showed no status for over a minute (only the sidebar said Reconnecting). The terminal now shows the same capsule with Retry under the top bar; reconnect stages are logged (`link: control ready`, `svc reopened`, `refreshed, connected`). Measured on the mini: host restart to connected in 8 s. | fixed | qa5 |
 | 69 | Launch | Fresh install opened the first paired Mac (offline) and sat on Reconnecting… while another Mac was online, then saved that automatic pick as the user's choice. Now an online Mac is preferred and only explicit picks persist (LaunchHostTests). | fixed | qa5 |
 | 70 | Composer | Hardware Return added a line instead of sending (field grew). Return now sends (or presses Enter when empty), Shift-Return adds a line; the software keyboard's Return still adds a line. | fixed | qa5 |
 | 71 | Files | Browse opened in the working directory with no way up to its parents. The Files title is now a menu of parent folders on Browse (same as pushed folders). | fixed | qa5 |
@@ -120,9 +121,9 @@ owner-handoff (written up for the owning agent).
 | # | Idea | Why | Cost |
 | --- | --- | --- | --- |
 | I1 | Attachment chips show their own upload ring and a retry badge on failure (ChatGPT, Claude). Today one progress bar sits in the text box. | Several attachments: which one is slow or failed. | S |
-| I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. | Managing many agents from the phone. | S |
+| I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. Rename and a confirmed destructive Close exist (qa5 check); Pin remains. | Managing many agents from the phone. | S |
 | I3 | Feed post "..." menu with a timestamp header, Copy, Open terminal, Mark unread (ChatGPT answer menu). | Parity with the answer menus in REFERENCES.md. | S |
-| I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). | A cut diff currently looks complete. | S |
+| I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). The truncation note exists (qa5 check). | A cut diff currently looks complete. | done |
 | I5 | Composer: send without Return (long-press the send arrow), for building a command over several sends. | Terminal users stage commands; chat apps don't need it. | S |
 | I6 | Reconnect: show the last known screen of each terminal while reconnecting, read-only, with the status capsule (cached tree already shows). | ChatGPT/Claude keep the transcript visible offline. | M |
 | I7 | Diff: preview added or changed images (old/new side by side, like GitHub) instead of "Binary file not shown". Done in qa5: Before/After cards via `git.show`. | Agents add screenshots and assets. | done |
