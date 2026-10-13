@@ -25,6 +25,8 @@ enum CloudStrings {
     }
     /// A Cloud machine's link ended; v1 does not reconnect by itself.
     static var linkDisconnected: String { String(localized: "cloud.link.disconnected", defaultValue: "Disconnected from the Cloud machine. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    /// The app could not start or reach this Mac's connection helper.
+    static var linkHelperNotRunning: String { String(localized: "cloud.link.helperNotRunning", defaultValue: "The Cloud connection helper is not running on this Mac. Click Connect to start it.", table: "Cloud", bundle: .module) }
     static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
     static func linkFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)

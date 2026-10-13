@@ -663,6 +663,16 @@
       "title" : "Saturation",
       "type" : "number"
     },
+    "appearance.sidebarSurface" : {
+      "default" : "same",
+      "description" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.",
+      "enum" : [
+        "same",
+        "separate"
+      ],
+      "title" : "Sidebar Background",
+      "type" : "string"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",
@@ -2635,20 +2645,6 @@
       },
       "title" : "Hidden Tab Bar Buttons",
       "type" : "array"
-    },
-    "tabs.newTabKind" : {
-      "default" : "page",
-      "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
-      "enum" : [
-        "same-kind",
-        "terminal",
-        "browser",
-        "agent",
-        "page",
-        "auto"
-      ],
-      "title" : "New Tab Opens",
-      "type" : "string"
     },
     "tabs.newTabPosition" : {
       "default" : "end",

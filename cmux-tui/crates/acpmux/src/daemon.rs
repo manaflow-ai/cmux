@@ -660,9 +660,7 @@ fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
 
 fn random_token() -> String {
     let mut bytes = [0u8; 24];
-    let mut f = std::fs::File::open("/dev/urandom").expect("urandom");
-    use std::io::Read;
-    f.read_exact(&mut bytes).expect("urandom read");
+    getrandom::fill(&mut bytes).expect("the OS random generator");
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -706,14 +704,13 @@ pub async fn connect(autostart: bool) -> Result<Arc<Client>> {
 
 /// A connected socket to the daemon, starting one if needed, for a client
 /// that speaks the wire protocol itself (`acpmux stdio`).
-#[cfg(unix)]
-pub async fn connect_stream() -> Result<tokio::net::UnixStream> {
+pub async fn connect_stream() -> Result<crate::local_stream::Stream> {
     let path = socket_path();
-    if let Ok(stream) = tokio::net::UnixStream::connect(&path).await {
+    if let Ok(stream) = crate::local_stream::connect(&path).await {
         return Ok(stream);
     }
     let ready = start_daemon().await?;
-    tokio::net::UnixStream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
+    crate::local_stream::connect(&path).await.map_err(|e| not_ready(&path, &ready, &e.into()))
 }
 
 /// Start a daemon and wait until it reports readiness or exits. Returns its

@@ -37,16 +37,23 @@ final class ChangelogPageTab: InternalPageProvider {
         pages.removeValue(forKey: key)?.close()
     }
 
+    /// The page's provider, registered once. The app registers it at launch:
+    /// without it a restored What's New tab had no title (the strip showed
+    /// the store tab's own, "Home") and no page (cx-warpr).
+    @discardableResult
+    static func register(_ services: AppServices) -> ChangelogPageTab {
+        if let provider = services.pages.provider(.changelog) as? ChangelogPageTab { return provider }
+        let made = ChangelogPageTab(services: services)
+        services.pages.register(made)
+        return made
+    }
+
     /// Opens (or selects) the changelog tab in the active window. With `to` (an update's new
     /// version, and `from` its previous one) the page highlights the releases after `from` up to
     /// `to`, and says "Updated to <to>" when that span has no notes (`#/?from=<v>&to=<v>`).
     @discardableResult
     static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
-        let provider = services.pages.provider(.changelog) as? ChangelogPageTab ?? {
-            let made = ChangelogPageTab(services: services)
-            services.pages.register(made)
-            return made
-        }()
+        let provider = register(services)
         let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
@@ -79,7 +86,10 @@ extension PageFactory {
     /// (Try it runs only the descriptor's allow-listed actions).
     func changelogPage(route: String? = nil) -> PageWebView? {
         let updater = services.updater
-        let provider = ChangelogPageProvider(source: updater.releaseNotes, currentBuild: updater.identity.build,
+        // A DEV build reading the cmux-next nightly notes is not in their list: no current build,
+        // so the page selects the newest listed one.
+        let current = updater.changelogReadsDevelopmentNotes ? "" : updater.identity.build
+        let provider = ChangelogPageProvider(source: updater.changelogNotes, currentBuild: current,
                                              media: updater.releaseMedia)
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]

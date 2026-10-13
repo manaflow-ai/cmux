@@ -106,6 +106,13 @@ extension TabStripView {
     public override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
+        // A press before the strip's model sync (right after a close) catches up first.
+        if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        if !isInNewTabButton(point), let id = arrivingCloseTab(at: point) {
+            pressedCloseID = id
+            cells[id]?.isClosePressed = true
+            return
+        }
         if isInNewTabButton(point) {
             pressedNewTab = true
             newTabButton.isPressed = true
@@ -145,7 +152,7 @@ extension TabStripView {
     public override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
-            cells[id]?.isClosePressed = isInCloseButton(id, point)
+            cells[id]?.isClosePressed = isInCloseButton(id, point) || arrivingCloseTab(at: point) == id
             return
         }
         if pressedNewTab {
@@ -176,7 +183,7 @@ extension TabStripView {
         if let id = pressedCloseID {
             pressedCloseID = nil
             cells[id]?.isClosePressed = false
-            if isInCloseButton(id, point) { close(id, source: .mouse) }
+            if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
             return
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
@@ -313,11 +320,21 @@ extension TabStripView {
         }
     }
 
-    /// Closes a tab. Mouse closes enter closing mode first.
-    func close(_ id: TabID, source: TabCloseSource) {
+    /// Closes a tab once (a tab the model dropped is closing already). Mouse closes enter
+    /// closing mode first; `point` is the close button press (`TabClosingModeHit`).
+    func close(_ id: TabID, source: TabCloseSource, at point: CGPoint? = nil) {
+        guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
+            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
+                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
+            }
         }
         model.send(.close(id, source: source))
+    }
+
+    /// In closing mode, the tab whose close button is arriving under `point`.
+    func arrivingCloseTab(at point: CGPoint) -> TabID? {
+        closingModeWidth == nil ? nil : closingHit.tab(at: convert(point, to: tabsClip), in: self)
     }
 }

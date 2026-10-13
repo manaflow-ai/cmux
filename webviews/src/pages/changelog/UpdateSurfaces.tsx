@@ -44,7 +44,7 @@ export function UpdatedCard({
       <div className="wn-card-headline">{lead ? lead.title : strings.t("updates.card.noHighlights")}</div>
       {lead && more > 0 && <div className="wn-card-line">{strings.format("updates.card.more", String(more))}</div>}
       <div className="wn-card-actions">
-        <button type="button" className="cl-button wn-card-primary" onClick={actions.openChangelog}>
+        <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
           {strings.t("updates.card.seeWhatsNew")}
         </button>
         {actions.share && (

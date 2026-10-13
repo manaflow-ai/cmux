@@ -191,6 +191,17 @@ def package_platforms(
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
         copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        # The Windows package also ships cmux-tui-host.exe, the small
+        # per-terminal host the daemon spawns instead of re-exec'ing the large
+        # cmux-tui.exe, so Defender's per-terminal first-child image scan stays
+        # cheap (cx-1vlzr). It is a Windows-only concern.
+        host_files: list[str] = []
+        if target["os"] == "win32":
+            host_src = binaries_dir / f"cmux-tui-host-{target['rust_target']}{ext}"
+            if not host_src.is_file():
+                raise SystemExit(f"missing host binary: {host_src}")
+            copy_executable(host_src, package_dir / "bin" / f"cmux-tui-host{ext}")
+            host_files = [f"bin/cmux-tui-host{ext}"]
         shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
         copy_notice(notices_dir, "cmux-tui", target["rust_target"], package_dir)
         manifest_path = package_dir / SSH_MANIFEST
@@ -214,7 +225,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST, NOTICE_FILE],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", *host_files, SSH_MANIFEST, NOTICE_FILE],
             },
         )
 
