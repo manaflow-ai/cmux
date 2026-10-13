@@ -445,7 +445,7 @@ jobs:
     if: needs.tree-preflight.result == 'success' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: tree-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 60
+    timeout-minutes: 5
     outputs:
       takeover: ${{ steps.wait.outputs.takeover }}
     permissions:
@@ -507,54 +507,51 @@ jobs:
           }
           poll=0
           if [[ -n "$OWNER_RUN_ID" ]]; then
-            # An owner still running is waited for, up to the cap: taking over
-            # from a live owner builds the key twice (and, for the same commit,
-            # hits the write-once commit objects). The owner took 21.5 min
-            # unloaded (run 38124282410).
-            deadline=$(( $(date +%s) + 3300 ))
-            while (( $(date +%s) < deadline )); do
-              poll=$((poll + 1))
-              if tree_ready; then
-                echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
-                takeover=false
-                break
-              fi
+            # One look, no waiting (cx-urd.26). Polling a live owner for up to
+            # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
+            # 765 waits built the key anyway after a chain of failed owners.
+            # A live owner publishes the key for every commit that has it (its
+            # request-nightly-next promotes the feat-cmux-next head with the
+            # key). An owner that fails is reported by notify-unpublished-tree,
+            # and the next push of the key or cmux-tui-tree-request.yml (which
+            # re-runs a commit's run) builds it. Taking over from a live owner
+            # would build the key twice and hit the write-once commit objects.
+            poll=$((poll + 1))
+            owner_state=""
+            if tree_ready; then
+              echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+              takeover=false
+            else
               owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                 -u "x-access-token:$GH_TOKEN" \
                 -H 'Accept: application/vnd.github+json' \
                 "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
                 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
                 2>/dev/null || echo unknown)"
-              if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
-                # It may have published between the two reads.
-                poll=$((poll + 1))
-                if tree_ready; then
-                  echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
-                  takeover=false
-                  break
-                fi
-                # Take over only by winning the key's claim: two waiters that
-                # see the owner end together cannot both build. Another winner
-                # becomes the owner to wait for; no authority keeps the old rule.
-                if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
-                  if [[ "$claim" == *"granted=true" ]]; then
-                    echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; this run won the claim and takes over."
-                    break
-                  fi
+            fi
+            if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
+              # It may have published between the two reads.
+              poll=$((poll + 1))
+              if tree_ready; then
+                echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+                takeover=false
+              # Take over only by winning the key's claim: two runs that see
+              # the owner end together cannot both build. Another winner owns
+              # the key now; no authority keeps the old rule.
+              elif claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
+                if [[ "$claim" == *"granted=true" ]]; then
+                  echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; this run won the claim and takes over."
+                else
                   next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
-                  echo "Owner run $OWNER_RUN_ID ended; run $next_owner won the claim for tree $KEY; waiting for it."
-                  OWNER_RUN_ID="$next_owner"
-                  sleep 60
-                  continue
+                  echo "Owner run $OWNER_RUN_ID ended; run $next_owner won the claim for tree $KEY and publishes it; this run builds nothing."
+                  takeover=false
                 fi
+              else
                 echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
-                break
               fi
-              echo "Waiting for owner run $OWNER_RUN_ID to publish tree $KEY."
-              sleep 60
-            done
-            if [[ "$takeover" == true && $(date +%s) -ge "$deadline" ]]; then
-              echo "::warning::owner wait expired for tree $KEY; taking over publication"
+            elif [[ -n "$owner_state" ]]; then
+              echo "Owner run $OWNER_RUN_ID ($owner_state) is publishing tree $KEY; this run builds nothing."
+              takeover=false
             fi
           else
             echo "This run owns tree $KEY; building and publishing it."
@@ -1974,11 +1971,14 @@ jobs:
   # commit whose own run here was replaced by a newer push is not lost.
   request-nightly-next:
     name: request nightly-next promotion
-    # A run that waited for the tree's owner (tree-owner-wait takeover
-    # false) promotes too: the owner may be another branch's run of the
-    # same commit, which never promotes.
+    # A feat-cmux-next run whose tree another run owns (tree-owner-wait
+    # takeover false) asks too, in case that owner already published. Since
+    # such a run no longer waits for the owner (cx-urd.26), a publishing run
+    # on any other branch also asks, for the feat-cmux-next head that shares
+    # its key: the owner of a feat-cmux-next commit's key is often the branch
+    # run of the same tree.
     needs: [tree-preflight, tree-owner-wait, publish-tree]
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree.result == 'success') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
@@ -1988,17 +1988,29 @@ jobs:
       actions: write
       contents: read
     steps:
+      # Another branch's run asks from the feat-cmux-next head's own checkout
+      # and scripts, the commit it may promote.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
+          ref: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || 'feat-cmux-next' }}
           fetch-depth: 1
 
       - name: Request nightly-next promotion on main
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-        run: scripts/cmux-next/request-nightly-next.sh --tree-ready "$SHA" --repo "$GITHUB_REPOSITORY"
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          if [[ "$GITHUB_REF" != refs/heads/feat-cmux-next ]]; then
+            head_key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$sha")"
+            if [[ "$head_key" != "$KEY" ]]; then
+              echo "The feat-cmux-next head ${sha:0:12} has tree $head_key, not $KEY; its own run asks for its promotion."
+              exit 0
+            fi
+          fi
+          scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY"
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
