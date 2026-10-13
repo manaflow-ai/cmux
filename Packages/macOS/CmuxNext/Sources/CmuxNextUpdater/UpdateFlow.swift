@@ -28,8 +28,9 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 installRequested = true
                 return installIfStaged()
             case .downloading, .checking:
-                // Installs once staged.
+                // Installs once staged; the progress shows meanwhile.
                 installRequested = true
+                userAsked = true
                 return []
             case .available:
                 // Downloads, shows its progress, installs once staged.

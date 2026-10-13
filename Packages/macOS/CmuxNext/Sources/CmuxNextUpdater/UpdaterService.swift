@@ -305,7 +305,10 @@ public final class UpdaterService {
             send(.installRequested)
         case .hidden, .installing, .note:
             // Nothing found yet: an explicit install runs Sparkle's attempt
-            // flow (a fresh check that installs the newest at once).
+            // flow (a fresh check that installs the newest at once). The
+            // user asked, so its progress and result show on the notice
+            // card (up to date, downloading, the failure), as for a check.
+            send(.checkRequested)
             controller.attemptUpdate()
         }
     }
