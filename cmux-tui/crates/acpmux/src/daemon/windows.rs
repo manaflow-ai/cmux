@@ -250,13 +250,47 @@ pub(super) async fn start_daemon(
             let _ = tx.send(line);
         })
         .context("wait for acpmux daemon")?;
-    match tokio::time::timeout(budget, rx).await {
-        Ok(line) => Ok(line.unwrap_or_default()),
+    let deadline = tokio::time::Instant::now() + budget;
+    match tokio::time::timeout_at(deadline, rx).await {
+        Ok(line) => {
+            let line = line.unwrap_or_default();
+            if line.trim().is_empty() {
+                wait_for_winner(home, deadline).await;
+            }
+            Ok(line)
+        }
         Err(_) => Err(anyhow!(
             "daemon did not come up at {} within {budget:?}; see {}",
             crate::config::socket_path().display(),
             home.join("daemon.log").display()
         )),
+    }
+}
+
+/// The started daemon exited first, usually because another start's daemon
+/// holds `daemon.lock`; that daemon may not have bound its socket yet. While
+/// a daemon holds the lock and the socket file is missing, wait (at most
+/// until `deadline`), so the caller's one connect finds it.
+async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
+    let socket = crate::config::socket_path();
+    let lock = home.join("daemon.lock");
+    while !socket.exists() && tokio::time::Instant::now() < deadline {
+        // RISK: this probe takes daemon.lock for an instant when it is free.
+        // Windows has no way to test a LockFileEx lock without taking it
+        // (a ReadFile lock-violation probe is not proven on an empty file,
+        // and daemon.pid is written only after the lock is taken). A free
+        // lock here means the winner has already exited; a third start
+        // whose daemon tries the lock in that instant exits too, and its
+        // client returns from this wait and fails its connect. Rare, and
+        // the next start succeeds.
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&lock)
+            .is_ok_and(|file| matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        if !held {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
 
