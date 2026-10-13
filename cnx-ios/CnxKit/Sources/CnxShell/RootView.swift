@@ -219,6 +219,7 @@ extension ShellView {
             dialer: FFIMacLinkDialer()
         )
         shell.live = live
+        shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
         live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         log.info("live data on \(base.host() ?? "", privacy: .public)")
     }

@@ -34,6 +34,7 @@ import Testing
 
 #if os(iOS)
 import CmuxTabsKit
+import SwiftUI
 
 @MainActor @Suite struct WorkspaceTabsSourceTests {
     func make(_ memory: [String: String] = [:]) -> (AppStore, WorkspaceTabsSource) {
@@ -99,6 +100,44 @@ import CmuxTabsKit
         source.goBack("t-claude")
         source.goBack("t-docs")
         #expect(left == 2)
+    }
+}
+/// A terminal content that adds its own page menu actions and records grid prep.
+@MainActor final class RecordingTerminalContent: TerminalTabContent {
+    var prepared: [String] = []
+    var performed: [String] = []
+
+    func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView { AnyView(EmptyView()) }
+    func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView { AnyView(EmptyView()) }
+    func overviewWillAppear(active tab: WorkspaceTab) { prepared.append(tab.id) }
+    func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] {
+        [TerminalTabAction(title: "Show Keyboard", systemImage: "keyboard") { self.performed.append("keyboard") },
+         TerminalTabAction(title: "Files and Links", systemImage: "folder") { self.performed.append("files") }]
+    }
+}
+
+@MainActor @Suite struct TerminalTabEmbeddingTests {
+    @Test func terminalActionsLeadThePageMenu() throws {
+        let content = RecordingTerminalContent()
+        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-zsh"]))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
+        let groups = source.pageMenu(for: kit)
+        #expect(groups.first?.map(\.title) == ["Show Keyboard", "Files and Links"])
+        #expect(groups.dropFirst().first?.map(\.title) == ["Copy Directory", "All Workspaces"])
+        #expect(groups.last?.map(\.title) == ["Close Tab"])
+        groups.first?.last?.action()
+        #expect(content.performed == ["files"])
+    }
+
+    @Test func gridOpeningPreparesTheActiveTerminalCard() {
+        let content = RecordingTerminalContent()
+        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-zsh"]))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
+        source.overviewWillAppear()
+        source.activate("t-claude")
+        source.overviewWillAppear()
+        #expect(content.prepared == ["t-zsh"])
     }
 }
 #endif

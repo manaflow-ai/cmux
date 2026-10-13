@@ -41,6 +41,8 @@ public final class LiveCoordinator {
     @ObservationIgnored private var bannerTask: Task<Void, Never>?
     @ObservationIgnored private var everConnected = false
     @ObservationIgnored private var tree: DaemonTree?
+    /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
+    @ObservationIgnored private var currentLink: (any MacLink)?
     @ObservationIgnored private var chiefLive = false
 
     /// The personal space id for a user (PROTOCOL.md "Personal space").
@@ -222,6 +224,7 @@ public final class LiveCoordinator {
 
     private func linkChanged(_ link: (any MacLink)?) {
         acpmux.macLink = link
+        currentLink = link
         guard let link, let macID = self.link.target?.macID else {
             Task {
                 await workspaces.bind(nil, macID: "")
@@ -249,9 +252,20 @@ public final class LiveCoordinator {
             }
             await self.startChief(link)
         }
-        // TODO(CnxTerminal): when CnxTerminal exposes `TerminalSession`, add a
-        // daemon-backed session here (attach-surface / send / resize-surface on
-        // its own `daemon` channel) and pass it to `WorkspaceScreen(terminal:)`.
+        // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
+        // own `daemon` channel of this link.
+    }
+
+    /// A live session for a terminal tab of the linked Mac (`s<surface>`), or
+    /// nil when the tab is not a daemon surface or there is no link. The
+    /// channel opens when the screen starts the session.
+    public func terminalSession(tabID: String, programName: String) -> DaemonTerminalSession? {
+        guard currentLink != nil, let surface = workspaces.tree?.surfaces[tabID] else { return nil }
+        return DaemonTerminalSession(surface: surface, programName: programName) { [weak self] in
+            guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            return DaemonClient(channel: channel)
+        }
     }
 
     /// Chief over the daemon's local conversations, when the Mac's link allows them.

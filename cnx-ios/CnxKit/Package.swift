@@ -94,7 +94,7 @@ let package = Package(
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
         .target(name: "CnxLive", dependencies: [
-            "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxArtifacts", "CnxFeed", "CnxChief",
+            "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat", "CnxArtifacts", "CnxFeed", "CnxChief", "CnxTerminal",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(
@@ -117,7 +117,7 @@ let package = Package(
         .testTarget(name: "CnxTerminalTests", dependencies: ["CnxTerminal"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
         .testTarget(name: "CnxLiveTests", dependencies: [
-            "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed",
+            "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .testTarget(name: "CnxChiefTests", dependencies: [
