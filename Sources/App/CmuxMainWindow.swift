@@ -74,11 +74,13 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func willRemoveSubview(_ subview: NSView) {
-        hitTestMutationMonitor.subviewWillBeRemoved(
-            subview,
-            subviewCount: subviews.count,
-            eventType: NSApp?.currentEvent?.type
-        )
+        if hitTestMutationMonitor.isWalking {
+            hitTestMutationMonitor.subviewWillBeRemoved(
+                subview,
+                subviewCount: subviews.count,
+                eventType: NSApp?.currentEvent?.type
+            )
+        }
         super.willRemoveSubview(subview)
     }
 

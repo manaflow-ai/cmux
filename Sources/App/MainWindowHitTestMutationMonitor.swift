@@ -20,11 +20,17 @@ final class MainWindowHitTestMutationMonitor {
         let eventType: UInt?
     }
 
+    /// One report per process across all main windows; tests inject a
+    /// reporter, which gets its own flag.
+    private static var hasReportedToSentry = false
+
     private var walkDepth = 0
     private var hasReported = false
-    private let report: (Mutation) -> Void
+    private let report: @MainActor (Mutation) -> Void
 
-    init(report: @escaping (Mutation) -> Void = MainWindowHitTestMutationMonitor.reportToSentry) {
+    var isWalking: Bool { walkDepth > 0 }
+
+    init(report: @escaping @MainActor (Mutation) -> Void = MainWindowHitTestMutationMonitor.reportToSentry) {
         self.report = report
     }
 
@@ -46,6 +52,8 @@ final class MainWindowHitTestMutationMonitor {
     }
 
     private static func reportToSentry(_ mutation: Mutation) {
+        guard !hasReportedToSentry else { return }
+        hasReportedToSentry = true
         let data: [String: Any] = [
             "removedSubviewType": mutation.removedSubviewType,
             "subviewCountBeforeRemoval": mutation.subviewCountBeforeRemoval,
