@@ -163,6 +163,12 @@ impl HeadlessSource {
         {
             let configs = self.configs();
             let config = configs.sessions.get(&session);
+            // Under a policy only an incognito session's store is checked.
+            if config.is_some_and(|c| c.store_policy && !c.incognito) {
+                return Err(unsupported(
+                    "incognito tabs under a domain policy are not supported yet: they would open outside the policy",
+                ));
+            }
             if let Some(store) = config.and_then(|c| c.incognito_store.clone()) {
                 return Ok(store);
             }
@@ -448,6 +454,11 @@ impl HeadlessSource {
         if had {
             let _ = self.driver.set_tab_overrides(target, None);
         }
+    }
+
+    /// Whether a tab in `context` was kept (the store outlives its session).
+    pub(crate) fn store_kept(&self, context: &str) -> bool {
+        self.configs().stores.get(context).is_some_and(|store| store.kept)
     }
 
     /// The session ended: its options leave its tabs, its proxy stores

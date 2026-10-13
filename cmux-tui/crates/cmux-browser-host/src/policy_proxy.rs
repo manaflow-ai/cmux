@@ -1,8 +1,9 @@
 //! BR-R3 on the headless engine (cx-d0d.79, coordinator call 2026-10-12): a
 //! session under a domain policy gets its own SOCKS5 listener on 127.0.0.1,
 //! and every browser context its tabs open in names it as `proxyServer`.
-//! Every connection those tabs make (navigations, subresources, fetch, and
-//! the WebSockets that CDP `Fetch` never sees) names its host here first, and
+//! Every TCP connection those tabs make (navigations, subresources, fetch,
+//! and the WebSockets that CDP `Fetch` never sees; not WebRTC UDP, which
+//! only an isolated host turns off) names its host here, and
 //! a host the session's live policy does not allow is refused before a byte
 //! leaves. An allowed connection then goes on as it would without the
 //! listener: straight to the host, or on an isolated host
