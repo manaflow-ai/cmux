@@ -200,6 +200,39 @@ struct RestorableAgentProcessGenerationTests {
         )?.processLiveness == .running)
     }
 
+    @Test("A legacy PID reused by another executable does not block restore")
+    func legacyPIDReusedByAnotherExecutableDoesNotBlockRestore() throws {
+        let fixture = try makeFixture(prefix: "cmux-legacy-pid-reuse")
+        defer { cleanup(fixture) }
+        let reusedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt + 1),
+            startMicroseconds: 0
+        )
+        let reusedProcess = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude"],
+            environment: [
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]
+        )
+        let index = loadRunningFixture(
+            fixture,
+            processArguments: reusedProcess,
+            processIdentity: reusedIdentity
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == .exited)
+        #expect(!index.hasUncertainStablePanelEntry(panelId: fixture.panelID))
+        #expect(index.snapshot(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.sessionId == fixture.sessionID)
+    }
+
     @Test("A present mismatched hook PID is not pressure-safe")
     func presentMismatchedHookPIDIsNotPressureSafe() throws {
         let fixture = try makeFixture(prefix: "cmux-mismatched-present-pid")
