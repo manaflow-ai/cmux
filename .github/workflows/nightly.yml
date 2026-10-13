@@ -4045,6 +4045,14 @@ jobs:
           rm -f notes/previous-index.json notes/previous-index.json.sig
           # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
           signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
+          # Older published notes without summary lines or structured items get them (cx-urd.61.6):
+          # fetched from either feed, verified, filled from their commit subjects, re-signed below and
+          # uploaded with this build's notes. Builds already carrying both are left alone.
+          while IFS= read -r backfilled; do
+            [ -n "$backfilled" ] && signed+=("$backfilled")
+          done < <(python3 scripts/cmux-next/release-notes.py backfill --index notes/index.json \
+            --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_LEGACY_FEED_BASE" \
+            --public-key "$CONTENT_PUBLIC_KEY" --out notes)
           if [ -f release-notes/next/announcements.json ]; then
             python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
             cp release-notes/next/announcements.json notes/announcements.json
