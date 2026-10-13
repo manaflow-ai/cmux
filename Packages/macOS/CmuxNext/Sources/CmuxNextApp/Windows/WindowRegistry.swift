@@ -129,13 +129,16 @@ struct WindowRegistry: Equatable, Sendable {
     // MARK: Lifecycle
 
     /// Registers a new open window owning `workspaceIDs` (taken from their
-    /// current owners) and makes it the most recent. With no workspaces
+    /// current owners) and makes it the most recent; a window opened
+    /// `behind` the others (never key) is the least recent instead, so the
+    /// key window stays first (cx-ppw2w). With no workspaces
     /// nothing is registered: a window without one does not exist.
     /// Workspaces taken from incognito windows make the new window
     /// incognito; a mix of both kinds, or normal workspaces for a window
     /// marked incognito, opens nothing.
     @discardableResult
-    mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil) -> Changes {
+    mutating func openWindow(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil,
+                             behind: Bool = false) -> Changes {
         guard window(id) == nil else { return move(workspaceIDs, to: id) }
         guard !workspaceIDs.isEmpty else { return Changes() }
         let kinds = Set(workspaceIDs.compactMap { owner(of: $0).map(isIncognito) })
@@ -144,7 +147,7 @@ struct WindowRegistry: Equatable, Sendable {
         var changes = Changes()
         let taken = detach(workspaceIDs)
         windows.append(Window(id: id, workspaceIDs: taken, frame: frame, display: display))
-        recency.insert(id, at: 0)
+        if behind { recency.append(id) } else { recency.insert(id, at: 0) }
         changes.moved[id] = taken
         changes.emptied = closeEmptied()
         return changes
