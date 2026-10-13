@@ -23,11 +23,14 @@
 //! <pipe base>`. The daemon drives it over the private bootstrap pipes named
 //! by its last argument.
 
-fn main() {
+fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if let Err(error) = run(&args) {
-        eprintln!("cmux-tui-host: {error}");
-        std::process::exit(1);
+    match run(&args) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("cmux-tui-host: {error}");
+            std::process::ExitCode::FAILURE
+        }
     }
 }
 
