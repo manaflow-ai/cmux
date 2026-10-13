@@ -157,6 +157,18 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
     }
 }
 
+/// The Claude Code env of every turn session: no mid-conversation system
+/// message. Claude Code 2.1.295 otherwise ends each request with a
+/// `role: "system"` message (its environment, model, date and, with tool
+/// search, the deferred tool list), after our last mark, so every warm turn
+/// paid about 450 uncached input tokens (captured 2026-10-13, smoke: 478-539
+/// input tokens on a 31-47 byte message; 20-82 without it). Without it Claude
+/// Code puts the same text as reminders in the first user message, before
+/// the `<chat>` mark: it is read from the cache (a turn's directory is
+/// constant), and the date in it costs one cold turn a day.
+pub const TURN_CLAUDE_ENV: [(&str, &str); 1] =
+    [("CLAUDE_CODE_MODEL_CAPABILITIES", "-mid_conv_system")];
+
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
@@ -180,6 +192,7 @@ pub fn turn_preset(
     };
     if family == Family::Claude {
         env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
+        env.extend(TURN_CLAUDE_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
     if family == Family::Codex {
         env.insert(
