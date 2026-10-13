@@ -24,6 +24,8 @@ public struct WsListenRequest: DaemonRequest {
         self.allowOrigin = allowOrigin
     }
 
+    /// `ws-listen {allow_origins}` (`ws-listen-origins-v1`): the listener admits these page origins
+    /// (the app's first-party pages); an existing listener answers the ones it admits.
     public init(allowOrigins: [String]) {
         self.allowOrigins = allowOrigins
     }

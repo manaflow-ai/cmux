@@ -50,7 +50,7 @@ impl Fixture {
     }
 
     /// An owner with its loopback page listener, admitting the page `origin`
-    /// (`server ensure` takes one `--ws-allow-origin`).
+    /// (one page per owner here, so each test proves one page's list).
     fn ensure(&self, origin: &str) {
         let output = self
             .command("ensure")

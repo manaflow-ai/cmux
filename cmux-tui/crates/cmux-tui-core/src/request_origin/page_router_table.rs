@@ -79,6 +79,9 @@ pub(crate) fn valid_page_id(id: &str) -> bool {
 /// The page id of a host's page origin: `cmux-page://cmux.<page>` (the
 /// app's pages; the web view sets the Origin, page script cannot change it).
 pub(crate) fn page_from_origin(origin: &str) -> Option<String> {
+    // The listener compares origins lowercase; so does the page id, or a
+    // native client's `CMUX.history` would pass the handshake with no page.
+    let origin = origin.to_ascii_lowercase();
     let page = origin.strip_prefix("cmux-page://cmux.")?;
     valid_page_id(page).then(|| page.to_owned())
 }

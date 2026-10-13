@@ -17,5 +17,5 @@ public nonisolated enum FirstPartyPages {
 
     /// The Origin of every first-party page (`cmux-page://cmux.history`, ...), sorted, so the
     /// owner's argv is the same on every launch.
-    public static var origins: [String] { ids.sorted().map { "cmux-page://" + $0 } }
+    public static let origins: [String] = ids.sorted().map { "cmux-page://" + $0 }
 }

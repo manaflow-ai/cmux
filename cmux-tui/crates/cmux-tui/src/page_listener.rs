@@ -78,9 +78,13 @@ impl PageListener {
                     "this daemon's WebSocket listener uses a configured credential (--ws-token or server.ws_token), so it has no credential file to share"
                 );
             };
-            if let Some(origin) = origins.iter().find(|origin| !state.origins.contains(origin)) {
+            // The admitted origins are fixed when the listener binds. A request that names
+            // some admitted origins still gets the endpoint (an owner started by an older app
+            // keeps serving the pages it admits); one that names only others is refused.
+            if !origins.is_empty() && !origins.iter().any(|origin| state.origins.contains(origin)) {
                 anyhow::bail!(
-                    "this daemon's page listener does not admit the origin {origin}; restart the daemon to admit it"
+                    "this daemon's page listener does not admit the origin {}; restart the daemon to admit it",
+                    origins.join(", ")
                 );
             }
             let addr = server.local_addr();
@@ -88,7 +92,9 @@ impl PageListener {
             if file.is_none() || !websocket_credential::path_for(&self.socket).exists() {
                 *file = Some(websocket_credential::write(&self.socket, addr, token)?);
             }
-            return Ok(endpoint(addr, false));
+            let mut reply = endpoint(addr, false);
+            reply["origins"] = json!(state.origins);
+            return Ok(reply);
         }
         let mux =
             self.mux.upgrade().ok_or_else(|| anyhow::anyhow!("the daemon is shutting down"))?;
@@ -118,7 +124,9 @@ impl PageListener {
         state.listener = Some((server, Some(file)));
         state.token = Some(token);
         state.origins = access.origins;
-        Ok(endpoint(addr, true))
+        let mut reply = endpoint(addr, true);
+        reply["origins"] = json!(state.origins);
+        Ok(reply)
     }
 }
 

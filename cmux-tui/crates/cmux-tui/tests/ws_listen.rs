@@ -236,4 +236,10 @@ fn the_page_listener_admits_every_app_page_origin_and_no_other() {
     let other = ["cmux-page://cmux.other"];
     let more = opened.rpc(json!({"id": 3, "cmd": "ws-listen", "allow_origins": other}));
     assert_eq!(more["ok"], false, "{more}");
+    assert!(more["error"].as_str().unwrap_or_default().contains("does not admit"), "{more}");
+    // One that names some admitted origins gets the endpoint and the admitted list.
+    let some = [ORIGINS[1], "cmux-page://cmux.other"];
+    let partial = opened.rpc(json!({"id": 4, "cmd": "ws-listen", "allow_origins": some}));
+    assert_eq!(partial["ok"], true, "{partial}");
+    assert_eq!(partial["data"]["origins"], json!(ORIGINS), "{partial}");
 }
