@@ -41,15 +41,15 @@ import Testing
         window.orderFrontRegardless()
         session.view.layoutSubtreeIfNeeded()
 
-        // A new shell: its prompt, nothing else.
-        scripted.send(.output(Data("you@mac ~ % ".utf8)))
+        // A new shell: its prompt under the login line, nothing else.
+        scripted.send(.output(Data("Last login: Mon Oct 13 09:12:44 on ttys004\r\nyou@mac ~ % ".utf8)))
         try await Self.drawn(session)
         let size = CGSize(width: 320, height: 200)
         #expect(await services.cache.previewImage(for: tab.id, maxPixelSize: size) == nil, "a terminal with no output had a preview")
 
-        // Output: the terminal has something to show.
-        let lines = (1...8).map { "line \($0) of the build output" }.joined(separator: "\r\n")
-        scripted.send(.output(Data(("\r\n" + lines + "\r\nyou@mac ~ % ").utf8)))
+        // A command still running, with its first line out: the terminal has something to show
+        // (only a finished command is reported).
+        scripted.send(.output(Data("npm run dev\r\n  ready on http://localhost:3000\r\n".utf8)))
         try await Self.drawn(session, after: session.surfaceView.presentedFrame)
         #expect(await services.cache.previewImage(for: tab.id, maxPixelSize: size) != nil, "a terminal with output had no preview")
     }

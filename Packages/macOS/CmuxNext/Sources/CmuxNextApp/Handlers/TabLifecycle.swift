@@ -254,7 +254,7 @@ enum TabLifecycle {
         // as a tab in the pane Auto Layout picks, then moves into its own pane (PanePlacementRouting).
         // Only a person's browser tiles, so `agentTab` is nil on that path.
         var opener = pane
-        var then = NewTabSlot.placing(after: anchor, services: ctx.services, then: agentTab)
+        var then: (@MainActor (SurfaceID) -> Void)?
         if case .split(let target, let direction) = PanePlacementRouting.route(
             ctx, invocation, from: pane, tiles: PanePlacementRouting.browsersTile(ctx)
         ) {
@@ -265,6 +265,8 @@ enum TabLifecycle {
             _ = beside.newBrowserTab(url: url, engine: engine, background: background, then: agentTab)
             return
         }
+        // In its slot at once (NewTabSuccession), only once it opens in this pane.
+        if then == nil { then = NewTabSlot.placing(after: anchor, services: ctx.services, then: agentTab) }
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
             if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }

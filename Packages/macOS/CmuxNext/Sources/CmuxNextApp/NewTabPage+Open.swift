@@ -98,6 +98,7 @@ extension NewTabPage {
             guard !keep else { return }
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
+        if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:

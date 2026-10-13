@@ -36,32 +36,37 @@ struct NewTabSuccession {
     weak var services: AppServices?
     weak var pane: PaneModel?
 
-    /// Starts showing what replaces New Tab page `key` in the page's slot.
-    static func begin(replacing key: String, in pane: PaneModel, services: AppServices) {
-        guard let index = pane.tabs.firstIndex(where: { $0.id == key }) else { return }
-        begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
+    /// Starts showing what replaces New Tab page `key` in the page's slot. Returns the open, for `made`.
+    @discardableResult
+    static func begin(replacing key: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+        guard let index = pane.tabs.firstIndex(where: { $0.id == key }) else { return nil }
+        return begin(page: StripTabID(key), after: index > 0 ? pane.tabs[index - 1].id : nil, in: pane, services: services)
     }
 
-    /// Starts showing the pane's next new tab right after `anchor`.
-    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) {
+    /// Starts showing the pane's next new tab right after `anchor`. Returns the open, for `made`.
+    @discardableResult
+    static func begin(after anchor: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         begin(page: nil, after: anchor, in: pane, services: services)
     }
 
-    private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) {
+    private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         active[ObjectIdentifier(pane)]?.expiry.cancel()
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported.
         guard ActionRunScope.viewChangeAllowed() else {
             active[ObjectIdentifier(pane)] = nil
-            return
+            return nil
         }
         let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: Set(pane.tabs.map(\.id)),
                                           deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
         active[ObjectIdentifier(pane)] = succession
         succession.expire(after: answerLimit)
+        return succession.expiry
     }
 
-    /// The new tab of `pane` was made on `surface`.
-    static func made(_ surface: SurfaceID, in pane: PaneModel) {
+    /// The tab `open` (what `begin` returned) makes in `pane` is on `surface`. An open a later one
+    /// in the same pane replaced names nothing: its tab lands as reported.
+    static func made(_ surface: SurfaceID, in pane: PaneModel, by open: DemandTimer?) {
+        guard let open, active[ObjectIdentifier(pane)]?.expiry === open else { return }
         active[ObjectIdentifier(pane)]?.found(surface)
     }
 
@@ -89,16 +94,20 @@ struct NewTabSuccession {
         let shown = Set(pane.stripModel.tabs.map(\.id)), listed = Set(snapshot.items.map(\.id))
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
         let arrived = snapshot.items.filter { !shown.contains($0.id) }
-        if left.count == 1, arrived.count == 1, let provisional = left.first { pane.stripModel.successors[arrived[0].id] = provisional }
+        var handed: SurfaceID?
+        if left.count == 1, arrived.count == 1, let provisional = left.first {
+            pane.stripModel.successors[arrived[0].id] = provisional
+            handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
+        }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {
             active[ObjectIdentifier(pane.pane)] = nil
             return snapshot
         }
         var snapshot = snapshot
-        // The tab being selected (the store's tab after a provisional one), else the one made.
+        // The store's tab after a provisional one, the one made, else the tab being selected.
         let tabs = pane.pane.tabs.filter { !succession.known.contains($0.id) }
-        let made = [succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
+        let made = [handed, succession.surface, pane.pendingSelectSurface].lazy.compactMap { $0 }.first { surface in tabs.contains { $0.surface == surface } }
         guard let made, let tab = tabs.first(where: { $0.surface == made }), let item = snapshot.items.first(where: { $0.id.rawValue == tab.id }) else {
             // Not answered yet: a new daemon tab of this pane waits for the answer naming this one
             // (a reopened tab being selected never does).

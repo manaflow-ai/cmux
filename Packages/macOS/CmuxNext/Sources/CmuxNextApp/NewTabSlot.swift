@@ -28,9 +28,9 @@ enum NewTabSlot {
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let anchor else { return then }
         let pane = home(of: anchor, services)
-        if let pane { NewTabSuccession.begin(after: anchor.id, in: pane, services: services) } // shown in its slot at once
+        let open = pane.flatMap { NewTabSuccession.begin(after: anchor.id, in: $0, services: services) } // shown in its slot at once
         return { surface in
-            if let pane { NewTabSuccession.made(surface, in: pane) }
+            if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
             place(in: { home(of: anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(after: anchor, in: $0) }
         }
@@ -56,9 +56,9 @@ enum NewTabSlot {
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
         // Shown in the page's slot from its first frame, whatever the daemon reports meanwhile.
-        NewTabSuccession.begin(replacing: page, in: pane, services: services)
+        let open = NewTabSuccession.begin(replacing: page, in: pane, services: services)
         let then: @MainActor (SurfaceID) -> Void = { surface in
-            NewTabSuccession.made(surface, in: pane)
+            NewTabSuccession.made(surface, in: pane, by: open)
             then?(surface)
         }
         guard index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
