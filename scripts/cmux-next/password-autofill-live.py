@@ -11,7 +11,10 @@ Browser…, a passwords CSV). Then:
      (plans/cmux-next/passwords.md, slice 1);
   3. a CSV with a new password for that sign-in keeps the saved one and its
      toast offers Replace; pressing it saves the new one, so importing the new
-     one again counts as already saved (cx-dwg.6).
+     one again counts as already saved (cx-dwg.6);
+  4. a sign-in a person types and submits gets cmux's save prompt in the tab's
+     prompt bar (not Chromium's bubble); Save stores it, so importing that
+     sign-in counts as already saved (cx-d0d.13, passwords.md 1.1).
 Nothing reads the page through the socket, since any automated read marks
 the tab agent-driven and turns filling off: the page reports its own form
 (:autofill on both fields) to the test's local server.
@@ -48,11 +51,13 @@ failures = []
 # New each run: the test machine keeps the Chromium profile, which would count a repeat as already saved.
 RUN = os.urandom(4).hex()
 USERNAME = f"cmux-fill-{RUN}"
+TYPED_USER = f"cmux-typed-{RUN}"
+TYPED_PASSWORD = f"typed-throwaway-{RUN}"
 
 # The login page reports its own form every 200 ms; reports[tab] is the latest.
 reports = {}
 LOGIN_PAGE = """<!doctype html><title>Sign in</title>
-<form method=post action=/done><input id=u name=username autocomplete=username>
+<form method=post action=/done><input id=u name=username autocomplete=username autofocus>
 <input id=p name=password type=password autocomplete=current-password><button>Sign in</button></form>
 <script>
 const tab = new URLSearchParams(location.search).get("tab");
@@ -75,6 +80,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        if self.path.startswith("/done"):
+            # A signed-in page: Chromium sees the submission succeed and asks to save.
+            body = b"<!doctype html><title>Signed in</title><p>Signed in"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         try:
             report = json.loads(data)
             reports[report.get("tab")] = report
@@ -90,6 +104,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 ORIGIN = f"http://127.0.0.1:{server.server_port}"
+TYPED_ORIGIN = f"http://localhost:{server.server_port}"
 PASSWORDS_CSV = "name,url,username,password,note\n" \
                 f"127.0.0.1,{ORIGIN}/login,{USERNAME},not-a-real-password-{RUN},\n"
 CHANGED_CSV = PASSWORDS_CSV.replace("not-a-real-password", "a-new-throwaway-password")
@@ -139,15 +154,20 @@ def dialog(identifier):
     return found[-1] if found else None
 
 
-def key(name, modifiers=None):
-    reply = rpc("debug.key", {"key": name, "modifiers": modifiers or [], "target": "palette"})
+def key(name, modifiers=None, target="palette"):
+    reply = rpc("debug.key", {"key": name, "modifiers": modifiers or [], "target": target})
     time.sleep(0.15)  # the palette's search and listing land
     return reply
 
 
-def type_text(text):
+def type_text(text, target="palette"):
     for char in text:
-        key(char)
+        key(char, target=target)
+
+
+def save_prompt():
+    prompts = rpc("debug.browser.prompts").get("prompts", [])
+    return next((p for p in prompts if "savePassword" in p.get("kind", "")), None)
 
 
 def shown_toasts():
@@ -266,6 +286,32 @@ try:
     again = wait_for(lambda: next((t for t in toasts() if "Imported: 0." in t), None), "the repeat import toast", 60)
     check(again is not None and "different password" not in again,
           f"the new password is the saved one: importing it again is already saved ({again})")
+
+    # A person types a new sign-in and submits it: cmux's prompt bar asks, not Chromium's bubble.
+    # Another origin (localhost, same server) with no saved sign-in, so no fill lands in the fields.
+    reply = rpc("debug.toast", {"perform": "openBrowser.chromium", "arguments": {"url": f"{TYPED_ORIGIN}/login?tab=typed"}})
+    check(reply.get("performed") is True, f"a person opens the login page to sign in ({reply.get('performed')})")
+    wait_for(lambda: "typed" in reports, "the sign-in page reports", 30)
+    type_text(TYPED_USER, target="page")
+    key("tab", target="page")
+    type_text(TYPED_PASSWORD, target="page")
+    key("return", target="page")
+    prompt = wait_for(save_prompt, "the save prompt", 30)
+    check(prompt is not None and f'username: "{TYPED_USER}", update: false' in prompt.get("kind", ""),
+          f"the prompt bar asks to save the typed sign-in ({prompt})")
+    reply = rpc("debug.browser.prompts", {"respond": "accept"})
+    check(reply.get("responded") is True, f"a person presses Save ({reply.get('responded')})")
+    time.sleep(1)  # the store writes after the answer
+
+    # The earlier import's toast goes first, so the next one read is this import's.
+    wait_for(lambda: not any("Imported:" in t or "Replaced:" in t for t in toasts()), "the earlier import toast goes", 40)
+    write(os.path.join(EXPORTS, "typed.csv"), "name,url,username,password,note\n"
+          f"localhost,{TYPED_ORIGIN}/login,{TYPED_USER},{TYPED_PASSWORD},\n")
+    import_through("chrome", "typed.csv")
+    typed = wait_for(lambda: next((t for t in toasts() if "Imported:" in t), None),
+                     "the typed sign-in's import toast", 60)
+    check(typed is not None and "Imported: 0." in typed and "different password" not in typed,
+          f"the saved sign-in is the typed one: importing it is already saved ({typed})")
 finally:
     rpc("action.run", {"action": "quitEndSessions"})
     try:

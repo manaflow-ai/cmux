@@ -59,5 +59,6 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
         ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
+            + BrowserPasswordsSettingsSchema.descriptors
     }
 }

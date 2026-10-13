@@ -80,6 +80,7 @@
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
+    "layout.bulk",
     "machine.get",
     "machine.list",
     "notification.ack",

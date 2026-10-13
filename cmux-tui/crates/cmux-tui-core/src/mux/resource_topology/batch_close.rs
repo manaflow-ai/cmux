@@ -43,6 +43,9 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub record_closed: bool,
     /// The close is part of a space delete: its change and closed group.
     pub room: Option<RoomClose<'a>>,
+    /// The request's own result, stored for its replay (`layout.bulk`);
+    /// None: the closed surfaces and the ended terminals.
+    pub result: Option<Value>,
 }
 
 /// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
@@ -223,6 +226,9 @@ impl Mux {
         });
         if let Some(room) = request.room.as_ref() {
             result = room.result.clone();
+        }
+        if let Some(own) = request.result.as_ref() {
+            result = own.clone();
         }
         // A cascaded close (an emptied workspace) keeps the request's result shape.
         if let Some(close) = plan.workspace_close.as_ref()
@@ -460,6 +466,7 @@ impl Mux {
             authorize_workspace: false,
             record_closed: reason.is_none(),
             room: None,
+            result: None,
         })
     }
 
@@ -486,6 +493,37 @@ impl Mux {
             authorize_workspace: true,
             record_closed: true,
             room: Some(room),
+            result: None,
+        })
+    }
+
+    /// One `layout.bulk` close (cx-gzh.5): these tabs, from any panes,
+    /// screens and workspaces, in one commit and ONE closed group; the
+    /// containers they empty close in the same plan and join the group.
+    /// `result` is the request's result, stored for its replay.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn close_tabs_for_bulk(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        end_terminals: bool,
+        operation: &str,
+        fingerprint: &Value,
+        mutation: &WorkspaceMutation,
+        authorize_workspace: bool,
+        result: Value,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        self.commit_batch_close(BatchCloseRequest {
+            target: BatchCloseTarget::Tabs(surfaces),
+            end_terminals,
+            operation,
+            fingerprint,
+            mutation,
+            expected_generation: None,
+            expected_workspace_revision: None,
+            authorize_workspace,
+            record_closed: true,
+            room: None,
+            result: Some(result),
         })
     }
 
@@ -521,6 +559,7 @@ impl Mux {
             authorize_workspace: false,
             record_closed: true,
             room: None,
+            result: None,
         })
     }
 
@@ -602,6 +641,7 @@ impl Mux {
             authorize_workspace: true,
             record_closed: reason.is_none(),
             room: None,
+            result: None,
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

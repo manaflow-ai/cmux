@@ -92,6 +92,10 @@ struct ForkApi {
                             void (*)(void*, int, int, int, const int*, int), void*) = nullptr;
   int (*password_import_replace)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int),
                                  void*) = nullptr;
+  // API version 20: save and update prompts go to the host (shim_password_core.mm).
+  void (*set_password_prompt_handler)(void (*)(void*, const char*), void*) = nullptr;
+  int (*password_prompt_answer)(int, int, const char*) = nullptr;
+  int (*set_password_generation_enabled)(int) = nullptr;
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
@@ -222,6 +226,10 @@ void InstallWindowRequestHandler();
 // applies the New Tab page URL and native messaging folders stored before
 // CefInitialize (shim_extensions_ui.mm).
 void InstallExtensionUIHandlers();
+// Sends Chromium's password save and update prompts to the host (API 20),
+// so Chromium's bubble does not show (shim_password_core.mm).
+void InstallPasswordPromptHandler();
+void RemovePasswordPromptHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);
