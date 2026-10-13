@@ -294,6 +294,39 @@ pub(crate) fn payload(
     }
 }
 
+/// Where this client's own published builds live (`SshBootstrapConfig::defaults`).
+const PUBLISHED_BASE_URL: &str = "https://files.cmux.com/cmux-tui";
+
+/// This client's own cmux-tui build for a Linux machine of `arch` (`x86_64`
+/// or `aarch64`) and its SHA-256, as the manifest beside this executable pins
+/// it: shipped there, or downloaded once from the immutable per-commit
+/// release into the payload cache and checked against the pin. A Cloud
+/// machine's in-place update installs it (cmux link machine update,
+/// cx-rppd.13). `Ok(None)` when this build ships no manifest (dev and source
+/// builds); a payload that does not match its pin is an error, never an
+/// unverified file.
+pub async fn pinned_linux_payload(arch: &str) -> Result<Option<(PathBuf, String)>, BootstrapError> {
+    let executable = std::env::current_exe().map_err(BootstrapError::Io)?;
+    let cache = default_payload_cache();
+    let source =
+        PayloadSource { base_url: PUBLISHED_BASE_URL, cache: cache.as_deref(), proxy_pac: None };
+    let identity = crate::ssh_bootstrap::BUILD_IDENTITY;
+    match payload(&executable, identity, "linux", arch, &source)? {
+        None => Ok(None),
+        Some(Payload::Bundled(path)) => {
+            let sha256 = file_sha256(&path).map_err(BootstrapError::Io)?;
+            Ok(Some((path, sha256)))
+        }
+        Some(Payload::Published(published)) => {
+            let path = fetch_published(&published).await?;
+            Ok(Some((path, published.sha256.clone())))
+        }
+        Some(Payload::Client(_) | Payload::ClientSlice(_)) => Err(BootstrapError::Configuration(
+            "a Linux payload resolved to this client's own build".into(),
+        )),
+    }
+}
+
 fn file_sha256(path: &Path) -> std::io::Result<String> {
     let mut input = std::fs::File::open(path)?;
     let mut digest = Sha256::new();

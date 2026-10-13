@@ -19,6 +19,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         var conflicts: [String] = []
         /// `link agent move`'s `machine_outdated`: the daemon it is about, `source` or `target`.
         var side: String?
+        /// `link machine update`: whether the machine's cmux-tui changed.
+        var updated = false
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -49,6 +51,12 @@ nonisolated struct CloudMoveCLI: Sendable {
         return try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd] + flags)
     }
 
+    /// `cmux link machine update`: updates the cmux-tui of the machine whose daemon `socket`
+    /// reaches to this app's own pinned build, when that machine is outdated (cx-rppd.13).
+    func machineUpdate(socket: String) async throws -> Answer {
+        try await run(["link", "machine", "update", "--socket", socket])
+    }
+
     private func run(_ arguments: [String]) async throws -> Answer {
         let result = try await ProcessRunner.run(executable: binary, arguments: arguments, environment: nil,
                                                  timeout: timeout, clock: ContinuousClock())
@@ -61,6 +69,7 @@ nonisolated struct CloudMoveCLI: Sendable {
         }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                       sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
-                      conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String)
+                      conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String,
+                      updated: object["updated"] as? Bool ?? false)
     }
 }

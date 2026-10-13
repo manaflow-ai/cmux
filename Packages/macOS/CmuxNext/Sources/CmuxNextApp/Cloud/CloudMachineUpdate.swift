@@ -17,6 +17,26 @@ enum CloudMachineUpdate {
     static func requested(_ invocation: ActionInvocation) -> Bool {
         invocation.origin == .user && invocation[argument] == .bool(true)
     }
+
+    /// Updates `machine` (named `name`, its daemon at `socket`), behind toast `toastID`. Throws a stop
+    /// whose Retry is `retry` when trying again can help.
+    static func run(_ services: AppServices, name: String, socket: String, cli: CloudMoveCLI, toast toastID: String,
+                    retry: CloudMoveRetries.Retry) async throws {
+        CloudMove.toast(services, toastID, CloudMachineUpdateStrings.updating(name), duration: .seconds(1800))
+        let answer: CloudMoveCLI.Answer
+        do {
+            answer = try await cli.machineUpdate(socket: socket)
+        } catch {
+            throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, String(describing: error)), retry: retry)
+        }
+        guard !answer.ok else { return }
+        services.cloud.logger.error("cloud machine update: \(answer.errorCode ?? "", privacy: .public) \(answer.error ?? "", privacy: .public)")
+        switch answer.errorCode {
+        case "machine_update_unsupported": throw CloudMove.Failure(message: CloudMachineUpdateStrings.unsupported(name))
+        case "machine_update_unavailable": throw CloudMove.Failure(message: CloudMachineUpdateStrings.unavailable(name))
+        default: throw CloudMove.Failure(message: CloudMachineUpdateStrings.failed(name, answer.error ?? answer.errorCode ?? ""), retry: retry)
+        }
+    }
 }
 
 /// Update Machine's text (``CloudMachineUpdate``). Keys live in Resources/Cloud.xcstrings.
