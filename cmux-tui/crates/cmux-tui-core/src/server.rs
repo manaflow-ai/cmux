@@ -154,7 +154,10 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
+use resource_trust::{
+    conversation_resource_client, handles_resource_connection_operation,
+    trusted_local_resource_client,
+};
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -193,6 +196,8 @@ mod cmd_terminals;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
+mod page_files;
+pub use page_files::page_bundle_dir;
 mod responses;
 mod rows;
 mod screen_json;
@@ -2448,7 +2453,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access,
+    serve_websocket_with_access, serve_websocket_with_pages,
 };
 
 #[cfg(test)]

@@ -105,8 +105,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ]
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
-/// the remote desktop core C ABI (module CCmuxRdFFI) and the sidebar layout
-/// reducer C ABI (module CCmuxLayoutReducerFFI) over one Rust runtime. Every
+/// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
+/// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
+/// (module CCmuxPaletteRankerFFI) over one Rust runtime. Every
 /// build links it from one pinned release
 /// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
 /// holds at most three personality routines per image (C++, iroh, this one),
@@ -117,8 +118,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-18e22c27f089b23ab6ec37b804833707efe1ffd4/CCmuxAppFFI.xcframework.zip",
-    checksum: "3b20a36bb987a107fa7444c9930dc7d2030259290c37fadb60aa8ce80d7c4dbf"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b000e1b0e06b6ebedb692091080628b28731af8c/CCmuxAppFFI.xcframework.zip",
+    checksum: "961dd2d84e1658bef826ac32796ebdc816c7eead9743765915d60eceacca602e"
 )
 
 let package = Package(
@@ -168,6 +169,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
@@ -639,6 +641,12 @@ let package = Package(
             dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
+        // (moved out of CmuxNextApp to keep it under its size cap).
+        .target(
+            name: "CmuxNextCLIInstall",
+            swiftSettings: daemonSwiftSettings
+        ),
         // The freeze gate for this process's environment writes (libghostty
         // keeps a copy of environ from ghostty_init). No dependencies.
         .target(
@@ -779,7 +787,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),

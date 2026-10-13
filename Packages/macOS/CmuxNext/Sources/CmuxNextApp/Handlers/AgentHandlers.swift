@@ -117,7 +117,7 @@ enum AgentHandlers {
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.runPermissionAction(command)
+                view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
         // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).

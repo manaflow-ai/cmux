@@ -83,7 +83,7 @@ export function MachinesSection({ title }: { title: string }) {
     <section className="group" data-card="machines">
       <h3 className="group-title">{title}</h3>
       <div className="rows">
-        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} />
+        <ListRows rows={host.machines} empty={t("settingsWindow.machinesEmpty")} marks />
       </div>
     </section>
   );

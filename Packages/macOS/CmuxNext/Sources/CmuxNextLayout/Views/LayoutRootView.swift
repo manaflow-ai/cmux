@@ -80,7 +80,7 @@ public final class LayoutRootView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
-        driver.onFrame = { [weak self] dt in self?.frame(dt) ?? false }
+        driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.syncOverlay() }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
@@ -273,7 +273,7 @@ public final class LayoutRootView: NSView {
 
     // MARK: Frames
 
-    private func frame(_ dt: Double) -> Bool {
+    func advanceFrame(_ dt: Double) -> Bool {
         model.flushPendingGestureIntents()
         var moving = false
         for view in screenViews.values where !view.isHidden {

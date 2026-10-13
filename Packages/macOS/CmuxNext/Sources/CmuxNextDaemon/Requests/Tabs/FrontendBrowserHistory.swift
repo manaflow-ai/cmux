@@ -9,16 +9,22 @@ public struct FrontendBrowserHistory: Codable, Sendable, Equatable {
         public var url: String
         public var title: String?
         public var scrollY: Double?
+        /// The entry's document came from a form submission (a POST): a
+        /// restore, a duplicate or a wake never sends it again without the
+        /// person (BR-R1). Absent when false.
+        public var formPost: Bool?
 
-        public init(url: String, title: String? = nil, scrollY: Double? = nil) {
+        public init(url: String, title: String? = nil, scrollY: Double? = nil, formPost: Bool? = nil) {
             self.url = url
             self.title = title
             self.scrollY = scrollY
+            self.formPost = formPost
         }
         // Snake case both ways: requests encode snake case, replies decode as is.
         enum CodingKeys: String, CodingKey {
             case url, title
             case scrollY = "scroll_y"
+            case formPost = "form_post"
         }
     }
 

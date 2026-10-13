@@ -36,6 +36,26 @@ test("Machines lists the saved machines; a host change updates the list without 
   page.unmount();
 });
 
+test("a machine row draws its icon in the row's mark: an emoji, a stored image, else the name's initial", async () => {
+  // cx-qno.11.4: a machine's icon (the home session registry's) shows on its Settings row as a
+  // space's does; an SF Symbol is not drawable here, so a plain machine shows its initial.
+  const asset = `svg:sha256-${"a".repeat(64)}`;
+  const page = await renderPage({ path: "/settings/machines" });
+  const mark = () => page.container.querySelector('[data-card="machines"] [data-host-row] .host-avatar');
+  expect(mark()?.textContent).toBe("B");
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [{ ...page.provider.host.machines[0]!, icon: "🚀" }] });
+  });
+  await settle();
+  expect(mark()?.textContent).toBe("🚀");
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [{ ...page.provider.host.machines[0]!, icon: asset }] });
+  });
+  await settle();
+  expect(mark()?.querySelector("img")?.getAttribute("src")).toBe(`icon/${encodeURIComponent(asset)}`);
+  page.unmount();
+});
+
 test("browser profile edits run the profile's actions with its target", async () => {
   const page = await renderPage({ path: "/settings/browser" });
   const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;

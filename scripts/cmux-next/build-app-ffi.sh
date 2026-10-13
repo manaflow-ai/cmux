@@ -23,7 +23,8 @@ out_root="${CMUX_APP_FFI_OUT:-$repo_root/cmux-tui/target/cmux-app-ffi}"
 case "$out_root" in ""|"/") echo "error: CMUX_APP_FFI_OUT must name a directory" >&2; exit 2 ;; esac
 lib_name="libcmux_app_ffi.a"
 headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
-            "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI")
+            "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
+            "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }
@@ -46,7 +47,7 @@ for target in "${targets[@]}"; do
 done
 
 export CARGO_TARGET_DIR="$out_root/cargo"
-export MACOSX_DEPLOYMENT_TARGET=26.0
+export MACOSX_DEPLOYMENT_TARGET=14.0
 # Machine code only: Xcode's ld and nm cannot read a newer rustc's bitcode.
 export CARGO_PROFILE_RELEASE_LTO=off
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
