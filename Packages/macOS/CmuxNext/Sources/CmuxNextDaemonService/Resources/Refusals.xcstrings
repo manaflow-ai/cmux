@@ -24501,6 +24501,137 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.updateForTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on %@ to trust folders from here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここからフォルダを信頼するには、%@ の cmux を更新してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث cmux على %@ لتتمكن من الوثوق بالمجلدات من هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažurirajte cmux na %@ da biste odavde označavali foldere kao pouzdane."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdater cmux på %@ for at stole på mapper herfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualisiere cmux auf %@, um Ordnern von hier aus zu vertrauen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualiza cmux en %@ para confiar en carpetas desde aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez à jour cmux sur %@ pour faire confiance aux dossiers depuis ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiorna cmux su %@ per considerare attendibili le cartelle da qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %@ ដើម្បីទុកចិត្តថតពីទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 폴더를 신뢰하려면 %@의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdater cmux på %@ for å stole på mapper herfra."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaktualizuj cmux na %@, aby ufać folderom stąd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualize o cmux em %@ para confiar em pastas daqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновите cmux на %@, чтобы доверять папкам отсюда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดต cmux บน %@ เพื่อเชื่อถือโฟลเดอร์จากที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasörlere buradan güvenmek için %@ üzerindeki cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновіть cmux на %@, щоб довіряти папкам звідси."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cập nhật cmux trên %@ để tin cậy thư mục từ đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新 %@ 上的 cmux，以便从这里信任文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新 %@ 上的 cmux，以便從這裡信任資料夾。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.agentServiceDown": {
       "extractionState": "manual",
       "localizations": {
