@@ -70,6 +70,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // tool wrote it with the umask's mode and the daemon never saves it.
     narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
+    crate::login_env::set_extra_allow(config.login_env_allow.clone());
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }

@@ -41,7 +41,7 @@ impl Daemon {
             .env("ACPMUX_SOCKET", home.join("s.sock"))
             .env("ACPMUX_AGENT_HOSTS", "0")
             .env("ACPMUX_CATALOG_FETCH", "0")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("XPC_SERVICE_NAME")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
