@@ -70,6 +70,18 @@ public struct TeamAppearanceEditor: View {
         .presentationDetents([.height(600), .large])
         .tint(theme.colors.label.color)
         .cnxSensoryFeedback(.selection, trigger: appearance)
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            switch DemoDirector.shared.command {
+            case .editorColor(let hex): appearance.colorHex = hex
+            case .editorEmoji(let emoji): appearance.emoji = emoji
+            case .editorDone:
+                onSave(appearance)
+                dismiss()
+            default: break
+            }
+        }
+        #endif
     }
 
     private var emojiRow: some View {

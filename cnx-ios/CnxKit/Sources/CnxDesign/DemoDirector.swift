@@ -27,6 +27,37 @@ public final class DemoDirector {
         case diffExpandFirst
         case diffMarkViewed
         case navigateBack
+        // ACP parity demo (agent chat).
+        case chatOpenArtifacts
+        case artifactsFilter(String)
+        case artifactsLayout(grid: Bool)
+        case artifactsOpen(String)
+        case artifactsSource(Bool)
+        case artifactsBack
+        case artifactsClose
+        /// "subagents", "checkpoints", "handoff", or a subagent's name.
+        case chatOpenParity(String)
+        case parityClose
+        case checkpointRestore(id: String)
+        case checkpointConfirm
+        case handoffPick(id: String)
+        case handoffFill(reference: String)
+        case handoffStart
+        // Feed swipe actions and composer attachments.
+        case feedSwipe(event: String, edge: String)
+        case feedSwipeAction(event: String, action: String)
+        case feedSwipeClose
+        // Onboarding and setup (`-cnx-demo onboarding`).
+        case onboardingOpenEmail
+        case onboardingTypeEmail(String)
+        case onboardingSendCode
+        case onboardingTypeCode(String)
+        case setupPickTeam(index: Int)
+        case setupNotNow
+        // Team appearance editor.
+        case editorColor(hex: String)
+        case editorEmoji(String)
+        case editorDone
     }
 
     public private(set) var command: Command?

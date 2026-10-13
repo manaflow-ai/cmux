@@ -11,7 +11,7 @@
 #   cnx-host-macos-arm64/ (+ .tar.gz)   Mac side: bin/, run-host.sh, stop-host.sh, README.txt
 #   MANIFEST.md
 #
-# The "Demo" configuration is optimized (-Osize) and keeps the DEBUG developer
+# The "Demo" configuration is optimized (-O) and keeps the DEBUG developer
 # surface: dev sign-in ("42" as the email), Settings → Developer (mock data,
 # scripted demos), the dev Worker. The source is `git archive` of the SHA, so
 # uncommitted changes never reach a demo build.
@@ -101,14 +101,17 @@ cd "$work/src/cnx-ios"
 xcodegen generate -q
 # Refs from before the Demo configuration build Debug with the same overrides.
 config=Demo
-grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug with -Osize (no Settings → Developer)."); }
+# Refs before the CnxDesign ToastHost fix fail to link at -O (default CMO
+# inlines a public .task(id:) caller into other modules); build them -Osize.
+opt=-O
+grep -q 'struct ToastHost' CnxKit/Sources/CnxDesign/States.swift || { opt=-Osize; notes+=("This ref predates the -O link fix; built with -Osize."); }
+grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
 common=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
         -clonedSourcePackagesDirPath "$cache/spm"
         CNX_TAG=".$tag" "CNX_DISPLAY_NAME=$display_name"
         # $(inherited) keeps each package's own conditions (swift-crypto needs them).
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CNX_DEMO'
-        # -O fails to link (SwiftUI opaque type descriptor for .task(id:)); -Osize links.
-        SWIFT_OPTIMIZATION_LEVEL=-Osize
+        SWIFT_OPTIMIZATION_LEVEL=$opt
         MARKETING_VERSION="${CNX_MARKETING_VERSION:-0.1.0}"
         CURRENT_PROJECT_VERSION="$(git -C "$repo" rev-list --count "$sha")")
 xcb() { local logf=$1; shift; xcodebuild "$@" > "$logf" 2>&1 || { grep -E "error:|BUILD FAILED" "$logf" | sort -u | head -20; return 1; }; }
@@ -227,7 +230,7 @@ fi
 | --- | --- |
 | Commit | \`$sha\` ($(git -C "$repo" log -1 --format='%s' "$sha")) |
 | Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1), Mac binaries on \`$mac_host\` |
-| App | "$display_name", bundle \`$bundle_id\`, version $app_version ($app_build), configuration $config (-Osize, DEBUG developer surface), iOS 26.0+ |
+| App | "$display_name", bundle \`$bundle_id\`, version $app_version ($app_build), configuration $config ($opt, DEBUG developer surface), iOS 26.0+ |
 | Device signing | $signing |
 | Mac host | $(echo "$mac_versions" | paste -sd ';' - | sed 's/;/; /g'), cnx-hostd from \`cnx-ios/rust\` (arm64, ad-hoc signed) |
 | Service | dev Worker \`https://cnx-ios-api-dev.debussy.workers.dev\`, Stack dev project |
@@ -265,7 +268,7 @@ Not for the App Store or TestFlight; nothing here was uploaded.
 | Agent chat and Feed | Real, from acpmux on the Mac. The phone can deny or cancel; allow and question answers are refused by acpmux (\`permission.person_required\`). |
 | Chief (Home) | Mock: \`conversation-*\` is not on cnx-hostd's allowlist. |
 | Terminal | Demo screen only (Developer → Demo → Terminal); no terminal over the link yet. |
-| Artifacts, diffs | Sample data. |
+| Artifacts, diffs | Agent-session artifacts preview over the Mac's \`file\` service; terminal artifacts and diffs are sample data. |
 
 ## Known gaps (from \`cnx-ios/verify/*.md\`)
 
@@ -276,7 +279,6 @@ Not for the App Store or TestFlight; nothing here was uploaded.
 - Chief over the link needs an allowlist and trust decision.
 - Workspace activity times are first-seen times. Light mode and iOS 27 were not recorded in the live pass.
 - The first dial right after registration can get a 401; the app retries with a fresh token.
-- Release (-O) builds fail to link (SwiftUI opaque type descriptor for \`.task(id:)\` from CnxDesign); the Demo config uses -Osize.
 EOF
   for n in "${notes[@]+"${notes[@]}"}"; do echo "- $n"; done
   [[ -z "$installed" ]] || printf '\nInstalled on device %s at build time.\n' "$installed"

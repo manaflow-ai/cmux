@@ -33,13 +33,16 @@ public final class TerminalModel {
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
-    var showArtifacts = false
+    public var showArtifacts = false
     var artifactPath: [TerminalArtifact] = []
     /// Previews of HTML and Markdown show their source.
     var previewShowsSource = false
     private var extractor = ArtifactExtractor()
 
     let joystickEngine = JoystickEngine()
+
+    /// Embedded (workspace tab): the page as last seen, for the tab grid card.
+    public internal(set) var snapshot: UIImage?
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
@@ -85,6 +88,34 @@ public final class TerminalModel {
         }
     }
 
+    public func hideKeyboard() {
+        controller?.hideKeyboard()
+    }
+
+    /// Opens the files-and-links sheet.
+    public func showFilesAndLinks() {
+        showArtifacts = true
+    }
+
+    public func paste() {
+        controller?.surface.paste(nil)
+    }
+
+    /// Ctrl-<letter> to the program (`c` interrupts, `l` clears).
+    public func sendControl(_ letter: Character) {
+        keyBar(.chord(letter))
+    }
+
+    #if DEBUG
+    /// DEBUG: the controller's layout and viewport state, for demo timelines.
+    public var debugState: String { controller?.debugState ?? "-" }
+    #endif
+
+    /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    public func captureSnapshot() {
+        if let image = controller?.snapshot() { snapshot = image }
+    }
+
     public func focusComposer() {
         directTyping = false
         composerFocusRequest += 1
@@ -102,7 +133,7 @@ public final class TerminalModel {
         attachments.removeAll()
     }
 
-    func sendWithoutReturn() {
+    public func sendWithoutReturn() {
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
     }

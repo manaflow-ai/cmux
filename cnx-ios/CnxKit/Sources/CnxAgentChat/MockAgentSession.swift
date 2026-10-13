@@ -9,7 +9,7 @@ import Foundation
 @MainActor
 public final class MockAgentSession: AgentSessionSource {
     public let summary: AgentSessionSummary
-    private let sleep: @Sendable (Duration) async throws -> Void
+    let sleep: @Sendable (Duration) async throws -> Void
     private var continuation: AsyncStream<AgentSessionEvent>.Continuation?
     private var running: Task<Void, Never>?
     private var turnCount = 0
@@ -22,6 +22,8 @@ public final class MockAgentSession: AgentSessionSource {
     private var effort = "medium"
     private var mode = "default"
     private let richFirstTurn: Bool
+    /// Checkpoints recorded around turns (newest last).
+    var checkpointLog: [AgentCheckpoint] = []
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
     public var chunkSize = 6
     public var chunkDelay: Duration = .milliseconds(16)
@@ -81,7 +83,7 @@ public final class MockAgentSession: AgentSessionSource {
         }
     }
 
-    private func emit(_ event: AgentSessionEvent) {
+    func emit(_ event: AgentSessionEvent) {
         continuation?.yield(event)
     }
 
@@ -125,6 +127,17 @@ public final class MockAgentSession: AgentSessionSource {
         ))))
         emit(.update(.agentMessageChunk(text: MockScript.historyAnswer, messageId: "h-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+        let second = Date().addingTimeInterval(-1800)
+        replaySubagentTurn(at: second)
+        checkpointLog = [
+            AgentCheckpoint(id: "cp-h1", title: "What does the link framing look like today?", turnID: turnID, createdAt: start,
+                            branch: summary.branch, head: "4d81e0c", files: 0),
+            AgentCheckpoint(id: "cp-h2", title: "Audit the transport switch", turnID: "history-2", createdAt: second,
+                            branch: summary.branch, head: "4d81e0c", files: 3),
+            AgentCheckpoint(id: "cp-h2-after", title: "Audit the transport switch", turnID: "history-2", isBeforeTurn: false,
+                            createdAt: second.addingTimeInterval(41), branch: summary.branch, head: "4d81e0c", files: 5,
+                            complete: false, skipped: 1),
+        ]
     }
 
     // MARK: Turns
@@ -134,6 +147,8 @@ public final class MockAgentSession: AgentSessionSource {
         let turnID = "turn-\(turnCount)-\(promptID.prefix(4))"
         emit(.userMessage(text: text, promptId: promptID, turnId: turnID, attachments: attachments, at: Date()))
         emit(.turnStarted(turnId: turnID, at: Date()))
+        checkpointLog.append(AgentCheckpoint(id: "cp-\(turnID)", title: text, turnID: turnID, createdAt: Date(),
+                                             branch: summary.branch, head: "9f2c1ab", files: 5))
         let rich = richFirstTurn && turnCount == 1
         running = Task { [weak self] in
             guard let self else { return }
