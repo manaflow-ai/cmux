@@ -107,7 +107,8 @@ export class DaemonSocket {
   /** One raw command; resolves to its `data`, rejects with the daemon's `error_code`. */
   request<T = Record<string, unknown>>(cmd: string, params: Record<string, unknown> = {}): Promise<T> {
     const socket = this.socket;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return Promise.reject(daemonError("disconnected", "not connected"));
+    if (!socket || socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(daemonError("disconnected", "not connected"));
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (data) => resolve(data as T), reject });

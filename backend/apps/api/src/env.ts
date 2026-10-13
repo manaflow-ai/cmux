@@ -114,6 +114,12 @@ export interface Env {
   readonly OUTBOX_ADMIN_KEY?: string
   /** Operator key for /v1/admin/team-vm/* (team-vm-admin.ts: registry counts, on-demand prefix report); the routes are absent without it. */
   readonly TEAM_VM_ADMIN_KEY?: string
+  /** Service key of the usage reconcile worker for POST /v1/internal/billing/levels (billing-levels.ts); the route is absent without it. */
+  readonly BILLING_LEVELS_KEY?: string
+  /** Payment service key of the usage sync (billing-usage-sync.ts). Test mode only in this phase: a live key is refused. */
+  readonly STRIPE_USAGE_KEY?: string
+  /** `e2e` on the development Worker only: the usage sync uses the e2e price set (1 USD included; billing-catalog.ts). */
+  readonly BILLING_USAGE_PRICE_SET?: string
   readonly INTEGRATIONS_KMS_KEY_ARN?: string
   readonly INTEGRATIONS_KMS_REGION?: string
   /** Secrets: the IAM user's access key, allowed only kms:Encrypt and kms:Decrypt with our encryption context. */

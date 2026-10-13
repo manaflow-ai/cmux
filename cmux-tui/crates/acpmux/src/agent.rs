@@ -190,8 +190,13 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
-    crate::login_env::apply_tokio(&mut cmd);
-    crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+    // Startup files changed since the last read: refresh in the background.
+    crate::login_env::refresh_if_changed();
+    // The login shell's allow-list for this harness's family (login_env.rs).
+    let family_name = crate::config::derive_family(name, profile);
+    let family = Some(family_name.as_str());
+    crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
+    crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -237,6 +242,13 @@ pub(crate) fn harness_command(
     // port: a job object there (a later landing).
     #[cfg(unix)]
     cmd.process_group(0);
+    // A Claude agent's sign-in inputs, for a clear message if it has none.
+    let claude_family = family == Some("claude");
+    match (claude_family, session) {
+        (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),
+        (false, Some((id, _))) => crate::claude_auth::forget(id),
+        _ => {}
+    }
     Ok(cmd)
 }
 
@@ -254,7 +266,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::var(var).or_else(|| std::env::var(var).ok()),
+            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
             &crate::config::profiles::keychain_lookup,
         )
     };

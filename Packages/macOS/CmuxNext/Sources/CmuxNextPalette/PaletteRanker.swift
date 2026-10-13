@@ -15,21 +15,21 @@ nonisolated public struct PaletteRankedSection: Sendable, Hashable {
     public let rows: [PaletteRankedRow]
 }
 
-/// Thin Swift compatibility surface for the shared TypeScript ranker.
+/// Thin Swift compatibility surface for the shared Rust ranker.
 ///
 /// The palette keeps this API so existing providers and callers do not need to
-/// know about JavaScriptCore. All scoring, matching, frecency and grouping now
-/// run in `webviews/src/palette/ranker.ts` through one persistent
+/// know about the C ABI. All scoring, matching, frecency and grouping run in
+/// `cmux-tui/crates/cmux-palette-ranker` through one persistent
 /// ``PaletteRankerBridge``.
 public final class PaletteRanker {
     private nonisolated static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.ranker")
 
     private let bridge: PaletteRankerBridge?
-    /// Why the shared ranker did not load (its bundle is missing or broken), nil when it did.
+    /// Why the shared ranker did not load, nil when it did.
     /// Without it every page ranks to no rows, so the reason is kept and logged instead of lost.
     nonisolated public let loadError: PaletteRankerBridgeError?
 
-    /// Creates a ranker with a persistent JavaScriptCore context.
+    /// Creates a ranker with a persistent ranker handle.
     nonisolated public convenience init() {
         self.init(loading: { try PaletteRankerBridge() })
     }
@@ -46,7 +46,7 @@ public final class PaletteRanker {
         }
     }
 
-    /// Ranks a prepared palette index through the shared TypeScript engine.
+    /// Ranks a prepared palette index through the shared ranker.
     ///
     /// - Parameter version: A stable snapshot identifier. Reusing it for the
     ///   same entries lets the bridge reuse its prepared text fields.
@@ -85,7 +85,7 @@ public final class PaletteRanker {
         }
     }
 
-    /// Ranks the visible rows for an empty query through the shared TypeScript engine.
+    /// Ranks the visible rows for an empty query through the shared ranker.
     nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
         sectionOrders: [Int],
