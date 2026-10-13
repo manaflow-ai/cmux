@@ -5165,6 +5165,7 @@ impl Surface {
         let Some(output) = terminal.discard_unreplayable_replay() else {
             return Ok(None);
         };
+        pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))
@@ -7611,6 +7612,26 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn checkpoint_recovery_resets_terminal_metadata_parser() {
+        let mux = Mux::new_for_test("checkpoint-metadata-recovery", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let mut oversized = b"\x1b]9;4;1;".to_vec();
+        oversized.resize(1_048_577, b'x');
+        surface.apply_stream_output_for_test(&oversized).unwrap();
+
+        let recovered = surface
+            .discard_unreplayable_replay_with(|terminal| {
+                terminal.vt_replay_bounded(VT_REPLAY_MAX_BYTES)
+            })
+            .unwrap();
+        assert!(matches!(recovered, Some(Ok(_))));
+
+        surface.apply_stream_output_for_test(b"\x1b]9;4;2;\x07").unwrap();
+        assert_eq!(surface.terminal_screen_snapshot().unwrap().osc_progress, "4;2;");
     }
 
     #[cfg(unix)]
