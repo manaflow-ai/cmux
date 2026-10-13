@@ -2,34 +2,16 @@ import AppKit
 import CmuxNextSettings
 
 #if DEBUG
-/// `debug.quit`: the quit sheet for automation (no system input needed).
-/// `{}` reports it and never quits; the report's `quit_with` names the
-/// socket actions that do (`action.run` `quitEndSessions` stops the app and
-/// its daemon). `{open: true}` starts a quit exactly as Cmd-Q does
-/// (interactive origin); `{remember: bool}` sets "Don't ask again";
-/// `{open: true, inactive: true}` does it as a Dock quit of an inactive app;
-/// `{fixture_quit: "keep" | "end-sessions" | "end-everything"}` quits with
-/// that choice without showing the interactive sheet (DEBUG-only test fixture);
-/// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
-/// clicks that button. While "Some sessions did not end" shows, the report
-/// carries `failure` (its lines and buttons) and `press: "retry" |
-/// "quit-anyway"` answers it.
+/// `debug.quit` reports or drives the automation quit sheet. `{}` reports;
+/// `{open: true}` starts an interactive quit, and `fixture_quit` performs a
+/// DEBUG-only fixture quit. `{press: ...}` answers a sheet or failure alert.
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
-        // DEBUG-only fixture for tagged app behavior checks. The corresponding
-        // socket actions are user-only, so a behavior test cannot tear down its
-        // own app and sessions through action.run.
         if let choice = params["fixture_quit"]?.stringValue {
-            let choices: [String: QuitSessionsChoice] = [
-                "keep": .keep,
-                "end-sessions": .endKeepLayout,
-                "end-everything": .endEverything,
-            ]
-            guard let picked = choices[choice] else {
-                return .object(["error": .string("fixture_quit: keep, end-sessions or end-everything")])
-            }
+            let choices: [String: QuitSessionsChoice] = ["keep": .keep, "end-sessions": .endKeepLayout, "end-everything": .endEverything]
+            guard let picked = choices[choice] else { return .object(["error": .string("fixture_quit: keep, end-sessions or end-everything")]) }
             quit.requestQuit(.explicit(picked))
             return .object(["quitting": .string(choice)])
         }
