@@ -2275,7 +2275,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; busy ({since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1), absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -3640,6 +3640,24 @@
               "overlay"
             ]
           }
+        },
+        "role": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "agent_chat"
+            ]
+          },
+          "description": "What the docked column holds: agent_chat is the workspace's agent chat dock. Absent for a plain dock."
+        },
+        "permanent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when the dock cannot be undocked or closed. Absent when false."
         }
       },
       "extra": false,
@@ -16915,7 +16933,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits in the range are removed; agent and command entries are hidden by range (not with a profile); closed and location entries are never touched; removed counts visits."
+        "Page visits in the range are removed; agent and command entries are hidden by range and closed groups closed in the range are deleted for good as closed.delete (neither with a profile); location entries are never touched; removed counts visits and deleted closed groups."
       ]
     },
     "history.entries.list": {
@@ -17061,7 +17079,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits are removed; agent and command entries are hidden; closed entries are left to age out; any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+        "Page visits are removed; agent and command entries are hidden; closed entries delete their closed group for good as closed.delete (it cannot be reopened; no restore id; an already gone group counts nothing); any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
       ]
     },
     "history.restore": {

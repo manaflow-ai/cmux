@@ -46,7 +46,7 @@ extension NewTabPage {
         }
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: true) { [weak source] key in
             opened.value = key
-            if let source { Self.moveToSplit(key, from: source, edge: edge) }
+            if let source { Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
         }
         if !started { input.endIncoming(keys, pageMade: false) }
     }
@@ -77,7 +77,7 @@ extension NewTabPage {
 
     /// Moves the hidden page `key` to a new pane on `edge` of its pane once the store lists it,
     /// then shows it there and focuses it. A failed move shows it where it is.
-    private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge) {
+    private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?) {
         let services = source.services
         services.registry.track(Task { @MainActor [weak source] in
             if services.locateTab(key) == nil {
@@ -85,10 +85,14 @@ extension NewTabPage {
             }
             guard case let (tab, pane)? = services.locateTab(key) else { return nil }
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
-                guard let source else { return }
+                let input = services.keyRouter.newTabInputCoordinator
+                // A failed move leaves the page unselected in its pane: the held keys go on now.
+                guard let source else { return input.endIncoming(keys, pageMade: false) }
                 source.dockFinished(key)
-                guard moved, let content = source.workspace else { return }
+                guard moved, let content = source.workspace else { return input.endIncoming(keys, pageMade: false) }
                 NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services)
+                // The page shows in its new pane: a field that reported ready may take the keys now.
+                input.flushAll()
             }
             return nil
         })

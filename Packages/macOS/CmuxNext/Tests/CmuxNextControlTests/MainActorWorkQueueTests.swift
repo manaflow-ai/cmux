@@ -1,6 +1,6 @@
 @testable import CmuxNextControl
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct MainActorWorkQueueTests {

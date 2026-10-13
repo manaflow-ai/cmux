@@ -73,7 +73,7 @@ try:
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("the tagged app did not come up")
     time.sleep(2)
-    print("fixture:", rpc("debug.home_native_fixture.open"), flush=True)
+    print("fixture:", rpc("debug.home_native_fixture.open", {"new": True}), flush=True)
     time.sleep(4)
     print("snapshot:", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"home-fixture-{opts.tag}.png")}), flush=True)
     time.sleep(2)
