@@ -204,9 +204,11 @@ describe("Stack invitation-code client", () => {
     });
     expect(calls[0]!.url.endsWith("/api/v1/team-invitations/accept/details")).toBe(true);
     const headers = calls[0]!.init.headers as Record<string, string>;
-    expect(headers["x-stack-access-type"]).toBe("client");
-    expect(headers["x-stack-access-token"]).toBe("user-token");
-    expect(headers["x-stack-publishable-client-key"]).toBe("pck_1");
+    expect(headers["x-hexclave-access-type"]).toBe("client");
+    expect(headers["x-hexclave-access-token"]).toBe("user-token");
+    expect(headers["x-hexclave-publishable-client-key"]).toBe("pck_1");
+    // Stack answers 429 to the legacy x-stack-* auth headers.
+    expect(Object.keys(headers).some((name) => name.startsWith("x-stack-"))).toBe(false);
     expect(Object.keys(headers).some((name) => name.includes("secret"))).toBe(false);
     expect(calls[0]!.init.body).toBe(JSON.stringify({ code: "the-code" }));
   });

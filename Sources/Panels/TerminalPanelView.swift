@@ -94,12 +94,6 @@ struct TerminalPanelView: View {
         @Bindable var textBoxState = panel.textBoxState
 
         return VStack(spacing: 0) {
-            if let recovery = panel.restoreRecovery.state {
-                AgentRestoreRecoveryView(
-                    state: recovery,
-                    onAttach: { panel.sendInput($0) }
-                )
-            }
             if let wakeFailure = panel.agentWakeFailure {
                 AgentWakeFailureBanner(
                     failure: wakeFailure,
