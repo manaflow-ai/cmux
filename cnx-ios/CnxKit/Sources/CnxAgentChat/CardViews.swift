@@ -136,7 +136,11 @@ public struct PermissionActionBar: View {
     public var body: some View {
         VStack(spacing: 8) {
             ForEach(request.options) { option in
-                Button(option.name) { respond(option) }
+                Button { respond(option) } label: {
+                    // Long options ("Always allow cargo test in this workspace")
+                    // wrap instead of truncating.
+                    Text(option.name).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                }
                     .buttonStyle(CnxCapsuleButtonStyle(style(option), size: .bar))
                     .sensoryFeedback(.impact(weight: .light), trigger: false)
             }
@@ -246,9 +250,12 @@ public struct QuestionCard: View {
                         .buttonStyle(CnxCapsuleButtonStyle(.secondary))
                         .disabled(state.answer.selections[item.id]?.isEmpty != false)
                 }
-                Button("Answer") { send(.submit) }
-                    .buttonStyle(CnxCapsuleButtonStyle(.primary))
-                    .disabled(!state.canSubmit)
+                // Answer only on the last page (SPEC 6.6), or once every item is answered.
+                if state.activeItem == count - 1 || state.canSubmit {
+                    Button("Answer") { send(.submit) }
+                        .buttonStyle(CnxCapsuleButtonStyle(.primary))
+                        .disabled(!state.canSubmit)
+                }
             }
         }
         .padding(16)

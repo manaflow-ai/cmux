@@ -42,7 +42,7 @@ public final class InlineMarkdownCache {
             }
             if intent.contains(.code) {
                 result[run.range].font = .system(.callout, design: .monospaced)
-                result[run.range].backgroundColor = Color.cnxFillSelected
+                result[run.range].backgroundColor = Color.cnxFill
             }
             if run.link != nil {
                 result[run.range].underlineStyle = .single

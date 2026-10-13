@@ -176,3 +176,26 @@ public struct ToolWording: Sendable {
         return "\(Int(seconds) / 60)m \(Int(seconds) % 60)s"
     }
 }
+
+extension Array where Element == TurnRow {
+    /// Whether a running turn shows the "Working" label after its rows
+    /// (SPEC 4.5). The label marks where the next block will start, so it
+    /// is hidden while the last row already shows live progress (streaming
+    /// text or thinking, a running tool with its own shimmer and spinner)
+    /// or waits on the person (an open permission or question card).
+    public var needsWorkingIndicator: Bool {
+        guard let last else { return true }
+        switch last {
+        case .message, .thought, .question:
+            return false
+        case .tool(let call), .edit(let call):
+            return !call.isRunning
+        case .toolGroup(_, let calls):
+            return !calls.contains(where: \.isRunning)
+        case .permission(let record):
+            return record.resolution != nil
+        case .plan, .subagents:
+            return true
+        }
+    }
+}

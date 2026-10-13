@@ -328,7 +328,7 @@ struct EditedFilesCard: View {
                     HStack(spacing: 10) {
                         Image(systemName: file.status == .added ? "doc.badge.plus" : "doc.text")
                             .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
-                        Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1)
+                        Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1).layoutPriority(1)
                         Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: 4)
                         DiffCounts(additions: file.additions, deletions: file.deletions)

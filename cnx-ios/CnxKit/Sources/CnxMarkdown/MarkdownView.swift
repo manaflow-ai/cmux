@@ -142,6 +142,11 @@ struct MarkdownTableView: View {
     private func cell(_ text: String, column: Int, header: Bool) -> some View {
         InlineText(source: text, font: header ? .subheadline.weight(.semibold) : .subheadline)
             .frame(minWidth: 96 - 24, maxWidth: 260 - 24, alignment: alignment(column))
+            // In a horizontal scroll view the grid first measures cells at
+            // their ideal (single-line) width; without this the row kept the
+            // one-line height after the 260 pt cap wrapped the text, and
+            // wrapped lines ran into the row separators.
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
     }

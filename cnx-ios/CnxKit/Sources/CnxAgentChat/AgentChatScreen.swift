@@ -473,10 +473,10 @@ struct TurnView: View {
                     rowView(row, isLastRow: row.id == rows.last?.id)
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                 }
-                if turn.status == .running, showsWorking(rows) {
-                    WorkingLabel(store.pendingPermission != nil ? "Waiting for permission" : (store.pendingQuestion != nil ? "Waiting for your answer" : "Working"),
-                                 since: turn.startedAt)
+                if turn.status == .running, rows.needsWorkingIndicator, store.pendingPermission == nil, store.pendingQuestion == nil {
+                    WorkingLabel("Working", since: turn.startedAt)
                         .frame(minHeight: 28)
+                        .transition(.opacity)
                 }
                 if turn.status != .running, let changes = turn.changeSet {
                     EditedFilesCard(changeSet: changes).padding(.top, 4)
@@ -494,15 +494,6 @@ struct TurnView: View {
                     EmptyView()
                 }
             }
-        }
-    }
-
-    private func showsWorking(_ rows: [TurnRow]) -> Bool {
-        guard let last = rows.last else { return true }
-        switch last {
-        case .message: return false
-        case .thought: return false
-        default: return true
         }
     }
 

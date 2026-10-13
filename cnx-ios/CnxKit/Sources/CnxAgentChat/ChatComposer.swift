@@ -19,10 +19,13 @@ struct ChatComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sendCount = 0
     @State private var planMode = false
+    /// Set by a tap on the collapsed capsule: the text field only exists
+    /// when expanded, so focus can only move into it after it is built.
+    @State private var expandRequested = false
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
-    private var collapsed: Bool { collapsible && !focus.wrappedValue && !hasContent }
+    private var collapsed: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -58,6 +61,9 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .onChange(of: focus.wrappedValue) { _, focused in
+            if focused { expandRequested = false }
+        }
     }
 
     private var card: some View {
@@ -82,7 +88,9 @@ struct ChatComposer: View {
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
-                        .onTapGesture { focus.wrappedValue = true }
+                        .onTapGesture { expand() }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(placeholder)
                 } else {
                     if store.currentModelName != nil { modelPill }
                     Spacer(minLength: 0)
@@ -101,6 +109,15 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String { "Reply to \(store.summary.agentName)" }
+
+    /// Expands the capsule, then focuses the field once it exists.
+    private func expand() {
+        withAnimation(.cnxSmooth) { expandRequested = true }
+        Task { @MainActor in
+            await Task.yield()
+            focus.wrappedValue = true
+        }
+    }
 
     // MARK: Controls
 
