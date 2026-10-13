@@ -65,7 +65,12 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         after,
     } = params;
     let profile_id = profile_id
-        .map(|profile| mux.workspace_registry.lock().unwrap().resolve_browser_profile_id(&profile))
+        .map(|profile| {
+            mux.workspace_registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .resolve_browser_profile_id(&profile)
+        })
         .transpose()?;
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine,
