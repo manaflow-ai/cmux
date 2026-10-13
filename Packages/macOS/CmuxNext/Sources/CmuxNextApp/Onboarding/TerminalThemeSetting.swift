@@ -62,6 +62,8 @@ final class TerminalThemeSetting {
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
     /// The clock Shuffle Daily reads (tests move it to another day).
     var now: () -> Date = Date.init
+    /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
+    var notificationCenter: NotificationCenter = .default
     /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
     private var shufflesDaily = false
     private var dayObservers: [any NSObjectProtocol] = []
@@ -84,7 +86,7 @@ final class TerminalThemeSetting {
              daily: BackdropSelectionSetting.shufflesDaily(settings.applied.root))
         // A time zone or clock change moves local midnight, which the armed timer cannot see.
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange] {
-            dayObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            dayObservers.append(notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
                     guard let self, self.shufflesDaily else { return }
                     self.showDailyArt()
