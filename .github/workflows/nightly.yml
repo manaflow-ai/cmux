@@ -4085,7 +4085,7 @@ jobs:
   # (run 37526646874 published with its notes job cancelled and no alarm).
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
+    if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.tag_status == 'stale' || (needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
@@ -4100,6 +4100,7 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
           REF_NAME: ${{ github.ref_name }}
           TAG_STATUS: ${{ needs.publish-nightly.outputs.tag_status }}
+          PUBLISH_SOURCE: ${{ needs.publish-nightly.outputs.source }}
           TRACK: ${{ needs.decide.outputs.track }}
         with:
           script: |
@@ -4114,8 +4115,9 @@ jobs:
             const failed = Object.entries(results)
               .filter(([, v]) => v.result === 'failure' || v.result === 'cancelled')
               .map(([k, v]) => `${k} (${v.result})`);
-            // nightly-next: notes jobs that were skipped after a publication.
-            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success') {
+            // nightly-next: notes jobs that were skipped after a publication
+            // (a recovered one skips them on purpose).
+            if (process.env.TRACK === 'nightly-next' && results['publish-nightly']?.result === 'success' && process.env.PUBLISH_SOURCE !== 'recovered') {
               for (const job of ['sign-release-notes', 'publish-release-notes']) {
                 const result = results[job]?.result;
                 if (result === 'skipped') failed.push(`${job} (skipped)`);
@@ -4145,10 +4147,12 @@ jobs:
   # sees promotion stalls: nightly-next-feed-watch.yml (cx-npz7g).
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly, resolve-nightly-cmux-tui-client, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
     # always(): a skipped notes job must not skip this job silently; the
-    # conditions below decide. nightly-next closes only with its notes published.
-    if: always() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
+    # conditions below decide. nightly-next closes only with its notes published,
+    # unless it published a recovered build, which has none (cx-urd.69). A
+    # recovered build can follow this run's own failed build, which reports.
+    if: always() && needs.decide.outputs.should_publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.decide.outputs.track != 'nightly-next' || needs.publish-nightly.outputs.source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
