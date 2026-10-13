@@ -18,38 +18,44 @@ public struct LaunchMarkView: View {
     }
 }
 
-/// Signed-out welcome (SPEC 5.2): animated hero, headline, four sign-in pills,
-/// legal footer. No carousel.
+/// Signed-out welcome (SPEC 5.2): the cmux mark and one line, centered above
+/// the sign-in stack (ChatGPT / Claude composition), legal footer. On a cold
+/// launch the mark starts exactly where the launch screen left it and glides up
+/// into place while it takes the app icon's gradient.
 public struct WelcomeView: View {
     let auth: CnxAuthModel
-    @State private var showsEmail = false
-    @State private var buttonsVisible = false
-    @Environment(\.colorScheme) private var colorScheme
-
     let initialEmail: String?
+    @State private var showsEmail = false
+    /// The mark has left the launch position (drives every intro animation).
+    @State private var settled: Bool
+    /// The intro overlay has landed; the in-layout hero mark takes over.
+    @State private var introDone: Bool
+    @State private var screenMidY: CGFloat = 0
+    @State private var heroMarkMidY: CGFloat = 0
+    @State private var breathe = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// `playsLaunchIntro`: the welcome replaces the launch screen (cold launch);
+    /// false after sign-out, where the root crossfades it in.
     /// `initialEmail` (DEBUG verification) opens the email sheet on the code step.
-    public init(auth: CnxAuthModel, initialEmail: String? = nil) {
+    public init(auth: CnxAuthModel, playsLaunchIntro: Bool = true, initialEmail: String? = nil) {
         self.auth = auth
         self.initialEmail = initialEmail
+        _settled = State(initialValue: !playsLaunchIntro)
+        _introDone = State(initialValue: !playsLaunchIntro)
     }
 
     public var body: some View {
-        GeometryReader { proxy in
-            VStack(alignment: .leading, spacing: 0) {
-                WelcomeHero()
-                    .frame(height: proxy.size.height * 0.48)
-                    .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Your Macs, in your pocket.")
-                        .font(theme.type.heroTitle)
-                        .foregroundStyle(theme.colors.label)
-                    Text("Run agents, terminals and workspaces from anywhere.")
-                        .font(theme.type.body)
-                        .foregroundStyle(theme.colors.label2)
+        ZStack {
+            // Full-screen, like the launch screen whose mark the intro continues.
+            theme.colors.bg.color.ignoresSafeArea()
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { y in
+                    screenMidY = y
+                    startIntroIfReady()
                 }
-                .padding(.horizontal, theme.metrics.sideMargin)
-                Spacer(minLength: 16)
+            VStack(spacing: 0) {
+                hero
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 buttons
                     .padding(.horizontal, theme.metrics.sideMargin)
                 if let error = auth.errorMessage {
@@ -65,35 +71,97 @@ public struct WelcomeView: View {
                 legal
                     .padding(.top, 14)
                     .padding(.bottom, 8)
+                    .opacity(settled ? 1 : 0)
+                    .animation(theme.motion.gentle.animation.delay(0.45), value: settled)
             }
+            if !introDone { introMark }
         }
-        .background(theme.colors.bg.color.ignoresSafeArea())
         .sheet(isPresented: $showsEmail) {
             EmailSignInSheet(auth: auth, initialEmail: initialEmail)
         }
-        .task {
-            // Buttons arrive once the hero's first line has typed (max 400 ms).
-            try? await Task.sleep(for: .milliseconds(400))
-            buttonsVisible = true
-            // DEBUG verification opens the sheet the way a tap would, once the
-            // welcome screen is on screen.
-            if initialEmail != nil { showsEmail = true }
+        .onAppear {
+            if introDone { finishIntro() }
         }
         .cnxSensoryFeedback(.error, trigger: auth.errorMessage)
     }
 
+    // MARK: Hero
+
+    private static let markSize: CGFloat = 60
+    private static let launchMarkSize: CGFloat = 72
+
+    private var hero: some View {
+        VStack(spacing: 30) {
+            WelcomeMark(gradient: 1, glow: breathe ? 1 : 0.6)
+                .frame(width: Self.markSize, height: Self.markSize)
+                .opacity(introDone || (reduceMotion && settled) ? 1 : 0)
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).midY } action: { y in
+                    heroMarkMidY = y
+                    startIntroIfReady()
+                }
+            Text("Your Macs, in your pocket.")
+                .font(theme.type.heroTitle)
+                .foregroundStyle(theme.colors.label)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, theme.metrics.sideMargin)
+                .opacity(settled ? 1 : 0)
+                .blur(radius: settled || reduceMotion ? 0 : 6)
+                .offset(y: settled || reduceMotion ? 0 : 10)
+                .animation(theme.motion.gentle.animation.delay(reduceMotion ? 0 : 0.22), value: settled)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// The launch mark, at the launch screen's size and position on the first
+    /// frame, gliding to the hero slot.
+    private var introMark: some View {
+        let delta = heroMarkMidY - screenMidY
+        let moves = settled && !reduceMotion
+        return WelcomeMark(gradient: settled ? 1 : 0, glow: settled ? 0.6 : 0, opaqueBase: true)
+            .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
+            .scaleEffect(moves ? Self.markSize / Self.launchMarkSize : 1)
+            .offset(y: moves ? delta : 0)
+            .opacity(reduceMotion && settled ? 0 : 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func startIntroIfReady() {
+        guard !settled, screenMidY > 0, heroMarkMidY > 0 else { return }
+        let animation = reduceMotion ? theme.motion.snap.animation : Animation.spring(duration: 0.7, bounce: 0).delay(0.12)
+        withAnimation(animation, completionCriteria: .logicallyComplete) {
+            settled = true
+        } completion: {
+            introDone = true
+            finishIntro()
+        }
+    }
+
+    private func finishIntro() {
+        if !reduceMotion {
+            withAnimation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true)) { breathe = true }
+        }
+        // DEBUG verification opens the sheet the way a tap would.
+        if initialEmail != nil, !showsEmail { showsEmail = true }
+    }
+
+    // MARK: Buttons
+
     private var buttons: some View {
         VStack(spacing: 10) {
-            ProviderButton(title: "Continue with Apple", index: 0, visible: buttonsVisible, isBusy: auth.busyProvider == .apple, kind: .apple) {
+            ProviderButton(title: "Continue with Apple", index: 0, visible: settled, isBusy: auth.busyProvider == .apple, kind: .apple) {
                 Image(systemName: "apple.logo").font(.system(size: 19, weight: .medium))
             } action: { Task { await auth.signIn(with: .apple) } }
-            ProviderButton(title: "Continue with Google", index: 1, visible: buttonsVisible, isBusy: auth.busyProvider == .google, kind: .provider) {
+            ProviderButton(title: "Continue with Google", index: 1, visible: settled, isBusy: auth.busyProvider == .google, kind: .provider) {
                 Image("GoogleLogo", bundle: .module).resizable().frame(width: 18, height: 18)
             } action: { Task { await auth.signIn(with: .google) } }
-            ProviderButton(title: "Continue with GitHub", index: 2, visible: buttonsVisible, isBusy: auth.busyProvider == .github, kind: .provider) {
+            ProviderButton(title: "Continue with GitHub", index: 2, visible: settled, isBusy: auth.busyProvider == .github, kind: .provider) {
                 Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: 18, height: 18)
             } action: { Task { await auth.signIn(with: .github) } }
-            ProviderButton(title: "Continue with email", index: 3, visible: buttonsVisible, isBusy: false, kind: .provider) {
+            ProviderButton(title: "Continue with email", index: 3, visible: settled, isBusy: false, kind: .provider) {
                 Image(systemName: "envelope").font(.system(size: 17, weight: .medium))
             } action: { showsEmail = true }
         }
@@ -109,6 +177,34 @@ public struct WelcomeView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, theme.metrics.sideMargin)
             .environment(\.openURL, OpenURLAction { _ in .systemAction })
+    }
+}
+
+/// The cmux chevron. `gradient` 0 is the monochrome launch mark (`label`),
+/// 1 is the app icon's cyan-to-indigo gradient with a soft glow (`glow` 0...1).
+/// `opaqueBase` keeps the `label` chevron fully under the gradient so a
+/// crossfade never turns the mark translucent.
+struct WelcomeMark: View {
+    var gradient: Double
+    var glow: Double
+    var opaqueBase = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Sampled from `AppIcon.icon` (leading edge to the chevron tip).
+    private static let iconGradient = LinearGradient(
+        colors: [Color(hex: "#06CDFE"), Color(hex: "#2AA0F9"), Color(hex: "#5170F3")],
+        startPoint: .leading, endPoint: .trailing
+    )
+
+    var body: some View {
+        ZStack {
+            CmuxMark().fill(theme.colors.label).opacity(opaqueBase ? 1 : 1 - gradient)
+            CmuxMark()
+                .fill(Self.iconGradient)
+                .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 10 + 8 * glow)
+                .opacity(gradient)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -142,7 +238,7 @@ private struct ProviderButton<Icon: View>: View {
         .opacity(isEnabled || isBusy ? 1 : 0.5)
         .opacity(visible ? 1 : 0)
         .offset(y: visible || reduceMotion ? 0 : 12)
-        .animation(theme.motion.snappy.animation.delay(Double(index) * theme.motion.staggerStep), value: visible)
+        .animation(theme.motion.snappy.animation.delay(0.3 + Double(index) * theme.motion.staggerStep), value: visible)
     }
 }
 
@@ -161,80 +257,6 @@ private struct ProviderStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(theme.motion.snap.animation, value: configuration.isPressed)
-    }
-}
-
-/// Monochrome "conversation" hero: mono terminal lines type in, then a user
-/// bubble and an assistant line appear. Loops every 6 s; static under Reduce Motion.
-struct WelcomeHero: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var start = Date()
-
-    private let lines = ["$ cmux attach studio", "claude  feat-cnx-ios  working", "14 tests passed"]
-    private let charsPerSecond = 35.0
-    private let loop = 6.0
-
-    var body: some View {
-        VStack(spacing: 24) {
-            CmuxMark()
-                .fill(theme.colors.label)
-                .frame(width: 40, height: 40)
-            if reduceMotion {
-                frame(at: loop - 0.5)
-            } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                    frame(at: context.date.timeIntervalSince(start).truncatingRemainder(dividingBy: loop))
-                }
-            }
-        }
-        .padding(.horizontal, theme.metrics.sideMargin + 8)
-        .frame(maxHeight: .infinity, alignment: .center)
-        .accessibilityHidden(true)
-    }
-
-    private func frame(at t: Double) -> some View {
-        var cursor = 0.2
-        var typed: [String] = []
-        for line in lines {
-            let duration = Double(line.count) / charsPerSecond
-            let count = Int(max(0, min(Double(line.count), (t - cursor) * charsPerSecond)))
-            typed.append(String(line.prefix(count)))
-            cursor += duration + 0.25
-        }
-        let bubbleAt = cursor + 0.2
-        let replyAt = bubbleAt + 0.7
-        let fadeOut = t > loop - 0.4 ? (loop - t) / 0.4 : 1
-        return VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(typed.enumerated()), id: \.offset) { index, text in
-                    HStack(spacing: 6) {
-                        if index == 1, !text.isEmpty { Circle().fill(theme.colors.label2).frame(width: 6, height: 6) }
-                        if index == 2, !text.isEmpty { Image(systemName: "checkmark").font(.caption2.weight(.bold)) }
-                        Text(text.isEmpty ? " " : text)
-                    }
-                    .font(theme.type.codeBody)
-                    .foregroundStyle(theme.colors.label2)
-                }
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.colors.codeBg, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
-            Text("Ship the transport switch")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(theme.colors.bubble, in: .rect(cornerRadius: 18, style: .continuous))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .opacity(t > bubbleAt ? 1 : 0)
-                .offset(y: t > bubbleAt ? 0 : 8)
-                .animation(theme.motion.snappy.animation, value: t > bubbleAt)
-            Text("Done. Both dialers are in, and the PR is open.")
-                .font(theme.type.rowSubtitle)
-                .foregroundStyle(theme.colors.label2)
-                .opacity(t > replyAt ? 1 : 0)
-                .animation(theme.motion.smooth.animation, value: t > replyAt)
-        }
-        .opacity(fadeOut)
     }
 }
 #endif
