@@ -2,7 +2,9 @@ import Foundation
 
 // `bookmarks-v1` edits: update, move, delete.
 
-/// `update-bookmark`: absent keeps; `.clear` sends null.
+/// `update-bookmark`: absent keeps; `.clear` sends null. `icon`
+/// (`bookmark-icon-v1`) is for folders only: the daemon refuses it, null
+/// included, on a URL bookmark, and an asset icon must already be stored there.
 public struct UpdateBookmarkRequest: DaemonRequest {
     public typealias Response = BookmarkResult
     public static let command = "update-bookmark"
@@ -12,20 +14,22 @@ public struct UpdateBookmarkRequest: DaemonRequest {
     public var url: String?
     public var faviconKey: FieldUpdate<String>
     public var lastUsedMs: FieldUpdate<Int64>
+    public var icon: FieldUpdate<String>
     public var mutation: MutationIdentity?
 
     public init(bookmark: String, title: String? = nil, url: String? = nil, faviconKey: FieldUpdate<String> = .unchanged,
-                lastUsedMs: FieldUpdate<Int64> = .unchanged, mutation: MutationIdentity?) {
+                lastUsedMs: FieldUpdate<Int64> = .unchanged, icon: FieldUpdate<String> = .unchanged, mutation: MutationIdentity?) {
         self.mutation = mutation
         self.bookmark = bookmark
         self.title = title
         self.url = url
         self.faviconKey = faviconKey
         self.lastUsedMs = lastUsedMs
+        self.icon = icon
     }
 
     enum CodingKeys: String, CodingKey {
-        case bookmark, title, url
+        case bookmark, title, url, icon
         case faviconKey = "favicon_key"
         case lastUsedMs = "last_used_ms"
     }
@@ -37,6 +41,7 @@ public struct UpdateBookmarkRequest: DaemonRequest {
         try c.encodeIfPresent(url, forKey: .url)
         try c.encode(faviconKey, forKey: .faviconKey)
         try c.encode(lastUsedMs, forKey: .lastUsedMs)
+        try c.encode(icon, forKey: .icon)
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
