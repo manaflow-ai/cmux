@@ -6,7 +6,10 @@ public nonisolated struct SidebarNavigationSettings: Hashable, Sendable {
     public enum Scope: String, Hashable, Sendable, CaseIterable {
         /// Top-section items, then the rows (Home = 1, App Store = 2, first workspace = 3).
         case allItems
-        /// Only the rows (workspaces and collapsed groups), like classic cmux.
+        /// Only the rows (workspaces and collapsed groups), like classic cmux:
+        /// the first workspace is 1. The numbering default (hq#1925: with
+        /// every item, Cmd-1 and Cmd-2 were Home and the App Store, and the
+        /// shortcut hints already numbered only the workspaces).
         case workspacesOnly
     }
 
@@ -23,7 +26,7 @@ public nonisolated struct SidebarNavigationSettings: Hashable, Sendable {
     public var stepping: Scope
     public var steppingWraps: Bool
 
-    public init(numbering: Scope = .allItems, cmd9: NinthKey = .last, stepping: Scope = .allItems, steppingWraps: Bool = true) {
+    public init(numbering: Scope = .workspacesOnly, cmd9: NinthKey = .last, stepping: Scope = .allItems, steppingWraps: Bool = true) {
         self.numbering = numbering
         self.cmd9 = cmd9
         self.stepping = stepping

@@ -1117,29 +1117,6 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
-    "browser.toolbarButtons" : {
-      "default" : [
-        "media",
-        "zoom",
-        "downloads"
-      ],
-      "description" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.",
-      "items" : {
-        "enum" : [
-          "media",
-          "zoom",
-          "favorites",
-          "downloads",
-          "designMode",
-          "profile",
-          "theme",
-          "devTools"
-        ],
-        "type" : "string"
-      },
-      "title" : "Toolbar Buttons",
-      "type" : "array"
-    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
@@ -2060,7 +2037,7 @@
       "type" : "string"
     },
     "sidebar.numbering" : {
-      "default" : "allItems",
+      "default" : "workspacesOnly",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
       "enum" : [
         "allItems",
