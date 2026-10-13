@@ -1019,33 +1019,6 @@
    "method": "_acpmux/harnesses",
    "id": "20",
    "spend": null
-  },
-  "swift_gap": "unknown top-level frame keys pass in the Swift host (hq-5c files it for Swift)",
-  "swift_expect": {
-   "frame": {
-    "jsonrpc": "2.0",
-    "id": 20,
-    "method": "_acpmux/harnesses",
-    "params": {},
-    "result": 1
-   },
-   "facts": {
-    "is_first": false,
-    "method": "_acpmux/harnesses",
-    "page_id": "20",
-    "ticket": null,
-    "other_meta": false,
-    "pick": null,
-    "session_id": null,
-    "needs_gesture": false,
-    "needs_path_check": false,
-    "setting": null,
-    "attach_session": null,
-    "foreign_source": false,
-    "handoff_id": null,
-    "harness_enable": false,
-    "free": true
-   }
   }
  },
  {
