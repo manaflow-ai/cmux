@@ -25,8 +25,10 @@ export interface RecordResult {
   readonly invalid: number
   /** The batch had more than MAX_RECORDS_PER_CALL records and nothing was recorded; send smaller batches. */
   readonly too_large?: true
-  /** False when the team is at its hard cap (or no cap is configured): stop at the next step boundary. */
+  /** False when the team is at its hard cap (or an invalid ceiling is set): stop at the next step boundary. */
   readonly allowed: boolean
+  /** With `limit`: false when that member reached their monthly AI limit (cx-ds09i); stop at the next step boundary. */
+  readonly user_allowed?: boolean
   readonly summary: UsageSummary
 }
 
@@ -116,7 +118,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * customer charge). Records count in the UTC month they are recorded in, so a
    * late or clock-skewed record still counts against the current cap.
    */
-  async record(entity: string, records: ReadonlyArray<unknown>): Promise<RecordResult> {
+  async record(entity: string, records: ReadonlyArray<unknown>, limit?: { readonly user: string; readonly limitMicros: number }): Promise<RecordResult> {
     this.bind(entity)
     const now = Date.now()
     if (records.length > MAX_RECORDS_PER_CALL) {
@@ -161,7 +163,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     if (invalid > 0) console.error(JSON.stringify({ msg: "usage records refused", team: entity, invalid }))
     const summary = this.summaryFor(entity, now)
     this.scheduleAlarm()
-    return { recorded, duplicates, invalid, allowed: summary.stopped === null, summary }
+    const member = limit ? userSpentMicros(sql, utcMonth(now), limit.user) : undefined
+    return { recorded, duplicates, invalid, allowed: summary.stopped === null, summary, ...(member && limit ? { user_allowed: member.spent + member.open < limit.limitMicros } : {}) }
   }
 
   /**
