@@ -10,5 +10,7 @@
   right: 12px;
   bottom: 10px;
   color: color-mix(in srgb, CanvasText 58%, transparent);
-  font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
