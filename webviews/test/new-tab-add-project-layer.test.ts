@@ -41,8 +41,9 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.new-tab&variant=empty`);
     // The shipped pane's page color (the gallery theme paints a solid one).
     await page.addStyleTag({ content: ":root { --agent-page-bg: transparent !important; }" });
-    await page.locator(".nt-pickers .acpmux-project-button").click();
-    await page.locator(".acpmux-project-browse").click();
+    // The card's location row (the agent composer's): Folder, then Add project.
+    await page.locator('.acpmux-composer-context button[aria-label="Folder"]').click();
+    await page.getByRole("menuitem", { name: "Add project" }).click();
     const dialog = page.locator(".acpmux-add-project-dialog");
     await dialog.waitFor({ state: "visible" });
     const alpha = await dialog.evaluate((element) => {

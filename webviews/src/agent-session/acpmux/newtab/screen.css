@@ -72,6 +72,11 @@
 .nt-location {
   display: contents;
 }
+/* The location row tints itself with its own corner radius: the card clips it to the card's own
+   corners in every template (its menus and the suggestions open in portals, outside the card). */
+.nt-box {
+  overflow: hidden;
+}
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {

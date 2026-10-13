@@ -119,9 +119,9 @@ test("the location row names the machine the chat starts on and offers no other"
   expect(row.textContent).toContain("studio");
   expect(row.textContent).not.toContain("This Mac");
   const computer = row.querySelector<HTMLButtonElement>('button[aria-label="Computer"]');
-  if (computer) {
-    await act(async () => computer.click());
-    const options = [...document.querySelectorAll(".acpmux-menu-label")].map((item) => item.textContent);
-    expect(options).not.toContain("devbox");
-  }
+  expect(computer).not.toBeNull();
+  await act(async () => computer!.click());
+  const options = [...document.querySelectorAll(".acpmux-menu-label")].map((item) => item.textContent);
+  expect(options).toContain("studio");
+  expect(options).not.toContain("devbox");
 });

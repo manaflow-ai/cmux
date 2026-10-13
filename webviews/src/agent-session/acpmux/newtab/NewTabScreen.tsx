@@ -63,6 +63,9 @@ export type NewTabScreenActions = {
   onAddHarness?(): void;
   /// acpmux has answered with its harnesses (a fetch landed): only then can none be missing.
   harnessesListed?: boolean;
+  /// The machine the page runs on and its chat starts on (the host's name for it), for the
+  /// location row's computer.
+  machineName?: string;
   /// Integrate a harness was dismissed for good (the app keeps it across relaunches).
   harnessHintDismissed?: boolean;
   /// Dismisses Integrate a harness for every later page (`newTab.remember` `harnessHint: "dismissed"`).
@@ -414,7 +417,14 @@ export function NewTabScreen(props: Props) {
     touch();
     setProject(cwd);
     field.current?.focus();
+    // The folder menu hands focus back to its button as it closes: the field takes it after that,
+    // so Return sends instead of reopening the menu.
+    requestAnimationFrame(() => field.current?.focus());
   };
+  const localSessions = useMemo(
+    () => snapshot.sessions.filter((session) => !session.peer && session.hostKind !== "cloud"),
+    [snapshot.sessions],
+  );
   const browseProject = props.onBrowseProject
     ? () => {
         void props.onBrowseProject?.().then((cwd) => {
@@ -501,7 +511,10 @@ export function NewTabScreen(props: Props) {
               sessionId: chipSnapshot.summary?.sessionId ?? "",
               ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
             }}
-            sessions={snapshot.sessions}
+            // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
+            // row lists only this machine's chats, so its Computer menu offers no other.
+            sessions={localSessions}
+            {...(props.machineName ? { localName: props.machineName } : {})}
             projectChoices={props.projects ?? []}
             onProject={(cwd) => pickProject(cwd)}
             {...(browseProject ? { onBrowseProject: browseProject } : {})}
