@@ -43,12 +43,14 @@ on:
       - scripts/cmux-next/check-acpmux-guest-commands.ts
       - .github/workflows/backend.yml
       - .github/workflows/backend-migrations.yml
+      - scripts/cmux-next/release/prod-promote.ts
+      - scripts/cmux-next/release/production-approvals.json
   workflow_dispatch:
     inputs:
       target:
         description: "Deploy target"
         type: choice
-        options: [staging, production]
+        options: [staging, production, promote]
         default: staging
 
 permissions:
@@ -274,6 +276,8 @@ jobs:
           exit "$errors"
 
   deploy-staging:
+    # G1 of the production promotion counts a staging deploy only when the tests passed (cx-w1ald review P1).
+    needs: [test]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-staging
@@ -421,6 +425,119 @@ jobs:
           --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
           --changed-since "$BEFORE" --source-dir . --wrangler ./node_modules/.bin/wrangler
 
+  # Continuous delivery to production (cx-w1ald, release-rails.md "Continuous delivery to production").
+  # After each feat-cmux-next staging deploy (or a dispatch with target=promote) the gates pick the
+  # staging-proven commit (G1) and check G2-G7; the hold switch (repository variable
+  # CMUX_NEXT_PRODUCTION_HOLD, non-empty = hold) stops it first. No production secret here.
+  promote-gates:
+    if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))
+    needs: [deploy-staging]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # One repository-wide queue with promote-production and deploy-production (review P2).
+    concurrency:
+      group: cmux-next-deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    outputs:
+      candidate: ${{ steps.gates.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - run: bun install --frozen-lockfile
+        working-directory: scripts/cmux-next/release
+      - name: Production staleness (opens or closes the prod-stale issue)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        # 0 current, 1 stale (the issue pages), 4 unknown (no green evidence; the issue is left alone); errors fail the step.
+        run: |
+          set +e
+          bun scripts/cmux-next/release/prod-promote.ts stale --issue
+          rc=$?
+          case "$rc" in 0|4) ;; 1) echo "::warning title=cmux-api production is stale::see the prod-stale issue" ;; *) exit "$rc" ;; esac
+      - name: Promotion gates G1-G7 and the hold switch
+        id: gates
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CMUX_NEXT_PRODUCTION_HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
+        run: |
+          set +e
+          bun scripts/cmux-next/release/prod-promote.ts gates --github-output "$GITHUB_OUTPUT"
+          rc=$?
+          [ "$rc" = 0 ] || [ "$rc" = 3 ] || exit "$rc"
+
+  promote-production:
+    needs: [promote-gates]
+    if: always() && needs.promote-gates.outputs.candidate != ''
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-production
+    concurrency:
+      group: cmux-next-deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.promote-gates.outputs.candidate }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile
+        working-directory: scripts/cmux-next/release
+      # Right before the deploy: hold released, 6 h spacing, production's commit a strict ancestor of
+      # the candidate (a re-run or an older job never downgrades). Exit 3 = hold: the job fails.
+      - name: Recheck the hold, the spacing and the lineage
+        working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_NEXT_PRODUCTION_HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
+          CANDIDATE: ${{ needs.promote-gates.outputs.candidate }}
+        # The candidate reaches the shell only through the environment, and only as 40 lowercase hex.
+        run: |
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate is not a 40-hex SHA"; exit 1; }
+          bun scripts/cmux-next/release/prod-promote.ts recheck --candidate "$CANDIDATE"
+      # No secrets are sent: production keeps JWT_PRIVATE_JWK and the rest (CMUX_DEPLOY_NO_SECRETS with
+      # CMUX_RELEASE_PROMOTE). deploy-worker.sh runs migrate.ts --verify (G4) and the config gate first.
+      - name: Deploy the staging-proven commit (records the rollback target)
+        id: deploy-api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
+          CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          CMUX_DEPLOY_NO_SECRETS: "1"
+          CMUX_RELEASE_PROMOTE: "1"
+          CMUX_RELEASE_VERIFY_STEP: "1"
+        run: bash scripts/deploy-worker.sh production
+      - name: Smoke the API Worker; roll back on red
+        if: ${{ always() && steps.deploy-api.outcome != 'skipped' }}
+        working-directory: backend/apps/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 0c1675e0def6de1ab3a50a4e17dc5656
+        run: >-
+          bun ../../../scripts/cmux-next/release/worker-release.ts verify --worker cmux-api --url https://cloud-api.cmux.dev
+          --routes release-smoke.json --previous-file "$RUNNER_TEMP/cmux-api-previous-version"
+          --source-dir . --wrangler ./node_modules/.bin/wrangler
+
   deploy-production:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -440,13 +557,22 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # The same hold switch as the promotion (cx-w1ald review P2): only "released" deploys. deploy-worker.sh
+      # runs the production config gate itself.
+      - name: Hold switch
+        env:
+          HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
+        run: if [ "$HOLD" != released ]; then echo "::error::production hold switch is not released"; exit 1; fi
       - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
         id: deploy-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
-          JWT_PRIVATE_JWK: ${{ secrets.JWT_PRIVATE_JWK }}
           CMUX_NEXT_DEPLOY_PRODUCTION: "1"
+          # No secret is sent (the chief, 2026-10-13): production keeps its own JWT_PRIVATE_JWK, and the
+          # cmux-next-production environment no longer holds a copy.
+          CMUX_DEPLOY_NO_SECRETS: "1"
+          CMUX_RELEASE_PROMOTE: "1"
           CMUX_RELEASE_CHANGED_SINCE: ${{ github.event.before }}
           CMUX_RELEASE_VERIFY_STEP: "1"
         run: bash scripts/deploy-worker.sh production

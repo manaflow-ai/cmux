@@ -119,7 +119,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         // The strip's edges are the content border's edges (the chrome line).
         stripHorizontalPadding = PaneChromeMetrics.pillLeading
         stripTopOutset = Metrics.panePadding
-        newTabButtonWidth = Metrics.tabHeight
+        newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         separatorHeight = TabTunables.separatorHeight.value

@@ -425,6 +425,7 @@ MODEL_BY_PATH = {
     'commands/set-row-heights/request': models.SetRowHeightsRequest,
     'commands/set-screen-metadata/request': models.SetScreenMetadataRequest,
     'commands/set-screen-pinned/request': models.SetScreenPinnedRequest,
+    'commands/set-session-icon/request': models.SetSessionIconRequest,
     'commands/set-size-counts/request': models.SetSizeCountsRequest,
     'commands/set-size-policy/request': models.SetSizePolicyRequest,
     'commands/set-split-ratio/request': models.SetSplitRatioRequest,
