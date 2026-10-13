@@ -32,6 +32,7 @@ targets:
         DEVELOPMENT_TEAM: 7WLXT3NR37
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
     info:
       path: App/Info.plist
       properties:
