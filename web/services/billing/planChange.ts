@@ -10,6 +10,7 @@ import { stripeBillingStatusForUser, type StripeBillingStatus } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
 import { resolveMaxPrice, resolveProPrice, stripe } from "./stripe";
 import { personalPlanIdForSubscription } from "./subscriptionPlan";
+import { planItem } from "./subscriptionItems";
 
 export type SwitchTargetPlan = "pro" | "max";
 type PaidPersonalPlan = "go" | "pro" | "max";
@@ -93,7 +94,7 @@ async function resolveSwitch(
   if (status.activePlanId === target) throw new PlanChangeError("same_plan");
   const subscription = await deps.stripe().subscriptions.retrieve(status.subscriptionId);
   if (subscription.cancel_at_period_end) throw new PlanChangeError("cancel_scheduled");
-  const item = subscription.items?.data?.[0];
+  const item = planItem(subscription);
   if (!item) throw new PlanChangeError("no_subscription");
   const current = personalPlanIdForSubscription(subscription);
   if (!current) throw new PlanChangeError("not_switchable");

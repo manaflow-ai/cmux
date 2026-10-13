@@ -406,6 +406,7 @@ async function stackAuthorizationCall<T>(
     release();
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
   void pending.then(release, release);
@@ -418,6 +419,7 @@ async function stackAuthorizationCall<T>(
     }
     throw new SubrouterAuthorizationUnavailableError(
       error instanceof Error ? error.message : "Stack authorization failed",
+      { cause: error },
     );
   }
 }
@@ -437,9 +439,10 @@ function acquireStackAuthorizationSlot(
     timedOutStackAuthorizationCalls >=
       MAX_CONCURRENT_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization circuit is open",
-    ));
+    ), { transient: true }));
   }
   if (
     activeStackAuthorizationCalls <
@@ -452,9 +455,10 @@ function acquireStackAuthorizationSlot(
     stackAuthorizationWaiters.length >=
       MAX_QUEUED_STACK_AUTHORIZATION_CALLS
   ) {
-    return Promise.reject(new SubrouterAuthorizationUnavailableError(
+    // Local overload behind a slow Stack: transient, like the timeouts behind it.
+    return Promise.reject(Object.assign(new SubrouterAuthorizationUnavailableError(
       "Stack authorization queue is full",
-    ));
+    ), { transient: true }));
   }
   return new Promise((resolve, reject) => {
     const waiter = {
