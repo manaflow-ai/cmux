@@ -64,6 +64,16 @@ struct EmailSignInSheet: View {
             }
             .defaultFocus($emailFocused, true)
             .onAppear { emailFocused = true }
+            #if DEBUG
+            .onChange(of: DemoDirector.shared.serial) {
+                switch DemoDirector.shared.command {
+                case .onboardingTypeEmail(let text):
+                    Task { for character in text { email.append(character); try? await Task.sleep(for: .milliseconds(55)) } }
+                case .onboardingSendCode: send()
+                default: break
+                }
+            }
+            #endif
         }
         .presentationDetents([.large])
         .tint(theme.colors.label.color)
@@ -153,6 +163,13 @@ struct EmailCodeStep: View {
         .onChange(of: code) { _, value in
             if value.count == 6 { verify(value) }
         }
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            if case .onboardingTypeCode(let text) = DemoDirector.shared.command {
+                Task { for character in text { code.append(character); try? await Task.sleep(for: .milliseconds(140)) } }
+            }
+        }
+        #endif
     }
 
     private func verify(_ value: String) {

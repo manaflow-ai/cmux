@@ -178,7 +178,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func overviewWillAppear() {
-        if let id = activeTabID { browsers[id]?.takeSnapshot() }
+        guard let id = activeTabID else { return }
+        browsers[id]?.takeSnapshot()
+        if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
     // MARK: Toolbar actions
@@ -226,11 +228,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ],
             ]
         case .terminal:
-            return [
-                [TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }],
-                [leave],
-                [close],
-            ]
+            let own = terminal.actions(for: tab, in: workspace).map { action in
+                TabsKitMenuItem(title: action.title, systemImage: action.systemImage, isEnabled: action.isEnabled,
+                                isDestructive: action.isDestructive) { action.perform() }
+            }
+            let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
+            return [own, [copy, leave], [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -271,6 +274,12 @@ struct WorkspaceTabPage: View {
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(Color.cnxBackground)
+            // A page built during a zoom or swipe is laid out before its
+            // composer is measured; once it settles, a following chat lands
+            // on its newest turn above the composer.
+            .onChange(of: context.isInteractive) { _, interactive in
+                if interactive, surface.following { surface.scrollToBottom(animated: false) }
+            }
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
         case .browser:

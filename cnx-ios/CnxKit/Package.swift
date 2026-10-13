@@ -99,7 +99,9 @@ let package = Package(
         ]),
         .target(
             name: "CnxTerminal",
-            dependencies: ["CnxDesign", "CnxArtifacts", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")]
+            // libghostty ships for iOS only here; macOS `swift test` builds the
+            // portable parts (session, detector, extractor, input) without it.
+            dependencies: ["CnxDesign", "CnxArtifacts", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
         ),
         .target(
             name: "CnxShell",
