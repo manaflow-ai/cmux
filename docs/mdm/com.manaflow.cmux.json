@@ -1510,8 +1510,7 @@
       "type" : "number"
     },
     "layout.paneSeparation" : {
-      "default" : "borders",
-      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.",
       "enum" : [
         "none",
         "dividers",
@@ -1978,8 +1977,8 @@
     },
     "sidebar.cards.tips" : {
       "default" : true,
-      "description" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.",
-      "title" : "Show Hints",
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
+      "title" : "Show Tips",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
@@ -2582,7 +2581,7 @@
       "type" : "boolean"
     },
     "status.inferCommandBusy" : {
-      "default" : false,
+      "default" : true,
       "description" : "A shell command that runs a while shows as busy.",
       "title" : "Show Running Commands",
       "type" : "boolean"
