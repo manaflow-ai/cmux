@@ -28,12 +28,20 @@ export function DaemonGate({ url, strings, children }: {
   const connect = (auth: DaemonAuth, remember?: string) => {
     DaemonSocket.connect(url, auth)
       .then(async (daemon) => {
-        await daemon.request("identify");
+        try {
+          const identity = await daemon.request<{ capabilities?: string[] }>("identify");
+          // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+          if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
+        } catch (error) {
+          daemon.close();
+          throw error;
+        }
         if (remember) sessionStorage.setItem(storageKey(url), remember);
         setPhase({ kind: "ready", daemon });
       })
-      .catch((error: Error) => {
-        sessionStorage.removeItem(storageKey(url));
+      .catch((error: Error & { code?: string }) => {
+        // Only a refused credential is dropped; an unreachable daemon (a restart) keeps it.
+        if (error.code === "auth_rejected") sessionStorage.removeItem(storageKey(url));
         setPhase({ kind: "form", error: error.message });
       });
   };

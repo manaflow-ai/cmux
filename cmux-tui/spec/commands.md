@@ -6277,7 +6277,9 @@ Publishes a draft of a bound agent participant's running reply: the same
 admission (an agent participant of the conversation, replay and rate gate,
 text limit) and the same `conversation.events` draft item as the
 `conversation.draft` operation of `resource-api-v2.md`. Drafts are never
-stored, never go to the raw `subscribe` stream and do not change `rev`. The
+stored and do not change `rev`; on the raw `subscribe` stream they go only
+to a connection that echoed `conversation-draft-events-v1` in
+`set-client-info` (the `conversation-draft` event). The
 connection's principal (`conversation-bind`) is the participant.
 
 Params: `conversation`, `turn`, `segment`, `seq`, `kind` (`talk` or

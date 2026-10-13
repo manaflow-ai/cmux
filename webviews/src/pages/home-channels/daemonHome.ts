@@ -159,6 +159,24 @@ function str(params: Json, field: string, max = 256): string {
 export class DaemonHomeClient implements PageClient {
   private me = LOCAL_USER;
   private nextKey = 1;
+  /** The one daemon `subscribe` stream of this connection; page subscriptions share it. */
+  private streamStarted: Promise<void> | null = null;
+  /** Conversations whose page the page read (refetched after a lost event). */
+  private readonly opened = new Set<string>();
+
+  /** Starts the daemon stream once per connection (a page resubscribe adds a listener only). */
+  private startStream(): Promise<void> {
+    this.streamStarted ??= (async () => {
+      await this.daemon.request("set-client-info", {
+        name: "cmux page: home-channels", capabilities: ["conversation-draft-events-v1"],
+      });
+      await this.daemon.request("subscribe");
+    })().catch((error) => {
+      this.streamStarted = null;
+      throw error;
+    });
+    return this.streamStarted;
+  }
 
   constructor(private readonly daemon: DaemonSocket) {}
 
@@ -204,6 +222,7 @@ export class DaemonHomeClient implements PageClient {
         };
       }
       case HomeOps.page: {
+        this.opened.add(str(params, "conversation"));
         const page = await this.daemon.request("conversation-snapshot", {
           conversation: str(params, "conversation"), tail: bounded(params.tail, 100),
         });
@@ -259,7 +278,7 @@ export class DaemonHomeClient implements PageClient {
         return this.submit(str(params, "conversation"), key, send);
       }
       case HomeOps.react: {
-        const value = str(params, "value", 8);
+        const value = str(params, "value", 32);
         const tapback = typeof params.tapback === "string" ? params.tapback : undefined;
         return this.submit(str(params, "conversation"), this.key(params, options), {
           kind: params.remove === true ? "reaction.remove" : "reaction.add",
@@ -290,6 +309,7 @@ export class DaemonHomeClient implements PageClient {
    * the same rule as the app's local owner (DaemonHomeSource+Create). */
   private async createGroup(params: Json, options?: PageCallOptions): Promise<unknown> {
     const title = str(params, "title", 80).trim();
+    if (!title) throw pageError("cmux.page.invalid_params", "title");
     const ids = ((params.participants as unknown[]) ?? []).filter((id): id is string => typeof id === "string" && !!id);
     const list = await this.daemon.request<{ conversations: Json[] }>("conversation-list");
     const known = new Map<string, Json>([[CHIEF.id, CHIEF]]);
@@ -359,14 +379,24 @@ export class DaemonHomeClient implements PageClient {
           }),
         );
       } else if (event.event === "overflow") {
-        deliver((batch) => (batch.inboxStale = true));
+        // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
+        // what the lost events changed (the inbox and every open window).
+        this.streamStarted = null;
+        void this.startStream().catch(() => deliver((batch) => (batch.connection = "offline")));
+        deliver((batch) => {
+          batch.inboxStale = true;
+          batch.stale = [...this.opened];
+        });
       }
     });
     const offClose = this.daemon.onClose(() => deliver((batch) => (batch.connection = "offline")));
-    await this.daemon.request("set-client-info", {
-      name: "cmux page: home-channels", capabilities: ["conversation-draft-events-v1"],
-    });
-    await this.daemon.request("subscribe");
+    try {
+      await this.startStream();
+    } catch (error) {
+      offEvent();
+      offClose();
+      throw error;
+    }
     deliver((batch) => {
       batch.connection = "online";
       batch.inboxStale = true;

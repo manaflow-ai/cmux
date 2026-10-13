@@ -3276,6 +3276,137 @@
         }
       }
     },
+    "connect.tooOld" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This cmux is too old for the browser page. Update cmux."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إصدار cmux هذا قديم جدًا لصفحة المتصفح. حدّث cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj cmux je prestar za stranicu preglednika. Ažuriraj cmux."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux er for gammel til browsersiden. Opdater cmux."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieses cmux ist zu alt für die Browserseite. Aktualisiere cmux."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este cmux es demasiado antiguo para la página del navegador. Actualiza cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce cmux est trop ancien pour la page du navigateur. Mettez cmux à jour."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questo cmux è troppo vecchio per la pagina del browser. Aggiorna cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "この cmux はブラウザーページには古すぎます。cmux を更新してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux នេះចាស់ពេកសម្រាប់ទំព័រកម្មវិធីរុករក។ សូមធ្វើបច្ចុប្បន្នភាព cmux។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 cmux는 브라우저 페이지에 비해 너무 오래되었습니다. cmux를 업데이트하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne cmux er for gammel for nettlesersiden. Oppdater cmux."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten cmux jest za stary dla strony przeglądarki. Zaktualizuj cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este cmux é antigo demais para a página do navegador. Atualize o cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этот cmux слишком старый для страницы браузера. Обновите cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux นี้เก่าเกินไปสำหรับหน้าเบราว์เซอร์ โปรดอัปเดต cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu cmux tarayıcı sayfası için çok eski. cmux'u güncelleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цей cmux застарий для сторінки браузера. Оновіть cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux này quá cũ cho trang trình duyệt. Hãy cập nhật cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 cmux 版本过旧，无法用于浏览器页面。请更新 cmux。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 cmux 版本過舊，無法用於瀏覽器頁面。請更新 cmux。"
+          }
+        }
+      }
+    },
     "connection.connecting" : {
       "extractionState" : "manual",
       "localizations" : {

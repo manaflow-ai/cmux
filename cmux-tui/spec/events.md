@@ -518,7 +518,8 @@ signed in now.
 | since | protocol 12 additive extension; capability `local-conversations-v1` |
 
 `object{event:"conversation-typing", conversation:string, participant:string, on:bool}`,
-published for `conversation-typing` to trusted local connections. Ephemeral:
+published for `conversation-typing` to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Ephemeral:
 never stored or replayed.
 
 ### terminal-registry-changed

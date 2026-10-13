@@ -80,7 +80,8 @@ export class DaemonSocket {
       socket.addEventListener("close", (event) => {
         const reason = event.code === 1008 ? "authentication failed" : `closed (${event.code})`;
         if (!ready) reject(daemonError(event.code === 1008 ? "auth_rejected" : "unreachable", reason));
-        for (const waiter of this.pending.values()) waiter.reject(daemonError("disconnected", reason));
+        const code = event.code === 1008 ? "auth_rejected" : "disconnected";
+        for (const waiter of this.pending.values()) waiter.reject(daemonError(code, reason));
         this.pending.clear();
         for (const listener of this.closeListeners) listener(reason);
       });
