@@ -278,7 +278,6 @@ struct WorkspaceTabPage: View {
             AgentChatTranscript(
                 store: source.chatStore(tab, workspace), surface: surface,
                 topInset: insets.top + 8,
-                bottomInset: Self.bottomInset(surface: surface, insets: insets, pageHeight: context.pageSize.height),
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(Color.cnxBackground)

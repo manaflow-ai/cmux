@@ -55,6 +55,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
             .scrollPosition($position)
+            // An inline reply's keyboard comes down with a downward drag, as
+            // in Messages.
+            .scrollDismissesKeyboard(.interactively)
             .onScrollPhaseChange { _, phase in
                 if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
             }

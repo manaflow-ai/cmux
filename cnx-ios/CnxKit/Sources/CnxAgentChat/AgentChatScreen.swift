@@ -53,6 +53,13 @@ public final class AgentChatSurface {
     /// Screen y of the top of the floating bottom stack (tab mode), so the
     /// transcript's bottom margin follows the composer and the keyboard.
     public internal(set) var bottomStackTop: CGFloat?
+    /// The bottom stack's height and bottom edge in screen space, so a
+    /// transcript whose stack is drawn elsewhere (a workspace tab) can place
+    /// it from the keyboard layout guide in the keyboard's own animation.
+    public internal(set) var stackHeight: CGFloat?
+    public internal(set) var stackMaxY: CGFloat?
+    /// The live transcript's scroll view (jump to bottom, demos).
+    @ObservationIgnored weak var scroller: (any ChatTranscriptScrolling)?
 
     public init() {}
 
@@ -74,7 +81,9 @@ public final class AgentChatSurface {
 
     public func scrollToBottom(animated: Bool = true) {
         following = true
-        if animated {
+        if let scroller {
+            scroller.scrollTranscript(toTop: false, animated: animated)
+        } else if animated {
             withAnimation(.smooth(duration: 0.35)) { position.scrollTo(edge: .bottom) }
         } else {
             position.scrollTo(edge: .bottom)
@@ -112,7 +121,11 @@ public final class AgentChatSurface {
             }
         case .chatScroll(let toTop):
             following = !toTop
-            withAnimation(.smooth(duration: 0.9)) { position.scrollTo(edge: toTop ? .top : .bottom) }
+            if let scroller {
+                scroller.scrollTranscript(toTop: toTop, animated: true)
+            } else {
+                withAnimation(.smooth(duration: 0.9)) { position.scrollTo(edge: toTop ? .top : .bottom) }
+            }
         case .chatPermission(let kind):
             if let permission = store.pendingPermission,
                let option = permission.request.options.first(where: { $0.kind.rawValue == kind }) {
@@ -180,8 +193,9 @@ public struct AgentChatScreen: View {
     }
 
     public var body: some View {
-        AgentChatTranscript(store: store, surface: surface)
-            .safeAreaInset(edge: .bottom, spacing: 0) { AgentChatBottomStack(store: store, surface: surface) }
+        // The transcript hosts the composer itself, docked to the keyboard
+        // (ChatTranscriptController), instead of a SwiftUI safe-area inset.
+        AgentChatTranscript(store: store, surface: surface, placement: .owned)
             .background(Color.cnxBackground)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbar }
@@ -249,83 +263,46 @@ public struct AgentChatTranscript: View {
     let store: AgentChatStore
     @Bindable var surface: AgentChatSurface
     var topInset: CGFloat?
-    var bottomInset: CGFloat?
+    var placement: ChatDockPlacement
     var onUserScroll: ((CGFloat) -> Void)?
     @State private var warningTrigger = 0
-    @State private var userScrolling = false
     private let director = DemoDirector.shared
 
-    /// `topInset` / `bottomInset`: explicit content margins when the chat
-    /// draws under foreign chrome (nil: the safe area). `onUserScroll`
-    /// receives finger travel while the user drags (positive = finger down).
+    /// A workspace tab's transcript: full screen under the tab chrome, with
+    /// `topInset` for the status bar. The tab's accessory draws the bottom
+    /// stack; the transcript places itself above it from the keyboard
+    /// layout guide and the stack's reported size. `bottomInset` is unused
+    /// (kept for source compatibility). `onUserScroll` receives finger travel
+    /// while the user drags (positive = finger down).
     public init(store: AgentChatStore, surface: AgentChatSurface, topInset: CGFloat? = nil, bottomInset: CGFloat? = nil,
                 onUserScroll: ((CGFloat) -> Void)? = nil) {
+        self.init(store: store, surface: surface, placement: .external, topInset: topInset, onUserScroll: onUserScroll)
+    }
+
+    init(store: AgentChatStore, surface: AgentChatSurface, placement: ChatDockPlacement, topInset: CGFloat? = nil,
+         onUserScroll: ((CGFloat) -> Void)? = nil) {
         self.store = store
         self.surface = surface
+        self.placement = placement
         self.topInset = topInset
-        self.bottomInset = bottomInset
         self.onUserScroll = onUserScroll
     }
 
     public var body: some View {
-        ScrollView {
-            // A plain VStack: with LazyVStack the content height came from
-            // estimates (769 pt measured vs 1450-1538 pt estimated) and the
-            // bottom anchor settled past the content on iOS 26, leaving the
-            // page blank after a workspace opened or a tab zoomed in.
-            VStack(alignment: .leading, spacing: 0) {
-                if store.turns.isEmpty {
-                    emptyState
-                } else {
-                    if let first = store.turns.first {
-                        Text("Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 8)
-                            .padding(.bottom, 20)
-                    }
-                    ForEach(store.turns) { turn in
-                        TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
-                            .padding(.bottom, 24)
-                            .id(turn.id)
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .scrollTargetLayout()
-        }
-        .contentMargins(.top, topInset ?? 0, for: .scrollContent)
-        .contentMargins(.bottom, bottomInset ?? 0, for: .scrollContent)
-        .contentMargins(.bottom, bottomInset ?? 0, for: .scrollIndicators)
-        .scrollPosition($surface.position)
-        .defaultScrollAnchor(.bottom)
-        .scrollDismissesKeyboard(.interactively)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY
-        } action: { _, distance in
-            let away = distance > 80
-            if surface.showJump != away { withAnimation(.cnxSnap) { surface.showJump = away } }
-            if !away { surface.following = true }
-        }
-        .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y }) { old, new in
-            if userScrolling { onUserScroll?(old - new) }
-        }
-        .onScrollPhaseChange { _, phase, context in
-            userScrolling = phase == .interacting
-            if phase == .interacting || phase == .decelerating {
-                let geometry = context.geometry
-                let distance = geometry.contentSize.height + geometry.contentInsets.bottom - geometry.visibleRect.maxY
-                surface.following = distance <= 80
-            }
-        }
-        .onChange(of: store.revision) {
-            if surface.following { surface.position.scrollTo(edge: .bottom) }
-        }
-        .onChange(of: bottomInset) {
-            if surface.following { surface.position.scrollTo(edge: .bottom) }
-        }
-        .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })
+        let surface = surface
+        ChatTranscriptRepresentable(
+            placement: placement, surface: surface, topInset: topInset, onUserScroll: onUserScroll,
+            isEmpty: store.turns.isEmpty,
+            identity: ObjectIdentifier(store),
+            content: AnyView(AgentChatTurns(store: store, surface: surface)
+                .environment(\.openDiff, OpenDiffAction { changes, file in surface.diffRoute = AgentChatSurface.DiffRoute(changes: changes, fileID: file) })),
+            empty: AnyView(AgentChatEmptyState(store: store)),
+            dock: placement == .owned ? AnyView(AgentChatBottomStack(store: store, surface: surface, showsJump: false, bottomPadding: 0)) : nil,
+            jump: placement == .owned ? AnyView(AgentChatJumpButton(store: store, surface: surface)) : nil
+        )
+        // UIKit owns the safe areas and the keyboard (the controller docks
+        // the stack to the keyboard layout guide).
+        .ignoresSafeArea()
         .navigationDestination(item: $surface.diffRoute) { route in
             if let file = route.fileID {
                 DiffFileScreen(changeSet: route.changes, fileID: file)
@@ -346,35 +323,59 @@ public struct AgentChatTranscript: View {
             if let command = director.command { surface.run(command, store: store) }
         }
     }
+}
 
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkle")
-                .font(.system(size: 22))
-                .frame(width: 48, height: 48)
-                .background(Color.cnxSurfaceRaised, in: .circle)
-            Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
-            Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
+/// The turns of an agent chat (hosted in the transcript's scroll view).
+struct AgentChatTurns: View {
+    let store: AgentChatStore
+    let surface: AgentChatSurface
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let first = store.turns.first {
+                Text("Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
+                    .padding(.bottom, 20)
+            }
+            ForEach(store.turns) { turn in
+                TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
+                    .padding(.bottom, 24)
+                    .id(turn.id)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 220)
+        .padding(.horizontal, 20)
     }
 }
 
-/// Jump-to-bottom circle over the composer, or the permission action bar
-/// in the composer's place (SPEC 6.5, 6.9).
-public struct AgentChatBottomStack: View {
+/// Centered in the space between the header and the composer.
+struct AgentChatEmptyState: View {
     let store: AgentChatStore
-    @Bindable var surface: AgentChatSurface
-    @FocusState private var composerFocused: Bool
 
-    public init(store: AgentChatStore, surface: AgentChatSurface) {
-        self.store = store
-        self.surface = surface
+    var body: some View {
+        if store.turns.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "sparkle")
+                    .font(.system(size: 22))
+                    .frame(width: 48, height: 48)
+                    .background(Color.cnxSurfaceRaised, in: .circle)
+                Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
+                Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
+            }
+            .multilineTextAlignment(.center)
+        }
     }
+}
 
-    public var body: some View {
-        VStack(spacing: 12) {
+/// The jump-to-bottom circle (SPEC 6.5).
+struct AgentChatJumpButton: View {
+    let store: AgentChatStore
+    let surface: AgentChatSurface
+
+    var body: some View {
+        ZStack {
             if surface.showJump {
                 Button {
                     surface.scrollToBottom()
@@ -394,6 +395,38 @@ public struct AgentChatBottomStack: View {
                 .glassEffect(.regular.interactive(), in: .circle)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
+            }
+        }
+        .padding(4)
+    }
+}
+
+/// Jump-to-bottom circle over the composer, or the permission action bar
+/// in the composer's place (SPEC 6.5, 6.9).
+public struct AgentChatBottomStack: View {
+    let store: AgentChatStore
+    @Bindable var surface: AgentChatSurface
+    var showsJump = true
+    var bottomPadding: CGFloat = 8
+    @FocusState private var composerFocused: Bool
+
+    public init(store: AgentChatStore, surface: AgentChatSurface) {
+        self.store = store
+        self.surface = surface
+    }
+
+    init(store: AgentChatStore, surface: AgentChatSurface, showsJump: Bool, bottomPadding: CGFloat) {
+        self.store = store
+        self.surface = surface
+        self.showsJump = showsJump
+        self.bottomPadding = bottomPadding
+    }
+
+    public var body: some View {
+        VStack(spacing: 12) {
+            if showsJump, surface.showJump {
+                AgentChatJumpButton(store: store, surface: surface)
+                    .padding(-4)
             }
             VStack(spacing: 12) {
                 if let error = store.clientError {
@@ -432,9 +465,20 @@ public struct AgentChatBottomStack: View {
             // more than 80 pt from the bottom, and counting it moved the
             // margin, which moved the distance, which toggled the button
             // (a layout loop that flickered and could hang after a tab zoom).
-            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).minY }) { surface.bottomStackTop = $0 }
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                surface.bottomStackTop = frame.minY
+                if surface.stackHeight != frame.height { surface.stackHeight = frame.height }
+                if surface.stackMaxY != frame.maxY { surface.stackMaxY = frame.maxY }
+            }
+            // As in Messages, a downward swipe on the composer takes the
+            // keyboard down (the transcript's interactive dismissal covers
+            // drags that start above it).
+            .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
+                let t = value.translation
+                if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { composerFocused = false }
+            })
         }
-        .padding(.bottom, 8)
+        .padding(.bottom, bottomPadding)
         .animation(.cnxSmooth, value: store.pendingPermission?.request.id)
         .onChange(of: store.pendingPermission?.request.id) { surface.replyInsteadOfPermission = false }
         .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }

@@ -22,6 +22,8 @@ public final class MockAgentSession: AgentSessionSource {
     private var effort = "medium"
     private var mode = "default"
     private let richFirstTurn: Bool
+    /// Replays two finished turns on connect (false: a new, empty session).
+    public var replaysHistory = true
     /// Checkpoints recorded around turns (newest last).
     var checkpointLog: [AgentCheckpoint] = []
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
@@ -116,6 +118,7 @@ public final class MockAgentSession: AgentSessionSource {
             ACPAvailableCommand(name: "test", description: "Run the test suite", hint: "filter"),
         ])))
         emit(.update(.usage(used: 48_000, size: 200_000)))
+        guard replaysHistory else { return }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))

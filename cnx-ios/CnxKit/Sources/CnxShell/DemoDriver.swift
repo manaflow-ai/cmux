@@ -25,7 +25,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -55,6 +55,37 @@ struct DemoDriver {
         case "connect-mac": await connectMac()
         case "connect-mac-elsewhere": await connectMacElsewhere()
         case "relay-only": await relayOnly()
+        // Keyboard verification (verify/keyboard.md): open a screen and leave
+        // it to real touches.
+        case "kbd-chat":
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "kbd-tab":
+            shell.store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "kbd-new":
+            shell.tab = .workspaces
+            if let ws = shell.creator.create(start: .agent("claude")) { shell.workspacesPath.append(ws) }
+        case "kbd-empty", "kbd-chat-empty":
+            // A session with no turns (the empty state), as a new workspace
+            // shows before its first prompt.
+            AgentSessionDirectory.shared.makeSource = { summary in
+                let session = MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude")
+                session.replaysHistory = false
+                return session
+            }
+            if name == "kbd-empty" {
+                shell.tab = .workspaces
+                await pause(1.0)
+                if let ws = shell.creator.create(start: .agent("claude")) { shell.workspacesPath.append(ws) }
+            } else {
+                shell.tab = .home
+                shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+            }
+        case "kbd-feed":
+            shell.tab = .feed
         default: break
         }
     }

@@ -126,12 +126,15 @@ struct TabsScreen<Source: TabsDataSource>: View {
             }
 
             if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
-                // Above the toolbar, riding the keyboard while it is up.
+                // Above the toolbar, riding the keyboard while it is up. Never
+                // below the resting place: an interactive dismissal drags the
+                // keyboard under the toolbar before it reports 0, and the row
+                // followed it down, then jumped back up.
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     source.accessory(for: tab, context: contentContext)
                 }
-                .padding(.bottom, keyboard > 0 ? keyboard : size.height - layout.capsule.minY + 8)
+                .padding(.bottom, max(keyboard, size.height - layout.capsule.minY + 8))
                 .frame(width: size.width, height: size.height)
             }
 
