@@ -81,6 +81,14 @@ final class NewTabInputCoordinator {
 
     init(router: KeyRouter) { self.router = router }
 
+    /// The last hold events (begin, capture, drain, release and why), for `debug.focus`.
+    private(set) var log: [String] = []
+    private func note(_ event: String, _ entry: Entry?) {
+        let age = entry.map { " +\(Int((now() - $0.buffer.began) / .milliseconds(1)))ms" } ?? ""
+        log.append("\(event)\(age)")
+        if log.count > 60 { log.removeFirst(log.count - 60) }
+    }
+
     func begin(for pane: PaneController) -> String? {
         guard let router, let window = pane.view.window else { return nil }
         // One opening at a time per window: an earlier one ends here and its keys go on first.
@@ -95,6 +103,7 @@ final class NewTabInputCoordinator {
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
+        note("begin page opened=\(pane.currentTabKey ?? "-")", entry)
         return buffer.token
     }
 
@@ -116,7 +125,9 @@ final class NewTabInputCoordinator {
             if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
-        install(Entry(buffer: buffer, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target), in: window)
+        let entry = Entry(buffer: buffer, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
+        install(entry, in: window)
+        note("begin incoming", entry)
         return buffer.token
     }
 
@@ -136,7 +147,7 @@ final class NewTabInputCoordinator {
     func endIncoming(_ token: String?, pageMade: Bool) {
         guard let token, let (number, entry) = buffers.first(where: { $0.value.buffer.token == token }) else { return }
         guard !pageMade || entry.incoming?.claimed != true else { return }
-        if let window = entry.window { release(in: window) } else { buffers[number] = nil }
+        if let window = entry.window { release(in: window, why: "creation made no page") } else { buffers[number] = nil }
     }
 
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
@@ -144,6 +155,7 @@ final class NewTabInputCoordinator {
     func pageReady(_ token: String, key: String) {
         guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let window = entry.window else { return }
         entry.incoming?.key = key
+        note("ready incoming \(key)", entry)
         entry.buffer.acknowledge(token)
         flush(in: window)
     }
@@ -176,7 +188,7 @@ final class NewTabInputCoordinator {
     /// The opening failed: its keys go on to whatever has focus.
     func cancel(in window: NSWindow?) {
         guard let window else { return }
-        release(in: window)
+        release(in: window, why: "open failed")
     }
 
     func capture(_ event: NSEvent, in keyWindow: NSWindow?) -> Bool {
@@ -186,7 +198,7 @@ final class NewTabInputCoordinator {
         // and they go on first.
         if let window, let entry = buffers[window.windowNumber], !entry.buffer.replaying,
            KeyRouter.isChord(event.modifierFlags), entry.buffer.hasPending {
-            release(in: window)
+            release(in: window, why: "chord")
             return false
         }
         // Text and Delete wait; any other plain key (Return, Tab, an arrow, Escape) waits only behind
@@ -199,19 +211,22 @@ final class NewTabInputCoordinator {
         let (controller, kind) = router.focus(for: keyWindow)
         guard kind == .content, controller != nil else {
             // Focus left the content (a sidebar or bar field): held text goes on first, in order.
-            if entry.buffer.hasPending { release(in: window) }
+            note("pass key (focus \(kind))", entry)
+            if entry.buffer.hasPending { release(in: window, why: "focus left content") }
             return false
         }
         // The hold ended: the held keys go on first, then this one, in typing order.
         if expired(entry) || !entry.owns {
-            release(in: window)
+            release(in: window, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
             return false
         }
+        note("hold key \(event.characters ?? "?")", entry)
         return entry.buffer.capture(event)
     }
 
     func acknowledge(_ token: String, in window: NSWindow?) {
         guard let window else { return }
+        note("ready \(buffers[window.windowNumber]?.buffer.token == token ? "match" : "other")", buffers[window.windowNumber])
         buffers[window.windowNumber]?.buffer.acknowledge(token)
         flush(in: window)
     }
@@ -219,16 +234,18 @@ final class NewTabInputCoordinator {
     func flush(in window: NSWindow?) {
         guard let window, let entry = buffers[window.windowNumber] else { return }
         if entry.buffer.drain() {
+            note("drained to field", entry)
             entry.deadline?.cancel()
             if buffers[window.windowNumber]?.buffer === entry.buffer { buffers[window.windowNumber] = nil }
         } else if expired(entry) || !entry.owns {
-            release(in: window)
+            release(in: window, why: expired(entry) ? "limit" : "not owned (tab \(entry.pane?.currentTabKey ?? "-"))")
         }
     }
 
     /// Ends the window's hold and gives its keys, in typing order, to whatever has focus.
-    private func release(in window: NSWindow) {
+    private func release(in window: NSWindow, why: String = "replaced") {
         guard let entry = buffers.removeValue(forKey: window.windowNumber) else { return }
+        note("release: \(why), \(entry.buffer.hasPending ? "keys" : "no keys") to \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")", entry)
         entry.deadline?.cancel()
         entry.buffer.release()
     }

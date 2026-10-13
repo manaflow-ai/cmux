@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--cold", type=int, default=10)
 parser.add_argument("--warm", type=int, default=10)
-parser.add_argument("--others", type=int, default=5, help="warm runs of each other flow (Cmd-T, split, palette)")
+parser.add_argument("--others", type=int, default=10, help="warm runs of each other flow (Cmd-T, split, palette)")
 parser.add_argument("--rate", type=float, default=30.0)
 parser.add_argument("--delay-ms", type=int, default=40)
 parser.add_argument("--text", default="hello world 123")
@@ -192,8 +192,10 @@ def focused_tab():
 
 def fresh_page_workspace():
     """A new workspace on its New Tab page, so Cmd-D splits a page into a new pane (not measured)."""
-    print("  setup newTab:", rpc("action.run", {"action": "newTab", "args": {}, "focus": True}), flush=True)
-    wait(lambda: field_text() == "", 5)
+    # A person's Cmd-N (the app's own key dispatch): a socket newTab would make a terminal workspace.
+    before = focused_tab()
+    print("  setup Cmd-N:", rpc("debug.key", {"key": "n", "modifiers": ["command"]}), flush=True)
+    wait(lambda: focused_tab() not in (None, before) and field_text() == "", 8)
     time.sleep(1)  # test harness: the page settles
 
 
@@ -213,8 +215,11 @@ def run(name, helper, steps, setup=None):
     got = wait(lambda: (lambda t: t if t == opts.text and focused_tab() not in (None, before) else None)(field_text()), 6)
     text = got if got is not None else field_text()
     after = focused_tab()
-    holds = (rpc("debug.focus") or {}).get("new_tab_key_holds")
+    focus = rpc("debug.focus") or {}
+    holds = focus.get("new_tab_key_holds")
     ok = got is not None and "error" not in timing
+    if not ok:
+        print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
     row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "holds_after": holds, **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
