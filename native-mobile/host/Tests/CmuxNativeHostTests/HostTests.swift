@@ -270,6 +270,32 @@ func errorObject(_ verdict: DaemonChannelPolicy.Verdict) -> [String: Any]? {
         #expect(log.result?["commits"]?.arrayValue?.first?["subject"] == "first")
     }
 
+    @Test func gitShowReturnsCommittedAndIndexBytes() async throws {
+        try git("init", "-q", "-b", "main")
+        let v1 = Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0x01])
+        try v1.write(to: root.appending(path: "repo/logo.png"))
+        try git("add", "logo.png")
+        try git("commit", "-q", "-m", "logo")
+        let v2 = Data([0x89, 0x50, 0x4E, 0x47, 0x00, 0xFF, 0x02, 0x03])
+        try v2.write(to: root.appending(path: "repo/logo.png"))
+        try git("add", "logo.png")
+        let head = await call("git.show", ["cwd": "~/repo/src", "path": "logo.png", "rev": "HEAD"])
+        #expect(head.result?["data"]?.stringValue == v1.base64EncodedString())
+        #expect(head.result?["size"]?.intValue == v1.count)
+        let index = await call("git.show", ["cwd": "~/repo", "path": "logo.png"])
+        #expect(index.result?["data"]?.stringValue == v2.base64EncodedString())
+        let missing = await call("git.show", ["cwd": "~/repo", "path": "nope.png", "rev": "HEAD"])
+        #expect(missing.error?.code == "not_found")
+        for rev in ["--output=/tmp/x", "", "HEAD;rm"] {
+            let bad = await call("git.show", ["cwd": "~/repo", "path": "logo.png", "rev": .string(rev)])
+            #expect(bad.error?.code == "bad_request", "rev \(rev)")
+        }
+        for path in ["/etc/hosts", "../x", ""] {
+            let bad = await call("git.show", ["cwd": "~/repo", "path": .string(path), "rev": "HEAD"])
+            #expect(bad.error?.code == "bad_request", "path \(path)")
+        }
+    }
+
     @Test func uploadPutAndChunked() async throws {
         let uploads = UploadService(guardrail: services.guardrail, uploadsRoot: services.uploadsRoot)
         let put = try await uploads.put(UploadPutParams(name: "../../evil/../photo.jpg", dataB64: Data("abc".utf8).base64EncodedString()))
