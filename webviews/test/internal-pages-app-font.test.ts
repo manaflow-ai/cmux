@@ -12,23 +12,23 @@ import { pathToFileURL } from "node:url";
 import { webkit, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const sources = path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources");
-
-/** The built internal pages: (name, index.html). */
-function builtPages(): [string, string][] {
-  const pages: [string, string][] = [];
-  const add = (name: string, file: string) => fs.existsSync(file) && pages.push([name, file]);
-  add("agent-pane", path.join(sources, "CmuxNextAgentPane/Resources/agent-pane/index.html"));
-  add("agent-activity", path.join(sources, "CmuxNextAgentActivity/Resources/agent-activity/index.html"));
-  const root = path.join(sources, "CmuxNextPages/Resources/pages");
-  for (const page of fs.existsSync(root) ? fs.readdirSync(root).sort() : []) {
-    add(`pages/${page}`, path.join(root, page, "index.html"));
-  }
-  return pages;
-}
-
 await requireBrowserLane("internal-pages-app-font.test.ts", async () => {
   setDefaultTimeout(120_000);
+  const sources = path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources");
+
+  /** The built internal pages: (name, index.html). */
+  function builtPages(): [string, string][] {
+    const pages: [string, string][] = [];
+    const add = (name: string, file: string) => fs.existsSync(file) && pages.push([name, file]);
+    add("agent-pane", path.join(sources, "CmuxNextAgentPane/Resources/agent-pane/index.html"));
+    add("agent-activity", path.join(sources, "CmuxNextAgentActivity/Resources/agent-activity/index.html"));
+    const root = path.join(sources, "CmuxNextPages/Resources/pages");
+    for (const page of fs.existsSync(root) ? fs.readdirSync(root).sort() : []) {
+      add(`pages/${page}`, path.join(root, page, "index.html"));
+    }
+    return pages;
+  }
+
   const pages = builtPages();
   const activityBuilt = pages.some(([name]) => name === "agent-activity");
   if (!activityBuilt && process.env.CI) throw new Error("internal-pages-app-font: the web bundles are not built");
