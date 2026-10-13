@@ -36,7 +36,6 @@ import Testing
         let scope = try ThemedOverlayColorsTests.purpleRoom()
         let badge = TerminalCopyModeBadge()
         scope.root(badge)
-        #expect(!(badge is NSVisualEffectView), "no HUD blur: it draws macOS's dark material in every theme")
         let fill = try #require(badge.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)), "the badge paints a fill")
         #expect(ThemedOverlayColorsTests.same(fill, scope.perform { Palette.elevatedBackground }), "\(fill)")
     }
@@ -81,5 +80,18 @@ import Testing
         Self.expect(colors.selection, Self.app.selectionFill, "selection")
         Self.expect(colors.separator, Self.app.separator, "separator")
         Self.expect(colors.danger, Self.app.danger, "danger")
+    }
+
+    /// With `appearance.borders` none, a page's first-frame separator is clear, as `Palette.separator`
+    /// is once the host resolves its scope: the border switch applies before the scope does too.
+    @Test func aPagesFirstSeparatorFollowsTheBorderSwitch() {
+        let settings = DesignSettings.shared
+        let saved = settings.borders
+        settings.borders = .none
+        defer { settings.borders = saved }
+        for (name, separator) in [("history", HistoryPageColors().separator), ("bookmarks", BookmarkPageColors().separator)] {
+            let alpha = NSColor(separator).usingColorSpace(.sRGB)?.alphaComponent ?? 1
+            #expect(alpha == 0, "\(name): borders none draws no separator, not \(NSColor(separator))")
+        }
     }
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
+/* cmux-tui mux protocol 12, IR f850a4916cbca6e8f4aa52405f0158f7b84f3eccedcb12d07d4e37dfb15f0548. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -71,7 +71,7 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
-  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}. */
   "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;

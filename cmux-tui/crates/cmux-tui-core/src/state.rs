@@ -13,6 +13,7 @@
 pub(crate) mod agent_folder;
 #[cfg(test)]
 mod agent_folder_tests;
+pub(crate) mod agent_home_moves;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;

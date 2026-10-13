@@ -14,7 +14,7 @@ public final class Bookmark implements WireValue {
     private final String browserProfileId;
     private final UInt64 createdMs;
     private final Field<String> faviconKey;
-    /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+    /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}. */
     private final Field<String> icon;
     /** `bm_` and 32 lowercase hex digits. */
     private final String id;

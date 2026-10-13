@@ -27,8 +27,18 @@ struct PinnedPageTests {
             #expect(menu != nil, "Back to Pinned Page is not an action")
             #expect(menu?.targetHidden?(target) == true, "an unpinned tab's menu offers Back to Pinned Page")
 
-            #expect(services.registry.perform("palette.toggleTabPin", invocation: target))
-            try await Self.until({ services.daemon.store.tab(surface: surface)?.pinned == true }, report: { WindowStateReport.describe(services, surface: surface) })
+            // A pin that never lands says whether the handler refused, sent nothing, or the daemon failed it.
+            var ran = false
+            var work: [ActionWork] = []
+            let refusal = services.registry.capturingRefusal {
+                work = services.registry.capturingWork { ran = services.registry.perform("palette.toggleTabPin", invocation: target) }
+            }
+            #expect(ran)
+            var failures: [String] = []
+            for task in work { if let failure = await task.value { failures.append(failure.message) } }
+            try await Self.until({ services.daemon.store.tab(surface: surface)?.pinned == true }, report: {
+                "pin refusal \(refusal ?? "none"), pin work \(work.count), failures \(failures); " + WindowStateReport.describe(services, surface: surface)
+            })
             // The tab browses away from the page it was pinned on.
             try await connection.updateFrontendBrowserTab(surface, url: Self.elsewhere)
             try await Self.until({ services.daemon.store.tab(surface: surface)?.url == Self.elsewhere }, report: { WindowStateReport.describe(services, surface: surface) })
