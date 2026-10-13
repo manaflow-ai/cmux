@@ -24,6 +24,25 @@ import Testing
         }
     }
 
+    /// `serverError(0, "auth_failed")` hides which Stack code failed a sign-in; the diagnostic
+    /// logged beside it names that code (and survives redaction) without the server's message.
+    @Test func diagnosticNamesTheStackCodeTheDisplayErrorHides() {
+        let error = StackAuthError(code: "USER_NOT_SIGNED_IN", message: "no session for a@b.com")
+        #expect(AuthError(displaySafe: error) == .serverError(0, "auth_failed"))
+
+        let line = AuthDebugLog.redacted(AuthError.diagnostic(for: error))
+
+        #expect(line.contains("USER_NOT_SIGNED_IN"))
+        #expect(!line.contains("no session"))
+    }
+
+    @Test func diagnosticNamesANonStackErrorsDomainAndCode() {
+        let line = AuthDebugLog.redacted(AuthError.diagnostic(for: NSError(domain: "SomeDomain", code: 42)))
+
+        #expect(line.contains("SomeDomain"))
+        #expect(line.contains("42"))
+    }
+
     @Test func passesThroughExistingAuthErrors() {
         #expect(AuthError(displaySafe: AuthError.offline) == .offline)
         #expect(AuthError(displaySafe: AuthError.invalidCode) == .invalidCode)

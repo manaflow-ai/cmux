@@ -170,6 +170,38 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
+    /// The pricing page's Sign in hands back a stateless callback through the embedded browser.
+    /// With a native attempt still open, that callback used to fail the attempt's state check and
+    /// show "Couldn't finish sign-in"; the trusted handoff completes the sign-in and ends the attempt.
+    @Test func trustedEmbeddedStatelessCallbackCompletesDuringActiveAttempt() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let recorder = ApprovalRecorder(answer: false)
+        let harness = HostBrowserSignInFlowHarness(user: user, approveUnsolicitedCallback: recorder.approve)
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL(), delivery: .trustedEmbeddedBrowser)
+
+        #expect(result)
+        #expect(recorder.requests.isEmpty)
+        #expect(harness.coordinator.isAuthenticated)
+        await harness.waitForCondition { harness.flow.isSigningIn == false }
+    }
+
+    /// Only the trusted embedded handoff skips the attempt's state: a stateless callback from
+    /// outside the app still fails it.
+    @Test func externalStatelessCallbackDuringActiveAttemptIsRejected() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+
+        let result = await harness.flow.handleCallbackURL(harness.fallbackCallbackURL(), delivery: .external)
+
+        #expect(result == false)
+        #expect(harness.coordinator.isAuthenticated == false)
+    }
+
     @Test func trustedEmbeddedDeliveryStillRequiresIssuedState() async {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
