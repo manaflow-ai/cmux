@@ -135,6 +135,7 @@ describe("Freestyle live machine stats", () => {
   ])("$label keeps stats on the reporter path", async ({ env }) => {
     const { result, resourceCalls } = await readStats("running", undefined, { directBackend: true, environment: env });
     expect(resourceCalls).toEqual([]);
+    expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
   });
 
@@ -167,7 +168,7 @@ describe("Freestyle live machine stats", () => {
       directBackend: true, resourceExitCode, resourceOutput,
     });
     expect(resourceCalls).toHaveLength(1);
-    expect(result).toMatchObject({ state: "awake", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
+    expect(result).toMatchObject({ state: "unknown", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
     expect(result.diskUsedMb).toBeUndefined();
@@ -186,6 +187,7 @@ describe("Freestyle live machine stats", () => {
   test.each([undefined, { ...gauges, receivedAt: 0, providerVmId: "vm-stats" },
     { ...gauges, receivedAt: Date.now(), providerVmId: "replaced-vm" }])("missing, stale, and replaced-VM samples remain unavailable", async (sample) => {
     const { result } = await readStats("running", sample);
+    expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
   });
