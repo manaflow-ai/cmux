@@ -327,12 +327,15 @@ fn split_close_and_restore_survive_a_daemon_restart() {
         .unwrap()
         .to_string();
 
+    // Reopening a retained terminal must reuse it regardless of the time
+    // taken by the restart. Do not rely on the unplaced-terminal grace.
+    state_cli(&server, None, &["terminal", &split_terminal, "keep", "on"]);
     state_cli(&server, None, &["pane", &split_pane, "close"]);
     let closed = state_cli(&server, None, &["closed", "list"]);
-    assert!(
-        closed.as_array().unwrap().iter().any(|item| item["member_count"] == 1),
-        "closing the split pane did not leave a reopenable tab: {closed}"
-    );
+    let groups = closed.as_array().unwrap();
+    assert_eq!(groups.len(), 1, "closing one pane must record one closed group: {closed}");
+    assert_eq!(groups[0]["member_count"], 1, "{closed}");
+    let closed_id = groups[0]["id"].as_str().unwrap().to_string();
 
     // Reopen the same daemon state through its real server entrypoint rather
     // than replacing the lifecycle with a mock.
@@ -355,6 +358,10 @@ fn split_close_and_restore_survive_a_daemon_restart() {
 
     let after_restart = state_cli_topology(&server);
     assert_eq!(workspace_of_terminal(&after_restart, &source_terminal), workspace);
+    assert_eq!(pane_ids(&after_restart), [source_pane.clone()], "{after_restart}");
+    assert_eq!(tab_ids(&server), [source_tab.clone()], "{after_restart}");
+    let restored_groups = state_cli(&server, None, &["closed", "list"]);
+    assert_eq!(restored_groups[0]["id"], closed_id.as_str(), "{restored_groups}");
     assert!(
         after_restart["terminals"]
             .as_array()
@@ -365,19 +372,23 @@ fn split_close_and_restore_survive_a_daemon_restart() {
     );
 
     let before_reopen = tab_ids(&server);
-    let reopened = state_cli(&server, None, &["closed", "reopen"]);
+    let reopened = state_cli(&server, None, &["closed", &closed_id, "reopen"]);
     let restored_tab = new_tab(&before_reopen, &tab_ids(&server));
     assert_eq!(reopened["value"]["tab_ids"], serde_json::json!([restored_tab]), "{reopened}");
     let restored = state_cli_topology(&server);
     assert_eq!(workspace_of_terminal(&restored, &source_terminal), workspace);
-    assert!(
-        restored["terminals"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|terminal| terminal["id"] == split_terminal.as_str()),
-        "restored terminal disappeared after reopen: {restored}"
-    );
+    let tab = restored["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"] == restored_tab.as_str())
+        .expect("reopened tab is present in the snapshot");
+    assert_eq!(tab["content_id"], split_terminal.as_str(), "{restored}");
+    assert_eq!(tab["pane_id"], source_pane.as_str(), "{restored}");
+    assert_eq!(workspace_of_terminal(&restored, &split_terminal), workspace);
+    assert!(tab_ids(&server).contains(&source_tab), "{restored}");
+    assert_eq!(restored["terminals"].as_array().unwrap().len(), 2, "{restored}");
+    assert_eq!(state_cli(&server, None, &["closed", "list"]), serde_json::json!([]));
 }
 
 /// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
