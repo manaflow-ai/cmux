@@ -15370,6 +15370,72 @@
             "state": "translated",
             "value": "アクティブなエージェントを含め、プロセスが実行中のタブの確認を省略します。その他のタブ、ワークスペース、ウィンドウの警告は引き続き適用されます。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preskoči potvrdu za kartice s pokrenutim procesima, uključujući aktivne agente. Ostala upozorenja za kartice, radne prostore i prozore i dalje se primjenjuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spring bekræftelse over for faner med kørende processer, inklusive aktive agenter. Andre advarsler for faner, arbejdsområder og vinduer gælder stadig."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salta la conferma per le schede con processi in esecuzione, inclusi gli agenti attivi. Gli altri avvisi per schede, spazi di lavoro e finestre restano attivi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលងការបញ្ជាក់សម្រាប់ផ្ទាំងដែលមានដំណើរការកំពុងរត់ រួមទាំងភ្នាក់ងារសកម្ម។ ការព្រមានផ្សេងទៀតសម្រាប់ផ្ទាំង កន្លែងធ្វើការ និងបង្អួច នៅតែអនុវត្ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hopp over bekreftelse for faner med kjørende prosesser, inkludert aktive agenter. Andre advarsler for faner, arbeidsområder og vinduer gjelder fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomiń potwierdzenie dla kart z uruchomionymi procesami, w tym aktywnymi agentami. Pozostałe ostrzeżenia dotyczące kart, obszarów roboczych i okien nadal obowiązują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pular a confirmação para abas com processos em execução, incluindo agentes ativos. Os outros avisos de abas, espaços de trabalho e janelas continuam se aplicando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропускать подтверждение для вкладок с работающими процессами, включая активных агентов. Другие предупреждения для вкладок, рабочих пространств и окон по-прежнему действуют."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้ามการยืนยันสำหรับแท็บที่มีกระบวนการทำงานอยู่ รวมถึงเอเจนต์ที่ทำงานอยู่ คำเตือนอื่นๆ สำหรับแท็บ พื้นที่ทำงาน และหน้าต่างยังคงมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin aracılar dahil çalışan işlemlere sahip sekmeler için onayı atla. Diğer sekme, çalışma alanı ve pencere uyarıları uygulanmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропускати підтвердження для вкладок із запущеними процесами, включно з активними агентами. Інші попередження для вкладок, робочих просторів і вікон продовжують діяти."
+          }
         }
       }
     }

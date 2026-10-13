@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "Nom d’écran utilisé uniquement dans les builds DEBUG lors de l’ouverture de nouvelles fenêtres. Une valeur vide utilise la valeur par défaut du système.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
+          "closeRunningTabsWithoutConfirmation": "Ignorer la confirmation lors de la fermeture d’un onglet avec un processus en cours, y compris un agent actif. Les autres avertissements concernant les onglets, espaces de travail et fenêtres restent applicables.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
           "tabBarVisibility": "Détermine quand un volet dessine sa barre d’onglets. \"always\" la dessine même pour un volet ne contenant qu’un onglet ; \"multiple-tabs\" la masque tant qu’un volet n’a qu’un onglet et la dessine dès qu’un deuxième onglet s’ouvre. Le mode minimal (app.minimalMode) la dessine toujours, car la barre d’onglets du volet supérieur y fait aussi office de barre de titre de la fenêtre.",
           "forkConversationDefaultDestination": "Destination par défaut de l'action principale Fork Conversation dans le menu contextuel de l'onglet. Le sous-menu affiche toujours toutes les destinations.",

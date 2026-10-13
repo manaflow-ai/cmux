@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "Naziv ekrana koji se koristi samo u DEBUG izdanjima pri otvaranju novih prozora. Prazna vrijednost koristi zadanu vrijednost sistema.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
+          "closeRunningTabsWithoutConfirmation": "Preskoči potvrdu pri zatvaranju kartice s pokrenutim procesom, uključujući aktivnog agenta. Ostala upozorenja za kartice, radne prostore i prozore i dalje se primjenjuju.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
           "tabBarVisibility": "Određuje kada okno iscrtava svoju traku tabova. \"always\" je iscrtava i kada okno ima samo jedan tab; \"multiple-tabs\" je skriva dok okno ima jedan tab i iscrtava je čim se otvori drugi. Minimalni način rada (app.minimalMode) je iscrtava uvijek, jer traka tabova gornjeg okna tu ujedno služi kao naslovna traka prozora.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",

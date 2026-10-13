@@ -60,25 +60,20 @@ extension Workspace {
         let closeWarningStore = CloseTabWarningStore(
             defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults
         )
-        let needsNonRunningConfirmation = candidates.contains { candidate in
-            guard let panelId = candidate.panelId, panelNeedsConfirmClose(panelId: panelId) else { return false }
+        var warningKinds: CloseWarningKinds = []
+        for candidate in candidates {
+            guard let panelId = candidate.panelId else { continue }
+            let isAgentSession = activeAgentCloseWarningInfo(panelId: panelId) != nil
             let isRunningProcess = panelShellActivityStates[panelId] == .commandRunning
-                || activeAgentCloseWarningInfo(panelId: panelId) != nil
-            return !isRunningProcess
+                || isAgentSession
+            warningKinds.formUnion(closeWarningStore.warningKindsIncludingSafety(
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || isAgentSession,
+                source: .shortcut,
+                isAgentSession: isAgentSession,
+                isRunningProcess: isRunningProcess
+            ))
         }
-        let hasRunningProcess = candidates.contains { candidate in
-            guard let panelId = candidate.panelId else { return false }
-            return panelShellActivityStates[panelId] == .commandRunning
-                || activeAgentCloseWarningInfo(panelId: panelId) != nil
-        }
-        let needsConfirmation = closeWarningStore.shouldConfirmCloseIncludingSafety(
-            requiresConfirmation: needsNonRunningConfirmation,
-            source: .shortcut
-        ) || (hasRunningProcess && closeWarningStore.shouldConfirmCloseIncludingSafety(
-            requiresConfirmation: true,
-            source: .shortcut,
-            isRunningProcess: true
-        ))
+        let needsConfirmation = !warningKinds.isEmpty
 
         if needsConfirmation {
             guard let confirmationManager else { return }

@@ -495,6 +495,26 @@ struct CloseTabConfirmationPolicyTests {
         #expect(store.warnsBeforeClosingWorkspace)
     }
 
+    @Test func runningAgentOptInPreservesIndependentXButtonWarning() {
+        let defaults = makeScratchDefaults()
+        defaults.set(true, forKey: "closeRunningTabsWithoutConfirmation")
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        let store = CloseTabWarningStore(defaults: defaults)
+
+        #expect(store.warningKindsIncludingSafety(
+            requiresConfirmation: true,
+            source: .tabCloseButton,
+            isAgentSession: true,
+            isRunningProcess: true
+        ) == [.tabCloseButton])
+        #expect(store.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true,
+            source: .tabCloseButton,
+            isAgentSession: true,
+            isRunningProcess: true
+        ))
+    }
+
     @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
         let warningOn = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: false)
         let warningOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)

@@ -113,6 +113,14 @@ extension CloseTabWarningReading {
             kinds.remove(.tab)
             kinds.remove(.agentSession)
             kinds.remove(.safety)
+            if isAgentSession,
+               source == .tabCloseButton,
+               warnsBeforeClosingTabXButton {
+                // Active-agent closes normally use only the agent warning. Once
+                // that process warning is opted out, restore the independently
+                // enabled X-button protection for this close source.
+                kinds.insert(.tabCloseButton)
+            }
         }
         if requiresConfirmation && !isAgentSession && !(isRunningProcess && closesRunningTabsWithoutConfirmation) {
             kinds.insert(.safety)

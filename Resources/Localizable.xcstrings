@@ -305248,7 +305248,18 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "關閉執行中的標籤頁而不確認" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "关闭运行中的标签页而无需确认" } },
         "ko": { "stringUnit": { "state": "translated", "value": "실행 중인 탭을 확인 없이 닫기" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "実行中のタブを確認なしで閉じる" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中のタブを確認なしで閉じる" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Zatvori pokrenute kartice bez potvrde" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Luk kørende faner uden bekræftelse" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Chiudi le schede in esecuzione senza conferma" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បិទផ្ទាំងដែលកំពុងដំណើរការដោយមិនបញ្ជាក់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Lukk faner med kjørende prosesser uten bekreftelse" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zamykaj karty z uruchomionymi procesami bez potwierdzenia" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Fechar abas em execução sem confirmação" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Закрывать вкладки с выполняющимися процессами без подтверждения" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปิดแท็บที่กำลังทำงานโดยไม่ต้องยืนยัน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Çalışan sekmeleri onay istemeden kapat" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Закривати вкладки з активними процесами без підтвердження" } }
       }
     },
     "settings.app.warnBeforeClosingTabXButton": {

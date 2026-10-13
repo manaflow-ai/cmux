@@ -901,6 +901,7 @@ enum CmuxEmbeddedConfigSchema {
         "closeRunningTabsWithoutConfirmation": {
           "type": "boolean",
           "default": false,
+          "descriptionKey": "schemaDescriptions.app.closeRunningTabsWithoutConfirmation",
           "description": "Skip confirmation when closing a tab with a running process, including an active agent. Other tab, workspace, and window warnings still apply."
         },
         "warnBeforeClosingAgentSession": {

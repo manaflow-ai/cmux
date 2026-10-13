@@ -167,12 +167,7 @@ struct WorkspaceCloseTabsContextMenuTests {
                 promptCount += 1
                 return true
             }
-            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
-            #expect(fixture.workspace.splitTabBar(
-                fixture.workspace.bonsplitController,
-                shouldCloseTab: tab,
-                inPane: fixture.paneId
-            ))
+            #expect(fixture.workspace.bonsplitController.closeTab(tabId))
             await waitForMainActorWork(timeout: 4) {
                 fixture.workspace.panelIdFromSurfaceId(tabId) == nil
             }

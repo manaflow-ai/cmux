@@ -2161,6 +2161,7 @@
           "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
+          "closeRunningTabsWithoutConfirmation": "Pomiń potwierdzenie podczas zamykania karty z uruchomionym procesem, w tym aktywnym agentem. Pozostałe ostrzeżenia dotyczące kart, obszarów roboczych i okien nadal obowiązują.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
           "tabBarVisibility": "Określa, kiedy panel rysuje swój pasek kart. \"always\" rysuje go nawet w panelu z jedną kartą; \"multiple-tabs\" ukrywa go, dopóki panel ma jedną kartę, i rysuje, gdy otworzy się druga. Tryb minimalny (app.minimalMode) rysuje go zawsze, ponieważ pasek kart górnego panelu pełni tam także rolę paska tytułu okna.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",

@@ -15033,8 +15033,10 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
             promptTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panelTitle(panelId: panelId)))
             if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
-                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+                    || activeAgentCloseWarningInfo(panelId: panelId) != nil,
                 source: .shortcut,
+                isAgentSession: activeAgentCloseWarningInfo(panelId: panelId) != nil,
                 isRunningProcess: panelShellActivityStates[panelId] == .commandRunning || activeAgentCloseWarningInfo(panelId: panelId) != nil
             ) {
                 needsPrompt = true
