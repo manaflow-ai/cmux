@@ -181,3 +181,49 @@ fps, splits every frame and OCRs each one with
   this Mac". It is correct now that the phone searches every space. The Mac
   side's one wrong path (`scripts/cmux-next/build-cnx-hostd.sh`, "Settings >
   Accounts > iPhone") is fixed on `feat-cnx-ios-machost-copy`.
+
+## Sign out during setup (start over)
+
+Every setup page now has a footer: "Signed in as <email> · Sign out". This
+includes Choose a team, Create your team, Connect your Mac, notifications,
+and the loading and failure states. Sign out asks "Sign out and start over?"
+before it acts.
+
+Every sign-out path goes through `RootView.signedOut()`: the setup footer,
+Settings → Log out, and a session the service ended. It does the following:
+
+- signs out of Stack: the coordinator drops the session and its Keychain
+  tokens, and `CnxAuthModel` resets its team list
+- stops and drops `LiveCoordinator` (discovery, presence and the link)
+- runs `AppStore.resetForSignOut`, which clears teams, Macs, workspaces, link
+  status and the stored per-account preferences:
+  - the last team
+  - setup complete
+  - team appearances
+  - remembered Macs and directories
+  - the last tab per workspace
+- keeps device preferences such as appearance, terminal settings and
+  developer options
+- replaces the Keychain device ids. The service binds a device id to its first
+  user, so a second account would get `403 not_owner`.
+- replays Welcome with its intro
+
+`SignOutResetTests` covers the reset with an isolated `UserDefaults` suite;
+CnxModelTests passes 35 tests.
+
+The recording is `restart/restart.mp4` and `restart/restart-sheet.png`: the
+`-cnx-demo onboarding-restart` demo in mock mode with
+`CNX_MOCK_TEAMS_DELAY=1`, recorded on `cnx-pair-ios26`. OCR at 2 fps
+(`restart/ocr.tsv`) shows this sequence:
+
+1. Email sign-in.
+2. Skeleton rows with the footer.
+3. Choose a team.
+4. The sign-out confirmation.
+5. Welcome with its intro.
+6. Sign-in as `other@cmux.dev`.
+7. Skeleton rows, then notifications, then the shell.
+
+The mock account is always `aziz@example.com`, so the footer shows that email
+after both sign-ins. The demo confirms the dialog through its own action, not
+a tap. Sign-out was not run against a live Stack session on the simulator.

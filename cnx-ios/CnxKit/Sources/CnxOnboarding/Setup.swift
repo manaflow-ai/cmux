@@ -22,11 +22,15 @@ public struct SetupFlow: View {
     let teamPicked: (String) -> Void
     /// The user created a team: live data moves to it.
     let teamCreated: (AppStore.AccountTeam) -> Void
+    /// Signs out to Welcome, to start over with another account.
+    let signOut: () -> Void
     let finish: () -> Void
     @State private var path: [Step] = []
+    @State private var confirmsSignOut = false
 
     public init(
         steps: [Step], auth: CnxAuthModel, store: AppStore,
+        signOut: @escaping () -> Void = {},
         teamPicked: @escaping (String) -> Void = { _ in },
         teamCreated: @escaping (AppStore.AccountTeam) -> Void = { _ in },
         finish: @escaping () -> Void
@@ -36,6 +40,7 @@ public struct SetupFlow: View {
         self.store = store
         self.teamPicked = teamPicked
         self.teamCreated = teamCreated
+        self.signOut = signOut
         self.finish = finish
     }
 
@@ -45,6 +50,46 @@ public struct SetupFlow: View {
                 .navigationDestination(for: Step.self) { page($0) }
         }
         .tint(theme.colors.label.color)
+        // On every setup page, loading and failure included: who is signed
+        // in, and a way back to Welcome to start over.
+        .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+        .confirmationDialog("Sign out and start over?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) {
+                theme.haptics.warning()
+                signOut()
+            }
+        } message: {
+            Text("You can sign in again with this or another account.")
+        }
+    }
+
+    private var accountFooter: some View {
+        HStack(spacing: 6) {
+            if let email = auth.user?.email, !email.isEmpty {
+                Text("Signed in as \(email)")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("·")
+            }
+            Button("Sign out") { confirmsSignOut = true }
+                .fontWeight(.semibold)
+                .foregroundStyle(theme.colors.label)
+                .accessibilityIdentifier("setup.sign-out")
+        }
+        .font(theme.type.meta)
+        .foregroundStyle(theme.colors.label2)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(theme.colors.bg.color.ignoresSafeArea())
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            switch DemoDirector.shared.command {
+            case .setupSignOut: confirmsSignOut = true
+            case .setupConfirmSignOut: confirmsSignOut = false; signOut()
+            default: break
+            }
+        }
+        #endif
     }
 
     @ViewBuilder private func page(_ step: Step) -> some View {

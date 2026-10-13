@@ -127,3 +127,28 @@ extension AppStore {
         return others.first.map { ($0, $0.macs[0]) }
     }
 }
+
+extension AppStore {
+    /// Preference keys that belong to the signed-in account (its teams, Macs,
+    /// workspaces and setup), removed on sign-out so the next account starts
+    /// clean. Device preferences (appearance, terminal, developer) stay.
+    public static func isAccountPreference(_ key: String) -> Bool {
+        let exact: Set<String> = ["cnx.lastTeamID", "cnx.setupComplete", "cnx.lastTabByWorkspace", "cnx.workspaces.newMac", "cnx.auth.selectedTeam"]
+        let prefixes = ["cnx.teamAppearance.", "cnx.live.mac.", "cnx.workspaces.recentDirectories."]
+        return exact.contains(key) || prefixes.contains { key.hasPrefix($0) }
+    }
+
+    /// Sign-out: forgets the account's teams, Macs, workspaces and link
+    /// status, and its stored preferences (`isAccountPreference`).
+    public func resetForSignOut(defaults: UserDefaults = .standard) {
+        teams = []
+        activeTeamID = ""
+        workspaces = []
+        macLinkStatus = [:]
+        accountMacCount = nil
+        teamDataState = .loading
+        for key in defaults.dictionaryRepresentation().keys where Self.isAccountPreference(key) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CnxModel
 
@@ -130,5 +131,35 @@ import Testing
         #expect(offer?.team.id == "c")
         #expect(offer?.mac.name == "On")
         #expect(store().teamWithMacsElsewhere() == nil)
+    }
+}
+
+@MainActor @Suite struct SignOutResetTests {
+    @Test func signOutForgetsTheAccountButKeepsDevicePreferences() throws {
+        let suite = "cnx.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let account = ["cnx.lastTeamID", "cnx.setupComplete", "cnx.teamAppearance.t1", "cnx.live.mac.t1",
+                       "cnx.workspaces.recentDirectories.m1", "cnx.workspaces.newMac", "cnx.lastTabByWorkspace", "cnx.auth.selectedTeam"]
+        let device = ["cnx.settings.terminalFontSize", "cnx.workspaces.sort", "cnx.dev.relayOnly", "cnx.settings.appearance"]
+        for key in account + device { defaults.set("x", forKey: key) }
+
+        let store = AppStore.mock(tabMemory: TabMemory(defaults: defaults))
+        store.accountMacCount = 2
+        store.macLinkStatus = ["m": "Connected"]
+        store.resetForSignOut(defaults: defaults)
+
+        #expect(store.teams.isEmpty && store.activeTeamID.isEmpty && store.workspaces.isEmpty)
+        #expect(store.accountMacCount == nil && store.macLinkStatus.isEmpty)
+        #expect(store.teamDataState == .loading)
+        for key in account { #expect(defaults.object(forKey: key) == nil, "\(key) survived sign-out") }
+        for key in device { #expect(defaults.string(forKey: key) == "x", "\(key) was dropped") }
+    }
+
+    @Test func aNewAccountStartsWithItsTeamsLoading() {
+        var teams = TeamListState()
+        teams.fetched([AppStore.AccountTeam(id: "t1", name: "One")])
+        teams.reset()
+        #expect(teams == TeamListState())
     }
 }

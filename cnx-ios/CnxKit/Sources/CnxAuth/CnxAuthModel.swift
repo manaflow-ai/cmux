@@ -310,8 +310,11 @@ public final class CnxAuthModel {
         return forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await coordinator.accessToken()
     }
 
-    /// Local-first sign-out.
+    /// Local-first sign-out: the Stack session and its Keychain tokens (the
+    /// coordinator) and this model's team list.
     public func signOut() async {
+        teamsUserID = nil
+        fetchedTeams.reset()
         if isMock {
             mockSignedIn = false
             return

@@ -22,6 +22,16 @@ public struct DeviceIdentity: Sendable {
         DeviceIdentity(link: id(service: service, account: "link"), presence: id(service: service, account: "presence"))
     }
 
+    /// Sign-out: forgets both ids. The service binds a device id to the user
+    /// who registered it (`403 not_owner` for anyone else), so the next account
+    /// gets new ones.
+    public static func reset(service: String = "dev.cmux.cnx.device") {
+        for account in ["link", "presence"] {
+            let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+            SecItemDelete(query as CFDictionary)
+        }
+    }
+
     static func id(service: String, account: String) -> String {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

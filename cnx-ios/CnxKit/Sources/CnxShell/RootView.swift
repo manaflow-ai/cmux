@@ -93,6 +93,7 @@ public struct RootView: View {
                     case .setup:
                         SetupFlow(
                             steps: setupSteps, auth: auth, store: store,
+                            signOut: { Task { await auth.signOut() } },
                             teamPicked: { _ in live?.activeTeamChanged() },
                             teamCreated: teamCreated
                         ) {
@@ -136,7 +137,7 @@ public struct RootView: View {
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: auth.isSignedIn) { _, signedIn in
-            if signedIn { theme.haptics.success() }
+            if signedIn { theme.haptics.success() } else { signedOut() }
         }
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
@@ -188,6 +189,21 @@ public struct RootView: View {
         live.applyAccountTeams(teams, selectedID: team.id)
     }
 
+    /// Every sign-out path (setup's footer, Settings → Log out, a session the
+    /// service ended) lands here: live data stops, the account's teams, Macs,
+    /// workspaces and stored preferences go, the device ids are replaced (the
+    /// service binds them to their first user), and Welcome replays its intro.
+    private func signedOut() {
+        live?.stop()
+        live = nil
+        setupPlan = nil
+        store.resetForSignOut()
+        if !auth.isMock { DeviceIdentity.reset() }
+        setupComplete = false
+        handoffDone = false
+        log.info("signed out: account state reset")
+    }
+
     /// Starts live data for a signed-in account (before setup, so setup sees
     /// real Macs) and stops it on sign-out.
     private func accountChanged() {
@@ -196,6 +212,13 @@ public struct RootView: View {
             live = nil
             setupPlan = nil
             return
+        }
+        if auth.isMock, store.teams.isEmpty {
+            // Mock mode signed in again after a sign-out: the sample data comes back.
+            let sample = AppStore.mock()
+            store.teams = sample.teams
+            store.activeTeamID = sample.activeTeamID
+            store.workspaces = sample.workspaces
         }
         guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
         let api = LiveAPI(baseURL: base) { [auth] in try await auth.accessToken(forceRefresh: $0) }
