@@ -81,8 +81,8 @@ ts_ms}]}`, at most 500, no stream: the page reads again); `apps.asset.get {app, 
 of the package as `{app, path, data_url}` (png, jpeg, gif, webp or svg, at most 512 KiB, never a
 path outside the package). `apps.hidden.set {app, hidden}` is Hide/Show and `apps.grant.revoke {app,
 scope}` revokes a scope: neither widens what an app may do, so the Apps page needs only the
-person's gesture. `apps.grant.set {app, scope, granted}` allows (or revokes) a scope and needs the
-native sheet. Opening an app is a host verb (the page runs the host action `app.open`), never a
+person's gesture. `apps.grant.set {app, scope, granted}` sets a scope and needs the native sheet (a
+host shows it for an allow; a page revokes with `apps.grant.revoke`). Opening an app is a host verb (the page runs the host action `app.open`), never a
 daemon operation.
 
 A routed request is `{protocol, type: "request", id, operation, params, idempotency_key?,

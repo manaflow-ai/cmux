@@ -161,7 +161,7 @@ impl Supervisor {
     }
 
     fn grants_get(&self, p: AppParams) -> Result<Grants, ApiError> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let record = inner
             .mirror
             .apps
@@ -182,23 +182,18 @@ impl Supervisor {
                 }
             }
         }
-        // A grant the manifest no longer names still shows, so it can be revoked.
-        for scope in &record.grants {
-            if !scopes.iter().any(|row| &row.scope == scope) {
-                scopes.push(GrantRow {
-                    scope: scope.clone(),
-                    reason: String::new(),
-                    risk: risk(scope),
-                    optional: true,
-                    granted: true,
-                });
-            }
-        }
         Ok(Grants { app: p.app, sandboxed: record.sandboxed, scopes })
     }
 
     fn logs_tail(&self, client: u64, p: LogsParams) -> Result<Value, ApiError> {
-        if !self.inner.lock().unwrap().catalog.packages.contains_key(&p.app) {
+        let known = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .catalog
+            .packages
+            .contains_key(&p.app);
+        if !known {
             return Err(ApiError::new("apps.unknown", "no such app"));
         }
         let limit = p.limit.map_or(MAX_LOG_LINES, |l| l as usize).clamp(1, MAX_LOG_LINES);
@@ -211,16 +206,23 @@ impl Supervisor {
     fn asset_get(&self, p: AssetParams) -> Result<Value, ApiError> {
         let mime = image_type(&p.path)
             .ok_or_else(|| ApiError::new("apps.asset.type", "only image assets are served"))?;
-        let inner = self.inner.lock().unwrap();
-        let package = inner
+        // The package, out of the lock: the file reads below never hold the supervisor.
+        let package = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .catalog
             .packages
             .get(&p.app)
+            .cloned()
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
+        let missing = || ApiError::new("apps.asset.missing", "the package has no such file");
+        let size = std::fs::metadata(package.dir.join(&p.path)).map_err(|_| missing())?.len();
+        if size > MAX_ASSET_BYTES as u64 {
+            return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
+        }
         // `read` refuses a path (or a symlink on the way) that leaves the package.
-        let bytes = package
-            .read(&p.path)
-            .ok_or_else(|| ApiError::new("apps.asset.missing", "the package has no such file"))?;
+        let bytes = package.read(&p.path).ok_or_else(missing)?;
         if bytes.len() > MAX_ASSET_BYTES {
             return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
         }

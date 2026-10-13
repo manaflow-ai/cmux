@@ -30,6 +30,10 @@ nonisolated enum AppsPageConfirmations {
             return PageConfirmation(kind: .uninstall, name: name)
         case "cmux.apps.set":
             // The daemon takes `set` only with this sheet's confirmation (page-router.json `confirm`).
+            // The sheet names one change, so a call that changes more than one field gets no sheet
+            // (the daemon then refuses it): an approval never covers a change the sheet did not name.
+            let fields = ["enabled", "sandboxed", "hidden"].filter { params[$0] != nil }
+            guard fields.count == 1 else { return nil }
             let title = if let sandboxed = params["sandboxed"]?.boolValue {
                 sandboxed ? AppsAppStrings.sandboxOn(name) : AppsAppStrings.sandboxOff(name)
             } else if let enabled = params["enabled"]?.boolValue {

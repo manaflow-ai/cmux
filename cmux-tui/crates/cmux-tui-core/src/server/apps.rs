@@ -5,7 +5,8 @@
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
 //! Only local (Unix socket) connections may use apps commands. `apps-set`
 //! and the App Store mutations of `apps-store {op, args}` (`cmux.apps.set`,
-//! `install`, `uninstall`; apps/store.rs) change apps, so they need a
+//! `install`, `uninstall`, `hidden.set`, `grant.set`, `grant.revoke`;
+//! apps/store.rs) change apps, so they need a
 //! verified cmux app connection whatever origin they claim, and so does
 //! every request with origin `user` (Gate A2, plans/cmux-next/
 //! request-origin.md; `origin.forbidden` otherwise), and so does
