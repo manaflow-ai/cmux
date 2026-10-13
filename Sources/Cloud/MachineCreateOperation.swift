@@ -71,6 +71,18 @@ struct MachineCreateOperation: Identifiable, Equatable {
         refusalCode == CloudPlanRefusal.requiresTeamPlanCode
     }
 
+    /// The validated team scope for the Team upgrade action. A refusal may be
+    /// stale or malformed, so UI surfaces must not show an action that cannot
+    /// safely open the scoped billing page.
+    var teamPlanUpgradeID: String? {
+        guard requiresTeamPlan, let refusalTeamID,
+              AuthEnvironment.teamBillingURL(teamID: refusalTeamID) != nil else { return nil }
+        return refusalTeamID
+    }
+
+    /// Whether this failed create can safely offer the Team upgrade action.
+    var canUpgradeToTeam: Bool { teamPlanUpgradeID != nil }
+
     /// The one-line status beside the name: the sheet's progress wording
     /// while running, the failure headline once it failed.
     var statusLabel: String {

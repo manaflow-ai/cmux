@@ -70,9 +70,13 @@ struct CloudSidebarPolishTests {
         operation.refusalTeamID = "team-trollol"
         #expect(operation.requiresTeamPlan)
         #expect(operation.refusalTeamID == "team-trollol")
+        #expect(operation.canUpgradeToTeam)
         #expect(operation.statusLabel == "Team plan required")
         #expect(!operation.hitMachineLimit)
         #expect(!operation.hitResourcePool)
+
+        operation.refusalTeamID = "team/other"
+        #expect(!operation.canUpgradeToTeam)
     }
 
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")

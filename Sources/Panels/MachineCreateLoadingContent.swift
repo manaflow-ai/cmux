@@ -83,7 +83,7 @@ struct MachineCreateLoadingContent: View {
             for: operation.refusalCode,
             plan: NewMachineSheetDataCache.shared?.currentData?.plan
         )
-        return operation.requiresTeamPlan ? operation.refusalTeamID != nil : planUpgrade
+        return operation.requiresTeamPlan ? operation.canUpgradeToTeam : planUpgrade
     }
 
     private var upgradeIsPrimary: Bool {

@@ -76,7 +76,7 @@ struct CloudTreeRowHoverButtons: View {
                         machineActions.create.cancel(operation.id)
                     }
                 } else {
-                    if operation.requiresTeamPlan, operation.refusalTeamID != nil {
+                    if operation.canUpgradeToTeam {
                         MachinesChromeIconButton(
                             symbolName: "arrow.up.circle",
                             accessibilityLabel: String(localized: "machines.pending.upgradeTeam", defaultValue: "Upgrade to Team"),

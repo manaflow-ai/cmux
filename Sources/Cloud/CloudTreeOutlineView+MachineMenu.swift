@@ -74,7 +74,7 @@ extension CloudTreeOutlineView.Coordinator {
         if operation.isCancellable {
             items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
         } else if !operation.isReconciling {
-            if operation.requiresTeamPlan, operation.refusalTeamID != nil {
+            if operation.canUpgradeToTeam {
                 items.append(item(String(localized: "machines.pending.upgradeTeam", defaultValue: "Upgrade to Team")) { create.upgrade(id) })
                 items.append(.separator())
             }

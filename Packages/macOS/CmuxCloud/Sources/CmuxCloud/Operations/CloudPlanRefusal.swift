@@ -176,10 +176,15 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     /// - Parameter output: The CLI's failure transcript.
     public static func teamID(inCLIFailureOutput output: String) -> String? {
         let pattern = #"https://cmux\.com/dashboard/billing\?[^\s)]+"#
-        guard let range = output.range(of: pattern, options: .regularExpression),
-              let url = URL(string: String(output[range])),
+        guard let range = output.range(of: pattern, options: .regularExpression) else { return nil }
+        // The CLI puts this URL inside a sentence, so a comma or period can
+        // follow it. Remove sentence punctuation before URL parsing; otherwise
+        // the team query value includes the punctuation and fails validation.
+        let candidate = String(output[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+        guard let url = URL(string: candidate),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.host == "cmux.com",
+              components.path == "/dashboard/billing",
               let teamID = components.queryItems?.first(where: { $0.name == "team" })?.value,
               !teamID.isEmpty,
               teamID.count <= 128,
