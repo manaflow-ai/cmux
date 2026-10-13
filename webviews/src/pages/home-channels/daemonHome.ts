@@ -5,6 +5,7 @@
 // the data path, so the page runs the same in a plain browser, the app's web view, Chromium and
 // GPUI. Slice 3 moves this projection into the daemon as `home.*` operations.
 import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
+import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import {
   HomeOps,
@@ -281,7 +282,7 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:
-        throw pageError("cmux.page.unknown_op", op);
+        throw pageError("cmux.protocol.unknown_op", op);
     }
   }
 
@@ -308,7 +309,12 @@ export class DaemonHomeClient implements PageClient {
   }
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
-    if (stream !== HomeOps.events) throw pageError("cmux.page.unknown_op", stream);
+    if (stream === PAGE_CONNECTION) {
+      // The page's own link to its owner: this daemon connection.
+      queueMicrotask(() => onEvent({ connected: true } as E, 1));
+      return this.daemon.onClose(() => onEvent({ connected: false } as E, 2));
+    }
+    if (stream !== HomeOps.events) throw pageError("cmux.protocol.unknown_op", stream);
     let seq = 0;
     let pending: HomeEventBatch | null = null;
     // One batch per microtask turn: a burst of daemon events costs one page update.
