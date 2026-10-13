@@ -257,7 +257,7 @@ class FakeChats:
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
-                               "-n", f"memory-bench-{index}", f"memory bench chat {index}"],
+                               f"memory bench chat {index}"],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
             session = json.loads(made.stdout)["sessionId"]
