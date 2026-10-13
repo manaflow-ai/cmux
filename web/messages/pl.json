@@ -35,6 +35,11 @@
       "message": "Ta maszyna nie odpowiedziała na czas, więc nie udało się ukończyć żądania.",
       "action": "Wstrzymaj maszynę, potem ją wznów i spróbuj ponownie. W aplikacji na Maca wybierz Wstrzymaj maszynę, a potem Wznów maszynę. W terminalu uruchom cmux vm pause '<machine>', a potem cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Nadal w toku",
+      "message": "Dostawca chmury jeszcze nie ukończył tej zmiany. Może się jeszcze zakończyć.",
+      "action": "Zanim spróbujesz ponownie, sprawdź stan maszyny za pomocą cmux vm ls lub na liście maszyn."
+    },
     "providerTimeout": {
       "title": "Dostawca chmury odpowiada wolno",
       "message": "Dostawca chmury nie odpowiedział na czas.",
