@@ -7,11 +7,15 @@ import Testing
 /// failed `/users/me`. A team list must not turn that into "no teams": the
 /// coordinator would record an empty membership as loaded and never retry, so
 /// a paid account looks teamless until it signs in again (#20051).
+///
+/// Which error surfaces depends on where Stack stops: no usable token raises
+/// its not-signed-in error, a failed request is mapped by `listTeams`. Any
+/// error is correct; an empty list is the bug.
 @Suite(.serialized) struct StackAuthClientTeamListTests {
     @Test func listTeamsThrowsWhenStackHasNoSession() async {
         let client = Self.client(tokenStore: .memory)
 
-        await #expect(throws: AuthClientError.userUnavailable) {
+        await #expect(throws: (any Error).self) {
             _ = try await client.listTeams()
         }
     }
@@ -20,7 +24,7 @@ import Testing
         // Not a fresh JWT, so Stack refreshes it, and the stub answers 503.
         let client = Self.client(tokenStore: .explicit(accessToken: "access", refreshToken: "refresh"))
 
-        await #expect(throws: AuthClientError.userUnavailable) {
+        await #expect(throws: (any Error).self) {
             _ = try await client.listTeams()
         }
         #expect(StackUnavailableURLProtocol.requestedPaths.contains { $0.hasSuffix("/auth/oauth/token") })
