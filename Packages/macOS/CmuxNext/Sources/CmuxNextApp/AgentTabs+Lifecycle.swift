@@ -303,6 +303,7 @@ extension AgentTabStore {
         pendingTurns[key] = nil
         tabStores[key] = nil
         unsentDrafts.set("", for: key)
+        launchImages.drop(key)
         seenLive.remove(key)
         forgetUnusedStores()
         stopCustomizationWhenUnused()

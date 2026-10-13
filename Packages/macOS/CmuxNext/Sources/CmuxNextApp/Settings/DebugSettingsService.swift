@@ -117,7 +117,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     private func dropModelWhenUnused() {
-        guard controller == nil, services.pages.keys(of: .debugSettings).isEmpty else { return }
+        guard controller == nil, !services.pageIsOpen(.debugSettings) else { return }
         sharedModel = nil
     }
 

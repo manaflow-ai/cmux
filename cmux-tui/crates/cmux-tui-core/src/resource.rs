@@ -150,6 +150,8 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "git.branches")]
+    GitBranches,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
