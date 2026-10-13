@@ -88,7 +88,7 @@ public final class SessionStateStore {
             let start = group.screenIDs.compactMap { order.firstIndex(of: $0) }.min() ?? 0
             return ScreenGroupSnapshot(id: ScreenGroupID(rawValue: group.id), name: group.name, color: group.color,
                                        collapsed: group.collapsed, savedID: group.savedID.map(SavedScreenGroupID.init(rawValue:)),
-                                       start: start, screens: members)
+                                       start: start, screens: members, icon: group.icon)
         }
     }
 }

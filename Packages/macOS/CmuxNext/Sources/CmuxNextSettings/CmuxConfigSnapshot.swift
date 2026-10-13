@@ -165,7 +165,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
     /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
-    public var commandRetentionDays: Int = CommandRetentionSetting.fallback
+    public var commandRetentionDays: Int = CmuxConfigSnapshot.commandRetentionFallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).

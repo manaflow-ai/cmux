@@ -699,8 +699,9 @@ impl Surface {
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
         }
-        // After the replay, whose prompt marks would end transient records:
-        // the host's records are what the programs last reported.
+        // After the replay: the host's records are what the programs last
+        // reported. (The replay carries no OSC 133 marks today, so it cannot
+        // end them; test `a_prompt_mark_in_the_reconnect_replay_keeps_a_waiting_programs_record`.)
         if let Some(program_status) = snapshot.program_status.clone() {
             terminal_metadata.restore_program_status(program_status);
         }

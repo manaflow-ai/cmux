@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e171857910d090c4b08a6ba35a4542510f7ff9fb14155b8ebecc662d497b6c4c'
+IR_SHA256 = '7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa'
 
 
 @dataclass(frozen=True)
@@ -3217,6 +3217,7 @@ COMMANDS = {
         {
             'bookmark': CommandFieldMetadata(None, None),
             'favicon_key': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'bookmark-icon-v1'),
             'last_used_ms': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),

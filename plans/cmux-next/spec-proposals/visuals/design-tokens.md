@@ -8,11 +8,11 @@ Every visual value of the cmux-next macOS app, with its source. Machine-readable
 
 ## 1. Color model
 
-Chrome has no fixed palette, except group colors (below). Every color derives from the terminal theme (Ghostty config: `background`, `foreground`, `palette`, `selection-*`, `background-opacity`, `background-blur`) in `ThemeTokens.derive` (`Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140-215 (ThemeTokens.derive)`). Surfaces next to the terminal are the terminal background, so there is no seam. Fills are the foreground at low alpha. Text is the foreground, muted toward the background only as far as WCAG contrast allows (4.5:1 for primary and secondary, 3:1 for tertiary and status marks). There is no accent hue by default (`appearance.accent` = neutral; another value gives selection, the focus ring, `highlight` and `accent` the app theme's accent, see the token table). With the neutral accent, the one hue chrome uses is `highlight` (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (`highlight` at 16% with `highlight` text) and a switch's on state (`webviews/src/agent-session/acpmux/composerControls.css`: `.acpmux-send`, `.acpmux-plan[aria-pressed=true]`, `.acpmux-on .acpmux-switch`). `textSelection` is the theme's `selection-background`, so it is blue when the theme's is.
+Chrome has no fixed palette, except group colors (below). Every color derives from the terminal theme (Ghostty config: `background`, `foreground`, `palette`, `selection-*`, `cursor-color`, `background-opacity`, `background-blur`) in `ThemeTokens.derive` (`Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:140-215 (ThemeTokens.derive)`). Surfaces next to the terminal are the terminal background, so there is no seam. Fills are the foreground at low alpha. Text is the foreground, muted toward the background only as far as WCAG contrast allows (4.5:1 for primary and secondary, 3:1 for tertiary and status marks). There is no accent hue by default (`appearance.accent` = neutral; another value gives selection, the focus ring, `highlight` and `accent` the app theme's accent, see the token table; a theme's own accent, its `appearance.themeEdits` `<theme>/accent` edit or else its file's `# cmux-accent = #rrggbb` line, does the same and wins over `appearance.accent`). With the neutral accent, the one hue chrome uses is `highlight` (the theme's ANSI 4, usually blue), and only in agent pane composer controls: the Send fill, the pressed plan toggle (`highlight` at 16% with `highlight` text) and a switch's on state (`webviews/src/agent-session/acpmux/composerControls.css`: `.acpmux-send`, `.acpmux-plan[aria-pressed=true]`, `.acpmux-on .acpmux-switch`). `textSelection` is the theme's `selection-background`, so it is blue when the theme's is.
 
 The default theme is `light:Apple System Colors Light,dark:Apple System Colors` (`Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime+DefaultTheme.swift:11-16 (GhosttyRuntime.defaultThemeSpec)`), following the macOS appearance. Before the config is read the app uses Ghostty's built-in default: background `#282C34`, foreground `#FFFFFF` (`ThemeInput.swift:52-59 (ThemeInput.ghosttyDefault)`).
 
-Ports must implement `derive` exactly, not copy the table below: the table is only the result for five reference themes. [tools/derive_theme_tokens.py](tools/derive_theme_tokens.py) is a line-for-line port; use it as the oracle in unit tests.
+Ports must implement `derive` exactly, not copy the table below: the table is only the result for five reference themes, and the accent table under it for seven `appearance.accent` cases (`themes.*OwnAccent` in the json add two themes with their own accent). [tools/derive_theme_tokens.py](tools/derive_theme_tokens.py) is a line-for-line port of `ThemeTokens.derive` and `AppTheme.derive` (its `--check-app-vectors` replays `schemas/theme/app-theme-vectors.json`, the web module's output, with no difference); use it as the oracle in unit tests.
 
 ### Formulas
 
@@ -46,7 +46,7 @@ Every source line below is in `ThemeTokens.derive` (`ThemeTokens.swift`) unless 
 | sidebarStep | fg @ 0.04: the Home Chief sidebar fill and the workspace row placeholder bar | :187 |
 | stripStep | black @ 0.22 / 0.05: no strip paints it; the sidebar's space marks soften toward it (ProfileBarView.markColor) | :190 |
 | textOnPrimary | opaque contentBackground (text and glyphs on a textPrimary fill: drag count badge, colored section chips) | Palette.swift:88 (`Palette.textOnPrimary`) |
-| accent | textPrimary with appearance.accent = neutral (the default); else the app accent (AppTheme: the named ANSI color, or for `theme` magenta, else blue, else cyan; fitted to 3:1 on surfaces). AppKit controls use `Palette.accent` = focusRing | :146, :212; AppTheme.swift (`AppTheme.accentSeed`); Palette.swift:116 (`Palette.accent`) |
+| accent | textPrimary with appearance.accent = neutral (the default); else the app accent (AppTheme: the named ANSI color, or for `theme` magenta, else blue, else cyan; a theme's own accent replaces that starting color; fitted to 3:1 on surfaces). AppKit controls use `Palette.accent` = focusRing | :146, :212; AppTheme.swift (`AppTheme.accentSeed`); Palette.swift:116 (`Palette.accent`) |
 | onAccent | opaque bg with the neutral accent; else AppTheme onAccent (4.5:1 on accent) | :213 |
 
 `mix(a, b, t)` is per-channel sRGB linear interpolation that keeps a's alpha (`ThemeRGB.swift:104 (ThemeRGB.mixed)`). Contrast is WCAG relative luminance (`ThemeRGB.swift:84-96 (ThemeRGB.relativeLuminance, contrast)`). "dark" means luminance(bg) < luminance(fg).
@@ -86,6 +86,23 @@ Value, then the color composited on the window background, both rounded half awa
 | highlightText | `#FFFFFF` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
 | accent | `#FFFFFF` | `#000000` | `#FFFFFF` | `#FDFFF1` | `#1F2328` |
 | onAccent | `#1E1E1E` | `#FEFFFF` | `#282C34` | `#272822` | `#FFFFFF` |
+| caret | `#98989D` | `#929297` | `#FFFFFF` | `#FDFFF1` | `#1F2328` |
+
+The Apple System Colors files name `cursor-color = #98989d`; the other reference themes name none (caret = textPrimary).
+
+With `appearance.accent` (tokens not listed are the same as without it):
+
+| token | appleSystemDark red | appleSystemDark green | appleSystemDark blue | appleSystemLight red | appleSystemLight green | appleSystemLight blue | monokaiClassic theme |
+|---|---|---|---|---|---|---|---|
+| selectionFill | `#FF453A42` → `#592825` | `#32D74B42` → `#234E2A` | `#0A84FF42` → `#193959` | `#E5272229` → `#FADCDC` | `#008A2329` → `#D5ECDC` | `#0074E529` → `#D5E9FB` | `#AE81FF42` → `#4A3F5B` |
+| focusRing | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| highlight | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| highlightText | `#1E1E1E` | `#1E1E1E` | `#1E1E1E` | `#000000` | `#000000` | `#000000` | `#272822` |
+| accent | `#FF453A` | `#32D74B` | `#0A84FF` | `#E52722` | `#008A23` | `#0074E5` | `#AE81FF` |
+| onAccent | `#1E1E1E` | `#1E1E1E` | `#1E1E1E` | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#272822` |
+| textPrimary | `#FFFFFF` | `#FFFFFF` | `#FFFFFF` | `#000000` | `#000000` | `#000000` | `#FDFFF1` |
+| textSecondary | `#AAAAAA` | `#B3B3B3` | `#AAAAAA` | `#616161` | `#616161` | `#616161` | `#B2B4A9` |
+| textTertiary | `#888888` | `#919191` | `#888888` | `#7F8080` | `#7F8080` | `#7F8080` | `#92938A` |
 
 Pane focus ring colors (fg with the contrast alpha): subtle `fg@0.20`, standard `fg@0.55`, strong `fg@0.85`. Apple dark: `#FFFFFF33` / `#FFFFFF8C` / `#FFFFFFD9`; Apple light: `#00000033` / `#0000008C` / `#000000D9`.
 

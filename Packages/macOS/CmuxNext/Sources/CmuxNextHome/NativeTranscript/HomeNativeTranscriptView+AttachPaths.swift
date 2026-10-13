@@ -95,8 +95,12 @@ extension HomeNativeTranscriptView {
     }
     /// MessagesLab's width pass counters (all panes): passes run, passes deferred to the next frame.
     public var debugWidthPasses: (passes: Int, deferred: Int) { transcript.debugWidthPasses }
+    /// MessagesLab's width pass frame budget (s).
+    public var debugWidthPassBudget: Double { transcript.debugWidthPassBudget }
     /// The transcript host's origin in window points (bottom-left origin).
     public var debugHostOrigin: CGPoint { transcript.debugHostOrigin }
+    /// The transcript host's frame in window points (bottom-left origin).
+    public var debugHostFrame: CGRect { transcript.debugHostFrame }
     /// The typing bubble's body in window coordinates (bottom-left origin), nil when none shows.
     public func debugTypingBubbleFrame() -> CGRect? { transcript.debugTypingBubbleFrame() }
     /// The visible rows as drawn (a part: its bubble body and drawn balloon; a preview or other row: its content box),

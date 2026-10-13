@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeEngine
 import Testing
 
 /// Theme sweep 3, batch B: Home's sheets (New Message, Invite, New Chief) sat on the sheet
