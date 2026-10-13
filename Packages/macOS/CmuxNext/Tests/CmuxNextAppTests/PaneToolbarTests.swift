@@ -58,13 +58,11 @@ struct PaneToolbarTests {
         #expect(bar.runs.last?.invocation.target == ActionTargetRef(kind: .tab, id: "surface:7"))
     }
 
-    /// The New Tab page's "…" leaves the splits out (#20128: its composer's menu has none; they stay
-    /// on keys and drag).
     @Test func eachPaneKindOffersItsOwnActionsAndAChatHasNoMore() {
         let bar = Bar()
         bar.toolbar.update(target: "surface:1", kind: .newTab)
         #expect(bar.controls == ["More"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Open Diff Viewer", "Open File…",
+        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open Diff Viewer", "Open File…",
                              "Search Agent Chats", "Toggle Pane Zoom"])
         bar.toolbar.update(target: "surface:2", kind: .browser)
         #expect(bar.controls == ["More"])
