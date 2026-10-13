@@ -11,7 +11,7 @@
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
-    "_acpmux/secret_submit"
+    "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -20,7 +20,7 @@
   "session_scoped": [
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-    "_acpmux/secret_submit"
+    "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "source_scoped": [
@@ -72,6 +72,8 @@
     "_acpmux/permission_group_respond": {"params": ["sessionId", "groupId", "revision", "decisionKey", "decision"], "acpmux": []},
     "_acpmux/permission_chat_revoke": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/secret_submit": {"params": ["sessionId", "secretId", "value"], "acpmux": []},
+    "_acpmux/archive": {"params": ["sessionId", "archived"], "acpmux": []},
+    "_acpmux/markUnread": {"params": ["sessionId"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},
