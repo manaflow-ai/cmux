@@ -14,6 +14,7 @@ import Testing
         var fill = ConversationDecelerationFill()
         var drawn: [CGFloat] = []
         for (i, offset) in Self.stalled.enumerated() {
+            if i == 2 { fill.expectSkippedFrame() }
             let lead = fill.update(offset: offset, duration: 1.0 / 60, decelerating: i >= 2)
             drawn.append(offset + lead)
         }
@@ -44,6 +45,7 @@ import Testing
         let offsets: [CGFloat] = [1000, 976, 952, 952, 928, 904, 880, 856, 832, 808, 784]
         var drawn: [CGFloat] = []
         for (i, offset) in offsets.enumerated() {
+            if i == 1 { fill.expectSkippedFrame() }
             drawn.append(offset + fill.update(offset: offset, duration: 1.0 / 60, decelerating: i >= 1))
         }
         let steps = zip(drawn, drawn.dropFirst()).map { $1 - $0 }
@@ -78,6 +80,7 @@ import Testing
     /// frame is drawn at most `maximumLead` ahead.
     @Test func theLeadIsBoundedOnHardFlings() {
         var fill = ConversationDecelerationFill()
+        fill.expectSkippedFrame()
         _ = fill.update(offset: 5000, duration: 1.0 / 120, decelerating: true, range: 0...10000)
         _ = fill.update(offset: 4900, duration: 1.0 / 120, decelerating: true, range: 0...10000)
         let lead = fill.update(offset: 4900, duration: 1.0 / 120, decelerating: true, range: 0...10000)
@@ -88,6 +91,7 @@ import Testing
     /// predicted within a step of the scrollable range's ends (or past them).
     @Test func nothingIsPredictedIntoAnEdge() {
         var fill = ConversationDecelerationFill()
+        fill.expectSkippedFrame()
         _ = fill.update(offset: 60, duration: 1.0 / 60, decelerating: true, range: 0...10000)
         _ = fill.update(offset: 36, duration: 1.0 / 60, decelerating: true, range: 0...10000)
         let lead = fill.update(offset: 36, duration: 1.0 / 60, decelerating: true, range: 0...10000)
@@ -98,6 +102,7 @@ import Testing
     /// one frame.
     @Test func aTurnAbsorbsTheLeadGradually() {
         var fill = ConversationDecelerationFill()
+        fill.expectSkippedFrame()
         var drawn: [CGFloat] = []
         for offset in [CGFloat(1000), 976, 976, 990, 1004] {
             drawn.append(offset + fill.update(offset: offset, duration: 1.0 / 60, decelerating: true, range: 0...10000))
@@ -110,9 +115,26 @@ import Testing
     /// message) is not a fling: speeds past any fling's are not predicted.
     @Test func anImplausibleSpeedIsNotPredicted() {
         var fill = ConversationDecelerationFill()
+        fill.expectSkippedFrame()
         _ = fill.update(offset: 1000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
         _ = fill.update(offset: 9000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
         let lead = fill.update(offset: 9000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
         #expect(lead == 0)
+    }
+
+    /// A finger that catches a fling freezes the offset while UIKit still
+    /// reports decelerating for a few frames. That is not a skipped frame:
+    /// drawing ahead there and snapping back read as a vertical flicker on
+    /// the phone (b02819d, iPhone 17 Pro Max: -25, -40, 0, 0, 0, 0, +40 pt).
+    /// Only the frames UIKit is known to skip are drawn: right after the
+    /// lift, and right after the transcript itself moved the offset.
+    @Test func aCaughtFlingIsNotPredicted() {
+        var fill = ConversationDecelerationFill()
+        fill.expectSkippedFrame()
+        var leads: [CGFloat] = []
+        for offset in [CGFloat(2000), 1950, 1902, 1856, 1812, 1770, 1770, 1770, 1770] {
+            leads.append(fill.update(offset: offset, duration: 1.0 / 120, decelerating: true, range: 0...10000))
+        }
+        #expect(leads.allSatisfy { $0 == 0 })
     }
 }
