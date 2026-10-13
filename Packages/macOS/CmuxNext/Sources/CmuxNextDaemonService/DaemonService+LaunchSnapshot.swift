@@ -1,5 +1,6 @@
-import CmuxNextControl
-import CmuxNextDaemon
+import CmuxNextApps
+public import CmuxNextControl
+public import CmuxNextDaemon
 import Foundation
 import os
 
@@ -25,7 +26,7 @@ extension DaemonService {
         }
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
-        DebugTimings.markLaunch("launch_snapshot_applied")
+        Self.launchMark("launch_snapshot_applied")
     }
 
     /// Records the snapshot path the local daemon reported, for the next launch.
@@ -38,15 +39,21 @@ extension DaemonService {
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why).
-    nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+    public nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: AppsService.daemonEnvironment) else { return nil }
+                                                daemonEnvironment: firstPartyAppsEnvironment) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey))
+    }
+
+    /// What the local daemon's supervisor needs from this app at launch: the
+    /// first-party app packages shipped in the app bundle (its default apps).
+    nonisolated static var firstPartyAppsEnvironment: [String: String] {
+        ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
     }
 
     /// The local daemon's connection configuration, for the first connect
@@ -71,7 +78,7 @@ extension DaemonService {
 
     /// Waits for the first connection (or for startup to give up): an event,
     /// not a retry, so terminals drawn from the snapshot attach at once.
-    func firstConnection() async {
+    public func firstConnection() async {
         await withCheckedContinuation { connectionWaiters.append($0) }
     }
 

@@ -28,6 +28,15 @@ fn acpmux(exe: &Path, home: &Path) -> Command {
     cmd
 }
 
+/// Held by every test that starts processes: a child inherits each
+/// inheritable handle of this process, so a test's pipe must not reach the
+/// daemon another test starts at the same moment.
+static SPAWNS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn spawns() -> std::sync::MutexGuard<'static, ()> {
+    SPAWNS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn exe() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_acpmux"))
 }
@@ -102,6 +111,7 @@ fn wait_ready(exe: &Path, home: &Path, daemon: &mut Daemon) -> Value {
 
 #[test]
 fn the_daemon_serves_its_socket_holds_its_lock_and_stops() {
+    let _spawns = spawns();
     let exe = exe();
     let home = scratch("life");
     // No daemon yet: status says so and starts none.
@@ -264,4 +274,157 @@ fn other_user_child() {
         Err(e) => report.push_str(&format!("raw: connect failed: {e}\n")),
     }
     std::fs::write(dir.join("child-done"), report).unwrap();
+}
+
+/// An anonymous pipe whose ends are both inheritable: (read, write).
+fn inheritable_pipe() -> (std::fs::File, std::fs::File) {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: std::ptr::null_mut(),
+        bInheritHandle: 1,
+    };
+    let (mut read, mut write) = (std::ptr::null_mut(), std::ptr::null_mut());
+    // SAFETY: valid out-pointers and attributes.
+    let ok = unsafe {
+        windows_sys::Win32::System::Pipes::CreatePipe(&mut read, &mut write, &attributes, 0)
+    };
+    assert_ne!(ok, 0, "CreatePipe: {}", std::io::Error::last_os_error());
+    // SAFETY: both handles were just created and are owned here.
+    unsafe { (std::fs::File::from_raw_handle(read), std::fs::File::from_raw_handle(write)) }
+}
+
+/// Stops inheritance of `file`'s handle by later children.
+fn not_inheritable(file: &std::fs::File) {
+    use std::os::windows::io::AsRawHandle;
+    // SAFETY: a handle this test owns.
+    unsafe {
+        windows_sys::Win32::Foundation::SetHandleInformation(
+            file.as_raw_handle(),
+            windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+            0,
+        )
+    };
+}
+
+/// Reads `file` to its end on a thread; None if it did not end in `timeout`
+/// (another process still holds the write end).
+fn read_to_end_within(mut file: std::fs::File, timeout: Duration) -> Option<Vec<u8>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = file.read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    rx.recv_timeout(timeout).ok()
+}
+
+/// `acpmux daemon start` with no daemon starts one detached
+/// (CreateProcessW): it reads the daemon's ready line on an inherited pipe
+/// and reports it; the daemon outlives the CLI, logs to daemon.log and
+/// inherits no handle but the ones it was given (a pipe the CLI inherited
+/// from this test reaches end of file once the CLI exits).
+#[test]
+fn daemon_start_launches_a_detached_daemon_through_a_handle_list() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("start");
+    let (probe_read, probe_write) = inheritable_pipe();
+    not_inheritable(&probe_read);
+    let started = Instant::now();
+    let out =
+        acpmux(&exe, &home).args(["daemon", "start"]).output().expect("run acpmux daemon start");
+    let took = started.elapsed();
+    drop(probe_write);
+    assert!(out.status.success(), "acpmux daemon start failed: {}", text(&out));
+    // The ready line ended the wait, not the 8 s start budget.
+    assert!(took < Duration::from_secs(8), "daemon start took {took:?}: {}", text(&out));
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let pid: u64 = stdout
+        .lines()
+        .next()
+        .and_then(|l| l.split(" pid ").nth(1))
+        .and_then(|rest| rest.split_whitespace().next())
+        .and_then(|p| p.parse().ok())
+        .unwrap_or_else(|| panic!("no pid in the status: {stdout}"));
+    // The CLI has exited; the daemon still answers.
+    let v = status(&exe, &home);
+    assert_eq!(v.get("pid").and_then(Value::as_u64), Some(pid), "{v}");
+    let handles_kept = read_to_end_within(probe_read, Duration::from_secs(10));
+    let log = std::fs::read_to_string(home.join("daemon.log")).unwrap_or_default();
+    let out = acpmux(&exe, &home).arg("shutdown").output().expect("run acpmux shutdown");
+    assert!(out.status.success(), "acpmux shutdown failed: {}", text(&out));
+    assert!(
+        handles_kept.is_some(),
+        "the detached daemon inherited a handle it was not given (the probe pipe stayed open)"
+    );
+    assert!(log.contains("acpmux ready"), "daemon.log has no ready line:\n{log}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while status(&exe, &home).get("running") != Some(&Value::Bool(false)) {
+        assert!(Instant::now() < deadline, "the started daemon did not stop");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// 32 bytes as hex: what the app makes at each launch.
+const PERSON_KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
+
+/// `daemon run --person-key-fd H --ready-fd H2` with inherited handles, as
+/// the app starts it: the ready line arrives on its handle, and over the
+/// socket the key enrolls (via the spawn key) while another key does not.
+#[test]
+fn daemon_run_reads_its_person_key_and_writes_ready_on_inherited_handles() {
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("person");
+    let (key_read, mut key_write) = inheritable_pipe();
+    not_inheritable(&key_write);
+    let (ready_read, ready_write) = inheritable_pipe();
+    not_inheritable(&ready_read);
+    use std::os::windows::io::AsRawHandle;
+    let key_handle = (key_read.as_raw_handle() as isize).to_string();
+    let ready_handle = (ready_write.as_raw_handle() as isize).to_string();
+    key_write.write_all(PERSON_KEY.as_bytes()).unwrap();
+    drop(key_write);
+    let log = std::env::temp_dir().join(format!("amxw-person-{}.log", std::process::id()));
+    let out = std::fs::File::create(&log).unwrap();
+    let err = out.try_clone().unwrap();
+    let child = acpmux(&exe, &home)
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
+        .args(["--person-key-fd", &key_handle, "--ready-fd", &ready_handle])
+        .stdout(out)
+        .stderr(err)
+        .spawn()
+        .expect("spawn acpmux daemon run");
+    let daemon = Daemon { child, log };
+    drop(key_read);
+    drop(ready_write);
+    let line = read_to_end_within(ready_read, Duration::from_secs(60))
+        .unwrap_or_else(|| panic!("no ready line (the handle stayed open):\n{}", daemon.log()));
+    let ready: Value = serde_json::from_slice(&line).unwrap_or_else(|e| {
+        panic!("ready line {e}: {:?}\n{}", String::from_utf8_lossy(&line), daemon.log())
+    });
+    assert_eq!(ready.get("ready"), Some(&Value::Bool(true)), "{ready}");
+    assert_eq!(
+        ready.get("pid").and_then(Value::as_u64),
+        Some(u64::from(daemon.child.id())),
+        "{ready}"
+    );
+
+    let socket = home.join("acpmux.sock");
+    let enroll = |key: &str| -> Value {
+        let mut stream = cmux::local_socket::connect_same_user(&socket).expect("connect");
+        let line = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/person_enroll", "params": {"key": key}});
+        stream.write_all(format!("{line}\n").as_bytes()).unwrap();
+        let reply = read_line(&mut stream, Duration::from_secs(30));
+        serde_json::from_str(&reply).unwrap_or_else(|e| panic!("{e}: {reply}"))
+    };
+    let ok = enroll(PERSON_KEY);
+    assert_eq!(ok.pointer("/result/via").and_then(Value::as_str), Some("spawn"), "{ok}");
+    let other = enroll(&"0".repeat(64));
+    assert!(other.get("error").is_some(), "another key enrolled: {other}");
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&home);
 }

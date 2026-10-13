@@ -1448,6 +1448,18 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+  # A red web check on a pull request into feat-cmux-next gets one "red: <check>" comment (the
+  # checks stay advisory there; chief 2026-10-12). cmux-next.yml calls the same workflow after its
+  # app-size check; both update one comment.
+  pr-red-checks:
+    needs: [web]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/pr-red-checks-comment.yml
+
   ci-timing:
     # The run's timing readout in the job summary: the chain of jobs that set
     # the wall time, where each ran, and each against the last week of the

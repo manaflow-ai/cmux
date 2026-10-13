@@ -1,6 +1,6 @@
-import CmuxNextControl
-import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextControl
+public import CmuxNextDaemon
+public import CmuxNextWakeups
 
 /// Runs main-actor batches once per display frame (architecture.md 2): the
 /// daemon store drain, pane presentation, the control work queue, the
@@ -11,7 +11,7 @@ import CmuxNextWakeups
 /// scheduler's stall deadline keeps work moving while the displays sleep
 /// (state-audit D4).
 @MainActor
-final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
+public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     private var pending: [@MainActor @Sendable () -> Void] = []
     private let owner: String
     private let scheduler: FrameScheduler
@@ -21,7 +21,7 @@ final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     }
 
     /// `owner` names the batcher in the wakeup ledger and debug.wakeups.
-    init(owner: String, scheduler: FrameScheduler = .app) {
+    public init(owner: String, scheduler: FrameScheduler = .app) {
         self.owner = owner
         self.scheduler = scheduler
         _ = client  // built here, as before
@@ -30,13 +30,13 @@ final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// Hops through the main run loop in the common modes, not a main-actor
     /// task: a native menu tracks inside a main-queue callout, where no
     /// main-actor job runs until the menu closes (``MainRunLoopHop``).
-    nonisolated func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
+    public nonisolated func scheduleFrame(_ work: @escaping @MainActor @Sendable () -> Void) {
         MainRunLoopHop().perform { self.enqueue(work) }
     }
 
     /// The next main run loop turn, without waiting for a display frame
     /// (the control work queue's first request after idle).
-    nonisolated func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
+    public nonisolated func scheduleSoon(_ work: @escaping @MainActor @Sendable () -> Void) {
         MainRunLoopHop().perform(work)
     }
 

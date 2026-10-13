@@ -1,5 +1,5 @@
-import CmuxNextActions
-import CmuxNextDaemon
+public import CmuxNextActions
+public import CmuxNextDaemon
 
 extension ActionWorkFailure {
     /// The failure of the daemon command `label`. A terminal start that
@@ -8,7 +8,7 @@ extension ActionWorkFailure {
     ///
     /// A typed ``ActionFailure`` from the handler's own work stays a refusal (its code and reason
     /// on the control socket, as when the handler throws it at once), not a daemon failure.
-    init(_ label: String, _ error: any Error) {
+    public init(_ label: String, _ error: any Error) {
         if let failure = error as? ActionFailure {
             self.init(failure)
             return
@@ -22,7 +22,7 @@ extension ActionWorkFailure {
 
 extension ActionWorkFailure {
     /// A handler's typed refusal, reported from its background work.
-    init(_ failure: ActionFailure) {
+    public init(_ failure: ActionFailure) {
         self.init(refusal: failure.isNotFound ? .notFound : .unavailable, reason: failure.message)
     }
 }
