@@ -44,24 +44,17 @@ public struct DaemonLauncher: Sendable {
         /// The app's install key (P8 3b-2): handed on stdin to an owner that
         /// `ensure` spawns, and proved by `client-hello` on each connection.
         public var installKey: FrontendInstallKey?
-        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built
-        /// from this tree. That build always accepts
-        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the
-        /// launcher passes it without the `--help` probe, which can time out
-        /// on a loaded machine and start an owner that never reaps. An
-        /// external binary (`CMUX_NEXT_TUI_BIN`) is still probed.
+        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built from this tree. That build always accepts
+        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the launcher passes it without the `--help` probe,
+        /// which can time out on a loaded machine and start an owner that never reaps. An external binary
+        /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigin` (``pageListenerArguments(_:)``).
         public var binaryIsBundled: Bool
-        /// The app's page origin (`cmux-page://cmux.home-channels`): an owner `ensure` spawns opens
-        /// its loopback WebSocket listener for the app's pages (`--ws-loopback`, which mints the
-        /// credential into a 0600 file next to the socket) and admits this origin. Nil: no listener.
-        /// Only the bundled binary gets it (an external one may lack the option).
-        public var webSocketPageOrigin: String?
+        public var webSocketPageOrigin: String? // the page origin the owner's loopback WebSocket admits; nil: none
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false,
-                    webSocketPageOrigin: String? = nil) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigin: String? = nil) {
             self.binary = binary
             self.binaryIsBundled = binaryIsBundled
             self.webSocketPageOrigin = webSocketPageOrigin
@@ -138,8 +131,7 @@ public struct DaemonLauncher: Sendable {
         tag: String?,
         bundleID: String?,
         terminalEnvironment: [String: String],
-        daemonEnvironment: [String: String] = [:],
-        webSocketPageOrigin: String? = nil,
+        daemonEnvironment: [String: String] = [:], webSocketPageOrigin: String? = nil,
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
@@ -154,8 +146,7 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle),
-                                          webSocketPageOrigin: webSocketPageOrigin)
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle), webSocketPageOrigin: webSocketPageOrigin)
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         // A terminal the daemon starts with no caller env gets this env; its
@@ -357,8 +348,7 @@ public struct DaemonLauncher: Sendable {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
-            + (progress ? ["--restore-progress"] : [])
-            + (configuration.binaryIsBundled ? configuration.webSocketPageOrigin.map { ["--ws-loopback", "--ws-allow-origin", $0] } ?? [] : [])
+            + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
     }
 
     /// `server status`: the running owner, or nil when none runs (or the

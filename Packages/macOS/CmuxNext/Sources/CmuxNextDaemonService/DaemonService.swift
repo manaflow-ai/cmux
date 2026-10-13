@@ -124,8 +124,7 @@ public final class DaemonService {
             do {
                 launcher = try DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: Self.firstPartyAppsEnvironment,
-                                                webSocketPageOrigin: Self.pageOrigin)
+                                                daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigin: Self.pageOrigin)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
                 return
