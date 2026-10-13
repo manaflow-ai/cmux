@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// The socket writes settings only through the settings owner

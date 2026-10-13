@@ -55,6 +55,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var navigation: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
+    /// The page `attach` loads: an agent-driven tab was created blank
+    /// (`takeInitialURLString`).
+    @ObservationIgnored var loadAfterAttach: URL?
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
@@ -119,10 +122,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var contentView: NSView { container }
 
-    var initialURLString: String {
-        // An empty URL creates the browser without navigating, which
-        // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
+    /// The URL the browser is created with. An empty URL creates it without
+    /// navigating, which `cmux_tab_restore_navigation` needs, and which an
+    /// agent-driven tab uses too: its page loads in `attach`, once the shim
+    /// knows the tab is agent-driven (`CEFAgentURLGuard.defersCreationLoad`),
+    /// as its first navigation (no blank entry before it).
+    func takeInitialURLString() -> String {
+        loadAfterAttach = nil
+        guard pendingRestore == nil else { return "" }
+        if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
+            loadAfterAttach = pendingURL
+            return ""
+        }
+        return CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -131,6 +143,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = browser
         isCreationPending = false
         CEFAgentURLGuard.applyShimGuard(self)
+        if let url = loadAfterAttach {
+            loadAfterAttach = nil
+            runtime.shim?.loadURL(browser, url.absoluteString)
+        }
         applyPageBackground()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)

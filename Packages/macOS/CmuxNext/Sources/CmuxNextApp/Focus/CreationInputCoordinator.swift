@@ -10,12 +10,17 @@ import CmuxNextTerminal
 /// failure: the request timeout is the only bound), the focus each one asked for landed or was
 /// replaced, and the focused terminal's view has the keyboard; then the keys run again through
 /// `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu included).
+///
+/// The same hold covers Ctrl-1…9 onto a terminal tab with no surface yet (hq#1925 item 3; bound
+/// in `CreationInputBuffer.holds`). Any hold ends as soon as focus leaves the content.
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// Set while a captured key runs again, so it is not captured a second time.
     private var replaying = false
+    /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
+    var holdLimit: Duration = .seconds(2)
 
     init(router: KeyRouter) { self.router = router }
 
@@ -24,9 +29,25 @@ final class CreationInputCoordinator {
     /// script or agent run without `focus`), which leaves the keys where they are.
     func begin(in window: NSWindow?, generation: UInt64?) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
-        let buffer = buffers[window.windowNumber] ?? CreationInputBuffer()
-        buffers[window.windowNumber] = buffer
-        return buffer.open(generation: generation)
+        return buffer(in: window).open(generation: generation)
+    }
+
+    /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.
+    func holdUntilShown(in window: NSWindow?) {
+        guard let window, ActionRunScope.viewChangeAllowed() else { return }
+        _ = buffer(in: window)
+    }
+
+    private func buffer(in window: NSWindow) -> CreationInputBuffer {
+        let number = window.windowNumber
+        if let buffer = buffers[number] { return buffer }
+        let buffer = CreationInputBuffer(began: ContinuousClock.now)
+        buffers[number] = buffer
+        buffer.expire(after: holdLimit) { [weak self, weak window] buffer in
+            guard let self, buffers[number] === buffer else { return }
+            if let window { flush(in: window, force: true) } else { buffers[number] = nil }
+        }
+        return buffer
     }
 
     /// The creation behind `ticket` got its reply (`landed`: its focus was asked for) or failed.
@@ -43,9 +64,16 @@ final class CreationInputCoordinator {
         guard !replaying, let router, let window else { return false }
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
-        guard kind == .content, let controller else { return false }
-        let shell = controller.window ?? window
+        let shell = controller?.window ?? window
         guard let buffer = buffers[shell.windowNumber] else { return false }
+        // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
+        // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
+        guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true) else {
+            flush(in: shell, force: true)
+            guard let next = buffers[shell.windowNumber], next.holds(event, limit: holdLimit, expiring: false) else { return false }
+            next.capture(event)
+            return true
+        }
         buffer.capture(event)
         return true
     }
@@ -64,16 +92,19 @@ final class CreationInputCoordinator {
         }
     }
 
-    private func flush(in window: NSWindow) {
-        guard let buffer = buffers[window.windowNumber], buffer.isResolved else { return }
+    /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
+    private func flush(in window: NSWindow, force: Bool = false) {
+        guard let buffer = buffers[window.windowNumber], force || buffer.isResolved else { return }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
             return
         }
-        let focus = controller.focus.state
-        if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
-        guard Self.responderTakesKeys(controller, window: window) else { return }
+        if !force {
+            let focus = controller.focus.state
+            if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
+            guard Self.responderTakesKeys(controller, window: window) else { return }
+        }
         buffers[window.windowNumber] = nil
         let pending = buffer.take()
         for (index, event) in pending.enumerated() {
@@ -90,52 +121,18 @@ final class CreationInputCoordinator {
 }
 
 extension CreationInputCoordinator {
-    /// False while focus names a shown terminal whose view does not have the keyboard and the
-    /// window's first responder is another terminal or the window itself (a remounted view):
-    /// a key now would land in the wrong terminal or nowhere. Anything else takes the keys.
+    /// False while focus names a terminal whose view does not have the keyboard and the window's
+    /// first responder is another terminal or the window itself (a remounted view), or names the
+    /// pane's selected terminal before its surface is shown: a key now would land in the wrong
+    /// terminal or nowhere. Anything else takes the keys.
     static func responderTakesKeys(_ controller: WindowController, window: NSWindow) -> Bool {
         guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
-              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
-              case .terminal(let entry)? = paneController.currentContent else { return true }
+              let paneController = controller.content?.paneController(key: pane) else { return true }
+        // Selected, its surface still to come (the pane is empty meanwhile).
+        if paneController.currentTabKey != tab { return paneController.stripModel.selectedID?.rawValue != tab }
+        guard case .terminal(let entry)? = paneController.currentContent else { return true }
         guard let responder = window.firstResponder as? NSView else { return false }
         if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
         return !(responder is TerminalSurfaceView)
-    }
-}
-
-/// The keys of one window's pending creations, in typing order.
-@MainActor
-final class CreationInputBuffer {
-    struct Ticket: Hashable { fileprivate let id: Int }
-
-    private var events: [NSEvent] = []
-    private var pending: [Int: UInt64] = [:]
-    private var awaited: Set<UInt64> = []
-    private var nextID = 0
-
-    var isResolved: Bool { pending.isEmpty }
-
-    func open(generation: UInt64) -> Ticket {
-        nextID += 1
-        pending[nextID] = generation
-        return Ticket(id: nextID)
-    }
-
-    /// `awaitsFocus`: the creation asked for focus under its generation; the keys wait until that
-    /// expectation landed or was replaced. A failed creation asked for nothing.
-    func resolve(_ ticket: Ticket, awaitsFocus: Bool) {
-        guard let generation = pending.removeValue(forKey: ticket.id) else { return }
-        if awaitsFocus { awaited.insert(generation) }
-    }
-
-    func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
-
-    func capture(_ event: NSEvent) { events.append(event) }
-
-    func prepend(_ earlier: ArraySlice<NSEvent>) { events.insert(contentsOf: earlier, at: 0) }
-
-    func take() -> [NSEvent] {
-        defer { events.removeAll() }
-        return events
     }
 }

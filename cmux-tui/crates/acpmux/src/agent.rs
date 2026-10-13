@@ -143,7 +143,21 @@ pub struct ChildAgent {
     /// Present when the child speaks Claude's stream-json instead of ACP
     /// and runs directly under acpmux (a host owns its own translator).
     pub translator: Option<Arc<crate::claude_stdio::Translator>>,
+    /// Present when the child is `codex app-server`, bridged in process
+    /// (`codex_app_server.rs`) and run directly under acpmux.
+    codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+}
+
+/// The in-process Codex bridge of a direct child: its translator, and the
+/// inbound queue for the ACP requests and notifications it answers with
+/// without asking the app-server (a mode change's updates).
+struct CodexLink {
+    tr: Arc<crate::codex_app_server::Translator>,
+    inbound: mpsc::Sender<Inbound>,
+    /// Held from a translator call until its lines are queued for stdin, so
+    /// the reader and writers send them in the translator's order.
+    order: Mutex<()>,
 }
 
 /// The harness command line and environment, as acpmux runs it: the login
@@ -190,8 +204,13 @@ pub(crate) fn harness_command(
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     let (program, args) = (&owned.0, &owned.1);
     let mut cmd = Command::new(program);
-    crate::login_env::apply_tokio(&mut cmd);
-    crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+    // Startup files changed since the last read: refresh in the background.
+    crate::login_env::refresh_if_changed();
+    // The login shell's allow-list for this harness's family (login_env.rs).
+    let family_name = crate::config::derive_family(name, profile);
+    let family = Some(family_name.as_str());
+    crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
+    crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -237,6 +256,13 @@ pub(crate) fn harness_command(
     // port: a job object there (a later landing).
     #[cfg(unix)]
     cmd.process_group(0);
+    // A Claude agent's sign-in inputs, for a clear message if it has none.
+    let claude_family = family == Some("claude");
+    match (claude_family, session) {
+        (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),
+        (false, Some((id, _))) => crate::claude_auth::forget(id),
+        _ => {}
+    }
     Ok(cmd)
 }
 
@@ -254,7 +280,7 @@ fn resolved_profile_env(
     let resolve = |env: &mut std::collections::BTreeMap<String, String>| {
         crate::config::profiles::resolve_env_refs(
             env,
-            &|var| crate::login_env::var(var).or_else(|| std::env::var(var).ok()),
+            &|var| crate::login_env::allowed_var(var).or_else(|| std::env::var(var).ok()),
             &crate::config::profiles::keychain_lookup,
         )
     };
@@ -313,6 +339,14 @@ impl ChildAgent {
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
+        let codex = (translator.is_none()
+            && command_line.is_none()
+            && crate::codex_app_server::is_profile_launch(&profile.argv))
+        .then(|| CodexLink {
+            tr: crate::codex_app_server::translator(),
+            inbound: inbound.clone(),
+            order: Mutex::new(()),
+        });
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         let mut child = cmd
             .spawn()
@@ -334,6 +368,7 @@ impl ChildAgent {
             tap: tap.clone(),
             pid,
             translator: translator.clone(),
+            codex,
             hosted: None,
         });
 
@@ -349,6 +384,12 @@ impl ChildAgent {
                 }
             }
         });
+
+        // The app-server's initialize goes out at spawn, before the hub's.
+        if let Some(cx) = &agent.codex {
+            let first = crate::codex_app_server::split(cx.tr.start());
+            agent.codex_lines(first.server).await;
+        }
 
         // Stderr task.
         {
@@ -445,6 +486,32 @@ impl ChildAgent {
                             }
                         }
                         translated
+                    } else if let Some(cx) = &agent_for_exit.codex {
+                        let raw: Value = match serde_json::from_str(&line) {
+                            Ok(v) => v,
+                            Err(_) => {
+                                let _ = inbound
+                                    .send(Inbound::Stderr(
+                                        format!("[non-json stdout] {line}"),
+                                        None,
+                                    ))
+                                    .await;
+                                continue;
+                            }
+                        };
+                        if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
+                            tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                        }
+                        let order = cx.order.lock().await;
+                        let split = crate::codex_app_server::split(cx.tr.from_server(&raw));
+                        agent_for_exit.codex_lines(split.server).await;
+                        drop(order);
+                        for m in &split.hub {
+                            if !matches!(m, Message::Response { .. }) {
+                                tap(Direction::In, m, None);
+                            }
+                        }
+                        split.hub
                     } else {
                         match Message::parse(&line) {
                             Ok(m) => {
@@ -492,6 +559,12 @@ impl ChildAgent {
                             let _ = inbound.send(Inbound::Notification { method, params }).await;
                         }
                     }
+                }
+                // The app-server is gone: the translator answers what waits on
+                // it and refuses what comes later.
+                if let Some(cx) = &agent_for_exit.codex {
+                    let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
+                    agent_for_exit.codex_to_hub(cx, closed.hub).await;
                 }
                 // Fail every pending request, then report exit.
                 let mut p = pending.lock().await;
@@ -624,6 +697,17 @@ impl ChildAgent {
             return h.link().line(msg.to_value()).await;
         }
         (self.tap)(Direction::Out, msg, None);
+        if let Some(cx) = &self.codex {
+            let order = cx.order.lock().await;
+            let split = crate::codex_app_server::split(cx.tr.from_client(&msg.to_value()));
+            let written = self.codex_lines(split.server).await;
+            drop(order);
+            if !written {
+                return Err(anyhow!("agent {} stdin closed", self.name));
+            }
+            self.codex_to_hub(cx, split.hub).await;
+            return Ok(());
+        }
         if let Some(tr) = &self.translator {
             match tr.outbound(msg).await {
                 crate::claude_stdio::Outbound::Lines(lines) => {
@@ -661,6 +745,49 @@ impl ChildAgent {
                 .await
                 .map_err(|_| anyhow!("agent {} stdin closed", self.name))
         }
+    }
+
+    /// ACP messages the Codex translator produced for the hub: an answer
+    /// to a request of ours resolves it, as if Codex replied; requests and
+    /// notifications go to the session's inbound queue.
+    async fn codex_to_hub(&self, cx: &CodexLink, hub: Vec<Message>) {
+        for m in hub {
+            if !matches!(m, Message::Response { .. }) {
+                (self.tap)(Direction::In, &m, None);
+            }
+            match m {
+                Message::Response { id, result, error } => {
+                    if let Some(tx) = self.pending.lock().await.map.remove(&key(&id)) {
+                        let _ = tx.send(match error {
+                            Some(e) => Err(e),
+                            None => Ok(result.unwrap_or(Value::Null)),
+                        });
+                    }
+                }
+                Message::Request { id, method, params } => {
+                    let _ = cx.inbound.send(Inbound::Request { id, method, params }).await;
+                }
+                Message::Notification { method, params } => {
+                    let _ = cx.inbound.send(Inbound::Notification { method, params }).await;
+                }
+            }
+        }
+    }
+
+    /// Writes translator lines to the app-server's stdin, each logged.
+    /// Returns false once stdin is closed.
+    async fn codex_lines(&self, lines: Vec<Value>) -> bool {
+        for l in lines {
+            (self.tap)(
+                Direction::Out,
+                &Message::notification(crate::codex_app_server::STDIN_KIND, l.clone()),
+                None,
+            );
+            if self.stdin_tx.send(crate::codex_app_server::line(&l)).await.is_err() {
+                return false;
+            }
+        }
+        true
     }
 
     /// Send a request and wait for its response.
@@ -849,6 +976,7 @@ impl ChildAgent {
             tap,
             pid: adopted.harness_pid,
             translator: None,
+            codex: None,
             hosted: Some(Hosted {
                 link: std::sync::RwLock::new(link.clone()),
                 inbound,

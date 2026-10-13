@@ -117,6 +117,10 @@ public nonisolated enum RefusalStrings {
     static var personalStateLoading: String {
         text("handlers.refusal.personalStateLoading", "Spaces and workspace groups are still loading. Try again in a moment.")
     }
+    /// The home session registry has no record of this machine yet, so it has no icon to set.
+    public static var machineIconNotRegistered: String {
+        text("handlers.refusal.machineIconNotRegistered", "This machine isn't registered yet. Try again in a moment.")
+    }
     /// A Cloud machine's own cmux is older than this app.
     static var updateCloudMachine: String { text("handlers.refusal.updateCloudMachineCmux", "Update cmux on this Cloud machine to use this.") }
     /// A feature this build has no implementation of; `feature` names it for
@@ -182,6 +186,9 @@ public nonisolated enum RefusalStrings {
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
+    }
+    public static var hibernateFormSubmission: String {
+        text("handlers.refusal.hibernateFormSubmission", "This page shows the result of a form. It stays loaded so the form is not sent again.")
     }
     public static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     public static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }

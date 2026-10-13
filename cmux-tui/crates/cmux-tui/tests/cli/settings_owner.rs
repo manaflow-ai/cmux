@@ -1,8 +1,9 @@
 //! The daemon's settings owner (`settings-v1`, cx-9ce.10) through the CLI
 //! (`cmux raw operation settings.*`) and a real daemon: in-place edits keep
 //! the comments of the settings file, a managed key and an invalid value are
-//! refused, an agent may not change a user-only key, and a hand edit of the
-//! file raises `settings-changed` on the subscribe stream. The managed key
+//! refused, an agent may not change a user-only key, a retired key is refused
+//! as removed, and a hand edit of the file raises `settings-changed` on the
+//! subscribe stream. The managed key
 //! comes from CMUX_NEXT_MANAGED_PREFS_FILE, which only debug builds read.
 #![cfg(unix)]
 
@@ -21,10 +22,15 @@ struct SettingsDaemon {
 
 impl SettingsDaemon {
     fn start(name: &str) -> Self {
+        Self::start_with(name, COMMENTED)
+    }
+
+    /// A daemon whose settings file starts as `text`.
+    fn start_with(name: &str, text: &str) -> Self {
         let root = unique_temp_dir(&format!("{name}-files"));
         fs::create_dir_all(&root).unwrap();
         let config = root.join("cmux-next.json");
-        fs::write(&config, COMMENTED).unwrap();
+        fs::write(&config, text).unwrap();
         // `window.titlebar` is forced by the administrator.
         let managed = if cfg!(target_os = "macos") {
             let path = root.join("managed.plist");
@@ -86,7 +92,9 @@ impl SettingsDaemon {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        for code in ["settings.managed", "settings.invalid", "settings.agent_refused"] {
+        for code in
+            ["settings.managed", "settings.invalid", "settings.agent_refused", "settings.removed"]
+        {
             if text.contains(code) {
                 return code.to_owned();
             }
@@ -196,6 +204,44 @@ fn settings_owner_edits_the_file_in_place_and_refuses_managed_invalid_and_agent_
     let text = daemon.file();
     assert!(!text.contains("defaultColumnWidth"), "{text}");
     assert!(text.contains("// the tab bar stays on top"), "the reset lost a comment:\n{text}");
+}
+
+/// The retired keys (schemas/settings/retired-keys.json, cx-d5b5d): an old
+/// file that still sets them loads, a write of any of them is refused as
+/// removed and leaves the file alone, and a reset prunes one from the file.
+#[test]
+fn settings_owner_refuses_a_write_of_a_retired_key_and_prunes_it_on_reset() {
+    let old = COMMENTED.replace(
+        "\"top\" /* inline */",
+        "\"top\" /* inline */,\n    \"newTabKind\": \"terminal\",\n    \"hiddenButtons\": [\"pane.split.right\"]",
+    );
+    let daemon = SettingsDaemon::start_with("settings-owner-retired", &old);
+    assert_eq!(daemon.get("tabs.barPosition")["value"], "top", "the old file loads");
+
+    let before = daemon.file();
+    for (key, value) in [
+        ("tabs.hiddenButtons", serde_json::json!(["pane.split.right", "pane.close"])),
+        ("tabs.newTabKind", serde_json::json!("same-kind")),
+        ("appearance.tabBarBackground", serde_json::json!("#000000")),
+        ("updates.quietHours", serde_json::json!(true)),
+    ] {
+        assert_eq!(
+            daemon.refused("settings.set", serde_json::json!({"key": key, "value": value})),
+            "settings.removed",
+            "{key} is retired"
+        );
+    }
+    assert_eq!(daemon.file(), before, "a refused write of a retired key changed the file");
+
+    daemon.ok("settings.reset", serde_json::json!({"key": "tabs.hiddenButtons"}), true);
+    daemon.ok("settings.reset", serde_json::json!({"key": "tabs.newTabKind"}), true);
+    let text = daemon.file();
+    for gone in ["hiddenButtons", "newTabKind"] {
+        assert!(!text.contains(gone), "the reset kept {gone}:\n{text}");
+    }
+    for kept in ["// the tab bar stays on top", "\"barPosition\": \"top\"", "\"unknownKey\": 1"] {
+        assert!(text.contains(kept), "the reset lost {kept:?}:\n{text}");
+    }
 }
 
 #[test]

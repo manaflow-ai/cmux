@@ -37,7 +37,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `home.attachments.keepLocation`; off (strip location) when unset.
     public var homeKeepLocation = false
     /// `labs.previewFeatures`; off when unset.
-    public var previewFeatures = false
+    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.

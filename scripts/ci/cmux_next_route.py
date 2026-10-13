@@ -61,6 +61,14 @@ FULL_INPUTS = (
     ".xcode-version",
 )
 
+# The binary pins NEXT vendors: GhosttyNextKit's checksum and CEF's manifest.
+# A bump changes code no app diff shows (classic's #19672 passed on macOS 26
+# and crashed on macOS 27), so it runs every tier and swift test on its PR.
+VENDORED_PINS = (
+    "Packages/Shared/CmuxGhosttyKit/Package.swift",
+    "scripts/cmux-next/cef-manifest.json",
+)
+
 # The live-daemon suites (they skip without the same-tree cmux-tui) test these
 # targets and everything they depend on.
 LIVE_DAEMON_SUBJECTS = ("CmuxNextDaemon", "CmuxNextMobile")
@@ -187,6 +195,7 @@ class Route:
     generated: bool = False
     swift: bool = False
     daemon: bool = False
+    vendored_pin: bool = False
     tests: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
@@ -289,6 +298,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         if any(matches(path, prefix) for prefix in GENERATED_INPUTS):
             result.generated = True
 
+        if path in VENDORED_PINS:
+            result.vendored_pin = True
+            result.everything(f"{path} is a vendored binary pin")
+            continue
         if path in FULL_INPUTS:
             result.everything(f"{path} is an input of every package test")
             continue
@@ -398,6 +411,7 @@ def outputs(result: Route) -> dict[str, str]:
         "swift": flag(result.swift),
         "daemon": flag(result.daemon),
         "full": flag(result.full),
+        "vendored_pin": flag(result.vendored_pin),
         "swift_filter": swift_filter(result),
         "swift_targets": "all" if result.full else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),

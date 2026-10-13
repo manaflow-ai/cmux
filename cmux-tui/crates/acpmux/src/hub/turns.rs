@@ -528,6 +528,14 @@ impl Hub {
             Err(e) => self.route_failure(session, &e.message).await,
             Ok(_) => None,
         };
+        // A Claude agent that is not signed in: say what it had, how the
+        // person's terminal signs in, and the fix (`claude_auth.rs`).
+        if let Err(e) = &mut result
+            && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
+        {
+            tracing::warn!(session = %session.id, "Claude agent is not signed in");
+            e.message = text;
+        }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
                 Some(Value::Object(data)) => data.extend(info.clone()),
@@ -589,10 +597,21 @@ impl Hub {
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
+            // A subagent or background shell still waiting on the person
+            // keeps the chat waiting after its turn (cx-jo8yo). The lock is
+            // held across the write, so an answer in between cannot leave it
+            // waiting on nothing.
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
             self.set_status(
                 session,
-                if alive { SessionStatus::Ready } else { SessionStatus::Disconnected },
+                match (alive, asking) {
+                    (false, _) => SessionStatus::Disconnected,
+                    (true, true) => SessionStatus::Waiting,
+                    (true, false) => SessionStatus::Ready,
+                },
             );
+            drop(state);
         }
         self.save_meta(session);
         result

@@ -46,6 +46,9 @@ extension BrowserChromeView {
         object["probe_region"] = report.probeRegion ?? NSNull()
         object["probe_cursor"] = report.probeCursor ?? NSNull()
         object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
+        #if DEBUG
+        object["omnibar_trace"] = addressBar.controller.trace
+        #endif
         object["frames"] = report.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) }
         return object
     }

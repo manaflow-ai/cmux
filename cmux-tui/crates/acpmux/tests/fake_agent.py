@@ -476,6 +476,25 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both read"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "codex-late-subagent-ask": a native subagent that outlives its parent's turn and asks
+    # for permission after that turn ended (cx-jo8yo): the turn ends at once, then the child
+    # asks under its own session id and says what it was answered.
+    if text == "codex-late-subagent-ask" and NATIVE_SUBAGENTS:
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "late-child", "name": "Late", "task": "Late", "capabilities": {}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+        def late():
+            call = {"toolCallId": "late-1", "title": "touch late.txt", "kind": "edit", "status": "pending"}
+            res = request("session/request_permission", {"sessionId": "late-child", "toolCall": call, "options": [
+                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+            ]})
+            outcome = (res or {}).get("outcome") or {}
+            update("late-child", {"sessionUpdate": "agent_message_chunk", "content": {"type": "text",
+                   "text": "late " + (outcome.get("optionId") or outcome.get("outcome") or "none")}})
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "late-child", "state": "completed"})
+        threading.Thread(target=late, daemon=True).start()
+        return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})

@@ -1,7 +1,7 @@
 //! One daemon socket connection (Unix and Windows): newline-delimited
 //! JSON-RPC both ways over a `local_stream::Stream`.
 
-use super::{Hub, Origin, serve_connection_from};
+use super::{ConnAuth, Hub, Origin, serve_connection_from};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
@@ -30,5 +30,5 @@ pub(super) async fn serve_stream(
             }
         }
     });
-    serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
+    serve_connection_from(hub, in_rx, out_tx, Origin::Local, ConnAuth::LocalSocket, peer).await;
 }

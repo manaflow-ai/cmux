@@ -12,6 +12,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-chat-index",
  "cmux-coderouter",
+ "cmux-codex-acp",
  "cmux-link",
  "cmux-local-auth",
  "cmux-sdk",
@@ -1013,6 +1014,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-codex-acp"
+version = "0.1.0"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9#684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-config"
 version = "0.1.0"
 dependencies = [
@@ -1157,6 +1166,16 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-palette-ranker"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-general-category",
+ "unicode-normalization",
 ]
 
 [[package]]
