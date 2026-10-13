@@ -66,7 +66,7 @@ impl Daemon {
             .env("ACPMUX_SOCKET", &socket)
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
             .env("ACPMUX_AGENT_HOSTS", "0")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("XPC_SERVICE_NAME")
             .env_remove("ACPMUX_LOCAL_ROUTER")
             .env_remove("ACPMUX_IDLE_CHILD_SECS")

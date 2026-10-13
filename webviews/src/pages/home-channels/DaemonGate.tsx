@@ -32,7 +32,11 @@ type Phase =
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
 
-export function DaemonGate({ source, strings, children }: {
+export function DaemonGate({
+  source,
+  strings,
+  children,
+}: {
   source: DaemonSource;
   strings: Strings;
   children: (daemon: DaemonSocket, pages?: string) => ReactNode;

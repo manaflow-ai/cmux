@@ -8,7 +8,8 @@ lane, an optional bead and one of three kinds:
   cargo   {path, package[, filter]}: `cargo test --locked -p` in path
   script  {path[, args]}: python3 -I for a .py path, bash otherwise
 An entry must be deterministic, need no window server or gui token, and finish
-within --max-seconds (60) after the build.
+within --max-seconds (60) after the build. A swift or cargo entry whose filter
+runs no test fails.
 
 Flake policy: a failed entry runs once more only to classify it. Fail then pass
 is FLAKY, and FLAKY fails the tier like FAIL: it is never silently retried. Its
@@ -25,6 +26,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -79,6 +81,18 @@ def describe(argv, cwd):
     return text if cwd == "." else f"{text} (in {cwd})"
 
 
+# Test counts in swift test (XCTest, Swift Testing) and cargo test output.
+TEST_COUNTS = re.compile(r"Executed (\d+) tests?|Test run with (\d+) tests?|test result: \w+\. (\d+) passed")
+
+
+def ran_no_test(entry, output):
+    """A swift or cargo entry whose filter matched nothing: a renamed test must
+    not silently leave the tier as a vacuous pass."""
+    if entry["kind"] == "script":
+        return False
+    return not any(int(n) for match in TEST_COUNTS.findall(output) for n in match if n)
+
+
 def run_once(root, entry, max_seconds):
     argv, cwd = command(entry)
     started = time.monotonic()
@@ -86,6 +100,8 @@ def run_once(root, entry, max_seconds):
         done = subprocess.run(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, timeout=max_seconds)
         ok, output = done.returncode == 0, done.stdout
+        if ok and ran_no_test(entry, output):
+            ok, output = False, output + "\nmatched no test: check the entry's filter"
     except subprocess.TimeoutExpired as expired:
         output = expired.stdout if isinstance(expired.stdout, str) else (expired.stdout or b"").decode(errors="replace")
         ok, output = False, output + f"\ntimed out after {max_seconds}s"
@@ -166,6 +182,8 @@ def main():
                 extra = "failed, then passed on the classify run: fix it or quarantine it with a bead"
             elif "timed out after" in output:
                 extra = f"timed out after {args.max_seconds}s"
+            elif "matched no test" in output:
+                extra = "matched no test: check the entry's filter"
         if entry["name"] in held:
             status = "QUARANTINED-PASS" if ok else "QUARANTINED-FAIL"
             extra = ""

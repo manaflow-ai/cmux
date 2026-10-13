@@ -77,7 +77,7 @@ impl Daemon {
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("XPC_SERVICE_NAME")
             .env_remove("ACPMUX_IDLE_CHILD_SECS")
             .stdin(Stdio::null())
