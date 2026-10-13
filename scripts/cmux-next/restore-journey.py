@@ -13,8 +13,8 @@ item.
 
 Run it on the GUI host where the app already runs: a capture slot started by `capture-host
 launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or another tagged DEV
-build with --allow-non-slot. It refuses an installed or untagged app. It drives the app through its control socket and the tag's daemon through the bundled
-`cmux` CLI.
+build with --allow-non-slot. It refuses an installed or untagged app. It drives the app through
+its control socket and the tag's daemon through the bundled `cmux` CLI.
 
 Variants:
   quit    the Quit menu item / Cmd-Q path (`debug.quit {open: true}`; if the sheet asks, its
@@ -31,8 +31,10 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
   window 1: rj-term (3000 numbered lines; a counter loop with a pid file in a right split; `top`
             in a nested down split; selected at the end), rj-split (four terminals in nested
             right/down splits, two tabs in one pane, the first selected), rj-web (two browser
-            tabs from a local server: a page loaded from its address, then two link clicks (a -> b
-            -> c), whose history length and Cmd-[ / Cmd-] walk are checked after each reopen, and a tall page that scrolls itself the first time), rj-agent (an
+            tabs from a local server: a page loaded from its address, then two link clicks
+            (a -> b -> c), whose history length and Cmd-[ / Cmd-] walk are checked after
+            seeding and after each reopen; and a tall page that scrolls itself the first
+            time), rj-agent (an
             agent chat with the acpmux test agent: three turns and a draft); the window at a set
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab), at another frame.
@@ -190,11 +192,20 @@ class App:
             return True
 
     def quit(self, variant):
-        """Ends the app through its own path and waits for the exact pid to exit."""
+        """Ends the app (its own quit path, or a crash) and waits for the exact pid to exit."""
         if variant == "crash":
             # A crash: the app's exact pid ends at once (SIGKILL); nothing of the app's own quit runs.
+            # Only the pid the slot's socket names right now, and only while it is alive.
+            answer = rpc("system.identify", timeout=5)
+            if not (isinstance(answer, dict) and int(answer.get("pid") or 0) == self.pid and self.alive()):
+                say(f"  crash: the socket no longer names pid {self.pid}; not killing anything")
+                return False
             say(f"  crash: SIGKILL pid {self.pid}")
-            os.kill(self.pid, signal.SIGKILL)
+            try:
+                os.kill(self.pid, signal.SIGKILL)
+            except OSError as error:
+                say(f"  crash: kill failed: {error}")
+                return False
         elif variant == "update":
             say(f"  debug.updater relaunch -> {json.dumps(rpc('debug.updater', {'action': 'relaunch'}, timeout=30))[:200]}")
         else:
@@ -529,7 +540,9 @@ def seed_web(base):
         if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == here, 40):
             say(f"  the history page never reported from {here}")
             break
-        say(f"  click the link on {here} -> {json.dumps(rpc('browser.page.eval', {'tab': HIST.get('tab'), 'script': CLICK_NEXT}))[:120]}")
+        clicked = wait(lambda: (lambda r: r if isinstance(r, dict) and r.get("value") is True else None)(
+            rpc("browser.page.eval", {"tab": HIST.get("tab"), "script": CLICK_NEXT})), 20, 0.5)
+        say(f"  click the link on {here} -> {json.dumps(clicked)[:120]}")
     if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == "/hist-c", 40):
         say("  the history page never reported from /hist-c")
     right = split(ws["pane_id"], "right")
@@ -542,7 +555,9 @@ def seed_web(base):
 
 AGENT = None
 HIST = {}  # the history tab: {"tab": its id}
-CLICK_NEXT = "document.getElementById('next').click(); true"
+SEEDED = {}  # values from the first before-snapshot that later variants must keep
+# Clicks the page's link once it has loaded (a click before load can replace the entry instead of adding one).
+CLICK_NEXT = "document.readyState === 'complete' ? (document.getElementById('next').click(), true) : false"
 
 
 def seed_agent():
@@ -830,12 +845,13 @@ def snapshot(label):
     # Only reports sent since the last quit count: an older one says nothing about the reopened page.
     # A page in a workspace nobody shows loads when it is shown, as for a person: visit it.
     stale = lambda: [p for p in REPORTS if REPORTS[p].get("at", 0) <= SINCE]
-    if stale():
-        for page in stale():
-            with visiting(PAGE_WORKSPACE.get(page)):
-                wait(lambda: page not in stale(), 30, 0.5)
-                if page == "tall":  # its scroll comes back after it loads
-                    wait(lambda: REPORTS["tall"].get("scrollY", 0) >= SCROLL - 40, 8, 0.5)
+    for page in stale():
+        with visiting(PAGE_WORKSPACE.get(page)):
+            wait(lambda: page not in stale(), 30, 0.5)
+            if page == "tall":  # its scroll comes back after it loads
+                wait(lambda: REPORTS["tall"].get("scrollY", 0) >= SCROLL - 40, 8, 0.5)
+    if "tall" in REPORTS and REPORTS["tall"].get("at", 0) > SINCE:
+        wait(lambda: REPORTS["tall"].get("scrollY", 0) >= SCROLL - 40, 8, 0.5)
     fresh = {page: r for page, r in REPORTS.items() if r.get("at", 0) > SINCE}
     for page in ("hist", "tall", "w2page"):
         if page in fresh:
@@ -971,8 +987,9 @@ def compare(variant, before, after):
             ok = abs(a - SCROLL) <= 40
             detail = f"{b} -> {a} (seeded {SCROLL})"
         elif item == "page[hist].history_length":
-            ok = a == 3
-            detail = f"{b} -> {a} (seeded 3: the address load and two link clicks)"
+            seeded_length = SEEDED.get(item, 3)
+            ok = a == seeded_length
+            detail = f"{b} -> {a} (seeded {seeded_length}: the address load and two link clicks)"
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
             # A view re-attaching may add a prompt line, never drop rows.
             ok = a >= b
@@ -985,36 +1002,64 @@ def compare(variant, before, after):
         RESULTS.append((f"{variant}: {item}", ok, detail, area_of(item)))
 
 
-def back_walk(variant):
-    """A person's Back (Cmd-[, `browserBack`) on the reopened history tab: c -> b -> a, then
-    Forward twice so the next variant starts where this one did."""
+def back_walk(label):
+    """A person's Back and Forward (Cmd-[ / Cmd-], `browserBack` / `browserForward`) on the
+    history tab: c -> b -> a -> b -> c. Each step must bring a report sent after that step, from
+    the page it should reach. Run once after seeding (label `seed`: a failure there is the live
+    Back bug, not restore) and after each reopen. Puts the page back on c if a step fails, so the
+    next variant starts where the seed did."""
     if "web" in SKIP or not HIST.get("tab"):
         return
-    at = lambda path: (REPORTS.get("hist") or {}).get("path") == path and REPORTS["hist"].get("at", 0) > SINCE
+    hist = lambda: REPORTS.get("hist") or {}
+    def reached(path, since):
+        return hist().get("path") == path and hist().get("at", 0) > since
+    pane = next((p.get("id") for ws in rj_workspaces(topology()) for s_ in ws.get("screens", []) for p in s_.get("panes", [])
+                 if any(t.get("id") == HIST["tab"] for t in p.get("tabs", []))), None)
     with visiting("rj-web"):
-        rpc("action.run", {"action": "tab.focus", "target": f"tab:{HIST['tab']}", "focus": True})
-        wait(lambda: at("/hist-c"), 20, 0.5)
+        focused = rpc("action.run", {"action": "tab.focus", "target": f"tab:{HIST['tab']}", "focus": True})
+        start = time.time()
+        if not wait(lambda: reached("/hist-c", SINCE), 20, 0.5):
+            RESULTS.append((f"{label}: the history tab shows /hist-c before Back", False,
+                            f"at {hist().get('path')}; focus {json.dumps(focused)[:80]}", "browser"))
+            return
+        target = {"target_kind": "pane", "target_id": pane} if pane else {}
         steps = [("browserBack", "/hist-b"), ("browserBack", "/hist-a"), ("browserForward", "/hist-b"), ("browserForward", "/hist-c")]
         for action_id, path in steps:
-            reply = rpc("debug.toast", {"perform": action_id})
-            ok = bool(wait(lambda: at(path), 15, 0.3))
-            RESULTS.append((f"{variant}: {action_id} after the reopen reaches {path}", ok,
-                            f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {(REPORTS.get('hist') or {}).get('path')}", "browser"))
+            step = time.time()
+            reply = rpc("debug.toast", {"perform": action_id, **target})
+            ok = bool(wait(lambda: reached(path, step), 15, 0.3))
+            RESULTS.append((f"{label}: {action_id} reaches {path}", ok,
+                            f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {hist().get('path')}", "browser"))
             if not ok:
                 break
+        if hist().get("path") != "/hist-c":
+            for _ in range(2):  # back to c: Forward first (keeps the list), the address last
+                step = time.time()
+                rpc("debug.toast", {"perform": "browserForward", **target})
+                if wait(lambda: reached("/hist-c", step), 5, 0.3):
+                    break
+            else:
+                rpc("browser.page.eval", {"tab": HIST["tab"], "script": "location.href = '/hist-c'; true"})
+                wait(lambda: hist().get("path") == "/hist-c" and hist().get("at", 0) > start, 10, 0.3)
 
 
 def journey(base):
     global SINCE
     seed(base)
+    back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
         if n == 0:
             seeded(before)
+            SEEDED.update({k: v for k, v in before.items() if k == "page[hist].history_length"})
+        if variant == "crash":
+            # A crash comes after the last change has been saved (the app saves within about a
+            # second); the rows check what was saved, not what was still in flight.
+            time.sleep(2)
         expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
         started = SINCE = time.time()
         if not APP.quit(variant):
-            RESULTS.append((f"{variant}: app exits through its quit path", False, "still running", "app quit"))
+            RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
         if not APP.relaunch():
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
@@ -1027,7 +1072,7 @@ def journey(base):
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
         compare(variant, before, snapshot(f"{variant}-after"))
-        back_walk(variant)
+        back_walk(f"{variant} after the reopen")
 
 
 def main():
