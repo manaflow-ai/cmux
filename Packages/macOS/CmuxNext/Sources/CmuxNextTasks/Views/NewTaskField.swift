@@ -1,3 +1,4 @@
+import CmuxNextIcons
 import SwiftUI
 
 /// The title field at the top of the pane: Return sends `task.create`
@@ -11,9 +12,10 @@ struct NewTaskField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "plus").font(.system(size: 11, weight: .medium)).foregroundStyle(colors.tertiary)
+            Icon(.actionAdd, size: 14).foregroundStyle(colors.tertiary)
             TextField(TasksStrings.newTaskPlaceholder, text: $title)
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .font(.system(size: 12.5))
                 .foregroundStyle(colors.primary)
                 .focused($focused)

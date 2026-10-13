@@ -473,6 +473,7 @@ body {
   border-bottom: 0.5px solid var(--agent-border);
 }
 .proto-tab {
+  position: relative;
   display: flex;
   align-items: center;
   max-width: 260px;
@@ -487,12 +488,16 @@ body {
   gap: 7px;
   min-width: 0;
   height: 100%;
-  padding: 0 6px 0 10px;
+  padding-inline-start: 10px;
+  padding-inline-end: 6px;
   border: 0;
   border-radius: 7px 0 0 7px;
   background: none;
   color: inherit;
   text-align: left;
+}
+.proto-tab.has-close .proto-tab-select {
+  padding-inline-end: 30px;
 }
 .proto-tab-select span {
   overflow: hidden;
@@ -504,23 +509,27 @@ body {
   color: var(--agent-text) !important;
 }
 .proto-tab-close {
+  position: absolute;
+  inset-inline-end: 3px;
+  top: 2px;
   display: grid;
   place-items: center;
   flex: none;
   width: 24px;
   height: 24px;
-  margin-right: 3px;
   padding: 0;
   border: 0;
   border-radius: 5px;
   background: none;
   color: var(--agent-muted);
   opacity: 0;
+  pointer-events: none;
 }
 .proto-tab:hover .proto-tab-close,
 .proto-tab:focus-within .proto-tab-close,
 .proto-tab-close:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 .proto-tab-close:hover,
 .proto-tab-close:focus-visible {

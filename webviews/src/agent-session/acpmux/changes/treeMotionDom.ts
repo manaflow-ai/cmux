@@ -257,7 +257,8 @@ export function attachTreeMotion(container: HTMLElement, arm: TreeArm): () => vo
   /** Snap arms (e, and every arm under Reduce Motion): new rows crossfade in, arm e also tints. */
   const snap = (motion: ArmMotion, toggled: { path: string; open: boolean }) => {
     if (!toggled.open || !snapshot) return;
-    const accent = getComputedStyle(container).getPropertyValue("--agent-accent").trim() || "#4c8dff";
+    const style = getComputedStyle(container);
+    const accent = style.getPropertyValue("--agent-accent").trim() || style.color;
     const { fade, tint } = snapKeyframes(motion, accent);
     for (const row of liveRows()) {
       const path = row.dataset.itemPath ?? "";

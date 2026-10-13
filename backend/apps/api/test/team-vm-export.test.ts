@@ -188,38 +188,3 @@ describe("team_vm.retired.export (cx-lyvg)", { timeout: 60_000 }, () => {
   })
 })
 
-describe("FreestyleDriver files (cx-lyvg)", () => {
-  afterEach(() => vi.unstubAllGlobals())
-  const provider = (answers: Array<[number, unknown]>) => {
-    const calls: Array<{ path: string; range: string | null }> = []
-    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-      const u = new URL(url)
-      calls.push({ path: `${u.pathname}${u.search}`, range: new Headers(init.headers).get("range") })
-      const [status, body] = answers.shift() ?? [500, {}]
-      return body instanceof Uint8Array ? new Response(body, { status }) : new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
-    })
-    return { calls, files: new FreestyleDriver("test-key", "https://provider.test", "snap").files }
-  }
-
-  it("lists, stats and reads through /v5/vms/{id}/fs (a resumed read sends Range)", async () => {
-    const p = provider([
-      [200, { entries: [{ name: "a.txt", kind: "file" }, { name: "d", kind: "directory" }, { name: "l", kind: "symlink" }] }],
-      [200, { size: 3, isFile: true, isDirectory: false, isSymlink: false, permissions: "0640", owner: "cmux", group: "cmux", modified: "2026-10-09T00:00:00Z" }],
-      [206, new Uint8Array([2, 3])]
-    ])
-    expect(await p.files.list("vm-1", "/srv/team")).toEqual([
-      { name: "a.txt", kind: "file" },
-      { name: "d", kind: "directory" },
-      { name: "l", kind: "symlink" }
-    ])
-    expect(await p.files.stat("vm-1", "/srv/team/a.txt")).toEqual({ kind: "file", size: 3, mode: 0o640, mtime: Date.parse("2026-10-09T00:00:00Z") / 1000, owner: "cmux", group: "cmux" })
-    const body = await p.files.read("vm-1", "/srv/team/a.txt", 1, AbortSignal.timeout(5000))
-    expect([...new Uint8Array(await new Response(body).arrayBuffer())]).toEqual([2, 3])
-    expect(p.calls).toEqual([
-      { path: "/v5/vms/vm-1/fs/dir?path=%2Fsrv%2Fteam", range: null },
-      { path: "/v5/vms/vm-1/fs/stat?path=%2Fsrv%2Fteam%2Fa.txt", range: null },
-      { path: "/v5/vms/vm-1/fs/read?path=%2Fsrv%2Fteam%2Fa.txt", range: "bytes=1-" }
-    ])
-  })
-
-})

@@ -3,12 +3,34 @@
 nonisolated enum TabActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
+            // Cmd-T: the kind `tabs.newTabKind` names (the New Tab page by default). Was
+            // `newTab.sameKind`, which named a setting value, not what it does (legacyAliases).
             ActionDescriptor(
-                id: "newTab.sameKind",
-                title: String(localized: "action.newTab.sameKind", defaultValue: "New Tab", bundle: .module),
+                id: "newTab.default",
+                title: String(localized: "action.newTab.default", defaultValue: "New Tab", bundle: .module),
                 keywords: ["tab", "terminal", "browser", "create"], defaultShortcut: Shortcut("t", modifiers: [.command]),
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.cwdString.optional], targets: [.tab], cliName: "tab new", mainMenu: .file
+            ),
+            // New <Kind> Tab (cmuxterm-hq#1829): the selected tab's kind, whatever
+            // `tabs.newTabKind` says. Option-click on the strip's +; the tab menu
+            // shows the kind ("New Browser Tab"). No default key: Opt-Cmd-T closes
+            // other tabs.
+            ActionDescriptor(
+                id: "newTab.ofKind",
+                title: String(localized: "action.newTab.ofKind", defaultValue: "New Tab of the Same Kind", bundle: .module),
+                keywords: ["tab", "terminal", "browser", "agent", "same", "kind", "like this", "create"],
+                category: .tab, symbol: "plus.square.on.square", surfaces: [.palette, .keyboard, .contextMenu],
+                targets: [.tab]
+            ),
+            // Chrome's New Tab to the Right (cx-d0d.58): Cmd-T's tab, right after this tab
+            // whatever `tabs.newTabPosition` says.
+            ActionDescriptor(
+                id: "newTab.toRight",
+                title: String(localized: "action.newTab.toRight", defaultValue: "New Tab to the Right", bundle: .module),
+                keywords: ["tab", "new", "right", "after", "next to", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
+                targets: [.tab]
             ),
             ActionDescriptor(
                 id: "newTab.page",
@@ -16,6 +38,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "terminal", "browser", "agent", "chat", "new tab page"],
                 category: .tab, symbol: "plus.rectangle.on.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "tab new-page"
+            ),
+            // New Horizontal Tab (cx-soza): a tab in the focused pane, turning its tab bar on first,
+            // where Cmd-T opens a workspace from a pane that hides it. No default key (Cmd-N stays
+            // New Workspace until Lawrence decides).
+            ActionDescriptor(
+                id: "newTab.horizontal",
+                title: String(localized: "action.newTab.horizontal", defaultValue: "New Horizontal Tab", bundle: .module),
+                keywords: ["tab", "tab bar", "strip", "horizontal", "inside", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.pane]
             ),
             ActionDescriptor(
                 id: "newTab.submit",
@@ -94,6 +126,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
+                id: "tab.restart",
+                title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
+            ),
+            ActionDescriptor(
                 id: "tab.focus",
                 title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
                 keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
@@ -121,21 +159,30 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
             // Previous / Next (Leo 2026-10-09): the focused pane's tabs when it has 2+, else the
-            // sidebar rows (`PreviousNext`). The browser-style keys run these; Ctrl-Tab and
-            // Ctrl-PageDown are `KeyBindingDefaults.tabSwitching`.
+            // sidebar rows (`PreviousNext`). No default key: the Chrome tab keys select sidebar
+            // items (`KeyBindingDefaults.tabSwitching`, Leo 2026-10-12).
             ActionDescriptor(
                 id: "navigate.next",
                 title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),
-                keywords: ["tab", "workspace", "switch", "next", "sidebar"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
+                keywords: ["tab", "workspace", "switch", "next", "sidebar"],
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
             ),
             ActionDescriptor(
                 id: "navigate.previous",
                 title: String(localized: "action.navigate.previous", defaultValue: "Previous Tab or Workspace", bundle: .module),
-                keywords: ["tab", "workspace", "switch", "previous", "sidebar"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+                keywords: ["tab", "workspace", "switch", "previous", "sidebar"],
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
+            ),
+            // Hint mode (cx-zjtn.1): label every clickable control in the
+            // window, type a label to click it. A preview feature for now;
+            // its key is the leader chord Cmd-J F (LeaderLayer).
+            ActionDescriptor(
+                id: "hints.show",
+                title: String(localized: "action.hints.show", defaultValue: "Click by Hint", bundle: .module),
+                keywords: ["hint", "vimium", "keyboard", "click", "jump", "label"],
+                category: .window, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard]
             ),
             ActionDescriptor(
                 id: "nextSurface",
@@ -235,10 +282,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "detach"], category: .tab, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab move-to-new-workspace"
             ),
+            // Opt-Cmd-P, the Codex app's Toggle pin (cx-ncc.72); an agent chat's header menu shows it.
             ActionDescriptor(
                 id: "palette.toggleTabPin",
                 title: String(localized: "action.palette.toggleTabPin", defaultValue: "Pin/Unpin Tab", bundle: .module),
-                keywords: ["tab", "pin"], category: .tab, symbol: "pin.fill", surfaces: [.palette, .contextMenu],
+                keywords: ["tab", "pin", "chat"], defaultShortcut: Shortcut("p", modifiers: [.option, .command]),
+                category: .tab, symbol: "pin.fill", surfaces: [.palette, .contextMenu, .keyboard],
                 targets: [.tab], cliName: "tab pin-unpin"
             ),
             ActionDescriptor(

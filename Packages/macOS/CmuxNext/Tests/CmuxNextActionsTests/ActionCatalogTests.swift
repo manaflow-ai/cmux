@@ -83,7 +83,10 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() throws {
+    /// Compared only where CI checks the committed exports (CMUX_CHECK_GENERATED_EXPORTS=1,
+    /// check-action-surfaces.sh) or rewrites them; on feat-cmux-next the autofix bots
+    /// regenerate them (regenerate-action-exports.sh).
+    @Test(.enabled(if: ["CMUX_CHECK_GENERATED_EXPORTS", "CMUX_UPDATE_ACTION_SURFACES"].contains { ProcessInfo.processInfo.environment[$0] == "1" })) func countsByDomainMatchInventory() throws {
         let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
@@ -102,6 +105,23 @@ import Testing
             // An automation-only action (agent.openSessionWorkspace) has no
             // human surface; its surface plan names why the palette omits it.
             #expect(!descriptor.surfaces.isEmpty || descriptor.surfacePlan.palette.exemption != nil, "\(descriptor.id)")
+        }
+    }
+
+    /// Palette and menu titles use title case (HIG): every word is capitalized except
+    /// short articles, conjunctions and prepositions, and names spelled in lowercase.
+    @Test func titlesUseTitleCase() {
+        let minor: Set<String> = ["a", "an", "the", "and", "but", "or", "nor", "for", "so", "yet", "as", "at",
+                                  "by", "in", "of", "on", "to", "up", "via", "vs", "from", "into", "with", "onto", "over", "than"]
+        for descriptor in ActionCatalog.all {
+            let words = descriptor.title.split(whereSeparator: { $0 == " " || $0 == "/" }).map {
+                $0.trimmingCharacters(in: CharacterSet.letters.inverted)
+            }
+            for (index, word) in words.enumerated() {
+                guard let first = word.first, first.isLowercase else { continue }
+                if word.hasPrefix("cmux") || word.contains(".") { continue }
+                #expect(index > 0 && minor.contains(word), "\(descriptor.id): \"\(descriptor.title)\"")
+            }
         }
     }
 

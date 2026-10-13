@@ -7,8 +7,9 @@
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
 import { useCallback, useRef, useState } from "react";
 import { Tabs } from "@base-ui/react/tabs";
-import { AgentMark } from "../../../agent-session/shared/AgentMark";
+import { AgentMark, knownMark } from "../../../agent-session/shared/AgentMark";
 import { useStore } from "../context";
+import { Icon } from "../icons";
 import type { AgentDoctorResult, AgentHarnessRow, AgentRegistryAgent, AgentsRun, AgentsState } from "../ops";
 import { t } from "../strings";
 
@@ -17,10 +18,6 @@ type Panel = "registry" | "custom" | null;
 const panelFor = (focus: string | null): Panel =>
   focus === "agents.registry" ? "registry" : focus === "agents.add" ? "custom" : null;
 
-const button =
-  "cursor-pointer rounded-md border-0 bg-input px-2.5 py-1 font-[inherit] text-[13px] text-fg hover:bg-accent-soft disabled:cursor-default disabled:opacity-50";
-const quietButton =
-  "cursor-pointer rounded-md border-0 bg-transparent px-2 py-1 font-[inherit] text-[13px] text-muted hover:bg-input hover:text-fg disabled:cursor-default disabled:opacity-50";
 const field =
   "box-border h-7 w-full rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-[13px] text-fg outline-none placeholder:text-soft focus:border-accent-soft";
 
@@ -71,15 +68,17 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
       <div className="flex items-center gap-2">
         <h3 className="group-title m-0 flex-1">{t("settingsPage.agents.title")}</h3>
         {state?.manages !== false && (
-          <button type="button" className={button} onClick={() => setPanel(panel ? null : "registry")}>
+          <button type="button" className="button" onClick={() => setPanel(panel ? null : "registry")}>
             {t("settingsPage.agents.add")}
           </button>
         )}
-        <button type="button" className={quietButton} onClick={() => void run({ action: "refresh" })}>
+        <button type="button" className="button" onClick={() => void run({ action: "refresh" })}>
           {t("settingsPage.agents.refresh")}
         </button>
       </div>
-      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted">{t("settingsPage.agents.intro")}</p>
+      <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted" data-intro="">
+        {t("settingsPage.agents.intro")}
+      </p>
       {state && <AgentsBody state={state} panel={panel} setPanel={setPanel} run={run} />}
       {state?.status === "unreachable" && state.message && (
         <output className="my-2 block text-[12px] text-warning">{state.message}</output>
@@ -104,6 +103,7 @@ function AgentsBody({
   setPanel: (panel: Panel) => void;
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
+  const added = state.harnesses.filter((row) => row.removable);
   return (
     <>
       {!state.manages && (
@@ -117,7 +117,7 @@ function AgentsBody({
           <span className="flex-1">{t("settingsPage.agents.removed", state.removed.id)}</span>
           <button
             type="button"
-            className={button}
+            className="button"
             onClick={() => void run({ action: "restore", backup: state.removed!.backup })}
           >
             {t("settingsPage.agents.undo")}
@@ -125,17 +125,16 @@ function AgentsBody({
         </output>
       )}
       {panel && state.manages && <AddPanel state={state} panel={panel} setPanel={setPanel} run={run} />}
-      <div className="rows" data-agent-harnesses>
-        {/* Harnesses (cx-mg91) lists every harness; this card shows the ones you added. */}
-        {state.status === "ready" && !state.harnesses.some((row) => row.removable) && (
-          <p className="my-2 text-[13px] text-muted">{t("settingsPage.agents.empty")}</p>
-        )}
-        {state.harnesses
-          .filter((row) => row.removable)
-          .map((row) => (
+      {/* Harnesses (cx-mg91) lists every harness; this card shows the ones you added. Nothing to
+          list and no answer yet draws no empty outline. */}
+      {(state.status === "ready" || added.length > 0) && (
+        <div className="rows" data-agent-harnesses>
+          {added.length === 0 && <p className="my-2 px-3 text-muted">{t("settingsPage.agents.empty")}</p>}
+          {added.map((row) => (
             <HarnessRow key={row.id} row={row} doctor={state.doctor[row.id]} manages={state.manages} run={run} />
           ))}
-      </div>
+        </div>
+      )}
     </>
   );
 }
@@ -167,9 +166,9 @@ function HarnessRow({
 }) {
   const problem = row.unavailable ?? row.probeError;
   return (
-    <div className="border-0 border-b border-solid border-edge py-2 last:border-b-0" data-agent-harness={row.id}>
+    <div className="border-0 border-b border-solid border-edge px-3 py-2 last:border-b-0" data-agent-harness={row.id}>
       <div className="flex items-center gap-2.5">
-        <AgentMark agent={row.icon ?? row.family ?? row.id} size={20} />
+        <AgentMark agent={knownMark(row.icon, row.family, row.id)} size={16} reserve />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] text-fg">
             <span className="truncate">{row.name}</span>
@@ -191,7 +190,7 @@ function HarnessRow({
         {manages && row.kind !== "terminal" && (
           <button
             type="button"
-            className={quietButton}
+            className="button"
             disabled={doctor?.running}
             onClick={() => void run({ action: "doctor", id: row.id })}
           >
@@ -199,7 +198,7 @@ function HarnessRow({
           </button>
         )}
         {manages && row.removable && (
-          <button type="button" className={quietButton} onClick={() => void run({ action: "remove", id: row.id })}>
+          <button type="button" className="button" onClick={() => void run({ action: "remove", id: row.id })}>
             {t("settingsPage.agents.remove")}
           </button>
         )}
@@ -209,13 +208,16 @@ function HarnessRow({
   );
 }
 
+// The page's own glyphs, as everywhere else in Settings; a skipped step is a dash.
+const STEP_ICONS: Record<string, string> = { fail: "xmark", warn: "warning", pass: "check" };
+
 const stepFailed = (step: { ok?: boolean; status?: string }) =>
   step.status ? step.status === "fail" : step.ok === false;
 
 function DoctorSteps({ result }: { result: AgentDoctorResult }) {
   const ok = result.ok ?? !result.steps?.some(stepFailed);
   return (
-    <div className="mt-2 ml-[30px] text-[12px]" data-agent-doctor>
+    <div className="mt-2 ml-[26px] text-[12px]" data-agent-doctor>
       <div className={ok ? "text-fg" : "text-danger"}>
         {ok ? t("settingsPage.agents.works") : t("settingsPage.agents.failed")}
       </div>
@@ -226,9 +228,9 @@ function DoctorSteps({ result }: { result: AgentDoctorResult }) {
             <li key={`${index}-${step.name}`} className="flex gap-1.5 py-0.5" data-step-status={status}>
               <span
                 aria-hidden="true"
-                className={status === "fail" ? "text-danger" : status === "warn" ? "text-warning" : "text-muted"}
+                className={`inline-flex w-4 flex-none justify-center ${status === "fail" ? "text-danger" : status === "warn" ? "text-warning" : "text-muted"}`}
               >
-                {status === "fail" ? "✕" : status === "warn" ? "!" : status === "skip" ? "–" : "✓"}
+                {status === "skip" ? "–" : <Icon name={STEP_ICONS[status] ?? "check"} />}
               </span>
               <span className="min-w-0">
                 <span className="text-fg">{step.name}</span>
@@ -275,7 +277,7 @@ function AddPanel({
           {t("settingsPage.agents.tabCustom")}
         </Tabs.Tab>
         <span className="flex-1" />
-        <button type="button" className={quietButton} onClick={() => setPanel(null)}>
+        <button type="button" className="button" onClick={() => setPanel(null)}>
           {t("settingsPage.agents.cancel")}
         </button>
       </Tabs.List>
@@ -316,7 +318,7 @@ function RegistryList({ state, run }: { state: AgentsState; run: (gesture: Agent
         <span className="flex-1 text-[12px] text-muted">
           {loading && !state.registry ? t("settingsPage.agents.registryLoading") : ""}
         </span>
-        <button type="button" className={quietButton} disabled={loading} onClick={() => void load(true)}>
+        <button type="button" className="button" disabled={loading} onClick={() => void load(true)}>
           {t("settingsPage.agents.registryRefresh")}
         </button>
       </div>
@@ -356,7 +358,7 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
       </div>
       <button
         type="button"
-        className={button}
+        className="button"
         disabled={added || busy || agent.launch === "none"}
         onClick={async () => {
           setBusy(true);
@@ -478,7 +480,7 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
         <span className="mt-0.5 block text-[11px] text-soft">{t("settingsPage.agents.secretsHelp")}</span>
       </label>
       <div className="col-span-2 flex justify-end">
-        <button type="submit" className={button} disabled={busy || !command.trim()}>
+        <button type="submit" className="button" disabled={busy || !command.trim()}>
           {t("settingsPage.agents.addButton")}
         </button>
       </div>

@@ -382,6 +382,61 @@ test("settle latency summarizes available head steps and appears on the ordinary
   expect(settleLatency(legacy)).toBeUndefined();
 });
 
+test("a played step shows base and head settle timings when the interaction regresses", () => {
+  const still = image(60, 40);
+  const id = "pane.menu--settle";
+  const base = run("settle-base", [{ id, png: still, steps: [{ png: still, settleMs: 80 }] }]);
+  const head = run("settle-head", [{ id, png: still, steps: [{ png: still, settleMs: 140 }] }]);
+  const repeat = run("settle-repeat", [{ id, png: still, steps: [{ png: still, settleMs: 140 }] }]);
+  const [outcome] = compareRuns({
+    baseDir: base,
+    headDir: head,
+    repeatDir: repeat,
+    baseIds: new Set([id]),
+    headIds: new Set([id]),
+    outDir: join(root, "settle-diff"),
+  });
+  expect(outcome!.frames![0]!.basePlay?.settleMs).toBe(80);
+  expect(outcome!.frames![0]!.play?.settleMs).toBe(140);
+  const html = diffPage([outcome!], meta);
+  expect(html).toContain('typeof m.settleMs === "number" && Number.isFinite(m.settleMs)');
+  expect(html).toContain("const settleChanged = typeof f.basePlay?.settleMs === \"number\"");
+  expect(html).toContain("Number.isFinite(f.play.settleMs) && f.basePlay.settleMs !== f.play.settleMs");
+});
+
+test("an unchanged settle regression gets a visible latency receipt instead of the plain list", () => {
+  const still = image(60, 40);
+  const id = "pane.menu--unchanged-settle";
+  const base = run("unchanged-settle-base", [{ id, png: still, steps: [{ png: still, settleMs: 80 }] }]);
+  const head = run("unchanged-settle-head", [{ id, png: still, steps: [{ png: still, settleMs: 140 }] }]);
+  const repeat = run("unchanged-settle-repeat", [{ id, png: still, steps: [{ png: still, settleMs: 140 }] }]);
+  const [outcome] = compareRuns({
+    baseDir: base,
+    headDir: head,
+    repeatDir: repeat,
+    baseIds: new Set([id]),
+    headIds: new Set([id]),
+    outDir: join(root, "unchanged-settle-diff"),
+  });
+  expect(outcome!.status).toBe("unchanged");
+  const html = diffPage([outcome!], {
+    pr: 19048,
+    head: "settle-head",
+    base: "settle-base",
+    links: {},
+  });
+  // This follows the generated diff page's unchanged-section path: the receipt card is separated
+  // from the plain list, and its existing card renderer prints both head and base settle values.
+  expect(html).toContain("function settleChanged(o)");
+  expect(html).toContain("Number.isFinite(base) && base >= 0");
+  expect(html).toContain("Number.isFinite(head) && head >= 0");
+  expect(html).toContain("data-settle-receipt");
+  expect(html).toContain('"Latency changed (" + latency.length + ")"');
+  expect(html).toContain('plain.length + " unchanged"');
+  expect(html).toContain('"base: " + metricsText(f.basePlay)');
+  expect(html).toContain("h2[data-heading='play-failures']");
+});
+
 test("a step that differs from itself makes an otherwise unchanged state nondeterministic", () => {
   const still = image(40, 30);
   const blink = image(40, 30, [{ x: 2, y: 2, w: 4, h: 4, rgb: [255, 255, 255] }]);

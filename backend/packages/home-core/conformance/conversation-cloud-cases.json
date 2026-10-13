@@ -2,7 +2,8 @@
  "format": "cmux-conversation-conformance/1",
  "notes": [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
-  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus actor_addresses (cloud only).",
+  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, thread_target, last_message) plus actor_addresses (cloud only).",
+  "message.send: thread_root must name a message of this conversation (request.thread_target) that has no thread_root itself, else invalid_thread_root (checked after reply_to). A committed send sets read_cursors[actor] = new seq when read_cursors[actor] (absent = 0) >= the head's last_seq before the send, else leaves it; the change stays kind message. A null thread_root is absent.",
   "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 and sets last_agent_text_at, a human text resets the streak to 0, a text-less work card changes neither; an agent text is refused with agent_budget at streak >= 4 and agent_rate within 2000 ms of last_agent_text_at, after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
@@ -623,6 +624,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -663,7 +665,9 @@
       "rev": 2,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -752,7 +756,9 @@
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -791,6 +797,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -849,7 +856,9 @@
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -879,6 +888,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -941,7 +951,9 @@
       "rev": 3,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -1018,7 +1030,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -1082,7 +1096,9 @@
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1112,6 +1128,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1178,7 +1195,9 @@
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1204,6 +1223,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1270,7 +1290,9 @@
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1296,6 +1318,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1362,7 +1385,9 @@
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1388,6 +1413,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1451,7 +1477,9 @@
       "rev": 4,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -1529,7 +1557,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -1594,7 +1624,9 @@
     "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1626,6 +1658,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1693,7 +1726,9 @@
     "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1726,6 +1761,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1793,7 +1829,9 @@
     "rev": 4,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -1826,6 +1864,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -1900,7 +1939,9 @@
       "rev": 5,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -1989,7 +2030,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -2065,7 +2108,9 @@
     "rev": 5,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -2098,6 +2143,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -2176,7 +2222,9 @@
     "rev": 5,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -2209,6 +2257,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -2295,7 +2344,9 @@
       "rev": 6,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -2395,7 +2446,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -2482,7 +2535,9 @@
     "rev": 6,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -2515,6 +2570,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -2599,7 +2655,9 @@
       "rev": 7,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -2698,7 +2756,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -2784,7 +2844,9 @@
     "rev": 7,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -2816,6 +2878,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -2908,7 +2971,9 @@
       "rev": 8,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -3033,7 +3098,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -3144,7 +3211,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3194,6 +3263,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -3290,7 +3360,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3340,6 +3412,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -3436,7 +3509,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3486,6 +3561,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -3582,7 +3658,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3632,6 +3710,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -3728,7 +3807,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3775,6 +3856,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -3871,7 +3953,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -3919,6 +4003,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4015,7 +4100,9 @@
     "rev": 8,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -4063,6 +4150,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4155,7 +4243,9 @@
       "rev": 9,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -4289,7 +4379,9 @@
     "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -4337,6 +4429,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4433,7 +4526,9 @@
     "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -4479,6 +4574,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4575,7 +4671,9 @@
     "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -4621,6 +4719,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4717,7 +4816,9 @@
     "rev": 9,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -4763,6 +4864,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -4855,7 +4957,9 @@
       "rev": 10,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -4984,7 +5088,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -5099,7 +5205,9 @@
     "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -5148,6 +5256,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -5244,7 +5353,9 @@
     "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -5292,6 +5403,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -5388,7 +5500,9 @@
     "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -5437,6 +5551,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -5533,7 +5648,9 @@
     "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -5581,6 +5698,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -5673,7 +5791,9 @@
       "rev": 11,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -5801,7 +5921,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -5915,7 +6037,9 @@
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -5962,6 +6086,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -6058,7 +6183,9 @@
     "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -6111,6 +6238,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -6211,7 +6339,9 @@
       "rev": 12,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -6364,7 +6494,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -6502,7 +6634,9 @@
     "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -6566,6 +6700,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -6670,7 +6805,9 @@
     "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -6734,6 +6871,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -6826,7 +6964,9 @@
       "rev": 13,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -6971,7 +7111,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -7101,7 +7243,9 @@
     "rev": 13,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -7166,6 +7310,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -7262,7 +7407,9 @@
     "rev": 13,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -7326,6 +7473,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -7422,7 +7570,9 @@
     "rev": 13,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -7485,6 +7635,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -7581,7 +7732,9 @@
     "rev": 13,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -7648,6 +7801,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -7740,7 +7894,9 @@
       "rev": 14,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -7885,7 +8041,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -8015,7 +8173,9 @@
     "rev": 14,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -8085,6 +8245,7 @@
     "new_message_id": "msg_00000000000000000000000002",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_GROUP",
@@ -8177,7 +8338,9 @@
       "rev": 15,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -8343,7 +8506,9 @@
     "rev": 15,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -8415,6 +8580,7 @@
     "new_message_id": "msg_00000000000000000000000003",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000002",
      "conversation": "conv_GROUP",
@@ -8507,7 +8673,9 @@
       "rev": 16,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -8675,7 +8843,9 @@
     "rev": 16,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -8746,6 +8916,7 @@
     "new_message_id": "msg_00000000000000000000000004",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000003",
      "conversation": "conv_GROUP",
@@ -8839,7 +9010,9 @@
       "rev": 17,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -9005,7 +9178,9 @@
     "rev": 17,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -9077,6 +9252,7 @@
     "new_message_id": "msg_00000000000000000000000005",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
      "conversation": "conv_GROUP",
@@ -9169,7 +9345,9 @@
       "rev": 18,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -9337,7 +9515,9 @@
     "rev": 18,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -9409,6 +9589,7 @@
     "new_message_id": "msg_00000000000000000000000006",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000005",
      "conversation": "conv_GROUP",
@@ -9502,7 +9683,9 @@
       "rev": 19,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -9670,7 +9853,9 @@
     "rev": 19,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -9742,6 +9927,7 @@
     "new_message_id": "msg_00000000000000000000000007",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000006",
      "conversation": "conv_GROUP",
@@ -9835,7 +10021,9 @@
       "rev": 20,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -10003,7 +10191,9 @@
     "rev": 20,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -10075,6 +10265,7 @@
     "new_message_id": "msg_00000000000000000000000008",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000007",
      "conversation": "conv_GROUP",
@@ -10168,7 +10359,9 @@
       "rev": 21,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -10336,7 +10529,9 @@
     "rev": 21,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -10408,6 +10603,7 @@
     "new_message_id": "msg_00000000000000000000000009",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000008",
      "conversation": "conv_GROUP",
@@ -10501,7 +10697,9 @@
       "rev": 22,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -10669,7 +10867,9 @@
     "rev": 22,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -10741,6 +10941,7 @@
     "new_message_id": "msg_00000000000000000000000010",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000009",
      "conversation": "conv_GROUP",
@@ -10834,7 +11035,9 @@
       "rev": 23,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 2,
       "kind": "group",
       "created_by": "user_alice",
@@ -11002,7 +11205,9 @@
     "rev": 23,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -11073,6 +11278,7 @@
     "new_message_id": "msg_00000000000000000000000011",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000010",
      "conversation": "conv_GROUP",
@@ -11170,7 +11376,9 @@
     "rev": 23,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 2,
     "kind": "group",
     "created_by": "user_alice",
@@ -11241,6 +11449,7 @@
     "new_message_id": "msg_00000000000000000000000011",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000010",
      "conversation": "conv_GROUP",
@@ -11334,7 +11543,9 @@
       "rev": 24,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 0,
       "kind": "group",
       "created_by": "user_alice",
@@ -11500,7 +11711,9 @@
     "rev": 24,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 0,
     "kind": "group",
     "created_by": "user_alice",
@@ -11571,6 +11784,7 @@
     "new_message_id": "msg_00000000000000000000000012",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000011",
      "conversation": "conv_GROUP",
@@ -11663,7 +11877,9 @@
       "rev": 25,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -11829,7 +12045,9 @@
     "rev": 25,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -11894,6 +12112,7 @@
     "new_message_id": "msg_00000000000000000000000013",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
      "conversation": "conv_GROUP",
@@ -11987,7 +12206,9 @@
       "rev": 26,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -12134,7 +12355,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -12265,7 +12488,9 @@
     "rev": 26,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -12330,6 +12555,7 @@
     "new_message_id": "msg_00000000000000000000000013",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
      "conversation": "conv_GROUP",
@@ -12424,7 +12650,9 @@
       "rev": 27,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -12572,7 +12800,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -12704,7 +12934,9 @@
     "rev": 27,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -12769,6 +13001,7 @@
     "new_message_id": "msg_00000000000000000000000013",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
      "conversation": "conv_GROUP",
@@ -12864,7 +13097,9 @@
       "rev": 28,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -13013,7 +13248,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "active",
@@ -13146,7 +13383,9 @@
     "rev": 28,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -13211,6 +13450,7 @@
     "new_message_id": "msg_00000000000000000000000013",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
      "conversation": "conv_GROUP",
@@ -13307,7 +13547,9 @@
       "rev": 29,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "user_bob": 1
+      },
       "agent_text_streak": 1,
       "kind": "group",
       "created_by": "user_alice",
@@ -13457,7 +13699,9 @@
         "created_at": "2026-10-01T12:00:00.000Z",
         "reactions": []
        },
-       "read_cursors": {},
+       "read_cursors": {
+        "user_bob": 1
+       },
        "kind": "group",
        "created_by": "user_alice",
        "state": "archived",
@@ -13591,7 +13835,9 @@
     "rev": 29,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "user_bob": 1
+    },
     "agent_text_streak": 1,
     "kind": "group",
     "created_by": "user_alice",
@@ -13662,6 +13908,7 @@
     "new_message_id": "msg_00000000000000000000000013",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000012",
      "conversation": "conv_GROUP",
@@ -13752,6 +13999,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -14006,6 +14254,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null,
     "actor_addresses": [
      "addr_00000000000000000000000001"
@@ -14246,6 +14495,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -14500,6 +14750,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null,
     "actor_addresses": [
      "addr_00000000000000000000000001"
@@ -14765,6 +15016,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -14870,6 +15122,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -15142,6 +15395,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -15396,6 +15650,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -15659,6 +15914,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -15888,6 +16144,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -15964,6 +16221,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16218,6 +16476,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16283,6 +16542,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16348,6 +16608,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16545,6 +16806,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16747,6 +17009,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16826,6 +17089,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16892,6 +17156,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -16960,6 +17225,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -17052,6 +17318,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -17144,6 +17411,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {
@@ -17176,7 +17444,9 @@
       "rev": 2,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "agent_alicechief": 1
+      },
       "agent_text_streak": 1,
       "kind": "chief",
       "created_by": "user_alice",
@@ -17318,7 +17588,9 @@
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "agent_alicechief": 1
+    },
     "agent_text_streak": 1,
     "kind": "chief",
     "created_by": "user_alice",
@@ -17399,6 +17671,7 @@
      "reactions": []
     },
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_CHIEF",
@@ -17479,7 +17752,9 @@
     "rev": 2,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "agent_alicechief": 1
+    },
     "agent_text_streak": 1,
     "kind": "chief",
     "created_by": "user_alice",
@@ -17560,6 +17835,7 @@
      "reactions": []
     },
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_CHIEF",
@@ -17636,7 +17912,9 @@
       "rev": 3,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:00.000Z",
-      "read_cursors": {},
+      "read_cursors": {
+       "agent_alicechief": 1
+      },
       "agent_text_streak": 0,
       "kind": "chief",
       "created_by": "user_alice",
@@ -17808,7 +18086,9 @@
     "rev": 3,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:00.000Z",
-    "read_cursors": {},
+    "read_cursors": {
+     "agent_alicechief": 1
+    },
     "agent_text_streak": 0,
     "kind": "chief",
     "created_by": "user_alice",
@@ -17904,6 +18184,7 @@
      "reactions": []
     },
     "reply_target": null,
+    "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_CHIEF",
@@ -18006,6 +18287,7 @@
     "new_message_id": "msg_00000000000000000000000001",
     "target": null,
     "reply_target": null,
+    "thread_target": null,
     "last_message": null
    },
    "expect": {

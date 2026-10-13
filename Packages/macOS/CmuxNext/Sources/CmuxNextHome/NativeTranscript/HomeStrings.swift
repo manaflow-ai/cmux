@@ -89,8 +89,19 @@ enum HomeStrings {
     static func firstRunTabsHint(_ keys: String) -> String {
         String(format: String(localized: "home.firstRun.tabsHint", defaultValue: "%@ switches tabs.", bundle: .module), keys)
     }
-    static var firstRunSuggestion: String {
-        String(localized: "home.firstRun.suggestion", defaultValue: "What are my agents doing right now?", bundle: .module)
+    /// The heading over the first-run panel's agent rows.
+    static var firstRunAgentsHeader: String {
+        String(localized: "home.firstRun.agents", defaultValue: "Your agents", bundle: .module)
+    }
+    /// One short word for what an agent row's agent is doing.
+    static func firstRunAgentStatus(_ status: HomeAgentGlance.Status) -> String {
+        switch status {
+        case .needsYou: String(localized: "home.firstRun.agent.needsYou", defaultValue: "Needs you", bundle: .module)
+        case .failed: String(localized: "home.firstRun.agent.failed", defaultValue: "Failed", bundle: .module)
+        case .done: String(localized: "home.firstRun.agent.done", defaultValue: "Done", bundle: .module)
+        case .idle: String(localized: "home.firstRun.agent.idle", defaultValue: "Idle", bundle: .module)
+        case .working: String(localized: "home.firstRun.agent.working", defaultValue: "Working", bundle: .module)
+        }
     }
     static var conversations: String { String(localized: "home.list.title", defaultValue: "Conversations", bundle: .module) }
 }

@@ -52,13 +52,13 @@ fn the_server_serves_its_fragment_ops_and_the_backend_ops_it_consumes() {
         .iter()
         .map(|op| op["name"].as_str().expect("name").to_owned())
         .collect();
-    let consumed: BTreeSet<String> = manifest["consumes"]["ops"]
+    let consumed: BTreeSet<String> = manifest["serves"]["ops"]
         .as_array()
-        .expect("consumes.ops")
+        .expect("serves.ops")
         .iter()
         .map(|op| op.as_str().expect("name").to_owned())
         .collect();
-    // The fragment declares no op the backend owns; it names them in consumes.ops.
+    // The fragment declares no op the backend owns; it names them in serves.ops.
     assert!(fragment.iter().all(|name| !backend.contains_key(name)), "{fragment:?}");
     for name in &consumed {
         assert!(backend.contains_key(name), "{name}: consumed but not a CloudDO op");
@@ -148,7 +148,7 @@ fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
         assert!(op["errors"].as_array().expect("errors").iter().any(|e| e == code), "{code}");
     }
     let manifest = json(&app_dir().join("cmux-app.v2.json"));
-    let consumed = manifest["consumes"]["ops"].as_array().expect("consumes.ops");
+    let consumed = manifest["serves"]["ops"].as_array().expect("serves.ops");
     assert!(!consumed.iter().any(|o| o == "cloud.machine.link_token"));
     assert!(cmux_cloud::ops::canonical_name("cloud.machine.link_token").is_none(), "not served");
     let info = backend["cloud.machine.connect_info"]["output_json_schema"].to_string();

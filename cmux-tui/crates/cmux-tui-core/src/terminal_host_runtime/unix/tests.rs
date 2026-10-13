@@ -13,6 +13,7 @@ use super::super::shared::control_responses::ControlResponseWaiter;
 use super::super::shared::host_serve::*;
 use super::super::sys::process_definitely_gone as process_definitely_absent;
 use super::super::sys::{HostLivenessLease, terminal_host_publication_lock_path};
+use super::session_cleanup;
 use super::*;
 use cmux_pty::{Child, PtyOpenError, PtySize};
 use ghostty_vt::Callbacks;
@@ -174,6 +175,8 @@ fn exited_host_fixture_with_parser_at(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(true),
         group_escalation_complete: AtomicBool::new(false),
+        group_escalation_failed: AtomicBool::new(false),
+        session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
         fail_next_resize_publication: AtomicBool::new(false),
     });
@@ -235,6 +238,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_clipboard_read: false,
         supports_viewer_size_priority: true,
         supports_pty_custody: false,
+        supports_program_status: false,
     };
     let record_path = record.record_path(&root);
     let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -264,6 +268,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_clipboard_read: false,
         supports_viewer_size_priority: false,
         supports_pty_custody: false,
+        supports_program_status: false,
     };
     let record_path = std::env::temp_dir().join(format!(
         "cmux-input-ack-surface-{}-{}.json",
@@ -288,6 +293,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,

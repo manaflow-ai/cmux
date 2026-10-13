@@ -13,8 +13,8 @@ use serde_json::{Map, Number, Value};
 
 use super::{
     CommandPlan, Flags, Resolve, Selectors, UsageError, ZoomStep, group_collapse, group_number,
-    insert_optional_clearable_string, insert_optional_string, insert_u32, parse_bool,
-    parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
+    group_raw_plan, insert_optional_clearable_string, insert_optional_string, insert_u32,
+    parse_bool, parse_tab_group_private, request, usage, validate_one_of, validate_prefixed_id,
 };
 
 const GROUP_COLORS: &[&str] =
@@ -81,10 +81,18 @@ impl Params {
     }
 }
 
-/// `--color` for a tab or screen group: one of the fixed group colors.
+/// `--color` for a tab or screen group: one of the fixed group colors or `#RRGGBB`.
 fn group_color(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
     if let Some(color) = flags.take("color") {
-        validate_one_of("--color", &color, GROUP_COLORS)?;
+        let hex = color.len() == 7
+            && color.starts_with('#')
+            && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex && !GROUP_COLORS.contains(&color.as_str()) {
+            return Err(UsageError::new(format!(
+                "--color must be one of {} or #RRGGBB",
+                GROUP_COLORS.join(", ")
+            )));
+        }
         params.insert("color", Value::String(color));
     }
     Ok(())
@@ -267,6 +275,7 @@ pub(super) fn parse_workspace_status(
             }
             insert_optional_string(&mut params.fields, flags, "icon", "icon");
             insert_optional_string(&mut params.fields, flags, "color", "color");
+            status_flags::insert(&mut params.fields, flags, caller_terminal())?;
             Op::WorkspaceStatusSet
         }
         ("status", ["clear"]) => Op::WorkspaceStatusClear,
@@ -413,7 +422,24 @@ pub(super) fn parse_workspace_group(
 
 // tab
 
-/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update`.
+/// `tab <tab_…> restart`: the private `restart-tab`
+/// (`tab-restart-v1`), which restarts a terminal tab whose shell ended under
+/// the same terminal id. One request, like the tab group commands, so it
+/// works against a headless daemon with no app running.
+fn tab_restart(rest: &[&str], selectors: &Selectors) -> Result<CommandPlan, UsageError> {
+    if !rest.is_empty() {
+        return usage("tab restart");
+    }
+    let tab = selectors.values.get("tab").map(String::as_str).unwrap_or_default();
+    if !tab.starts_with("tab_") {
+        return Err(UsageError::new("tab restart needs a tab id (tab_…)"));
+    }
+    let mut request = Map::new();
+    request.insert("tab".into(), Value::String(tab.to_string()));
+    Ok(group_raw_plan("restart-tab", request))
+}
+
+/// `tab <selector> pin|unpin|zoom <n>|reset|in|out|update|restart`.
 ///
 /// `update --icon <value>|--clear-icon` sets or clears the tab's user icon
 /// (`tab.update {icon}`), which the daemon owns for every tab kind.
@@ -429,6 +455,9 @@ pub(super) fn tab_change(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
+    if action == "restart" {
+        return tab_restart(rest, selectors);
+    }
     let mut params = Params::default();
     let operation = match (action, rest) {
         ("pin", []) => Op::TabPin,
@@ -528,10 +557,11 @@ pub(super) fn parse_tab_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     group_color(&mut params, flags)?;
+                    nullable(&mut params, flags, "icon", "icon")?;
                     group_collapse(flags, &mut params.fields)?;
                     if params.fields.len() == 1 {
                         return Err(UsageError::new(
-                            "tab group update needs --name, --color, --collapse or --expand",
+                            "tab group update needs --name, --color, --icon, --collapse or --expand",
                         ));
                     }
                     Op::TabGroupUpdate
@@ -705,10 +735,11 @@ pub(super) fn parse_screen_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     group_color(&mut params, flags)?;
+                    nullable(&mut params, flags, "icon", "icon")?;
                     group_collapse(flags, &mut params.fields)?;
                     if params.fields.len() == 1 {
                         return Err(UsageError::new(
-                            "screen group update needs --name, --color, --collapse or --expand",
+                            "screen group update needs --name, --color, --icon, --collapse or --expand",
                         ));
                     }
                     Op::ScreenGroupUpdate
@@ -731,7 +762,8 @@ pub(super) fn parse_screen_group(
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
 /// (the newest group of that window: Cmd-Shift-T),
 /// `closed <id> reopen [--members 0,2]`, `closed <id> delete [--members]`
-/// and `closed clear [--since-ms T]`: the closed groups of the session.
+/// and `closed clear [--since-ms T] [--before-ms T] [--keep-newest N]`: the
+/// closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     let mut params = Params::default();
@@ -754,6 +786,22 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
                     return Err(UsageError::new("--since-ms must be a Unix time in milliseconds"));
                 }
                 params.insert("since_ms", Value::String(since));
+            }
+            if let Some(before) = flags.take("before-ms") {
+                if before.is_empty() || !before.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(UsageError::new("--before-ms must be a Unix time in milliseconds"));
+                }
+                params.insert("before_ms", Value::String(before));
+            }
+            if let Some(keep) = flags.take("keep-newest") {
+                super::insert_bounded_u32(
+                    &mut params.fields,
+                    "keep_newest",
+                    "--keep-newest",
+                    keep,
+                    1,
+                    u32::MAX,
+                )?;
             }
             Op::ClosedDelete
         }
@@ -792,6 +840,8 @@ fn closed_members(value: &str) -> Result<Value, UsageError> {
         .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
     Ok(Value::Array(members))
 }
+
+mod status_flags;
 
 #[cfg(test)]
 mod tests;

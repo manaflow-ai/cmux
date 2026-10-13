@@ -351,12 +351,14 @@ if ! awk '
   job == "delta" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly\]/ { saw_publish_need=1 }
   job == "delta" && /fail-fast: false/ { saw_matrix=1 }
   job == "republish" && /needs: \[decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
-  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  # The tag itself: commits/<name> resolves a same-named branch (cx-urd.67).
+  job == "republish" && /gh api .*git\/ref\/tags\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
+  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_branch_read=1 }
   # The publication moves the tag to the resolved build commit, not the tip.
   job == "republish" && index($0, "\"$current_sha\" != \"${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}\"") { saw_build_sha=1 }
   job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
   job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_build_sha && saw_republish && saw_r2) }
+  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && !saw_branch_read && saw_build_sha && saw_republish && saw_r2) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
   exit 1
@@ -412,10 +414,12 @@ if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle
   exit 1
 fi
 
-# cmux-next ships no Cloud tunnel system extension. The Chromium engine
-# artifact is arm64 only, so an x86_64 variant drops it before thinning.
-if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Use' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly still handles the legacy tunnel extension or Computer Use helper"
+# cmux-next ships no Cloud tunnel system extension. It does ship the Computer
+# Use helper (D19; tests/test_nightly_next_computer_use_helper.py). The
+# Chromium engine artifact is arm64 only, so an x86_64 variant drops it before
+# thinning.
+if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly still handles the legacy tunnel extension"
   exit 1
 fi
 if ! awk '
@@ -477,11 +481,17 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
-# A release ships the pinned commit; the nightly ships the newest published
-# cmux-tui tree and builds the app at that commit (pin-cmux-tui.sh
+# A release ships its own commit's cmux-tui tree (pin-cmux-tui.sh
+# resolve-exact, cx-urd.9.1); the nightly ships the newest published cmux-tui
+# tree and builds the app at that commit (pin-cmux-tui.sh
 # resolve-newest-published; tests/test_nightly_cmux_tui_resolve.py).
-if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
-  echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
+if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-exact)"' "$RELEASE_WORKFLOW_FILE" \
+    || ! grep -Fq 'cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must install its own commit's cmux-tui tree (resolve-exact)"
+  exit 1
+fi
+if grep -Fq 'scripts/cmux-next/cmux-tui.pin' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must not read the hand pin scripts/cmux-next/cmux-tui.pin"
   exit 1
 fi
 if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"' "$WORKFLOW_FILE"; then
@@ -530,6 +540,19 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
     exit 1
   fi
 done
+
+# The sign job installs the cmux-tui client and its SSH payloads after the build
+# job's strip, so it must run strip-release-bundle.sh again after that install.
+if ! awk '
+  /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
+  exit 1
+fi
 
 INSTALL_TUI_SCRIPT="$ROOT_DIR/scripts/install-cmux-tui-client.sh"
 for expected in '--expected-commit' '--require-capability' 'required cmux-tui capability is missing'; do

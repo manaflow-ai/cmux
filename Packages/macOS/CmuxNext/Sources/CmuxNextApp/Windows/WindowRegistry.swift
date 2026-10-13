@@ -188,6 +188,15 @@ struct WindowRegistry: Equatable, Sendable {
         return id
     }
 
+    /// Opens closed window `id` again (Reopen Closed of its `window` group).
+    /// False when it is not a closed window of this app.
+    mutating func reopen(id: String) -> Bool {
+        guard let index = windows.firstIndex(where: { $0.id == id }), !windows[index].isOpen else { return false }
+        windows[index].isOpen = true
+        activate(id)
+        return true
+    }
+
     mutating func activate(_ id: String) {
         guard window(id) != nil else { return }
         recency.removeAll { $0 == id }

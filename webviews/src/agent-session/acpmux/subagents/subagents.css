@@ -128,3 +128,79 @@
   border-bottom-right-radius: 12px;
   margin-bottom: 8px;
 }
+/* A listed subagent that opens its own view: the line is a button with a chevron. */
+button.cv-subagent {
+  appearance: none;
+  width: 100%;
+  margin: 0;
+  background: none;
+  border-top: none;
+  border-bottom: none;
+  text-align: start;
+  cursor: pointer;
+}
+button.cv-subagent:hover {
+  background: var(--agent-control-hover);
+}
+button.cv-subagent:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+button.cv-subagent > :last-child {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+/* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
+   8px above and below. A click goes back to the parent's view. */
+.cv-subagent-of {
+  box-sizing: border-box;
+  height: 44px;
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-subagent-of::before,
+.cv-subagent-of::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--cv-card-ring);
+}
+.cv-subagent-of__pill {
+  all: unset;
+  box-sizing: border-box;
+  height: 28px;
+  max-width: 70%;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--cv-card-ring);
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cv-subagent-of__pill:hover {
+  color: var(--cv-text);
+}
+.cv-subagent-of__pill:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: 2px;
+}
+.cv-subagent-of__label {
+  flex: none;
+  font-weight: 600;
+  color: var(--cv-text);
+}
+.cv-subagent-of__parent {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-subagent-of__parent::before {
+  content: "· ";
+}

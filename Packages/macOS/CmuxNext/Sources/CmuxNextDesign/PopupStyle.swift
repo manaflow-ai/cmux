@@ -13,7 +13,6 @@ public struct PopupStyle: Sendable {
     public let padding: CGFloat = 4
     public let rowHeight: CGFloat = 28
     public let rowCornerRadius: CGFloat = 5
-    public let rowPaddingInline: CGFloat = 8
     public let openDuration: TimeInterval = 0.12
 
     /// The one shadow, `0 2px 8px` black at 12%.

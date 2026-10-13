@@ -12,7 +12,7 @@ import { ResetButton } from "./ResetButton";
 import { RowNotice } from "./RowNotice";
 
 /**
- * The menu of a setting's title and help (right-click): copy its cmux.json key, or reset it (the
+ * The menu of a setting's title and summary (right-click): copy its cmux.json key, or reset it (the
  * row's Reset control's path). Every row that edits a setting uses it, including the Theme page's
  * own rows (cx-64hi).
  */
@@ -33,7 +33,11 @@ export function useRowMenu(key: string): ContextMenuItem[] {
   ];
 }
 
-/** One setting: title and one-line help on the left, its editor on the right. */
+/** Editable text, whose right-click keeps WebKit's Cut, Copy and Paste. */
+const TEXT_FIELDS =
+  'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), textarea, [contenteditable]:not([contenteditable="false"])';
+
+/** One setting: title and its one short summary line on the left, its editor on the right. */
 export function SettingRow({
   row,
   query = "",
@@ -73,9 +77,10 @@ export function SettingRow({
           <div className="row-title" id={labelId}>
             <Highlight text={text(row.title)} query={query} />
           </div>
-          {row.help && (
-            <div className="row-help">
-              <Highlight text={text(row.help)} query={query} />
+          {row.summary && (
+            // The title is a fallback for a translation that still runs long.
+            <div className="row-help" title={text(row.summary)}>
+              <Highlight text={text(row.summary)} query={query} />
             </div>
           )}
           {query && (
@@ -95,15 +100,18 @@ export function SettingRow({
             </div>
           )}
         </ContextMenu>
-        <div className="row-control">
-          <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
-          <ResetButton
-            settingKey={row.key}
-            shown={customized && !managed}
-            disabled={!state.connected || !state.readable}
-            label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
-          />
-        </div>
+        {/* The control has the row's menu too (cx-2lm4); a text field keeps its own Cut, Copy and Paste. */}
+        <ContextMenu className="row-control-menu" items={menu} ignore={TEXT_FIELDS}>
+          <div className="row-control">
+            <Editor row={row} value={valueOf(state, row.key)} disabled={disabled} labelId={labelId} />
+            <ResetButton
+              settingKey={row.key}
+              shown={customized && !managed}
+              disabled={!state.connected || !state.readable}
+              label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
+            />
+          </div>
+        </ContextMenu>
       </div>
     </div>
   );

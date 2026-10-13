@@ -24,6 +24,14 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification jump-to-latest-unread", mainMenu: .window
             ),
+            // Classic's Jump to Last Prompt (hq#1870 P1 7); classic's ⇧⌘B is the bookmarks bar here.
+            ActionDescriptor(
+                id: "jumpToLastPrompt",
+                title: String(localized: "action.jumpToLastPrompt", defaultValue: "Jump to Last Prompt", bundle: .module),
+                keywords: ["agent", "prompt", "submitted", "back"], defaultShortcut: Shortcut("b", modifiers: [.command, .control]),
+                category: .notifications, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "toggleUnread",
                 title: String(localized: "action.toggleUnread", defaultValue: "Toggle Unread", bundle: .module),
@@ -79,6 +87,12 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute or Unmute Workspace Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "workspace"], category: .notifications, symbol: "bell.slash.circle",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "notification toggle-workspace-mute"
+            ),
+            ActionDescriptor(
+                id: "notifications.dismissHighlight",
+                title: String(localized: "action.notifications.dismissHighlight", defaultValue: "Dismiss Highlight", bundle: .module),
+                keywords: ["highlight", "ring", "attention", "notifications", "workspace", "dismiss"], category: .notifications,
+                symbol: "circle.dashed", surfaces: [.palette, .contextMenu], targets: [.workspace]
             ),
             ActionDescriptor(
                 id: "notifications.toggleBanners",

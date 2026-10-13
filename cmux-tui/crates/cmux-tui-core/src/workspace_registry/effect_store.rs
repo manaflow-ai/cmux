@@ -11,6 +11,7 @@ use serde_json::json;
 mod creation_record;
 mod effect_intent;
 mod input_receipts;
+mod receipt_presence;
 use creation_record::read_creation_record;
 pub(crate) use effect_intent::{EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt};
 use input_receipts::{prune_resource_input_receipts, record_resource_input_receipt_completion};
@@ -786,7 +787,7 @@ impl WorkspaceRegistry {
             outcome,
             deltas,
         )?;
-        let receipt = self.commit_effect_intent_locally(&intent)?;
+        let receipt = self.commit_effect_intent_locally(intent)?;
         Ok(self.finish_effect_commit(finish, receipt)?.revision())
     }
 
@@ -820,7 +821,7 @@ impl WorkspaceRegistry {
             deltas,
             restates_all,
         )?;
-        let receipt = self.commit_effect_intent_locally(&intent)?;
+        let receipt = self.commit_effect_intent_locally(intent)?;
         self.finish_effect_commit(finish, receipt)?.into_patch_commit()
     }
 

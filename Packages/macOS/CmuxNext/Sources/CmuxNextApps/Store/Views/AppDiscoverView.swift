@@ -14,7 +14,7 @@ struct AppDiscoverView: View {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     chips
-                    ScrollView { LazyVStack(spacing: 2) { rows(showsInstall: false) }.padding(Metrics.space3) }
+                    ScrollView { LazyVStack(spacing: 2) { rows(showsInstall: false) }.padding(Metrics.space3).thinScrollers() }
                 }
                 .frame(width: 320)
                 Rectangle().fill(colors.separator).frame(width: Borders.width(1))
@@ -37,10 +37,12 @@ struct AppDiscoverView: View {
                             }
                             .appStoreColumn()
                             .padding(.vertical, Metrics.space4)
+                            .thinScrollers()
                         } else {
                             LazyVStack(spacing: 2) { rows(showsInstall: true) }
                                 .appStoreColumn()
                                 .padding(.vertical, Metrics.space4)
+                                .thinScrollers()
                         }
                     }
                     .overlay { if model.listings.isEmpty { empty(model.client.unavailableReason.map(AppsStrings.unavailable) ?? AppsStrings.noMatches) } }
@@ -65,6 +67,7 @@ struct AppDiscoverView: View {
                 }
             }
             .padding(.vertical, Metrics.space3)
+            .thinScrollers()
         }
         // On the scroll view: inside it the column gets an unbounded width and stays at the edge.
         .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5))

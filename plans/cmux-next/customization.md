@@ -299,7 +299,7 @@ None in edit mode.
 | P8 | behavior | Recents count | 20 `r89:.../ViewerRecents.swift:39` | hard | `viewers.recents.limit` (shared, E5) | yes | S |
 | P9 | behavior | Recents only at start folder | code and comment disagree `r89:.../FolderPickerRows.swift:60-75` vs `FolderPickerState.swift:119` | bug | fix to the comment | - | S |
 | P10 | behavior | Sort order | folders first, Finder order `FolderListing.swift:83-90` | hard | `picker.sort: "name" \| "modified" \| "kind" = "name"`, `picker.foldersFirst: bool = true` | yes | S |
-| P11 | behavior | Fuzzy weights | `S/CmuxNextActions/FuzzyMatcher.swift:14-26` | hard | keep (shared palette, not user-meaningful) | - | - |
+| P11 | behavior | Fuzzy weights | `webviews/src/palette/ranker.ts` (the Swift matcher is deleted) | hard | keep (shared palette, not user-meaningful) | - | - |
 | P12 | behavior | Frecency | off, `frecencyKey: nil` `PickerSession+Items.swift:63` | hard | on for files (no key) | - | S |
 | P13 | behavior | Result limits | `rowLimit 400` `PaletteRanker.swift:40-42`, page 2000 `FolderPickerState.swift:128` | hard | keep | - | - |
 | P14 | layout | Visible rows | 10 `S/CmuxNextPalette/PaletteLayout.swift:9` | hard | `palette.visibleRows: number 6-20 = 10` (palette-wide) | yes | S, SL |

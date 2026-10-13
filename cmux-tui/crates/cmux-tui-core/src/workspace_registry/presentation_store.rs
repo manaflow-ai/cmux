@@ -21,6 +21,7 @@
 
 mod snapshot;
 use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
+use crate::state::remote_terminal_tabs_store::{RemoteTerminalRecord, read_remote_terminals};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
@@ -40,8 +41,11 @@ pub(crate) use saved_tab_groups::{
 
 mod frontend_browser_history;
 mod icon;
-pub use icon::validate_presentation_icon;
-mod svg_icon;
+pub use icon::{
+    IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
+    validate_presentation_icon_asset,
+};
+pub(crate) mod svg_icon;
 
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
@@ -76,7 +80,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            name TEXT NOT NULL DEFAULT '',
            color TEXT NOT NULL,
            collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
-           saved_id TEXT
+           saved_id TEXT,
+           icon TEXT
          );
          CREATE TABLE IF NOT EXISTS tab_group_members (
            tab_id TEXT PRIMARY KEY NOT NULL,
@@ -106,6 +111,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    add_group_icon_column(transaction, "tab_groups")?;
+    crate::state::tab_state_store::add_tab_pinned_url_column(transaction)?;
     super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
@@ -140,6 +147,25 @@ fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> a
             "ALTER TABLE workspace_presentation ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0
                CHECK(pinned IN (0,1));",
         )?;
+    }
+    Ok(())
+}
+
+/// Additive: a tab or screen group table an older build created has no
+/// icon column (`tab-group-icon-v1`). Older builds name their columns, so
+/// they keep reading and writing the table.
+pub(crate) fn add_group_icon_column(
+    transaction: &Transaction<'_>,
+    table: &str,
+) -> anyhow::Result<()> {
+    let has_icon = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "icon");
+    if !has_icon {
+        transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN icon TEXT;"))?;
     }
     Ok(())
 }
@@ -220,7 +246,7 @@ impl WorkspacePresentationUpdate {
             validate_presentation_color(color)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            validate_presentation_icon(icon)?;
+            validate_icon_value(icon)?;
         }
         if let Some(Some(title)) = &self.title {
             validate_presentation_text("workspace title", title)?;
@@ -259,14 +285,22 @@ pub struct PresentationSnapshot {
     pub workspaces: HashMap<String, WorkspacePresentationRecord>,
     /// Public ids (`tab_...`) of pinned live tabs.
     pub pinned_tabs: HashSet<String>,
+    /// The page each pinned browser tab was pinned on, by public tab id.
+    pub pinned_urls: HashMap<String, String>,
     /// Frontend-rendered browser contents keyed by public browser id
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
     /// `conversation-tabs-v1` records keyed by public browser id.
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
+    /// `remote-terminal-tabs-v1` references keyed by public browser id.
+    pub remote_terminals: HashMap<String, RemoteTerminalRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// The app of every live app workspace, by workspace key (`app-screens-v1`).
+    pub app_workspaces: HashMap<String, String>,
+    /// App tab records, by public browser id (`app-screens-v1`).
+    pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -283,10 +317,15 @@ pub struct PresentationSnapshot {
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
+/// A tab or screen group color: one of the nine tokens, or a custom `#RRGGBB` a person picked,
+/// stored as given (cx-wqn5).
 pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
+    let hex = value.len() == 7
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
     anyhow::ensure!(
-        TAB_GROUP_COLORS.contains(&value),
-        "bad request: tab group color must be one of {}",
+        hex || TAB_GROUP_COLORS.contains(&value),
+        "bad request: tab group color must be one of {} or #RRGGBB",
         TAB_GROUP_COLORS.join(", ")
     );
     Ok(())
@@ -316,6 +355,10 @@ pub struct TabGroupRecord {
     pub collapsed: bool,
     /// The saved group this live group syncs with.
     pub saved_id: Option<String>,
+    /// The group's icon (`tab-group-icon-v1`): the shared icon string, one
+    /// emoji, an SF Symbol name or a stored image or SVG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// All tab groups and their members. A tab belongs to a group only while
@@ -357,6 +400,9 @@ pub struct SavedTabGroupRecord {
     pub color: String,
     pub members: Vec<SavedTabMember>,
     pub updated_at_ms: u64,
+    /// The saved group's icon (`tab-group-icon-v1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 pub fn new_tab_group_id() -> String {
@@ -376,20 +422,32 @@ pub(crate) fn write_tab_group_state(
         validate_workspace_group_id(&group.id)?;
         validate_tab_group_name(&group.name)?;
         validate_tab_group_color(&group.color)?;
+        if let Some(icon) = &group.icon {
+            validate_icon_value(icon)?;
+        }
+    }
+    // Every icon this write adds names a stored asset; icons the table
+    // already holds are not checked again (the whole table is rewritten).
+    let stored = super::screen_store::stored_icons(transaction, &["tab_groups"])?;
+    for icon in state.groups.values().filter_map(|group| group.icon.as_ref()) {
+        if !stored.contains(icon) {
+            super::personal_store::require_icon_asset(transaction, icon)?;
+        }
     }
     transaction.execute("DELETE FROM tab_groups", [])?;
     transaction.execute("DELETE FROM tab_group_members", [])?;
     for group in state.groups.values() {
         transaction.execute(
-            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id, icon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 group.id,
                 group.pane_id,
                 group.name,
                 group.color,
                 i64::from(group.collapsed),
-                group.saved_id
+                group.saved_id,
+                group.icon
             ],
         )?;
     }
@@ -414,8 +472,9 @@ pub(crate) fn write_tab_group_state(
 
 fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState> {
     let mut state = TabGroupState::default();
-    let mut statement = connection
-        .prepare("SELECT group_id, pane_id, name, color, collapsed, saved_id FROM tab_groups")?;
+    let mut statement = connection.prepare(
+        "SELECT group_id, pane_id, name, color, collapsed, saved_id, icon FROM tab_groups",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok(TabGroupRecord {
             id: row.get(0)?,
@@ -424,6 +483,7 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
             color: row.get(3)?,
             collapsed: row.get::<_, i64>(4)? != 0,
             saved_id: row.get(5)?,
+            icon: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -770,6 +830,9 @@ pub(crate) fn write_workspace_presentation(
     update: &WorkspacePresentationUpdate,
 ) -> anyhow::Result<()> {
     update.validate()?;
+    if let Some(Some(icon)) = &update.icon {
+        super::personal_store::require_icon_asset(transaction, icon)?;
+    }
     if let Some(Some(group)) = &update.group {
         let exists = transaction
             .query_row("SELECT 1 FROM workspace_groups WHERE group_id = ?1", [group], |_| Ok(()))

@@ -42,6 +42,15 @@ public final class HoverCardCoordinator {
     /// The number of the topmost window under a screen point, ignoring
     /// the card itself (tests inject one).
     public var windowNumberAt: ((CGPoint) -> Int?)?
+    /// This app's visible windows that take the mouse, front first: a
+    /// no-activate run (a capture slot) hit-tests against these. Tests inject
+    /// plain numbers and frames, so the window server's state cannot flake them.
+    public var ownWindows: () -> [(number: Int, frame: CGRect)] = {
+        (NSWindow.windowNumbers(options: []) ?? [])
+            .compactMap { NSApp?.window(withWindowNumber: $0.intValue) }
+            .filter { $0.isVisible && !$0.ignoresMouseEvents }
+            .map { ($0.windowNumber, $0.frame) }
+    }
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
     public var appIsActive: () -> Bool = { NSApp.isActive || WindowPlacement.noActivate }
@@ -70,13 +79,17 @@ public final class HoverCardCoordinator {
         }
     }
 
-    isolated deinit {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            for observer in observers {
+                NotificationCenter.default.removeObserver(observer)
+                NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            }
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            timer.cancel()
         }
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        timer.cancel()
     }
 
     // MARK: Sources
@@ -254,7 +267,8 @@ public final class HoverCardCoordinator {
     private func hitTest() -> HoverCardHit? {
         guard appIsActive() else { return nil }
         let point = currentPointer()
-        let top = windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
+        let top = (WindowPlacement.noActivate ? ownTopWindowNumber(at: point) : nil)
+            ?? windowNumberAt?(point) ?? Self.topWindowNumber(at: point, excluding: panel?.windowNumber)
         for entry in sources.values {
             guard let source = entry.source, let window = source.hoverCardWindow, window.windowNumber == top,
                   let hit = source.hoverCardHit(at: point) else { continue }
@@ -262,6 +276,15 @@ public final class HoverCardCoordinator {
             return hit
         }
         return nil
+    }
+
+    /// The front one of this app's windows under a screen point. A
+    /// no-activate run (a capture slot) is never frontmost and sits under
+    /// other runs' windows, so the system's topmost window there is often
+    /// not ours.
+    private func ownTopWindowNumber(at point: CGPoint) -> Int? {
+        let card = panel?.windowNumber
+        return ownWindows().first { $0.number != card && $0.frame.contains(point) }?.number
     }
 
     private static func topWindowNumber(at point: CGPoint, excluding card: Int?) -> Int {

@@ -11,10 +11,13 @@ final class CEFDevToolsDivider: NSView {
 
     override var isFlipped: Bool { false }
     override var mouseDownCanMoveWindow: Bool { false }
+    /// The page and DevTools are their own windows and take key when used,
+    /// so the drag's first click often lands while cmux's window is not key.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let devTools else { return }
-        Borders.color(NSColor.separatorColor).setFill()
+        performWithTheme { Borders.color(Palette.separator) }.setFill()
         let line = devTools.layout.dock.isSide
             ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)

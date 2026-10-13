@@ -37,10 +37,6 @@ public final class PageInfoActivity {
         requested.formUnion(kinds)
     }
 
-    public func setInUse(_ kinds: Set<SitePermissionKind>) {
-        if inUse != kinds { inUse = kinds }
-    }
-
     public func recordChange(_ kind: SitePermissionKind) {
         changedSinceLoad.insert(kind)
     }

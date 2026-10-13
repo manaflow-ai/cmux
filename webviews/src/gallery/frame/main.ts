@@ -69,7 +69,7 @@ const pair =
   scheme === "dark"
     ? { dark: theme, light: themeNamed(DEFAULT_LIGHT_THEME, DEFAULT_LIGHT_THEME) }
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
-const tokens = themeTokens(theme);
+const tokens = themeTokens(theme, env.accent);
 
 emulateMedia({
   "prefers-color-scheme": scheme,
@@ -83,7 +83,7 @@ bootstrap.textContent = webThemeBootstrap;
 document.head.append(bootstrap);
 bootstrap.remove();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme)),
+  webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );
 // Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
 if (env.scale !== 1) root.style.zoom = String(env.scale);
@@ -150,7 +150,13 @@ function markReadyWhenStill(): void {
   const started = performance.now();
   const done = () => {
     observer.disconnect();
-    void playThenReady();
+    // A play or experiment that throws (a module that fails to load mid-run) is the stage's error,
+    // not a stage that never reports ready.
+    playThenReady().catch((error: unknown) =>
+      fail(
+        `${entry.id}#${variantName} failed to play:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      ),
+    );
   };
   const arm = () => {
     clearTimeout(timer);

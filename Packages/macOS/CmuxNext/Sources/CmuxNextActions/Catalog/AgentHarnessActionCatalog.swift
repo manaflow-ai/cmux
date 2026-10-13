@@ -63,6 +63,16 @@ nonisolated enum AgentHarnessActionCatalog: ActionCatalogGroup {
                 cliName: "agent check-harness",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Agent CLI health (cx-ny85): types every outdated agent CLI's own update into a
+            // terminal tab, like Settings > Agents > Update All; with nothing to update (or no
+            // window) it opens Settings > Agents.
+            ActionDescriptor(
+                id: "agent.harness.updateAll", title: t("action.agent.harness.updateAll", "Update Agent CLIs"),
+                keywords: ["agent", "harness", "cli", "update", "upgrade", "version", "outdated", "npm", "brew", "codex", "claude", "gemini"],
+                category: .agents, symbol: "arrow.down.circle",
+                // A terminal tab the person watches: scripts run the updates themselves.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 

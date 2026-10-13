@@ -8,7 +8,7 @@
 //! against live screens. Each write appends one advisory `state` journal
 //! record; the tables are authoritative for restoration.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use anyhow::Context;
 use rusqlite::{Connection, Transaction, params};
@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::presentation_store::{
-    append_presentation_record, validate_presentation_color, validate_presentation_icon,
-    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
+    append_presentation_record, validate_presentation_color, validate_tab_group_color,
+    validate_tab_group_name, validate_workspace_group_id,
 };
 use super::{JournalSubject, WorkspaceRegistry, new_uuid_v4};
 
@@ -42,7 +42,8 @@ pub(crate) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Res
            name TEXT NOT NULL DEFAULT '',
            color TEXT NOT NULL,
            collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
-           saved_id TEXT
+           saved_id TEXT,
+           icon TEXT
          );
          CREATE TABLE IF NOT EXISTS screen_group_members (
            screen_id TEXT PRIMARY KEY NOT NULL,
@@ -55,9 +56,12 @@ pub(crate) fn create_screen_schema(transaction: &Transaction<'_>) -> anyhow::Res
            profile_id TEXT,
            members_json TEXT NOT NULL,
            position INTEGER NOT NULL CHECK(position >= 0),
-           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
+           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0),
+           icon TEXT
          );",
     )?;
+    add_icon_column(transaction, "screen_groups")?;
+    add_icon_column(transaction, "saved_screen_groups")?;
     if legacy_groups {
         transaction.execute_batch(
             "INSERT OR IGNORE INTO screen_groups(group_id, workspace_key, name, color, collapsed)
@@ -87,6 +91,16 @@ fn table_exists(connection: &Connection, table: &str) -> anyhow::Result<bool> {
     )?)
 }
 
+/// Additive: a group table an older build created has no icon column
+/// (`screen-group-icon-v1`). Older builds name their columns, so they keep
+/// reading and writing the table.
+fn add_icon_column(transaction: &Transaction<'_>, table: &str) -> anyhow::Result<()> {
+    if !table_has_column(transaction, table, "icon")? {
+        transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN icon TEXT;"))?;
+    }
+    Ok(())
+}
+
 fn table_has_column(connection: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns =
@@ -113,7 +127,7 @@ impl ScreenPresentationRecord {
             validate_presentation_color(color)?;
         }
         if let Some(icon) = &self.icon {
-            validate_presentation_icon(icon)?;
+            super::presentation_store::validate_icon_value(icon)?;
         }
         Ok(())
     }
@@ -127,11 +141,15 @@ pub struct ScreenGroupRecord {
     /// Stable key of the workspace whose screens the group holds.
     pub workspace_key: String,
     pub name: String,
-    /// One of the nine tab group colors.
+    /// One of the nine tab group colors or `#RRGGBB`.
     pub color: String,
     pub collapsed: bool,
     /// The saved screen group this live group syncs with.
     pub saved_id: Option<String>,
+    /// The group's icon (`screen-group-icon-v1`): the shared icon string,
+    /// one emoji, an SF Symbol name or a stored image or SVG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Every screen's presentation plus all screen groups and their members.
@@ -183,6 +201,9 @@ pub struct SavedScreenGroupRecord {
     pub profile_id: Option<String>,
     pub members: Vec<SavedScreenMember>,
     pub updated_at_ms: u64,
+    /// The saved group's icon (`screen-group-icon-v1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 pub fn new_screen_group_id() -> String {
@@ -196,7 +217,11 @@ pub fn new_saved_screen_group_id() -> String {
 fn validate_screen_group(group: &ScreenGroupRecord) -> anyhow::Result<()> {
     validate_workspace_group_id(&group.id)?;
     validate_tab_group_name(&group.name)?;
-    validate_tab_group_color(&group.color)
+    validate_tab_group_color(&group.color)?;
+    if let Some(icon) = &group.icon {
+        super::presentation_store::validate_icon_value(icon)?;
+    }
+    Ok(())
 }
 
 /// Replace every screen presentation, group, and membership row in the
@@ -211,6 +236,7 @@ pub(crate) fn write_screen_state(
     for group in state.groups.values() {
         validate_screen_group(group)?;
     }
+    require_new_screen_icons(transaction, state)?;
     transaction.execute("DELETE FROM screen_presentation", [])?;
     transaction.execute("DELETE FROM screen_groups", [])?;
     transaction.execute("DELETE FROM screen_group_members", [])?;
@@ -225,15 +251,16 @@ pub(crate) fn write_screen_state(
     }
     for group in state.groups.values() {
         transaction.execute(
-            "INSERT INTO screen_groups(group_id, workspace_key, name, color, collapsed, saved_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO screen_groups(group_id, workspace_key, name, color, collapsed, saved_id, icon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 group.id,
                 group.workspace_key,
                 group.name,
                 group.color,
                 i64::from(group.collapsed),
-                group.saved_id
+                group.saved_id,
+                group.icon
             ],
         )?;
     }
@@ -257,6 +284,40 @@ pub(crate) fn write_screen_state(
             .collect(),
         &json!({"screens": state}),
     )
+}
+
+/// Every screen and screen group icon this write adds must name a stored
+/// asset. Icons the tables already hold are not checked again: the whole
+/// tables are rewritten.
+fn require_new_screen_icons(
+    transaction: &Transaction<'_>,
+    state: &ScreenPresentationState,
+) -> anyhow::Result<()> {
+    let stored = stored_icons(transaction, &["screen_presentation", "screen_groups"])?;
+    let screens = state.screens.values().filter_map(|record| record.icon.as_ref());
+    let groups = state.groups.values().filter_map(|group| group.icon.as_ref());
+    for icon in screens.chain(groups) {
+        if !stored.contains(icon) {
+            super::personal_store::require_icon_asset(transaction, icon)?;
+        }
+    }
+    Ok(())
+}
+
+/// Every distinct icon the `icon` column of `tables` holds.
+pub(crate) fn stored_icons(
+    connection: &Connection,
+    tables: &[&str],
+) -> anyhow::Result<HashSet<String>> {
+    let mut stored = HashSet::new();
+    for table in tables {
+        let mut statement = connection
+            .prepare(&format!("SELECT DISTINCT icon FROM {table} WHERE icon IS NOT NULL"))?;
+        for icon in statement.query_map([], |row| row.get::<_, String>(0))? {
+            stored.insert(icon?);
+        }
+    }
+    Ok(stored)
 }
 
 pub(crate) fn read_screen_state(
@@ -285,7 +346,7 @@ pub(crate) fn read_screen_state(
         }
     }
     let mut statement = connection.prepare(
-        "SELECT group_id, workspace_key, name, color, collapsed, saved_id FROM screen_groups",
+        "SELECT group_id, workspace_key, name, color, collapsed, saved_id, icon FROM screen_groups",
     )?;
     let rows = statement.query_map([], |row| {
         Ok(ScreenGroupRecord {
@@ -295,6 +356,7 @@ pub(crate) fn read_screen_state(
             color: row.get(3)?,
             collapsed: row.get::<_, i64>(4)? != 0,
             saved_id: row.get(5)?,
+            icon: row.get(6)?,
         })
     })?;
     for row in rows {
@@ -316,7 +378,7 @@ pub(crate) fn read_screen_state(
     }
     // A group left without a live member (its screens closed while the
     // daemon was down) is gone.
-    let live: std::collections::HashSet<&String> = state.members.values().collect();
+    let live: HashSet<&String> = state.members.values().collect();
     let empty =
         state.groups.keys().filter(|id| !live.contains(id)).cloned().collect::<Vec<String>>();
     for id in empty {
@@ -329,7 +391,7 @@ pub(crate) fn read_saved_screen_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedScreenGroupRecord>> {
     let mut statement = connection.prepare(
-        "SELECT saved_id, name, color, profile_id, members_json, updated_at_ms
+        "SELECT saved_id, name, color, profile_id, members_json, updated_at_ms, icon
          FROM saved_screen_groups ORDER BY position ASC, saved_id ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -340,11 +402,12 @@ pub(crate) fn read_saved_screen_groups(
             row.get::<_, Option<String>>(3)?,
             row.get::<_, String>(4)?,
             row.get::<_, i64>(5)?,
+            row.get::<_, Option<String>>(6)?,
         ))
     })?;
     let mut saved = Vec::new();
     for row in rows {
-        let (id, name, color, profile_id, members, updated_at_ms) = row?;
+        let (id, name, color, profile_id, members, updated_at_ms, icon) = row?;
         saved.push(SavedScreenGroupRecord {
             id,
             name,
@@ -353,6 +416,7 @@ pub(crate) fn read_saved_screen_groups(
             members: serde_json::from_str(&members)
                 .context("saved screen group members are invalid")?,
             updated_at_ms: u64::try_from(updated_at_ms)?,
+            icon,
         });
     }
     Ok(saved)
@@ -393,8 +457,16 @@ impl WorkspaceRegistry {
         validate_workspace_group_id(&record.id)?;
         validate_tab_group_name(&record.name)?;
         validate_tab_group_color(&record.color)?;
+        if let Some(icon) = &record.icon {
+            super::presentation_store::validate_icon_value(icon)?;
+        }
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
+        if let Some(icon) = &record.icon
+            && !stored_icons(&tx, &["screen_groups", "saved_screen_groups"])?.contains(icon)
+        {
+            super::personal_store::require_icon_asset(&tx, icon)?;
+        }
         let position: i64 = tx.query_row(
             "SELECT COALESCE(
                (SELECT position FROM saved_screen_groups WHERE saved_id = ?1),
@@ -403,14 +475,15 @@ impl WorkspaceRegistry {
             |row| row.get(0),
         )?;
         tx.execute(
-            "INSERT INTO saved_screen_groups(saved_id, name, color, profile_id, members_json, position, updated_at_ms)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO saved_screen_groups(saved_id, name, color, profile_id, members_json, position, updated_at_ms, icon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(saved_id) DO UPDATE SET
                name = excluded.name,
                color = excluded.color,
                profile_id = excluded.profile_id,
                members_json = excluded.members_json,
-               updated_at_ms = excluded.updated_at_ms",
+               updated_at_ms = excluded.updated_at_ms,
+               icon = excluded.icon",
             params![
                 record.id,
                 record.name,
@@ -418,7 +491,8 @@ impl WorkspaceRegistry {
                 record.profile_id,
                 serde_json::to_string(&record.members)?,
                 position,
-                i64::try_from(record.updated_at_ms)?
+                i64::try_from(record.updated_at_ms)?,
+                record.icon
             ],
         )?;
         append_presentation_record(

@@ -1,3 +1,4 @@
+public import CmuxNextWakeups
 public import Foundation
 import Security
 
@@ -26,6 +27,13 @@ public nonisolated struct CuaHelperIdentity: Sendable {
         + " and certificate 1[field.1.2.840.113635.100.6.2.6]"
         + " and certificate leaf[field.1.2.840.113635.100.6.1.13]"
         + " and certificate leaf[subject.OU] = \"\(teamIdentifier)\""
+
+    /// Whether a CUA socket's server (read on the client's own connection, cx-l2ai) may get a
+    /// request and its token: a process of this user running a helper that satisfies
+    /// ``requirement`` (the helper identifier and the Developer ID of the team, by audit token).
+    public static func isHelperServer(_ peer: UnixSocketPeer) -> Bool {
+        peer.uid == geteuid() && peer.satisfies(requirement)
+    }
 
     /// Why no helper is usable.
     public enum Unavailable: Equatable, Sendable {

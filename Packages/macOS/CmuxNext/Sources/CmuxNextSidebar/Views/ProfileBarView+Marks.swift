@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import os
 
 // The marks of the space switcher (cx-5k3r): each space's icon, emoji or
@@ -16,6 +17,14 @@ extension ProfileBarView {
             let diameter = min(Metrics.roomDotDiameter - 2, rect.width - 2)
             NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2,
                                         width: diameter, height: diameter)).fill()
+            return
+        }
+        if let image = profile.image {
+            // A stored image or SVG keeps its own colors, at the symbol's size and the mark's opacity.
+            let side = min(Metrics.smallIconSize + Metrics.space1, rect.height - Metrics.space2)
+            NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
+                .draw(in: NSRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side),
+                      from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
             return
         }
         if let icon = profile.icon, profile.iconIsEmoji {
@@ -67,7 +76,7 @@ extension ProfileBarView {
     /// the sidebar chrome (less for the current space, so its color reads).
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
-        let base = profile.color?.swatch ?? Palette.textPrimary
+        let base = profile.color?.markColor ?? Palette.textPrimary
         return Self.markColor(base: base, step: Palette.stripStep, active: active)
     }
 
@@ -88,9 +97,22 @@ extension ProfileBarView {
     }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
+    /// The History dot (cx-zlnl): a clock, dim like the "+" until hovered.
+    func drawHistory(in rect: NSRect) {
+        // A compact strip's narrow slot gets a smaller clock, so it never overlaps the dots beside it.
+        let config = NSImage.SymbolConfiguration(pointSize: min(Metrics.smallIconSize - Metrics.space1, rect.width - 4), weight: .regular)
+        guard let image = NSImage(systemSymbolName: "clock", accessibilityDescription: Strings.history)?.withSymbolConfiguration(config) else { return }
+        let color = Palette.textPrimary.withAlphaComponent(hovered == Self.historyIndex ? 0.6 : 0.35)
+        let tinted = image.tinted(color.withAlphaComponent(1))
+        let size = tinted.size
+        tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height),
+                    from: .zero, operation: .sourceOver, fraction: color.alphaComponent)
+    }
+
+    // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space3, weight: .regular)
-        guard let image = NSImage(systemSymbolName: "plus", accessibilityDescription: Strings.newProfile)?.withSymbolConfiguration(config) else { return }
+        let image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space3))
+        image.accessibilityDescription = Strings.newProfile
         // Tint opaque, then draw at the dot's alpha: a translucent tint over
         // the black template would stay nearly black.
         let color = Palette.textPrimary.withAlphaComponent(hovered == Self.plusIndex ? 0.6 : 0.35)

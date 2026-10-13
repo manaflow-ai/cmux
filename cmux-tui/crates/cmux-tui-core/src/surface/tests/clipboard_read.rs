@@ -21,6 +21,7 @@ fn a_read_nobody_can_answer_is_refused_at_once() {
         SurfaceOptions::default(),
         Arc::downgrade(&mux),
         HostedSurfaceLaunch {
+            adopted: false,
             attachment,
             kitty_reservation: None,
             terminate_on_error: false,
@@ -71,6 +72,7 @@ fn a_cancel_after_the_reply_is_ignored() {
         SurfaceOptions::default(),
         Arc::downgrade(&mux),
         HostedSurfaceLaunch {
+            adopted: false,
             attachment,
             kitty_reservation: None,
             terminate_on_error: false,

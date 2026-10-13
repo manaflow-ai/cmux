@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -37,7 +38,7 @@ extension NotificationCenterService {
         }
         hold.timer.schedule(after: Self.programAlertWait) { @MainActor in finish(nil) }
         heldProgramAlerts[id] = Task { @MainActor in // task-owner: heldProgramAlerts, cancelled by finish
-            for await records in Observations({ tab.programStatus }) {
+            for await records in ObservationStream({ tab.programStatus }) {
                 if let found = ProgramStatusNotification.match(title: notification.title, body: notification.body,
                                                                 level: notification.level, records: records) {
                     finish(found)

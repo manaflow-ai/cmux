@@ -126,7 +126,9 @@ export function ChangedFilesTree({
           onInput={(event) => setFilter(event.currentTarget.value)}
         />
       </label>
-      {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">{t("changes.noMatchingFiles")}</div>}
+      {displayPaths.length === 0 && (
+        <div className="acpmux-diff-tree-empty">{t(filter.trim() ? "changes.noMatchingFiles" : "changes.none")}</div>
+      )}
       <div className="acpmux-diff-tree-motion" ref={motionRef}>
         <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
       </div>

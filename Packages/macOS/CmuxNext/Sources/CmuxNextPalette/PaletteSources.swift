@@ -37,6 +37,8 @@ public struct PaletteSources {
     /// Prefixes the user assigned (cmux.json `palette.scopes.<id>.prefix`):
     /// a character, or nil to turn a scope's prefix off. Read on every open.
     public var scopePrefixes: (@MainActor () -> [PaletteScopeID: String?])?
+    /// The user's aliases and pins (cmux.json `palette.aliases`, `palette.pins`). Read on every open.
+    public var rankSettings: (@MainActor () -> PaletteRankSettings)?
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,

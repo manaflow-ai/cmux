@@ -67,6 +67,12 @@ nonisolated public struct ReleaseNotesStore: Sendable {
         return data
     }
 
+    /// The checked media of these notes (cx-urd.61.1), cached beside them, fetched with a short
+    /// deadline; `bundledDirectories` hold the app's reviewed What's New media.
+    public func media(bundledDirectories: [URL]) -> ReleaseMediaStore {
+        ReleaseMediaStore(cache: cache.appending(path: "media", directoryHint: .isDirectory), bundledDirectories: bundledDirectories)
+    }
+
     /// Build numbers only: never a path.
     static func isSafeName(_ build: String) -> Bool {
         !build.isEmpty && build.allSatisfy { $0.isNumber || $0 == "." }

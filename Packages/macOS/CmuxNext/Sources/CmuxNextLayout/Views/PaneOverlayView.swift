@@ -71,8 +71,6 @@ final class PaneOverlayView: NSView {
     var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
     /// Whether the hairline border is showing (for `debug.layers`).
     var showsBorder: Bool { border.opacity > 0 }
-    /// Whether the attention ring is showing (for `debug.layers`).
-    var showsAttention: Bool { attentionMark != nil && attention.opacity > 0 }
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
@@ -108,15 +106,11 @@ final class PaneOverlayView: NSView {
         layoutLayers()
     }
 
-    /// The rect the border and ring trace (for tests and `debug.layers`).
-    var borderFrame: CGRect { border.frame }
     /// The rect the focus ring and glow trace, in this view's coordinates
     /// (for tests and `debug.layers`).
     var ringFrame: CGRect { ring.frame }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
-    /// The inactive dim's opacity (for tests).
-    var dimOpacity: Float { dimLayer.opacity }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
@@ -161,7 +155,7 @@ final class PaneOverlayView: NSView {
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
     /// Hides the overlay inside `rects` (its own coordinates): a docked
-    /// column covering this strip pane. Empty removes the mask.
+    /// column covering this strip pane, a pane in front of it. Empty removes the mask.
     func setExcluded(_ rects: [CGRect]) {
         let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
         guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
@@ -173,12 +167,11 @@ final class PaneOverlayView: NSView {
             return
         }
         let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-        let path = CGMutablePath()
-        path.addRect(bounds)
-        for rect in rects { path.addRect(rect) }
+        // Subtracted, not even-odd: a docked column and a pane in front can overlap.
+        let path = rects.reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(CGPath(rect: $1, transform: nil)) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.fillRule = .evenOdd
+        mask.fillRule = .nonZero
         mask.frame = bounds
         mask.path = path
         CATransaction.commit()
@@ -199,10 +192,25 @@ final class PaneOverlayView: NSView {
         // A ring that rests invisible (the flash look) keeps the border.
         let marksAttention = mark != nil && attentionSettings.style != .none
             && Motion.attentionRestingOpacity(attentionSettings, look: AttentionHighlightLook.tunable.value) > 0
+        // Focus moving between panes never crossfades two rings (cx-f6i7): a
+        // ring or glow leaving goes at once and the one arriving eases in, as
+        // a hover fill does; the plain border comes back at once under a ring
+        // that leaves and fades under one that arrives. The dim is one pane's
+        // state and fades both ways.
+        let targets: [(CALayer, Float)] = [
+            (ring, style == .ring ? 1 : 0), (glowClip, style == .glow ? 1 : 0),
+            (border, showsBorder && style == .none && !marksAttention ? 1 : 0),
+        ]
+        // Split before either write: once a leaving layer is set, it no longer reads as leaving.
+        let leaving = targets.map { layer, value in layer === border ? value > layer.opacity : value < layer.opacity }
+        Motion.transaction(nil) {
+            for ((layer, value), leaves) in zip(targets, leaving) where leaves {
+                layer.removeAnimation(forKey: "opacity")
+                layer.opacity = value
+            }
+        }
         Motion.transaction(animated ? .focus : nil) {
-            ring.opacity = style == .ring ? 1 : 0
-            glowClip.opacity = style == .glow ? 1 : 0
-            border.opacity = showsBorder && style == .none && !marksAttention ? 1 : 0
+            for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
             dimLayer.opacity = Float(dim)
         }
         applyAttention(mark, animated: animated)

@@ -69,7 +69,7 @@ nonisolated enum HostTypoFixup {
 nonisolated enum TopLevelDomains {
     private static let all: Set<String> = {
         guard let url = Bundle.module.url(forResource: "TopLevelDomains", withExtension: "txt"),
-              // concurrency-allow: a 10 KB bundled file, read once, and only after Enter on a typed host whose last label is in the typo table.
+              // concurrency-allow: a 10 KB bundled file, read once: after Enter on a typed host whose last label is in the typo table, or off the main thread for a Cmd-clicked terminal link.
               let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
         return Set(contents.split(whereSeparator: \.isNewline).lazy
             .filter { !$0.hasPrefix("#") }
@@ -80,6 +80,11 @@ nonisolated enum TopLevelDomains {
     static func contains(_ label: String) -> Bool {
         all.contains(label.lowercased())
     }
+}
+
+public extension String {
+    /// This label (any case, ASCII or punycode) is a delegated top-level domain (``TopLevelDomains``).
+    nonisolated var isTopLevelDomain: Bool { TopLevelDomains.contains(self) }
 }
 
 /// Typed hosts the omnibar already fixed. Typing one again means the user

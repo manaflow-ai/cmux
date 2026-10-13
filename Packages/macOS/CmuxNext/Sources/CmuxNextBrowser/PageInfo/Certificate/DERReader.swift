@@ -7,8 +7,6 @@ nonisolated struct DERElement: Hashable, Sendable {
     let encoded: Data
     let content: Data
 
-    var isConstructed: Bool { tag & 0x20 != 0 }
-
     /// Child elements of a constructed element (SEQUENCE, SET, explicit tags).
     func children() throws(DERError) -> [DERElement] {
         var reader = DERReader(content)

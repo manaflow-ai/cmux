@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -15,23 +16,22 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newBelow", run: { try create(context, $0) { .below($0.id) } })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
-        registry.bind("workspace.newInGroup", run: { invocation in
-            try create(context, invocation) { workspace in
-                guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-                return .endOfGroup(group.id)
-            }
+        // Its directory, its place (below it, so in its group) and its first tab's kind
+        // (cmuxterm-hq#1829); also what New Workspace in This Group and in Same Directory ran.
+        registry.bind("workspace.newLikeThis", run: { invocation in
+            let anchor = try context.workspace(invocation).model
+            let cwd = directory(of: anchor, context)
+            let first = firstTab(like: anchor, cwd: cwd, user: invocation.origin == .user, context)
+            try spawn(context, anchor: anchor, cwd: cwd, slot: .below(anchor.id), newTabPage: first.newTabPage, firstChat: first.chat)
         })
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
             let byUser = invocation.origin == .user
+            // The group forms last in its section in one write, where the store lists a new
+            // group, not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             try create(context, invocation, anchorFree: nil) { id, bridge in
-                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser)
+                bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: .max)
             }
-        })
-        registry.bind("workspace.newInSameDirectory", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noDirectory) }
-            try create(context, invocation, cwd: cwd) { .below($0.id) }
         })
         registry.bind("workspace.newOnMachine", run: { invocation in
             guard let machine = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue,
@@ -94,7 +94,8 @@ enum WorkspaceVerbHandlers {
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
-                              newTabPage: Bool, then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+                              newTabPage: Bool, firstChat: AgentPaneSeed? = nil,
+                              then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
         let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
@@ -104,6 +105,7 @@ enum WorkspaceVerbHandlers {
         // `then` places it itself (New Workspace in New Group): no second write.
         spawn.placesBySetting = then == nil
         spawn.opensNewTabPage = newTabPage
+        spawn.firstChat = firstChat
         let daemon = anchor.flatMap { context.services.machines.daemon(forWorkspace: $0.id) }
         context.services.registry.track(Task {
             do {
@@ -115,17 +117,39 @@ enum WorkspaceVerbHandlers {
         })
     }
 
+    /// The first tab of a workspace like `anchor`, by the kind of its first tab: a terminal, the
+    /// New Tab page or a new agent chat in `cwd`. A browser tab has no first-tab spawn: the
+    /// New Tab page for a person, else a terminal, as for an empty workspace.
+    private static func firstTab(like anchor: WorkspaceModel, cwd: String?, user: Bool,
+                                 _ context: AppActionContext) -> (newTabPage: Bool, chat: AgentPaneSeed?) {
+        guard let tab = anchor.screens.first?.panes.first?.tabs.first else { return (user, nil) }
+        switch NewTabKind.of(tab.id, tab: tab, services: context.services) {
+        case .terminal: return (false, nil)
+        case .page: return (true, nil)
+        case .agent: return (false, AgentPaneSeed(cwd: cwd))
+        case .browser: return (user, nil)
+        }
+    }
+
     // MARK: Place
 
     /// Moves the target workspace to `slot` in its window's sidebar, with
     /// the sidebar's optimistic update.
     private static func place(_ context: AppActionContext, _ invocation: ActionInvocation, _ slot: (WorkspaceModel) -> WorkspaceSlot) throws {
         let workspace = try context.workspace(invocation).model
-        let bridge = try sidebar(showing: workspace, context)
-        guard let machine = context.services.machines.daemon(forWorkspace: workspace.id)?.machineID,
-              let position = slot(workspace).position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        guard place(workspace, slot(workspace), in: try sidebar(showing: workspace, context), services: context.services)
         else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+    }
+
+    /// Moves `workspace` to `slot` in `bridge`'s sidebar, as the Move
+    /// Workspace verbs do; false when that sidebar does not list it.
+    @discardableResult
+    static func place(_ workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge, services: AppServices) -> Bool {
+        guard let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID,
+              let position = slot.position(moving: [workspace.id], section: .machine(MachineID(machine)), in: bridge.model.sections)
+        else { return false }
         bridge.handle(.reorder([SidebarWorkspaceID(workspace.id)], to: position))
+        return true
     }
 
     /// The sidebar of the window that lists `workspace`, else the active one.

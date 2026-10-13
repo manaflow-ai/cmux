@@ -46,13 +46,13 @@ extension TabStripView {
 
         let animated = hasSynced && !reduceMotion && animating
         let ids = Set(ordered.map(\.id))
+        if hasSynced { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
                 dying.insert(id)
                 motion[id]?.width.target = 0
                 motion[id]?.alpha.target = 0
-                cell.showsSeparator = false
-                cell.isHovered = false
+                cell.beginClosing()
             } else {
                 removeTab(id)
             }

@@ -13,10 +13,22 @@ final class PageInstallCounter {
 
 /// What incognito pages keep in memory for the omnibar: their own history
 /// and suggestions, never mixed with the normal ones. The history has no
-/// persistence, so its index lives in memory only.
-struct IncognitoPageMemory {
+/// persistence, so its index lives in memory only. Bookmark rows come from
+/// the default profile (plans/cmux-next/bookmarks.md section 2).
+final class IncognitoPageMemory {
     let history = InMemoryBrowserHistory()
     let suggestions: OmniboxSuggestionEngine
+    private var announced = false
+
+    /// The engine, handed to `announce` (the bookmark feed of
+    /// `onSuggestionEngineCreated`) the first time only.
+    func announcedSuggestions(_ announce: (OmniboxSuggestionEngine) -> Void) -> OmniboxSuggestionEngine {
+        if !announced {
+            announced = true
+            announce(suggestions)
+        }
+        return suggestions
+    }
 
     init() {
         suggestions = OmniboxSuggestionEngine(history: history)

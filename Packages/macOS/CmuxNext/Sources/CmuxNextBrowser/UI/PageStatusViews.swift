@@ -61,7 +61,10 @@ final class PageStatusViews {
         } else if !goneView.isHidden {
             goneView.isHidden = true
         }
-        if state.processExit == nil, let error = state.loadError {
+        // Both engines: cmux's error page or certificate warning over the
+        // error page Chromium commits under it, except Chromium's
+        // interstitial after Proceed handed it the decision.
+        if state.processExit == nil, let error = state.loadError, !error.engineShowsPage {
             errorView.show(error)
         } else if !errorView.isHidden {
             errorView.isHidden = true

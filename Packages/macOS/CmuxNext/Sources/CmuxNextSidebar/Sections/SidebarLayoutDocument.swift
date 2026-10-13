@@ -98,7 +98,7 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// first-party apps Home and the App Store as plain rows on top (app
     /// items, R63/R64: apps like any other, from their manifests; Lawrence
     /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, the
-    /// recent agent chats (`recentsSection`), then the footer: one leading
+    /// footer (All chats is on the New Tab page, cx-n0i9): one leading
     /// control, the current profile's avatar with a chevron that opens the
     /// profile menu (Settings is in it and on ⌘,; SIDEBAR-FOOTER-AND-SPACE-MENU
     /// amendment 2, Lawrence 2026-10-07). Pinned

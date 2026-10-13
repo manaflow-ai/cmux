@@ -52,7 +52,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
         ? has("[data-ordered-choices]")
           ? null
           : "no ordered choice list"
-        : "a kind the cmux-next page never renders";
+        : has("input.token-input")
+          ? null
+          : "no token field";
     case "number_list":
     case "string_map":
       return "a kind the cmux-next page never renders";
@@ -68,6 +70,17 @@ describe("editors", () => {
         // The Theme section draws appearance.theme as its theme picker.
         if (row.key === "appearance.theme" || row.key === "appearance.appTheme") {
           if (!page.container.querySelector("[data-theme-picker]")) failures.push(`${row.key}: no theme picker`);
+          continue;
+        }
+        // Change Background…'s art picker draws appearance.background as its tiles.
+        if (row.key === "appearance.background") {
+          if (!page.container.querySelector('[data-card="backdrop"] .backdrop-tile'))
+            failures.push(`${row.key}: no art picker`);
+          continue;
+        }
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
+        if (row.key === "appearance.themeEdits") {
+          if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }
         const element = page.container.querySelector(`[data-row-key="${row.key}"] .row-control`);
@@ -312,8 +325,8 @@ describe("editors", () => {
   test("a section's own buttons run their actions; Advanced resets all after a confirm", async () => {
     page = await renderPage({ path: "/settings/general" });
     await settle();
-    await click(page.container.querySelector('[data-action="palette.welcomeChecklist"]')!);
-    expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.welcomeChecklist" }]);
+    await click(page.container.querySelector('[data-action="palette.makeDefaultTerminal"]')!);
+    expect(ops(page.provider, "cmux.app.action.run")).toEqual([{ action: "palette.makeDefaultTerminal" }]);
     page.unmount();
     page = await renderPage({ path: "/settings/advanced" });
     await click(page.container.querySelector("[data-reset-all]")!);

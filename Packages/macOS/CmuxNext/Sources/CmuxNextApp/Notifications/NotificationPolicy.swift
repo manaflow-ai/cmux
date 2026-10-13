@@ -43,6 +43,8 @@ enum NotificationPolicy {
         var minuteOfDay = 12 * 60
         /// Seconds since the last keystroke in the notifying pane, if any.
         var typedAgo: Double?
+        /// The poster allows a banner (false for `notify --desktop false`).
+        var bannerAllowed = true
     }
 
     struct Decision: Hashable, Sendable {
@@ -50,6 +52,9 @@ enum NotificationPolicy {
         var acknowledge = false
         /// Draw the pane attention ring.
         var attention = true
+        /// It would alert (banner) were the poster not asking for none:
+        /// the phone push follows this, as classic's did.
+        var alerts = false
         var desktop = false
         /// The sound to play, nil for none.
         var sound: String?
@@ -74,12 +79,13 @@ enum NotificationPolicy {
         if arrival.workspaceMuted { decision.attention = false }
         if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
             switch prefs.desktop {
-            case .always: decision.desktop = true
-            case .unlessFocused: decision.desktop = !arrival.paneIsViewed
-            case .whenInactive: decision.desktop = !arrival.appActive
-            case .never: decision.desktop = false
+            case .always: decision.alerts = true
+            case .unlessFocused: decision.alerts = !arrival.paneIsViewed
+            case .whenInactive: decision.alerts = !arrival.appActive
+            case .never: decision.alerts = false
             }
         }
+        decision.desktop = decision.alerts && arrival.bannerAllowed
         let sound = prefs.sound(for: arrival.source)
         if !arrival.workspaceMuted && !quiet && !arrival.paneIsViewed && sound != "none" {
             decision.sound = sound

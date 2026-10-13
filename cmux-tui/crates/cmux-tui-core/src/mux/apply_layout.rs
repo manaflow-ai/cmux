@@ -28,7 +28,7 @@ impl Mux {
                     None,
                     WorkspacePublicId::random()?,
                     &WorkspaceMutation::local("cmux-tui-layout-workspace", actor.clone()),
-                    false,
+                    crate::state::home_store::EmptyWorkspaceMark::None,
                 )?
                 .workspace,
                 true,

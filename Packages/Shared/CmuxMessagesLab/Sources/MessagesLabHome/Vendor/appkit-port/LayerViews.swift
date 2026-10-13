@@ -41,7 +41,7 @@ class UIView: NSObject, CALayerDelegate {
         layer.delegate = self
         layer.contentsScale = DisplayScale.current
         layer.frame = frame
-        if overridesDraw { layer.setNeedsDisplay() }
+        if overridesDraw { setNeedsDisplay() }
     }
     override convenience init() { self.init(frame: .zero) }
 
@@ -77,7 +77,7 @@ class UIView: NSObject, CALayerDelegate {
             if v.autoresizingMask.contains(.flexibleHeight) { f.size.height += dh }
             v.frame = f
         }
-        if contentMode == .redraw { layer.setNeedsDisplay() }
+        if contentMode == .redraw { setNeedsDisplay() }
     }
 
     var backgroundColor: UIColor? { didSet { layer.backgroundColor = backgroundColor?.cgColor } }
@@ -87,7 +87,10 @@ class UIView: NSObject, CALayerDelegate {
     }
     var isHidden: Bool {
         get { layer.isHidden }
-        set { layer.isHidden = newValue }
+        set {
+            layer.isHidden = newValue
+            if !newValue { showPendingDisplay() }
+        }
     }
     var clipsToBounds: Bool {
         get { layer.masksToBounds }
@@ -105,6 +108,7 @@ class UIView: NSObject, CALayerDelegate {
         subviews.append(v)
         v.superview = self
         layer.addSublayer(v.layer)
+        v.showPendingDisplay()
     }
     func insertSubview(_ v: UIView, belowSubview sibling: UIView) {
         v.removeFromSuperview()
@@ -112,6 +116,7 @@ class UIView: NSObject, CALayerDelegate {
         subviews.insert(v, at: i)
         v.superview = self
         layer.insertSublayer(v.layer, below: sibling.layer)
+        v.showPendingDisplay()
     }
     func insertSubview(_ v: UIView, aboveSubview sibling: UIView) {
         v.removeFromSuperview()
@@ -119,6 +124,7 @@ class UIView: NSObject, CALayerDelegate {
         subviews.insert(v, at: i)
         v.superview = self
         layer.insertSublayer(v.layer, above: sibling.layer)
+        v.showPendingDisplay()
     }
     func removeFromSuperview() {
         guard let s = superview else { return }
@@ -159,7 +165,24 @@ class UIView: NSObject, CALayerDelegate {
     // MARK: Drawing
 
     @objc dynamic func draw(_ rect: CGRect) {}
-    func setNeedsDisplay() { layer.setNeedsDisplay() }
+    /// A hidden view (or one under a hidden view) is not drawn: Core Animation draws a layer that
+    /// needs display in the commit even when it is hidden (a .redraw view hidden in the live window
+    /// was drawn again at every width of a live resize). The request is kept and the view is drawn
+    /// when it is shown again (isHidden false here or on an ancestor, or added under a shown view).
+    func setNeedsDisplay() {
+        if isHiddenInTree { pendingDisplay = true } else { pendingDisplay = false; layer.setNeedsDisplay() }
+    }
+    private var pendingDisplay = false
+    private var isHiddenInTree: Bool {
+        var v: UIView? = self
+        while let x = v { if x.layer.isHidden { return true }; v = x.superview }
+        return false
+    }
+    private func showPendingDisplay() {
+        guard !layer.isHidden else { return }
+        if pendingDisplay, !isHiddenInTree { pendingDisplay = false; layer.setNeedsDisplay() }
+        for v in subviews { v.showPendingDisplay() }
+    }
 
     var overridesDraw: Bool {
         let sel = #selector(UIView.draw(_:))

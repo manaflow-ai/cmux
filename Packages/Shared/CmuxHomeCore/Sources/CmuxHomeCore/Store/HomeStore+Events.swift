@@ -82,7 +82,7 @@ extension HomeStore {
                 let next = self.pendingResends.removeFirst()
                 // Cancelled or dropped since it was queued.
                 guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
-                if case .sendMessage(let conversation, _) = next.op {
+                if case .sendMessage(let conversation, _, _) = next.op {
                     await self.waitForTurn(next.key, in: conversation)
                     guard self.log.entries.contains(where: { $0.intent.key == next.key }), !self.stopped else { continue }
                 }
@@ -132,9 +132,19 @@ extension HomeStore {
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }
             typing[id] = set.isEmpty ? nil : set
+            if !on, draftBook.typingOff(id, who) { drafts = draftBook.live }
             rebuildRows()
+        case .draft(let update):
+            if draftBook.apply(update) { drafts = draftBook.live }
         default:
             let outcome = mirror.apply(event)
+            switch event {
+            case .inbox(let snapshot): confirm(snapshot.conversations.map(\.id))
+            case .conversationChanged(let summary, _, _): confirm([summary.id])
+            case .message(let message, _): confirm([message.conversation])
+            case .conversationPage(let page): confirm([page.conversation.id])
+            default: break
+            }
             switch event {
             case .inbox(let snapshot):
                 me = snapshot.me
@@ -145,6 +155,8 @@ extension HomeStore {
                 log.dropIntents(outside: Set(mirror.conversations.keys))
                 dropOrphanUploadJobs()
             case .message(let message, _):
+                // The posted reply ends its draft in the same change.
+                if draftBook.posted(message) { drafts = draftBook.live }
                 bumpTranscript(message.conversation)
             case .conversationPage(let page):
                 bumpTranscript(page.conversation.id)
@@ -177,6 +189,7 @@ extension HomeStore {
         defer { refetching.remove(stream) }
         guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
         let behind = mirror.apply(inbox: snapshot)
+        confirm(snapshot.conversations.map(\.id))
         me = snapshot.me
         settle()
         rebuildRows()

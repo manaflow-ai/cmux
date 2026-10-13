@@ -280,13 +280,81 @@ async function checkBase(ctx: Ctx): Promise<void> {
   if (problems.length > 0) throw new Error(`base does not match the lock:\n${problems.join("\n")}`);
 }
 
+/**
+ * One download-only batch: about 20 MB, so a batch ends well inside the guest agent's
+ * 5-minute exec cap at the slowest locked-mirror rate seen (snapshot.ubuntu.com, about
+ * 110 KB/s on 2026-10-12, bead cx-w6u84). A package larger than this is a batch alone.
+ */
+export const APT_BATCH_BYTES = 20_000_000;
+
+/** `pkg=version size` for every locked package, from the updated apt index (Size: field). */
+export function aptSizesCommand(packages: Readonly<Record<string, string>>): string {
+  return `apt-cache show --no-all-versions ${aptPinArgs(packages)} | awk '/^Package: /{p=$2} /^Version: /{v=$2} /^Size: /{print p "=" v " " $2}'`;
+}
+
+export function parseAptSizes(stdout: string): Map<string, number> {
+  const sizes = new Map<string, number>();
+  for (const line of stdout.trim().split("\n")) {
+    const [pin, size] = line.trim().split(" ");
+    if (pin && size && /^\d+$/.test(size)) sizes.set(pin, Number(size));
+  }
+  return sizes;
+}
+
+/** Greedy batches in name order; every locked pin must have a size (the index has that exact version). */
+export function aptDownloadBatches(
+  packages: Readonly<Record<string, string>>,
+  sizes: ReadonlyMap<string, number>,
+  maxBytes = APT_BATCH_BYTES,
+): Array<{ pins: string[]; bytes: number }> {
+  const batches: Array<{ pins: string[]; bytes: number }> = [];
+  let current: { pins: string[]; bytes: number } = { pins: [], bytes: 0 };
+  for (const [name, version] of Object.entries(packages).sort(([a], [b]) => a.localeCompare(b))) {
+    const pin = `${name}=${version}`;
+    const size = sizes.get(pin);
+    if (size === undefined) throw new Error(`apt index has no size for ${pin}`);
+    if (current.pins.length > 0 && current.bytes + size > maxBytes) {
+      batches.push(current);
+      current = { pins: [], bytes: 0 };
+    }
+    current.pins.push(pin);
+    current.bytes += size;
+  }
+  if (current.pins.length > 0) batches.push(current);
+  return batches;
+}
+
+/**
+ * Download one batch into the apt cache with `apt-get download` (exactly these pins, no
+ * dependency resolution). Safe to re-run: a .deb already in the cache that dpkg-deb can read
+ * is kept, a broken one is removed and fetched again. The offline install verifies hashes.
+ */
+export function aptDownloadBatchCommand(pins: readonly string[]): string {
+  return [
+    "cd /var/cache/apt/archives || exit 1",
+    "need=''",
+    `for p in ${pins.map(sq).join(" ")}; do n=\${p%%=*}; e=$(printf %s "\${p#*=}" | sed 's/:/%3a/g'); f=$(ls "\${n}_\${e}_"*.deb 2>/dev/null | head -1); if [ -n "$f" ] && dpkg-deb --info "$f" >/dev/null 2>&1; then continue; fi; rm -f "\${n}_\${e}_"*.deb; need="$need $p"; done`,
+    `if [ -n "$need" ]; then apt-get download $need >/tmp/apt-dl.log 2>&1 || { tail -40 /tmp/apt-dl.log; exit 1; }; fi`,
+    `echo "fetched $(echo $need | wc -w) of ${pins.length}"`,
+  ].join("; ");
+}
+
 async function installApt(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
   const { ubuntu, pgdg } = lock.apt;
   await L.step(vm, "apt-sources-snapshot", "cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/ubuntu.sources.live");
   await writeGuestFile(vm, "/etc/apt/sources.list.d/ubuntu.sources", ubuntuSourcesFile(ubuntu), 0o644);
   await L.step(vm, "apt-update", "apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }");
-  await L.step(vm, "apt-install-ubuntu", `apt-get install -y --no-install-recommends ${aptPinArgs(ubuntu.packages)} >/tmp/apt.log 2>&1 || { tail -40 /tmp/apt.log; exit 1; }; grep -c '^Setting up' /tmp/apt.log`);
+  // The locked mirror can be too slow for one 5-minute exec (the guest agent's cap), so the
+  // closure is downloaded in batches of about APT_BATCH_BYTES, each its own step, then
+  // installed offline (--no-download) from the apt cache.
+  const sizes = parseAptSizes(await L.step(vm, "apt-sizes", aptSizesCommand(ubuntu.packages)));
+  const batches = aptDownloadBatches(ubuntu.packages, sizes);
+  L.log(`apt download: ${Object.keys(ubuntu.packages).length} packages, ${batches.length} batches: ${batches.map((b) => `${b.pins.length} pkgs ${(b.bytes / 1e6).toFixed(1)} MB`).join(", ")}`);
+  for (const [i, batch] of batches.entries()) {
+    await L.step(vm, `apt-download-${i + 1}-of-${batches.length}`, aptDownloadBatchCommand(batch.pins));
+  }
+  await L.step(vm, "apt-install-ubuntu", `apt-get install -y --no-install-recommends --no-download ${aptPinArgs(ubuntu.packages)} >/tmp/apt.log 2>&1 || { tail -40 /tmp/apt.log; exit 1; }; grep -c '^Setting up' /tmp/apt.log`);
   // postgresql-common would create and start a 17/main cluster on install; the image carries binaries only.
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);

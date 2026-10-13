@@ -9,6 +9,8 @@ public import Foundation
 /// (`RemoteRdLoopbackEndpoint`), so the address is a port on 127.0.0.1.
 /// `secret_file` names the private file with the host's secret
 /// (`RemoteBrowserSecretFile`); the record never holds the secret itself.
+/// `machine` (cx-2cob slice 2) puts the loopback address on that machine:
+/// the app reaches it over the machine's daemon link (`loopback-forward-v1`).
 public nonisolated struct RemoteBrowserTabRecord: Sendable, Hashable {
     public static let scheme = "cmux"
     public static let urlHost = "remote-browser"
@@ -18,18 +20,21 @@ public nonisolated struct RemoteBrowserTabRecord: Sendable, Hashable {
     public let initialURL: URL?
     /// The absolute path of the host's secret file, if the tab names one.
     public let secretFile: String?
+    /// The machine whose loopback has the host; nil: this Mac.
+    public let machine: String?
 
     /// `secretFile` is an absolute path (a record's own `secretFile`).
-    public init(endpoint: RemoteRdLoopbackEndpoint, initialURL: URL? = nil, secretFile: String? = nil) {
+    public init(endpoint: RemoteRdLoopbackEndpoint, initialURL: URL? = nil, secretFile: String? = nil, machine: String? = nil) {
         self.endpoint = endpoint
         self.initialURL = initialURL
         self.secretFile = secretFile
+        self.machine = machine.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Accepts `PORT`, `127.0.0.1:PORT` and `localhost:PORT` (whitespace
     /// trimmed); nil for any other host or a privileged port, or for a
     /// `secretFile` that is not an absolute path after `~` expansion.
-    public init?(address: String, initialURL: URL? = nil, secretFile: String? = nil) {
+    public init?(address: String, initialURL: URL? = nil, secretFile: String? = nil, machine: String? = nil) {
         let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
         let portText: Substring
@@ -45,6 +50,7 @@ public nonisolated struct RemoteBrowserTabRecord: Sendable, Hashable {
         self.endpoint = endpoint
         self.initialURL = initialURL
         self.secretFile = path
+        self.machine = machine.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     public init?(url: URL) {
@@ -52,7 +58,8 @@ public nonisolated struct RemoteBrowserTabRecord: Sendable, Hashable {
               let address = items.first(where: { $0.name == "address" })?.value else { return nil }
         let first = items.first(where: { $0.name == "url" })?.value.flatMap(URL.init(string:))
         self.init(address: address, initialURL: first.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil },
-                  secretFile: items.first(where: { $0.name == "secret_file" })?.value)
+                  secretFile: items.first(where: { $0.name == "secret_file" })?.value,
+                  machine: items.first(where: { $0.name == "machine" })?.value)
     }
 
     public static func matches(_ url: URL?) -> Bool {
@@ -68,6 +75,7 @@ public nonisolated struct RemoteBrowserTabRecord: Sendable, Hashable {
         components.queryItems = [URLQueryItem(name: "address", value: address)]
             + (initialURL.map { [URLQueryItem(name: "url", value: $0.absoluteString)] } ?? [])
             + (secretFile.map { [URLQueryItem(name: "secret_file", value: $0)] } ?? [])
+            + (machine.map { [URLQueryItem(name: "machine", value: $0)] } ?? [])
         // Every part is a plain host, port or percent-encoded query.
         return components.url ?? URL(fileURLWithPath: "/")
     }

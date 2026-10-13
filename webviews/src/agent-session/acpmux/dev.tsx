@@ -1,6 +1,8 @@
 // Dev server entry (vite.config.acpmux-pane.mjs): the bundled pane inlines
 // these stylesheets (scripts/cmux-next/build-agent-pane-web.sh); here Vite
 // serves them with hot reload.
+// desktop.css first, as in the bundle: it defines the popup surface (--surface-popup) and type scale.
+import "../../pages/shared/desktop.css";
 import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "./styles.css";
@@ -21,6 +23,7 @@ import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
 import "./newtab/screen.css";
+import "./newtab/history.css";
 import "./threadMinimap/threadMinimap.css";
 import { devHostParams, installDevHost } from "../../dev-host/host";
 import { seedDevRecents } from "./devRecents";

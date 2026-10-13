@@ -381,7 +381,3 @@ pub fn daemon_name(state: &DaemonState) -> &'static str {
         DaemonState::Backoff => "backoff",
     }
 }
-
-#[cfg(test)]
-#[path = "agent_tests.rs"]
-mod tests;

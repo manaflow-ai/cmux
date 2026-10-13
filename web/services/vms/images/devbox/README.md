@@ -90,6 +90,10 @@ writes):
   `repoCommit` (read from git) against this checkout's. Anything else is
   kept and reported; a rebake is the only other way up.
 
+A source change that landed before its bake is listed in `DEVBOX_AWAITING_REBAKE` (`devbox-image-common.ts`), which
+excuses exactly that drift for `devbox:manifest:check` and the manifest test, never for `promote`;
+the promotion that bakes those sources deletes the entry.
+
 Rollback is therefore a revert of the promotion commit as a whole, never the
 manifest flags alone.
 

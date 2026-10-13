@@ -90,7 +90,6 @@ public final class FeedModel {
     }
 
     public var listSections: FeedListSections { FeedListSections(items: visibleItems, now: now) }
-    public var inboxGroups: FeedInboxGroups { FeedInboxGroups(items: visibleItems, now: now) }
     public var menubarItems: [FeedItem] { FeedOrder.menubar(visibleItems, now: now) }
     public var counts: FeedCounts { FeedCounts(items: visibleItems, now: now) }
 

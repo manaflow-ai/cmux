@@ -5,6 +5,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { testBundles } from "../src/code-run.ts"
 import { fireAlarm } from "./setup/alarm.ts"
+// Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /** Slice 3 (plans/cmux-next/automations-plan.md): Tier 1 code runs in a Dynamic Worker, metered and capped. */
 
@@ -195,4 +196,17 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
   })
 
+  it("fails with code.not_found when the bundle is missing, and the tenant has no network", async () => {
+    const missing = await runOnce("code-run-4", sha(4), "", async () => {
+      testBundles.delete(`${sha(4)}:automations/digest`)
+    })
+    expect(missing.run).toMatchObject({ state: "failed", error: { code: "code.not_found" } })
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint {
+        async run(event, step) { await step.do("fetch", { retries: { limit: 0, delay: 1 } }, async () => (await fetch("https://example.com")).status); }
+      }`
+    const { run } = await runOnce("code-run-5", sha(5), bundle)
+    expect(run.state).toBe("failed")
+  })
 })

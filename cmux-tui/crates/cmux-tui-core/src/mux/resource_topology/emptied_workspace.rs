@@ -96,6 +96,19 @@ impl Mux {
         projected: &mut State,
         notifications: Option<&TreeDecorations>,
     ) -> anyhow::Result<Option<EmptiedWorkspaceClose>> {
+        self.close_emptied_workspaces_with_locked(registry, before, projected, notifications, &[])
+    }
+
+    /// The same, also closing each of `bare`, workspaces that had no tab
+    /// before (a deleted space's, SPACE-DELETE-CLOSES-ITS-WORKSPACES).
+    pub(super) fn close_emptied_workspaces_with_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        before: &State,
+        projected: &mut State,
+        notifications: Option<&TreeDecorations>,
+        bare: &[WorkspaceId],
+    ) -> anyhow::Result<Option<EmptiedWorkspaceClose>> {
         if self.provider_managed.load(Ordering::Acquire) {
             return Ok(None);
         }
@@ -103,7 +116,7 @@ impl Mux {
             .workspaces
             .iter()
             .enumerate()
-            .filter(|(_, workspace)| !workspace.screens.is_empty())
+            .filter(|(_, workspace)| !workspace.screens.is_empty() || bare.contains(&workspace.id))
             .filter(|(_, workspace)| {
                 projected
                     .workspace_index(workspace.id)

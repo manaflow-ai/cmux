@@ -1,25 +1,27 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// New Message: pick people from the user's contacts (team members and
 /// connected people) or type an email address, optionally name a group,
 /// and start. One person opens the DM (`dm.open`); several make a group
 /// (`conversation.create`); an address gets an invite. When the owner says
 /// a person cannot be reached, the sheet offers Invite by Email.
-public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
+public final class HomeComposeSheet: HomeSheetController, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
     public var onStart: ([HomeRecipient], String) async -> HomeComposeOutcome = { _, _ in .offline }
     /// Invite by Email after a refusal; the text is a prefill (may be empty).
     public var onInviteInstead: (String) -> Void = { _ in }
 
-    let search = NSSearchField()
+    let search = HomeSheetController.field(placeholder: HomeConversationStrings.composeSearch, identifier: "cmux.home.compose.search")
     let table = NSTableView()
     let scroll = NSScrollView()
-    let toLabel = NSTextField(labelWithString: "")
+    let toLabel = ThemedLabel(labelWithString: "")
     /// Says how to reach someone when the user has no teammates or contacts yet.
-    let emptyLabel = NSTextField(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
+    let emptyLabel = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
     let groupName = HomeSheetController.field(placeholder: HomeConversationStrings.composeGroupName, identifier: "cmux.home.compose.group")
-    let inviteButton = NSButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
+    private lazy var groupBox = Self.boxed(groupName)
+    let inviteButton = ThemedBezelButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
     private let contacts: [HomeContact]
     private(set) var chosen: [HomeRecipient] = []
     /// The rows under the search field: a typed address first, then contacts.
@@ -31,13 +33,8 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
     }
 
     override func addContent(to stack: NSStackView) {
-        search.placeholderString = HomeConversationStrings.composeSearch
-        search.setAccessibilityLabel(HomeConversationStrings.composeSearch)
-        search.setAccessibilityIdentifier("cmux.home.compose.search")
         search.delegate = self
-        search.translatesAutoresizingMaskIntoConstraints = false
-        search.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
-        stack.addArrangedSubview(search)
+        stack.addArrangedSubview(Self.boxed(search))
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("person"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -51,13 +48,16 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
-        scroll.borderType = .bezelBorder
+        // The sheet's themed surface shows through: no system bezel or control background.
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = false
+        table.backgroundColor = .clear
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: 180).isActive = true
         stack.addArrangedSubview(scroll)
         emptyLabel.font = Typography.caption
-        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.ink = .secondary
         emptyLabel.isHidden = true
         emptyLabel.setAccessibilityIdentifier("cmux.home.compose.empty")
         stack.addArrangedSubview(emptyLabel)
@@ -65,7 +65,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         toLabel.lineBreakMode = .byTruncatingTail
         toLabel.setAccessibilityIdentifier("cmux.home.compose.to")
         stack.addArrangedSubview(toLabel)
-        stack.addArrangedSubview(groupName)
+        stack.addArrangedSubview(groupBox)
         inviteButton.target = self
         inviteButton.action = #selector(inviteInstead)
         inviteButton.isHidden = true
@@ -108,7 +108,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
     private func refreshChosen() {
         toLabel.stringValue = chosen.isEmpty ? "" : HomeConversationStrings.composeTo(chosen.map(\.label).joined(separator: ", "))
         toLabel.isHidden = chosen.isEmpty
-        groupName.isHidden = chosen.count < 2
+        groupBox.isHidden = chosen.count < 2
         refreshPrimary()
     }
 
@@ -144,9 +144,11 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
 
     public func numberOfRows(in tableView: NSTableView) -> Int { shown.count }
 
+    public func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
+
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let recipient = shown[row]
-        let label = NSTextField(labelWithString: "")
+        let label = ThemedLabel(labelWithString: "")
         let picked = chosen.contains(recipient)
         switch recipient {
         case .address(let address): label.stringValue = HomeConversationStrings.composeAddAddress(address.description)
@@ -156,8 +158,7 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         }
         label.font = picked ? Typography.bodyEmphasized : Typography.body
         let cell = NSTableCellView()
-        let check = NSImageView(image: NSImage(systemSymbolName: picked ? "checkmark.circle.fill" : "circle",
-                                               accessibilityDescription: nil) ?? NSImage())
+        let check = NSImageView(image: NSImage.icon(picked ? .statusComplete : .stateIdle, size: 16))
         check.frame = NSRect(x: Metrics.space2, y: 4, width: 16, height: 16)
         label.frame = NSRect(x: Metrics.space2 + 22, y: 3, width: 320, height: 18)
         cell.addSubview(check)

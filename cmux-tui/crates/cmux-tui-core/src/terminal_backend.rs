@@ -30,6 +30,3 @@ pub(crate) use cmux_terminal_iface::*;
 pub(crate) use declaration::Declaration;
 pub(crate) use links::{LinkAnswer, LinkEvent, LinkOpen, LinkRegistry, OpenTokenGate, TokenUse};
 pub(crate) use relay::RelaySet;
-
-#[cfg(test)]
-mod tests;

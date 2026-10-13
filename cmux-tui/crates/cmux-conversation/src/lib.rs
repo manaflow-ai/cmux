@@ -54,6 +54,8 @@ pub use types::{
 pub const OWNER_LOCAL: &str = "local";
 /// Most parts in one message.
 pub const MAX_PARTS: usize = 16;
+/// Most message ids one reply answers (`answers`).
+pub const MAX_ANSWERS: usize = 64;
 /// Most UTF-8 bytes of text across a message's text parts.
 pub const MAX_TEXT_BYTES: usize = 64 * 1024;
 /// Longest title, in characters.
@@ -68,3 +70,9 @@ pub const MAX_TEXT_RUNS: usize = 1024;
 pub const MAX_PREVIEW_BYTES: usize = 4096;
 /// Longest emoji reaction, in UTF-8 bytes.
 pub const MAX_EMOJI_BYTES: usize = 64;
+
+// The wire-shape contracts (fixed JSON the cloud reducer reads too).
+#[cfg(test)]
+mod question_tests;
+#[cfg(test)]
+mod tests;

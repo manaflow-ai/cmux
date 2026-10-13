@@ -293,7 +293,7 @@ Kind mapping: permission prompts become `approve` (Claude Code `permission_sugge
 
 - Codex answers from the feed only when cmux owns the app-server (acpmux through codex-acp, or a launch wrapper). A plain `codex` in a terminal with its embedded server gives no outside answer path; its hooks stay telemetry. DECISION in the report.
 - cmux-tui installs Claude Code hooks async with a 5 s timeout today (observe only). The installer adds one synchronous `PermissionRequest` and `Elicitation` entry.
-- The OpenCode and pi hook templates in `cmux-tui/crates/cmux-tui/assets/agent-hooks/` gain the reply and race logic.
+- The OpenCode and pi hook templates in `cmux-tui/crates/cmux-tui-hooks/assets/agent-hooks/` gain the reply and race logic.
 - acpmux mirrors pending permissions into the feed and answers through `_acpmux/permission_respond`. This is the cleanest path: no hook process and no deadline.
 - The Swift compat `feed.push` (`CompatFeed.swift`) answers `timed_out` at once today; it routes to the feed owner once the Rust CLI verb exists.
 
@@ -492,3 +492,4 @@ Known issues: in light appearance the demo's glass backdrop over a dark desktop 
 - Whole-state commits bound the feed size (section 4).
 - Push needs the APNs sender (iOS lane) and presence frames on the DO gateway.
 - Cloud items are read-only on an offline Mac; the native prompt is the fallback.
+- Mirror loss since c46d8eb35293: notifications from remote daemons and from older daemons without `feed-local-owner-v1` no longer reach the feed (the deleted `FeedNotificationBridge.swift` covered them). Bead: cx-ebm.53.

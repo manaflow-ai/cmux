@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextWakeups
 
 /// The content of a window that shows a New Cloud Workspace before its
@@ -23,9 +25,9 @@ final class CloudMachineProgressView: NSView {
     private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let typingLabel = NSTextField(wrappingLabelWithString: "")
-    private let retryButton = NSButton()
-    private let copyButton = NSButton()
-    private let dismissButton = NSButton()
+    private let retryButton = ThemedDefaultButton()
+    private let copyButton = ThemedBezelButton()
+    private let dismissButton = ThemedBezelButton()
     private let buttons = NSStackView()
     private var observation: Task<Void, Never>?
     private let ticker: DemandTimer
@@ -59,6 +61,7 @@ final class CloudMachineProgressView: NSView {
         detailLabel.font = Typography.body
         detailLabel.alignment = .center
         detailLabel.isSelectable = true
+        detailLabel.focusRingType = .none
         detailLabel.maximumNumberOfLines = 8
         typingLabel.font = Typography.caption
         typingLabel.alignment = .center
@@ -115,7 +118,7 @@ final class CloudMachineProgressView: NSView {
         guard window != nil else { return }
         let creation = creation
         observation = Task { [weak self] in
-            for await _ in Observations({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
+            for await _ in ObservationStream({ (creation.stage, creation.machineTitle, creation.workspaceID) }) {
                 self?.render()
             }
         }
@@ -154,12 +157,12 @@ final class CloudMachineProgressView: NSView {
         let current = stage.stepIndex ?? lastReached
         performWithTheme {
             for (index, row) in stepRows.enumerated() {
-                let (symbol, tint): (String, NSColor) =
-                    if stage.failure != nil, index == current { ("xmark.octagon.fill", Palette.danger) }
-                    else if index < current || stage == .ready { ("checkmark.circle.fill", Palette.success) }
-                    else if index == current { ("circle.dotted.circle", Palette.accent) }
-                    else { ("circle", Palette.textTertiary) }
-                row.icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                let (icon, tint): (IconName, NSColor) =
+                    if stage.failure != nil, index == current { (.statusError, Palette.danger) }
+                    else if index < current || stage == .ready { (.statusComplete, Palette.success) }
+                    else if index == current { (.statusInprogress, Palette.accent) }
+                    else { (.stateIdle, Palette.textTertiary) }
+                row.icon.image = NSImage.icon(icon, size: 16)
                 row.icon.contentTintColor = tint
                 row.label.textColor = index <= current ? Palette.textPrimary : Palette.textTertiary
                 row.label.font = index == current ? Typography.bodyEmphasized : Typography.body
@@ -189,5 +192,4 @@ final class CloudMachineProgressView: NSView {
 
     var titleText: String { titleLabel.stringValue }
     var detailText: String { detailLabel.stringValue }
-    var showsFailureButtons: Bool { !buttons.isHidden }
 }

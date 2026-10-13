@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -57,15 +58,19 @@ final class LocationTrailService {
         }
         let store = services.daemon.store
         observation = Task { [weak self] in
-            for await connected in Observations({ if case .connected = store.connectionState { true } else { false } }) where connected {
+            for await connected in ObservationStream({ if case .connected = store.connectionState { true } else { false } }) where connected {
                 self?.loadOnce()
             }
         }
     }
 
-    deinit {
-        observation?.cancel()
-        scopeObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            scopeObservation?.cancel()
+        }
     }
 
     private var scopeObservation: Task<Void, Never>?
@@ -76,7 +81,7 @@ final class LocationTrailService {
         scopeObservation?.cancel()
         scopeObservation = Task { [weak self] in
             var last: String?
-            for await scope in Observations({ settings.snapshot.navigationHistoryScope }) {
+            for await scope in ObservationStream({ settings.snapshot.navigationHistoryScope }) {
                 defer { last = scope }
                 guard let last, last != scope else { continue }
                 self?.notify()

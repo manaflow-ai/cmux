@@ -14,12 +14,20 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::super::sys::{
-    HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
+    self, HostListener, HostLivenessLease, acquire_terminal_host_publication_lock, adopt_launch,
     host_signals, prepare_private_dir,
 };
 use super::super::host_accept;
 use super::super::records::*;
 use super::*;
+
+/// The host process's entry (`__terminal-host --bootstrap-stdio ...`): its
+/// bootstrap streams are stdio on Unix and two named pipes on Windows
+/// (`sys::host_bootstrap_streams`).
+pub fn serve_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
+    let (mut reader, mut writer) = sys::host_bootstrap_streams(args)?;
+    serve_terminal_host_stdio(args, &mut reader, &mut writer)
+}
 
 pub fn serve_terminal_host_stdio(
     args: &[String],
@@ -50,6 +58,14 @@ pub fn serve_terminal_host_stdio(
 
     let stopping = shared.clone();
     host_signals::on_service_manager_stop(Box::new(move || stopping.request_termination()));
+    // A plain SIGTERM ends an orphaned host (no client stream for a while:
+    // its daemon is gone); a host its daemon still serves, or one in a short
+    // reconnect gap, records and survives it.
+    let watched = shared.clone();
+    host_signals::on_orphan_check(Box::new(move || {
+        watched.active_client_streams.load(Ordering::Acquire) == 0
+            && orphaned_for(HOST_SIGTERM_ORPHAN_MIN)
+    }));
     let endpoint = PathBuf::from(&launch.endpoint);
     let mut unpublished =
         UnpublishedHostGuard { shared: shared.clone(), endpoint: endpoint.clone(), armed: true };
@@ -77,7 +93,8 @@ pub fn serve_terminal_host_stdio(
         supports_terminal_metadata: true,
         supports_clipboard_read: true,
         supports_viewer_size_priority: true,
-        supports_pty_custody: true,
+        supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
+        supports_program_status: true,
     };
     let record_root = Path::new(&launch.record_path)
         .parent()
@@ -118,21 +135,10 @@ pub fn serve_terminal_host_stdio(
     {
         thread::sleep(Duration::from_millis(delay.min(5_000)));
     }
-    // Debug builds only: when the named FIFO exists, the host waits before
-    // Ready until the test opens it for writing, so a test can hold several
-    // launches open at once and prove they overlap. A test killed before it
-    // opens the gate leaves the host waiting 30 s at most.
+    // Debug builds only: a test can hold several launches open at once
+    // before Ready and prove they overlap.
     #[cfg(debug_assertions)]
-    if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_HOST_READY_GATE")
-        && Path::new(&gate).exists()
-    {
-        let (opened, wait) = std::sync::mpsc::channel();
-        let _ = thread::Builder::new().name("host-ready-gate".into()).spawn(move || {
-            let _ = fs::File::open(&gate);
-            let _ = opened.send(());
-        });
-        let _ = wait.recv_timeout(Duration::from_secs(30));
-    }
+    wait_at_test_gate("CMUX_TUI_TEST_HOST_READY_GATE");
 
     let ready = HostReady {
         selected_version: PROTOCOL_VERSION,
@@ -149,6 +155,14 @@ pub fn serve_terminal_host_stdio(
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
     let mut backoff = host_accept::AcceptBackoff::new();
+    // No client stream since this instant: the owner daemon is gone. After
+    // the orphan grace with still no client, the host ends its terminal the
+    // way an owner's Terminate does (exit record included), so a quit or
+    // killed app does not hold a PTY until reboot. Any accepted connection
+    // restarts the clock, so a restarted daemon's adoption always wins.
+    let orphan_grace = host_orphan_grace();
+    let mut orphan_since: Option<Instant> = None;
+    let mut orphan_ended = false;
     loop {
         let now = Instant::now();
         if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -168,21 +182,59 @@ pub fn serve_terminal_host_stdio(
         {
             break;
         }
+        if shared.active_client_streams.load(Ordering::Acquire) == 0 {
+            if orphan_since.is_none() {
+                orphan_since = Some(now);
+                set_orphan_since(orphan_since);
+            }
+        } else if orphan_since.take().is_some() {
+            set_orphan_since(None);
+        }
         match listener.accept() {
-            Ok(stream) => match host_accept::serve_accepted(&shared, stream) {
-                Ok(()) => backoff.reset(),
-                Err(error) => backoff.after_error(&shared, &error),
-            },
+            Ok(stream) => {
+                if orphan_since.take().is_some() {
+                    set_orphan_since(None);
+                }
+                match host_accept::serve_accepted(&shared, stream) {
+                    Ok(()) => backoff.reset(),
+                    Err(error) => backoff.after_error(&shared, &error),
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                // The queue is drained: a waiting daemon connection was
+                // accepted above and reset the clock, so adoption wins a
+                // tie with the deadline.
+                if let Some(since) = orphan_since
+                    && !orphan_ended
+                    && now.saturating_duration_since(since) >= orphan_grace
+                {
+                    orphan_ended = true;
+                    eprintln!(
+                        "terminal-host: no client for {} s (owner daemon gone); ending the \
+                         terminal",
+                        orphan_grace.as_secs()
+                    );
+                    mark_owner_gone();
+                    shared.request_termination();
+                    continue;
+                }
                 // Block until an attachment arrives or the accept waker
                 // reports a lifecycle change (terminal exit, last client
-                // stream closed). The only timeout is the one-shot launch
-                // owner deadline, used until it passes; this loop used to
+                // stream closed). The timeouts are the one-shot launch
+                // owner deadline, used until it passes, and the orphan
+                // deadline while no client is attached; this loop used to
                 // wake every 20 ms for the whole life of every terminal.
-                let timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
+                let launch_timeout = if shared.launch_owner_claimed.load(Ordering::Acquire) {
                     None
                 } else {
                     Some(launch_owner_deadline.saturating_duration_since(now))
+                };
+                let orphan_timeout = orphan_since
+                    .filter(|_| !orphan_ended)
+                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                let timeout = match (launch_timeout, orphan_timeout) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
                 };
                 match listener.wait(&shared.accept_waker, timeout) {
                     Err(error) => {
@@ -209,7 +261,29 @@ pub fn serve_terminal_host_stdio(
             Err(error) => backoff.after_error(&shared, &error),
         }
     }
+    // Debug builds only (cx-6xk9): a test holds an ended host alive, with
+    // its record, endpoint and live marker, to prove a restart waits for
+    // the old host's exit.
+    #[cfg(debug_assertions)]
+    wait_at_test_gate("CMUX_TUI_TEST_HOST_EXIT_GATE");
     thread::sleep(Duration::from_millis(20));
     drop(guard);
     Ok(())
+}
+
+/// Test seam: when the FIFO that `variable` names exists, wait until a test
+/// opens it for writing. A test killed before it opens the gate leaves the
+/// host waiting 30 s at most. Only explicitly configured test daemons set
+/// the variable.
+#[cfg(debug_assertions)]
+fn wait_at_test_gate(variable: &str) {
+    let Some(gate) = std::env::var_os(variable).filter(|gate| Path::new(gate).exists()) else {
+        return;
+    };
+    let (opened, wait) = std::sync::mpsc::channel();
+    let _ = thread::Builder::new().name("host-test-gate".into()).spawn(move || {
+        let _ = fs::File::open(&gate);
+        let _ = opened.send(());
+    });
+    let _ = wait.recv_timeout(Duration::from_secs(30));
 }

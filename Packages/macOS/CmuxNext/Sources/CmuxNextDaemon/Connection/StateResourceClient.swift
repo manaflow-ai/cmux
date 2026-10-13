@@ -61,11 +61,14 @@ extension StateResourceClient {
         public var workspaceID: ResourceID?
         public var screenIDs: [ResourceID]
         public var tabIDs: [ResourceID]
+        /// For a reopened `window` group: the window record (`install/window`) to show again.
+        public var window: String?
 
         enum CodingKeys: String, CodingKey {
             case workspaceID = "workspace_id"
             case screenIDs = "screen_ids"
             case tabIDs = "tab_ids"
+            case window
         }
     }
 
@@ -74,6 +77,42 @@ extension StateResourceClient {
     @discardableResult
     public func reopenClosed(_ id: String) async throws -> ReopenedItem {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
+    }
+
+    /// The window ids of install `installID`'s window records (`window_record.list`).
+    public func windowRecordIDs(installID: String) async throws -> [String] {
+        let list = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "window_record.list", params: [:], idempotencyKey: nil)
+        }, as: JSONValue.self)
+        return (list.arrayValue ?? []).compactMap { record in
+            record["install_id"]?.stringValue == installID ? record["window_id"]?.stringValue : nil
+        }
+    }
+
+    /// Puts this install's record of window `windowID` (`window_record.put`,
+    /// single writer per record, so no revision precondition).
+    public func putWindowRecord(installID: String, windowID: String, record: JSONValue) async throws {
+        try await stateMutation("window_record.put", ["install_id": .string(installID), "window_id": .string(windowID),
+                                                      "record": record])
+    }
+
+    /// Deletes this install's record of window `windowID` (`window_record.delete`).
+    public func deleteWindowRecord(installID: String, windowID: String) async throws {
+        try await stateMutation("window_record.delete", ["install_id": .string(installID), "window_id": .string(windowID)])
+    }
+
+    /// Deletes closed group `id` for good (Delete Permanently, `closed.delete`):
+    /// it cannot be reopened, and its terminal archives go with it.
+    public func deleteClosed(_ id: String) async throws {
+        try await stateMutation("closed.delete", ["closed": .string(id)])
+    }
+
+    /// Deletes every closed group, or every group closed at or after
+    /// `sinceMs` (Clear Recently Closed, `closed.delete {all}`).
+    public func deleteAllClosed(sinceMs: UInt64?) async throws {
+        var params: [String: JSONValue] = ["all": .bool(true)]
+        if let sinceMs { params["since_ms"] = .string(String(sinceMs)) }
+        try await stateMutation("closed.delete", params)
     }
 
     // MARK: Workspaces

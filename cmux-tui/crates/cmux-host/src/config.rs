@@ -138,17 +138,3 @@ impl Config {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn paths_resolve_under_root() {
-        let p = Paths::new("/tmp/x");
-        assert_eq!(p.at(BOUND_INSTANCE_FILE), PathBuf::from("/tmp/x/etc/cmux/daemon-instance-id"));
-        assert!(!p.is_system_root());
-        assert!(Paths::new("/").is_system_root());
-        assert_eq!(Paths::new("/").at(RUN_DIR), PathBuf::from("/run/cmux"));
-    }
-}

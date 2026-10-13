@@ -221,6 +221,10 @@ Run `cmux harness doctor <id>` and do what each `fix:` line says. Common results
 
 - **command not found**: the program is not on your login `PATH`. Use an absolute path or fix
   `PATH` in your shell profile.
+- **no file at PATH**: the absolute `command` points at nothing. Install the program there or fix
+  the path in the profile file the fix line names.
+- **PATH is not executable**: a script without its execute bit. Run the `chmod +x PATH` that the
+  fix line prints.
 - **missing Keychain item**: run `cmux harness secret set <id> <KEY>`.
 - **auth check failed**: run the `[auth].login` command once.
 - **initialize timed out**: the program did not speak ACP on stdout. Check its ACP flag, and that

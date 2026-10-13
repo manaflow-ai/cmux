@@ -335,11 +335,21 @@ impl Supervisor {
         op: &str,
         origin: Origin,
     ) -> Result<(), ApiError> {
-        let Some((family, entry)) = inner.catalog.packages.get(app).and_then(|p| p.catalog_op(op))
-        else {
+        let user = origin == Origin::User;
+        let package = inner.catalog.packages.get(app);
+        let Some((family, entry)) = package.and_then(|p| p.catalog_op(op)).or_else(|| {
+            // A backend op the app serves: the backend catalog's policy (super::serves).
+            package.and_then(|p| p.served_op(op)).map(|policy| {
+                let family = op.split('.').next().unwrap_or(op).to_string();
+                let mut entry = policy.entry;
+                if policy.person_only {
+                    entry["gesture"] = Value::from("required");
+                }
+                (family, entry)
+            })
+        }) else {
             return Err(ApiError::new("apps.op.unknown", format!("{app} has no op {op}")));
         };
-        let user = origin == Origin::User;
         if entry["gesture"] == "required" && !user {
             return Err(ApiError::new(
                 "apps.gesture_required",
@@ -358,11 +368,13 @@ impl Supervisor {
         }
     }
 
-    /// True when `app` declares a server and `op` is one of its catalog ops.
+    /// True when `app` declares a server and `op` is one of its catalog ops,
+    /// or a backend op it serves that a server may run (`serves`).
     pub(super) fn server_op_locked(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.manifest.get("server").is_some()
-                && package.catalog_ops().iter().any(|(name, _)| name == op)
+                && (package.catalog_ops().iter().any(|(name, _)| name == op)
+                    || package.served_op(op).is_some())
         })
     }
 
@@ -607,8 +619,15 @@ impl Supervisor {
                 return;
             }
             if value["t"] == "host.request" {
-                let reply = self.host_request_locked(&inner, app, &value);
-                inner.servers[app].process.send(line(&reply));
+                // The scope is read under the lock; the folder checks run after it is released.
+                let allowed = Self::host_op_allowed(&inner, app, "cmux.host.link.get");
+                let process = inner.servers[app].process.clone();
+                drop(inner);
+                let (reply, refused) = self.host_request(app, allowed, &value);
+                process.send(line(&reply));
+                if let Some(reason) = refused {
+                    self.stop_for_unsafe_folder(app, &reason);
+                }
                 return;
             }
             let server = inner.servers.get_mut(app).expect("current server");
@@ -681,7 +700,8 @@ impl Supervisor {
     }
 
     fn server_exit(&self, app: &str, generation: u64, exit: Exit) {
-        let outs = {
+        // The path is read under the lock; the folder goes after it is released.
+        let (outs, gone) = {
             let mut inner = self.inner.lock().unwrap();
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
@@ -713,6 +733,9 @@ impl Supervisor {
                 json!({ "event": "apps-server", "app": app, "state": "stopped" }),
             ));
             let active = inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled);
+            // Its temporary and socket folder goes with the process, unless a next process starts
+            // now or by a restart timer (that start empties and checks the folder itself).
+            let mut gone = None;
             if !queued.is_empty() {
                 // Calls that arrived while it stopped: start the next process.
                 outs.extend(self.restart_with_queued_locked(
@@ -725,9 +748,14 @@ impl Supervisor {
                 ));
             } else if !server.stopping && server.spec.always && active {
                 outs.extend(self.schedule_server_restart_locked(&mut inner, app));
+            } else {
+                gone = self.server_dirs(app).ok().map(|(_, tmp)| tmp);
             }
-            outs
+            (outs, gone)
         };
+        if let Some(tmp) = gone {
+            super::server_tmp::remove_server_tmp(&tmp);
+        }
         self.emit(outs);
     }
 
@@ -809,12 +837,17 @@ impl Supervisor {
 
 impl Supervisor {
     /// The data and temporary directories of `app`'s server:
-    /// `<state>/apps-data/<namespace>` and `<state>/apps-tmp/<namespace>`.
-    pub(super) fn server_dirs(&self, app: &str) -> (PathBuf, PathBuf) {
-        let base =
-            self.config.state_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("cmux-apps"));
+    /// `<state>/apps-data/<namespace>`, and the temporary (and socket) folder
+    /// of server_tmp.rs, or why there is none (cx-wmd8x).
+    /// A daemon without a state directory (an in-memory session) runs no app
+    /// server: there is no private place for its data or sockets (fail closed).
+    pub(super) fn server_dirs(&self, app: &str) -> Result<(PathBuf, PathBuf), String> {
+        let base = self.config.state_dir.clone().ok_or_else(|| {
+            "this daemon has no state directory, so app servers do not run here".to_string()
+        })?;
         let namespace = cmux_app_manifest::app_namespace(app);
-        (base.join("apps-data").join(&namespace), base.join("apps-tmp").join(&namespace))
+        let tmp = super::server_tmp::server_tmp_dir(&base, &namespace)?;
+        Ok((base.join("apps-data").join(&namespace), tmp))
     }
 
     /// Creates the server's directories and returns its environment (the
@@ -836,7 +869,9 @@ impl Supervisor {
             }
             std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)
         };
-        let (data, tmp) = self.server_dirs(app);
+        let (data, tmp) = self
+            .server_dirs(app)
+            .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&data).map_err(failed)?;
         let entries = inner
             .catalog
@@ -858,7 +893,9 @@ impl Supervisor {
                     .map_err(failed)?;
             }
         }
-        fresh(&tmp).map_err(failed)?;
+        // The socket folder is a trust boundary: checked before it is emptied and after it is made.
+        super::server_tmp::fresh_server_tmp(&tmp)
+            .map_err(|e| ApiError::new("apps.server_failed", format!("server directories: {e}")))?;
         let mut env = vec![
             ("CMUX_APP_ID".to_string(), app.to_string()),
             ("CMUX_APP_DATA_DIR".to_string(), data.to_string_lossy().into_owned()),
@@ -873,8 +910,9 @@ impl Supervisor {
     /// Uninstall: the server's data and temporary directories go with the
     /// app's storage.
     pub(super) fn remove_server_dirs(&self, app: &str) {
-        let (data, tmp) = self.server_dirs(app);
-        let _ = std::fs::remove_dir_all(data);
-        let _ = std::fs::remove_dir_all(tmp);
+        if let Ok((data, tmp)) = self.server_dirs(app) {
+            let _ = std::fs::remove_dir_all(data);
+            super::server_tmp::remove_server_tmp(&tmp);
+        }
     }
 }

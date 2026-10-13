@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
 import Observation
@@ -23,7 +24,7 @@ final class WindowShortcutHints {
             self?.refresh()
         }
         settingsTask = Task { [weak self] in
-            for await enabled in Observations({ DesignSettings.shared.showModifierHoldHints }) {
+            for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
                 self?.monitor?.setEnabled(enabled)
             }
         }
@@ -73,6 +74,18 @@ final class WindowShortcutHints {
                 let digit = index == order.count - 1 && index >= 8 ? 9 : index + 1
                 guard digit <= 9, let text = label("selectSurfaceByNumber", digit: digit) else { continue }
                 hints.append(.init(text: text, rect: root.convert(rect, from: strip)))
+            }
+        }
+        // Focus Pane 1…9: each pane of the focused screen, in Focus Next Pane order.
+        if let content = controller.content,
+           let focused = content.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }),
+           let screen = content.layoutModel.screen(containing: focused.layoutPaneID) {
+            let order = screen.layout.panes
+            for (index, id) in order.enumerated() {
+                guard index < 8 || index == order.count - 1, let pane = content.panes[id] else { continue }
+                let digit = index == order.count - 1 && index >= 8 ? 9 : index + 1
+                guard digit <= 9, let text = label("focusPaneByNumber", digit: digit) else { continue }
+                hints.append(.init(text: text, rect: root.convert(pane.view.bounds, from: pane.view)))
             }
         }
         for (action, rect) in [(ActionID(rawValue: "toggleSidebar"), root.sidebarToggleFrame),

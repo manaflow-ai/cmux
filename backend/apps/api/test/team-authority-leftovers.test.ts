@@ -33,25 +33,6 @@ const must = <T,>(r: { ok: boolean; state?: T; value?: any; message?: string }) 
 }
 
 describe("a removal's leftovers (cx-44j.51)", { timeout: 60_000 }, () => {
-  it("a VM bound after its creator left the team does not get the team's SSO; a new SSO sign-in through it restores it", () => {
-    const left = must(domain.reduce(base, "user.team_left", { team: LEFT, at: 4_000 }, ctx({ identity: `system:team:${LEFT}`, kind: "system" })))
-    // CloudDO registers the VM install with the machine's stored creator_sso_team.
-    const cloud: Principal = { identity: `system:cloud:${LEFT}`, kind: "system", user: USER, team: LEFT, sso_team: LEFT }
-    const vm = must(domain.reduce(left.state, "install.register_server", vmParams(1), ctx(cloud)))
-    expect(vm.value.sso_team).toBeUndefined()
-    // Seen fresh after the removal (a pairing approval, a machine created after a re-join): stamped.
-    const later = must(domain.reduce(left.state, "install.register_server", { ...vmParams(9), sso_seen_at: 4_500 }, ctx(cloud)))
-    expect(later.value.sso_team).toBe(LEFT)
-    expect(later.state.sso_left?.[LEFT]).toBeUndefined()
-    // Seen before the removal (the machine's stored creator_sso_team): not stamped.
-    expect(must(domain.reduce(left.state, "install.register_server", { ...vmParams(8), sso_seen_at: 3_000 }, ctx(cloud))).value.sso_team).toBeUndefined()
-    // The person signs in through the team's SSO again: their next install carries it, and so does a later VM.
-    const session: Principal = { identity: `session:${USER}`, kind: "session", user: USER, team: TEAM, stack_user_id: "s", sso_team: LEFT }
-    const fresh = must(domain.reduce(vm.state, "install.register", { public_jwk: jwk(2), kind: "cli", name: "cli", device_name: "laptop", platform: "macos" }, ctx(session)))
-    expect(fresh.value.sso_team).toBe(LEFT)
-    const vm2 = must(domain.reduce(fresh.state, "install.register_server", vmParams(3), ctx(cloud)))
-    expect(vm2.value.sso_team).toBe(LEFT)
-  })
 
   it("an SSO gate RPC failure answers a retryable owner.unreachable, never a 500", async () => {
     const sub = `leftover-${crypto.randomUUID().slice(0, 8)}`

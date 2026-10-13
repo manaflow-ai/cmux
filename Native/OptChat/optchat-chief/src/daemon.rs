@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationBindRequest,
-    ConversationCreateRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationOpRequest, ConversationSnapshotRequest, ConversationTypingRequest,
-    Error as SdkError, Event, Nullable, Optional, SubscribeRequest, SubscribeRequestTreeEvents,
+    ConversationCreateRequest, ConversationDraftRequest, ConversationHistoryRequest,
+    ConversationListRequest, ConversationOpRequest, ConversationSnapshotRequest,
+    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
+    SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -57,10 +58,9 @@ pub trait ConversationPort: Send {
     fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError>;
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError>;
     /// Publishes a draft of the running turn's reply (`conversation.draft`,
-    /// never stored). A daemon without drafts takes none.
-    fn draft(&mut self, _conversation: &str, _draft: &crate::draft::Draft) -> Result<(), OpError> {
-        Ok(())
-    }
+    /// never stored). No default: a silent no-op once hid that the local
+    /// port never sent one; a port without drafts says so with an error.
+    fn draft(&mut self, conversation: &str, draft: &crate::draft::Draft) -> Result<(), OpError>;
     /// One attachment variant (`original`, `preview`, `poster`) of `hash`,
     /// base64, in a single owner read of `bytes` (at most 4 MiB): an error
     /// when the owner has not sent all of it (`local-attachments-v1`).
@@ -269,6 +269,30 @@ impl ConversationPort for SdkConversations {
                 actor: Optional::Value(AGENT_MUX.into()),
                 conversation: conversation.into(),
                 on,
+            })
+            .map(|_| ())
+            .map_err(sdk_error)
+    }
+
+    /// `conversation-draft` (capability `conversation-draft-v1`): the v1
+    /// command of `conversation.draft`; this bound connection's principal is
+    /// `agent_mux` (conversation-bind).
+    fn draft(&mut self, conversation: &str, draft: &crate::draft::Draft) -> Result<(), OpError> {
+        self.client
+            .conversation_draft(ConversationDraftRequest {
+                conversation: conversation.into(),
+                turn: draft.turn.clone(),
+                segment: draft.segment,
+                seq: draft.seq,
+                kind: draft.kind.into(),
+                text: draft.text.clone(),
+                fresh: draft.fresh,
+                done: draft.done,
+                truncated: Optional::Value(draft.truncated),
+                harness: match &draft.harness {
+                    Some(harness) => Optional::Value(harness.clone()),
+                    None => Optional::Missing,
+                },
             })
             .map(|_| ())
             .map_err(sdk_error)

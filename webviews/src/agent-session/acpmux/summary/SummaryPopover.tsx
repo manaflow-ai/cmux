@@ -1,20 +1,39 @@
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Counts } from "../changes/Counts";
-import { useT } from "../i18n";
+import { changedByTools } from "../changes/turnCheckpoint";
+import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SessionSummary } from "./sessionSummary";
+import type { TurnFile } from "../diff";
+import type { SessionSummary, SummaryBackgroundTask } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
 
 const ROW_ICON = rowIconSize(12);
 
 /// The chat's summary, a section per kind of thing it produced. Outputs, Subagents and Sources
-/// always show, in the Codex app's order, with "None" while empty; pull requests and wakeups
-/// follow when there are any.
+/// always show, in the Codex app's order, with "None" while empty; pull requests, background
+/// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file. Following a link calls `onFollow`. A chat
-/// with images or renders offers its gallery under Outputs (GalleryDialog.tsx).
+/// an output opens the changes view at that file. A file the last turn changed is listed under
+/// Changes only. Following a link calls `onFollow`. A chat
+/// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
+/// subagents acpmux reports shows their Lineage (subagents/Lineage.tsx) in the Subagents place.
+const TASK_STATES: Record<SummaryBackgroundTask["state"], StringKey> = {
+  running: "bgTask.state.running",
+  completed: "bgTask.state.completed",
+  failed: "bgTask.state.failed",
+  stopped: "bgTask.state.stopped",
+};
+
+/// The last turn that edited files: its files as its diff shows them (the checkpoint's once
+/// loaded) and their totals.
+export type SummaryChanges = {
+  additions: number;
+  deletions: number;
+  files?: readonly Pick<TurnFile, "path" | "displayPath" | "additions" | "deletions" | "created">[];
+};
+
 export function SummaryPopover({
   summary,
   galleryCount = 0,
@@ -23,22 +42,32 @@ export function SummaryPopover({
   onOpenOutput,
   onOpenGallery,
   onFollow,
+  lineage,
 }: {
   summary: SessionSummary;
   galleryCount?: number;
-  changes?: { additions: number; deletions: number };
-  onOpenChanges?: () => void;
+  changes?: SummaryChanges;
+  /// The turn's diff; at `path`, that file's.
+  onOpenChanges?: (path?: string) => void;
   onOpenOutput?: (path: string) => void;
   onOpenGallery?: () => void;
   onFollow?: () => void;
+  lineage?: ReactNode;
 }) {
   const t = useT();
+  // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
+  // A loaded checkpoint lists them under the repository root, outputs as the agent wrote them.
+  const changed = changes?.files ?? [];
+  const outputs =
+    changed.length > 0
+      ? summary.outputs.filter((output) => !changed.some((file) => changedByTools(file, [output])))
+      : summary.outputs;
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
-        items={summary.outputs}
+        items={outputs}
         row={(file) => (
           <li key={file.path}>
             <button
@@ -69,16 +98,18 @@ export function SummaryPopover({
           )
         }
       />
-      <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
-        <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
-        <ul className="acpmux-summary-list">
-          {summary.subagents.length > 0 ? (
-            <SubagentStack subagents={summary.subagents} />
-          ) : (
-            <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
-          )}
-        </ul>
-      </section>
+      {lineage ?? (
+        <section className="acpmux-summary-section" aria-label={t("summary.subagents")}>
+          <h3 className="acpmux-summary-title">{t("summary.subagents")}</h3>
+          <ul className="acpmux-summary-list">
+            {summary.subagents.length > 0 ? (
+              <SubagentStack subagents={summary.subagents} />
+            ) : (
+              <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>
+            )}
+          </ul>
+        </section>
+      )}
       <SummarySection
         title={t("summary.sources")}
         fixed
@@ -105,23 +136,41 @@ export function SummaryPopover({
         )}
       />
       {changes && (
-        <section className="acpmux-summary-section" aria-label={t("header.changes")}>
-          <h3 className="acpmux-summary-title">{t("header.changes")}</h3>
-          <ul className="acpmux-summary-list">
+        // The last turn that edited files: its totals open its diff, each of its files that file's.
+        <SummarySection
+          title={t("header.changes")}
+          items={changes.files ?? []}
+          lead={
             <li>
               <button
                 type="button"
                 className="acpmux-summary-row acpmux-summary-link"
                 aria-label={t("header.changes")}
-                onClick={onOpenChanges}
+                disabled={!onOpenChanges}
+                onClick={() => onOpenChanges?.()}
               >
                 <Icon name="diff.file" size={ROW_ICON} row />
                 <span className="acpmux-summary-text">{t("header.changes")}</span>
                 <Counts additions={changes.additions} deletions={changes.deletions} />
               </button>
             </li>
-          </ul>
-        </section>
+          }
+          row={(file) => (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
+                title={file.path}
+                disabled={!onOpenChanges}
+                onClick={() => onOpenChanges?.(file.path)}
+              >
+                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{file.displayPath}</span>
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          )}
+        />
       )}
       <SummarySection
         title={t("summary.pullRequests")}
@@ -139,6 +188,19 @@ export function SummaryPopover({
               <span className="acpmux-summary-text">{pr.title ?? `${pr.repo}#${pr.number}`}</span>
               <span className="acpmux-summary-meta">#{pr.number}</span>
             </a>
+          </li>
+        )}
+      />
+      <SummarySection
+        title={t("summary.backgroundTasks")}
+        items={summary.backgroundTasks}
+        row={(task) => (
+          <li key={task.id} className="acpmux-summary-row" data-state={task.state}>
+            <Icon name="terminal" size={ROW_ICON} row />
+            <span className="acpmux-summary-text" title={task.command}>
+              {task.command}
+            </span>
+            <span className="acpmux-summary-meta">{t(TASK_STATES[task.state])}</span>
           </li>
         )}
       />

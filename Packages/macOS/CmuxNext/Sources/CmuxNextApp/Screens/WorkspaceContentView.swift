@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextTabs
 import Observation
 
@@ -10,6 +12,9 @@ final class WorkspaceContentView: NSView {
     let layoutView: NSView
     let bar: TabStripView
     private(set) var emptyView: NSView?
+    /// The menu of a right-click that no pane or control took: the window's background
+    /// (Change Background…, cx-t2x.4).
+    var backgroundMenu: (@MainActor () -> NSMenu?)?
     var showsBar = false {
         didSet {
             guard oldValue != showsBar else { return }
@@ -29,15 +34,19 @@ final class WorkspaceContentView: NSView {
         bar.isHidden = true
         addSubview(bar)
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ Metrics.tabStripHeight }) { self?.needsLayout = true }
+            for await _ in ObservationStream({ Metrics.tabStripHeight }) { self?.needsLayout = true }
         }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    isolated deinit {
-        tokenObservation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            tokenObservation?.cancel()
+        }
     }
 
     override var isFlipped: Bool { true }
@@ -63,6 +72,24 @@ final class WorkspaceContentView: NSView {
             layoutView.isHidden = false
             bar.isHidden = !showsBar
         }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let backgroundMenu, isBackground(at: event) else { return super.menu(for: event) }
+        return backgroundMenu()
+    }
+
+    /// Whether the right-click is on the background itself. A view that showed its own menu or
+    /// editor and returned nil (a tab strip's + button) passes the click up to here too.
+    private func isBackground(at event: NSEvent) -> Bool {
+        guard let point = superview?.convert(event.locationInWindow, from: nil), var view = hitTest(point) else { return false }
+        let layout = layoutView as? LayoutRootView
+        while view !== self {
+            guard view === layoutView || view === emptyView || layout?.isBackground(view) == true,
+                  let parent = view.superview else { return false }
+            view = parent
+        }
+        return true
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

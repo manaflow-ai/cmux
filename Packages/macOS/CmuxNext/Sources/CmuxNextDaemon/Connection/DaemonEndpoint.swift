@@ -48,6 +48,11 @@ public struct DaemonCapabilities: Sendable {
     /// moved tab's name in the same commit (else the app renames after).
     public let tabWorkspaceName = "tab-workspace-name-v1"
     public let notificationAck = "notification-ack-v1"
+    /// The daemon's local feed owner (plans/cmux-next/feed.md 9.1): every
+    /// notification is also a local feed item, selection never clears unread,
+    /// `ack-tab-notifications` reports `refused` items, and the
+    /// `feed-local-*` commands let the app hand items to the cloud owner.
+    public let feedLocalOwner = "feed-local-owner-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -68,6 +73,10 @@ public struct DaemonCapabilities: Sendable {
     /// v2 state mutations, mirrored through `session.events`. The daemon
     /// advertises it in `identify` (`DaemonStore.servesStateResources`).
     public let stateResources = "state-resources-v1"
+    /// `window_record.put` / `.delete` / `.list`: one record per app window, keyed by install and
+    /// window id. The app mirrors its windows there so closed history knows each group's window,
+    /// and a window it closes becomes a closed-history `window` group (reopen-closed.md 4).
+    public let windowRecords = "window-records-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
     public let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
@@ -102,6 +111,10 @@ public struct DaemonCapabilities: Sendable {
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
+    /// The daemon starts the remote browser host on its machine
+    /// (`browser-runtime-*`, cx-2cob slice 2); the app reaches it through
+    /// `loopbackForward` on the same connection (`LoopbackForwardClient`).
+    public let browserRuntime = "browser-runtime-v1"
     /// `source` on notifications (cli, terminal, agent, daemon), and OSC 9,
     /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
     /// (plans/cmux-next/notifications.md).
@@ -146,6 +159,9 @@ public struct DaemonCapabilities: Sendable {
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
     public let tabColumnRespawn = "tab-column-respawn-v1"
+    /// `restart-tab`: a terminal tab whose shell ended restarts under the
+    /// same terminal id (Unix daemons).
+    public let tabRestart = "tab-restart-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -156,14 +172,23 @@ public struct DaemonCapabilities: Sendable {
     public let browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     public let bookmarks = "bookmarks-v1"
+    /// The daemon history module (react-pages.md H3): page visits, the merged read model,
+    /// removal with restore ids, and `history-changed`.
+    public let history = "history-v1"
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
+    /// `conversation-draft` events on `subscribe`: the Chief's running reply,
+    /// which Home grows in the Chief's bubble until the reply is posted.
+    public let conversationDraftEvents = "conversation-draft-events-v1"
     /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
     public let workspaceKind = "workspace-kind-v1"
     /// `workspace.agent_folder.set` and `extra.agent_folder` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     /// An older daemon kept running across an app update lacks it: Choose Folder… asks for a restart.
     public let workspaceAgentFolder = "workspace-agent-folder-v1"
+    /// `workspace.agent_start.get`: the store's one answer for where a new agent chat starts
+    /// (cx-9aps). An older daemon lacks it; the pane then decides as before (compatibility only).
+    public let workspaceAgentStart = "workspace-agent-start-v1"
     /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
     /// Echoed so the daemon sends the canonical kind instead of `browser`.
     public let conversationTabs = "conversation-tabs-v1"
@@ -174,11 +199,28 @@ public struct DaemonCapabilities: Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     public let agentSessionAttach = "agent-session-attach-v1"
+    /// `agent-session-start`: the session daemon starts a new chat for one of its agent tabs in
+    /// its own machine's acpmux (policy `ask`) and binds it (cmux-tui/spec/commands.md
+    /// "agent-session-start"). A chat in a remote workspace starts only through it; without it
+    /// the app asks to update that machine's cmux-tui, never starts on this Mac.
+    public let agentSessionStart = "agent-session-start-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
+    /// A page tab's `route` (`page-tab-route-v1`): what the page shows (a viewer's file or
+    /// folder), kept with the tab and in its closed-history record, so a reopened or relaunched
+    /// page tab shows it again (plans/cmux-next/reopen-closed.md 3.0).
+    public let pageTabRoute = "page-tab-route-v1"
+    /// App workspaces (`workspace.ensure_app`, `Workspace.app`, `Tab.app`).
+    public let appScreens = "app-screens-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// `thread_root` on conversation messages, and a send that moves the
+    /// sender's own read cursor (cmux-tui/spec/commands.md `conversation-op`).
+    public let conversationThreads = "conversation-threads-v1"
+    /// `conversation-thread` (and `cloud-conversation-thread` with the cloud
+    /// transport) and the owner's `threads` stats on snapshot and history pages.
+    public let conversationThread = "conversation-thread-v1"
     /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
     /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
     /// commands and their `cloud-*` events. Advertised only when the daemon
@@ -192,6 +234,12 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceGroupIcon = "workspace-group-icon-v1"
     /// `pinned` (saved) on `workspace_group.update` and on personal groups.
     public let workspaceGroupPin = "workspace-group-pin-v1"
+    /// `icon` on screen groups and saved screen groups, on
+    /// `screen_group.update` and raw `update-screen-group` (null clears).
+    public let screenGroupIcon = "screen-group-icon-v1"
+    /// `icon` on tab groups and saved tab groups, on `tab_group.update` and
+    /// raw `update-tab-group` (null clears).
+    public let tabGroupIcon = "tab-group-icon-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
@@ -207,15 +255,22 @@ public struct DaemonCapabilities: Sendable {
     /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
     /// every restored terminal), and the view freezes.
     public let terminalPendingSequence = "terminal-pending-sequence-v1"
-    /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-    /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
-    public let terminalCommandJournal = "terminal-command-journal-v1"
+    /// Finished shell commands (OSC 133) stored as deletable rows with a
+    /// retention once `set-terminal-command-history` turns it on; read with
+    /// `list-terminal-commands`, deleted with `delete-terminal-commands`
+    /// (plans/cmux-next/history.md 6).
+    public let terminalCommandHistory = "terminal-command-history-v1"
     /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
     /// cmux-tui PR #16842).
     public let sidebarLayout = "sidebar-layout-v1"
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
+    /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
+    public let keybindings = "keybindings-v1"
+    /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
+    /// icon values naming a stored asset on workspace, screen, room and profile icons.
+    public let iconAssets = "icon-assets-v1"
     /// `project.list|observe|add|update|remove|sync`: the device project list
     /// (plans/cmux-next/projects.md).
     public let projectList = "project-list-v1"
@@ -243,6 +298,13 @@ public struct DaemonCapabilities: Sendable {
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
     public let terminalClipboardRead = "terminal-clipboard-read-v1"
+    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
+    /// `ClientHello.originClaimCapability`).
+    public let originClaim = "origin-claim-v1"
+    /// `read-session-journal` for agent history (`AgentHistory`).
+    public let sessionJournal = "session-journal-v1"
+    /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
+    public let terminalResources = "terminal-resources-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -252,16 +314,17 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, history, workspacePin, notificationMarkUnread,
+                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, conversationTabs, agentSessionTabs, agentSessionAttach, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect] }
+                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
+                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -269,7 +332,7 @@ public struct DaemonCapabilities: Sendable {
     /// (DaemonCapabilityExportTests): new app features land with their
     /// daemon half, and check-daemon-capabilities.sh fails once the bundled
     /// daemon serves an entry, so it moves to `optional`.
-    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals] }
+    public var unservedByBundledDaemon: [String] { [] }
 
     /// Whether the bundled daemon (this tree's cmux-tui) serves `capability`:
     /// a daemon without it is an older build, and restarting cmux updates it.

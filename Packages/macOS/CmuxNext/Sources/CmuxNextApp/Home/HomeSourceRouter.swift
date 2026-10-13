@@ -1,6 +1,6 @@
 import CmuxHomeCore
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// One Home inbox over two owners: the local daemon's conversations and the
 /// cloud's (`ConversationSummary.owner`). It routes each read and op to the
@@ -35,15 +35,13 @@ nonisolated final class HomeSourceRouter: HomeSource {
         /// arrived. A change prunes the cloud owners the new inbox does not list.
         var cloudAccount: String?
         var cloudAccountSeen = false
+        /// Every participant of a local conversation (the local user, the
+        /// Chief): a group of only these is a local channel.
+        var localParticipants: Set<ParticipantID> = []
     }
 
     private let state = Mutex(State())
 
-    /// Each owner's last connection as this router applied it (tests and
-    /// diagnostics; the merged connection is the one the store sees).
-    var ownerConnections: (local: HomeConnection, cloud: HomeConnection?) {
-        state.withLock { ($0.localConnection, $0.cloudConnection) }
-    }
     private static let eventBuffer = 1024
     let local: any HomeSource
     let cloud: CloudHomeSource
@@ -100,13 +98,25 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: conversation).history(of: conversation, before: beforeSeq, limit: limit)
     }
 
+    func historyPage(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> HistoryPage {
+        try await source(for: conversation).historyPage(of: conversation, before: beforeSeq, limit: limit)
+    }
+
+    func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
+        try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
+    }
+
     /// Ops on a conversation go to its owner. Ops that create or invite name
-    /// no conversation and only the cloud has them; `createChief` stays with
-    /// the local owner, which refuses it as before.
+    /// no conversation and only the cloud has them, except `createGroup` of
+    /// local participants only (none, or the Chief and the local user): a
+    /// local channel. `createChief` stays with the local owner, which
+    /// refuses it as before.
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         let toCloud: Bool
         switch intent.op {
-        case .createGroup, .startConversation, .invite, .openDirect: toCloud = true
+        case .createGroup(_, let ids):
+            toCloud = state.withLock { state in !ids.allSatisfy { state.localParticipants.contains($0) || $0.rawValue == DaemonHomeSource.chief.id } }
+        case .startConversation, .invite, .openDirect: toCloud = true
         case .createChief: toCloud = false
         default:
             if let conversation = intent.op.conversation { toCloud = await owner(of: conversation) == .cloud } else { toCloud = false }
@@ -216,9 +226,11 @@ nonisolated final class HomeSourceRouter: HomeSource {
                 // the owner did not answer now, not at its next backoff.
                 return connection == .online && was != .online ? .ownerRecovered : nil
             case .inbox(let snapshot):
+                state.localParticipants = Set(snapshot.conversations.flatMap { $0.participants.map(\.id) } + [snapshot.me.id])
                 return .inbox(merged(local: snapshot, cloud: cloud.currentInbox().conversations, &state))
             case .conversationChanged(let summary, _, _):
                 state.owners[summary.id] = summary.owner
+                state.localParticipants.formUnion(summary.participants.map(\.id))
                 return event
             default:
                 return event

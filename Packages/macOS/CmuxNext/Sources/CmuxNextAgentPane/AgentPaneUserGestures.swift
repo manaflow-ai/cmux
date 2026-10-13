@@ -1,5 +1,5 @@
 public import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// The host's record of the user's last real gesture in a pane (a key or mouse event in its web
 /// view, or a native action such as a permission shortcut). Each gesture gives two single-use
@@ -89,12 +89,79 @@ import Synchronization
 
     /// Spends `ticket`; true when it was this connection's, still fresh, and for exactly `pick`.
     public func redeem(_ ticket: String, connection: Int, pick: AgentPaneGesturePick?) -> Bool {
+        if let seed = redeemSeed(ticket, pick: pick) { return seed }
         guard let held = tickets.removeValue(forKey: ticket) else { return false }
         return held.connection == connection && now() - held.at <= held.intent.lifetime && held.intent.matches(pick)
     }
 
     /// Drops every ticket (a reconnect, the end of a harness switch, the page's release).
+    /// A seeded prompt's ticket stays: it belongs to the pane's one seed, not to a connection.
     public func clearTickets() { tickets.removeAll() }
+
+    // MARK: A seeded prompt's ticket (cx-k21v gap 4)
+
+    /// The ticket of a prompt a person's own action seeded (``AgentPaneSeed/PromptBy``): issued
+    /// once, with the seed, when the handshake hands the prompt out. It lets that one prompt (its
+    /// promptId) go out without a live gesture, and one start of a new chat on another machine
+    /// before it (`session/new` on a remote wire). Single use: the prompt that redeems it, any
+    /// other frame that names it, or its lifetime ends it.
+    struct SeedTicket {
+        var ticket: String
+        var promptId: String
+        var at: TimeInterval
+        /// The one remote start it allows was used.
+        var started = false
+    }
+
+    private var seedTicket: SeedTicket?
+
+    /// Issues the seeded prompt's ticket and its promptId (a new one replaces an older one).
+    /// Takes no live gesture: the person's action that seeded the prompt is the gesture.
+    public func issueSeedTicket() -> (promptId: String, ticket: String) {
+        let issued = SeedTicket(ticket: UUID().uuidString, promptId: UUID().uuidString.lowercased(), at: now())
+        seedTicket = issued
+        #if DEBUG
+        lastSeed = (issued.promptId, issued.ticket)
+        #endif
+        return (issued.promptId, issued.ticket)
+    }
+
+    /// Uses the seed ticket's one start of a new chat on another machine: true once, while the
+    /// ticket is fresh and its prompt was not sent yet.
+    public func takeSeedStart() -> Bool {
+        guard var seed = seedTicket, !seed.started, now() - seed.at <= Self.heldPromptLifetime else { return false }
+        seed.started = true
+        seedTicket = seed
+        return true
+    }
+
+    /// Spends the seed ticket when `ticket` is it: true when it is fresh and `pick` is its prompt.
+    /// Nil when `ticket` is not the seed ticket (the connection's tickets decide).
+    private func redeemSeed(_ ticket: String, pick: AgentPaneGesturePick?) -> Bool? {
+        guard let seed = seedTicket, seed.ticket == ticket else { return nil }
+        seedTicket = nil
+        return now() - seed.at <= Self.heldPromptLifetime
+            && pick?.method == "session/prompt" && pick?.params == ["promptId": .string(seed.promptId)]
+    }
+
+    #if DEBUG
+    /// The last seed ticket issued, for the DEBUG replay check (`gesture_state replay_seed`).
+    private var lastSeed: (promptId: String, ticket: String)?
+
+    /// Redeems the last seed ticket again for its own prompt, as a page that replays it would:
+    /// false once it was spent (DEBUG proof that the ticket is single use); nil when none was issued.
+    public func replayLastSeedTicket(connection: Int) -> Bool? {
+        guard let lastSeed else { return nil }
+        return redeem(lastSeed.ticket, connection: connection,
+                      pick: AgentPaneGesturePick(method: "session/prompt", params: ["_meta": ["acpmux": ["promptId": lastSeed.promptId]]]))
+    }
+    #endif
+
+    /// Ends the seed ticket (a prompt went out without it).
+    public func dropSeedTicket() { seedTicket = nil }
+
+    /// Whether a seed ticket is outstanding, and whether its start was used (DEBUG `gesture_state`).
+    public var seedTicketState: (outstanding: Bool, started: Bool) { (seedTicket != nil, seedTicket?.started == true) }
 
     var ticketCount: Int { tickets.count }
     /// The last ticket issued (tests replay it).
@@ -192,6 +259,15 @@ public nonisolated final class AcpmuxPermissionOptions: Sendable {
             for key in ["id", "prompt"] { if let value = item[key] as? String { keys.insert(value) } }
         }
         return keys
+    }
+
+    /// True when the pane saw `permissionId` offer `optionId` and the stored value says it does not
+    /// deny. The stored value is the AND of "denies" over every sighting of that option, so one
+    /// sighting with a kind that is not `reject_*` makes it an allow here (cx-0q7o: a permission
+    /// ticket is reserved only for such an option). acpmux decides by the real kind of the pending
+    /// prompt.
+    public func isKnownAllow(permissionId: String, optionId: String) -> Bool {
+        denies.withLock { $0[permissionId]?[optionId] == false }
     }
 
     /// True only when `optionId` is a known deny of `permissionId`; an unknown option counts as allow.

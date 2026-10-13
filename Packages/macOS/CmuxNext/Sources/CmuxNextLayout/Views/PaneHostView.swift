@@ -37,7 +37,10 @@ final class PaneHostView: NSView {
         content.autoresizingMask = [.width, .height]
         content.frame = clipView.bounds
         clipView.addSubview(content)
-        reporter?.onPaneHeaderHeightChange = { [weak self] in self?.layoutClip() }
+        // A header change comes from inside the content's layout pass: it
+        // reshapes the rounded area and the ring only, and moves no frame of
+        // this view or of the content (an ancestor of the reporter).
+        reporter?.onPaneHeaderHeightChange = { [weak self] in self?.applyChromeShape() }
     }
 
     @available(*, unavailable)
@@ -100,6 +103,16 @@ final class PaneHostView: NSView {
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
         if content.frame != clipView.bounds { content.frame = clipView.bounds }
+        applyChromeShape()
+    }
+
+    /// The content's rounded corners and the ring's shape from the current
+    /// clip frame and the content's header and footer. Changes no frame.
+    private func applyChromeShape() {
+        var style = LayoutStyle()
+        style.panePadding = padding
+        style.paneCornerRadius = cornerRadius
+        let rect = clipView.frame
         let header = headerHeight, footer = footerHeight
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)

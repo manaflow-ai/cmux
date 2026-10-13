@@ -71,6 +71,10 @@ closed. A package-shaped path inside eval text cannot claim an agent identity.
 When cmux supervises the process, the scanner copies
 `CMUX_PLUGIN_GENERATION` into each event. This lets the core retire an old
 process generation without removing observations from a replacement process.
+The process exits when the `CMUX_PLUGIN_HOST_PID` process exits, so a
+`kill -9` of the daemon does not leave a scanner that reconnects to the next
+daemon. Under an older daemon without that variable it watches its parent
+instead. A standalone run without either variable is not watched.
 
 The manifests are byte-identical to herdr's at commit
 `2563803dca97c040beaf3dc3acdcb5a3221b4238` (herdr 0.9.3, Apache-2.0).

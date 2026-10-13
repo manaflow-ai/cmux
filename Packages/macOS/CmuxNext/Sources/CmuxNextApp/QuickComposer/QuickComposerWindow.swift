@@ -13,4 +13,11 @@ protocol QuickComposerWindow: AnyObject {
     func present(_ content: NSView, focus: NSView?)
     /// Orders the panel out; `content` stays in it.
     func dismiss()
+    /// The floating chat (cx-b9qi): true once a started chat stays in the
+    /// panel, false when it goes back to the compact composer.
+    func holdChat(_ holds: Bool)
+    /// The floating chat floats over other windows (true) or sits among them.
+    func setOnTop(_ onTop: Bool)
+    /// The floating chat folds to its compact bar (true) or opens again.
+    func setCollapsed(_ collapsed: Bool)
 }

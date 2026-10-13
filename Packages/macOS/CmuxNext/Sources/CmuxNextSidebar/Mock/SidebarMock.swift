@@ -31,35 +31,6 @@ public struct SidebarMock {
         return model
     }
 
-    /// Scale fixture: `count` workspaces in groups of 10 on one machine.
-    public static func makeLargeModel(count: Int) -> SidebarModel {
-        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        var nodes: [SidebarNode] = []
-        var made = 0
-        var groupIndex = 0
-        while made < count {
-            let size = min(10, count - made)
-            let items = (0..<size).map { i in
-                SidebarWorkspace(
-                    id: WorkspaceID("ws-\(made + i)"),
-                    title: "workspace \(made + i)",
-                    directory: i.isMultiple(of: 2) ? "~/src/project-\(made + i)" : nil,
-                    activity: i == 3 ? .busy : .idle
-                )
-            }
-            made += size
-            if groupIndex.isMultiple(of: 3) {
-                nodes.append(contentsOf: items.map(SidebarNode.workspace))
-            } else {
-                let color = GroupColor.allCases[groupIndex % GroupColor.allCases.count]
-                nodes.append(.group(SidebarGroup(id: GroupID("grp-\(groupIndex)"), name: "group \(groupIndex)", color: color, workspaces: items)))
-            }
-            groupIndex += 1
-        }
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: WorkspaceID("ws-0"))
-        return model
-    }
-
     static func insert(_ ws: SidebarWorkspace, into model: SidebarModel, group: GroupID?) {
         guard let s = model.sections.firstIndex(where: { $0.id == .machine(ws.machineID) }) else { return }
         if let group, let n = model.sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),

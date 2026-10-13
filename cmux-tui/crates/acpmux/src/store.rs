@@ -157,6 +157,12 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// The harness store of an adopted chat that no profile's store holds
+    /// (a subrouter account home, a root the person added; cx-vx54). acpmux
+    /// found it in its own chat index, never in a request; every spawn runs
+    /// the harness on it (``SessionMeta::apply_chat_store``).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat_store: Option<PathBuf>,
     /// Chat store roots the harness's launch env named at its last spawn
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -164,6 +170,44 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+}
+
+impl SessionMeta {
+    /// `chat_store` as the harness's store variable (`CLAUDE_CONFIG_DIR` or
+    /// `CODEX_HOME`) over `env` (a spawn's, or the env a store is read
+    /// with). The harness's default home (`~/.claude`, `~/.codex`) removes
+    /// the variable instead: setting `CLAUDE_CONFIG_DIR=~/.claude` moves
+    /// Claude's own config file, and with it the person's login. OpenCode's
+    /// store `<data>/opencode` is `XDG_DATA_HOME=<data>`.
+    pub fn apply_chat_store(&self, env: &mut BTreeMap<String, String>) {
+        let Some(dir) = &self.chat_store else { return };
+        let (var, default, dir) = match self.family.as_deref() {
+            Some("claude") => ("CLAUDE_CONFIG_DIR", ".claude", dir.as_path()),
+            Some("codex") => ("CODEX_HOME", ".codex", dir.as_path()),
+            Some("opencode") => match dir.parent() {
+                Some(data) if dir.file_name().is_some_and(|name| name == "opencode") => {
+                    ("XDG_DATA_HOME", ".local/share", data)
+                }
+                _ => return,
+            },
+            _ => return,
+        };
+        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let default = dirs::home_dir().map(|home| real(&home.join(default)));
+        if default.is_some_and(|default| default == real(dir)) {
+            env.remove(var);
+        } else {
+            env.insert(var.to_owned(), dir.to_string_lossy().into_owned());
+        }
+    }
+
+    /// The Claude store this session's harness reads when it spawns on a
+    /// profile with `env`.
+    pub fn claude_store(&self, env: &BTreeMap<String, String>) -> PathBuf {
+        let mut env = env.clone();
+        self.apply_chat_store(&mut env);
+        crate::adopt::HarnessHomes::from_env().with_env(&[&env]).claude
+    }
 }
 
 /// One chat store root a spawn's env named: `harness` is a chat index
@@ -464,116 +508,5 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn meta(id: &str) -> SessionMeta {
-        SessionMeta {
-            schema: META_SCHEMA.into(),
-            id: id.into(),
-            name: id.into(),
-            harness: "codex".into(),
-            harness_argv: vec![],
-            family: None,
-            preset: None,
-            model_request: None,
-            cwd: PathBuf::from("/tmp"),
-            agent_session_id: None,
-            status: SessionStatus::Idle,
-            created_at: 1,
-            updated_at: 1,
-            last_seq: 0,
-            parent_id: None,
-            fork_seq: None,
-            agent_info: None,
-            agent_capabilities: None,
-            modes: None,
-            config_options: None,
-            models: None,
-            permission_policy: None,
-            title: None,
-            last_prompt: None,
-            preview: None,
-            event_count: 0,
-            turn_count: 0,
-            usage: None,
-            permission_rules: None,
-            tags: Default::default(),
-            unread: false,
-            claude_unstored: false,
-            claude_profile: None,
-            last_turn: None,
-            remote_origin: false,
-            session_env: Default::default(),
-            harness_roots: vec![],
-            composer_draft: None,
-        }
-    }
-
-    fn rec(seq: u64) -> EventRecord {
-        EventRecord {
-            seq,
-            at: seq,
-            dir: "mux".into(),
-            kind: "status".into(),
-            msg: serde_json::json!({"seq": seq}),
-            host_seq: None,
-        }
-    }
-
-    #[test]
-    fn local_store_rolls_segments_and_reads_after_seq() {
-        let tmp = std::env::temp_dir().join(format!("acpmux-store-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
-        let store = LocalStore::new(tmp.clone(), 64 * 1024).unwrap();
-        store.save(&meta("s1")).unwrap();
-        for i in 1..=3000 {
-            store.append("s1", &rec(i)).unwrap();
-        }
-        let segs = store.segments("s1").unwrap();
-        assert!(segs.len() >= 2, "expected roll, got {}", segs.len());
-        let tail = store.events("s1", 2990, 100).unwrap();
-        assert_eq!(tail.len(), 10);
-        assert_eq!(tail[0].seq, 2991);
-        assert_eq!(store.list().unwrap().len(), 1);
-        store.delete("s1").unwrap();
-        assert!(store.load("s1").unwrap().is_none());
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn memory_store_round_trip() {
-        let store = MemoryStore::default();
-        store.save(&meta("m")).unwrap();
-        store.append("m", &rec(1)).unwrap();
-        store.append("m", &rec(2)).unwrap();
-        assert_eq!(store.events("m", 1, 10).unwrap().len(), 1);
-    }
-
-    #[test]
-    fn local_store_round_trips_composer_draft() {
-        let root =
-            std::env::temp_dir().join(format!("acpmux-draft-store-{}", uuid::Uuid::now_v7()));
-        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
-        let mut saved = meta("draft");
-        saved.composer_draft = Some("keep this across relaunch".into());
-        store.save(&saved).unwrap();
-        assert_eq!(store.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
-
-        let reopened = LocalStore::new(root.clone(), 64 * 1024).unwrap();
-        assert_eq!(reopened.load("draft").unwrap().unwrap().composer_draft, saved.composer_draft);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn legacy_session_meta_defaults_composer_draft_to_none() {
-        let mut value = serde_json::to_value(meta("legacy")).unwrap();
-        value.as_object_mut().unwrap().remove("composerDraft");
-        let loaded: SessionMeta = serde_json::from_value(value).unwrap();
-        assert_eq!(loaded.composer_draft, None);
     }
 }

@@ -4,7 +4,9 @@ public import Foundation
 /// directory next to `cmux.json` (`~/.config/cmux/agent-pane/`).
 ///
 /// - `theme.css`: a stylesheet applied after the pane's own.
-/// - `layout.json`: a JSON object handed to the page's registry `configure`.
+/// - `layout.json`: a JSON object handed to the page's registry `configure`;
+///   its `quickActions` list sets the chat header's quick actions and whether
+///   each toggles or opens (acpmux header/quickActions.ts).
 /// - `registry.js`: a script that registers renderers with
 ///   `window.cmuxAcpmuxRegistry`.
 ///

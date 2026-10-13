@@ -24,7 +24,7 @@ impl Surface {
     /// Whether [`Self::begin_host_termination`] would signal a terminal host
     /// (`Some`) rather than report a local runtime (`None`). It only reads
     /// the runtime kind; it never waits for the host.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn has_host_termination(&self) -> bool {
         let Some(pty) = self.as_pty() else { return false };
         if pty.host_identity.is_none() || pty.host_exit_record_path.is_none() {
@@ -38,7 +38,7 @@ impl Surface {
     /// `None` and keep their existing kill path. Pass the result to
     /// [`Self::wait_for_host_exit`], whose durable exit receipt is the
     /// authoritative completion.
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
         let Some(identity) = pty.host_identity.clone() else { return Ok(None) };
@@ -62,7 +62,7 @@ impl Surface {
 
     /// Wait for the ordered host stream to publish the durable exit receipt
     /// after [`Self::begin_host_termination`].
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn wait_for_host_exit(
         &self,
         termination: HostTermination,
@@ -93,7 +93,7 @@ impl Surface {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn terminal_host_exit_sidecar(
         &self,
     ) -> Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)> {
@@ -105,7 +105,7 @@ impl Surface {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) fn mark_hosted_runtime_exited(
     pty: &PtySurface,
     identity: &crate::terminal_host_runtime::TerminalHostIdentity,
@@ -146,7 +146,7 @@ pub(super) fn close_local_terminal_master_after_exit(surface: &Arc<Surface>) {
     let Some(pty) = surface.as_pty() else { return };
     let master = {
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { master, .. } = &mut *runtime;
+        let PtyRuntime::Local { master, .. } = &mut *runtime else { return };
         master.take()
     };
     // portable-pty's ConPTY reader keeps a separate output handle. Closing

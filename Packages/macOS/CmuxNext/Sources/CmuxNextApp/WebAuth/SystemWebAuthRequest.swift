@@ -15,7 +15,12 @@ final class SystemWebAuthRequest: WebAuthSessionRequest {
         id = request.uuid
         url = request.url
         isEphemeral = request.shouldUseEphemeralSession
-        callback = Self.callback(of: request.callback)
+        if #available(macOS 14.4, *) {
+            callback = Self.callback(of: request.callback)
+        } else {
+            // macOS 14.0-14.3 report only a custom scheme.
+            callback = request.callbackURLScheme.map { .customScheme($0) } ?? .none
+        }
     }
 
     /// The scheme, or the https host and path, of the system's callback. It
@@ -23,6 +28,7 @@ final class SystemWebAuthRequest: WebAuthSessionRequest {
     /// stop the callback navigation before it loads. Unknown (`.none`) when
     /// they cannot be read: the system's own matcher still ends the session
     /// once the tab shows the callback (`WebAuthSessionWindows`).
+    @available(macOS 14.4, *)
     static func callback(of callback: ASWebAuthenticationSession.Callback?) -> WebAuthCallback {
         guard let object = callback as NSObject? else { return .none }
         func string(_ key: String) -> String? {
@@ -37,7 +43,8 @@ final class SystemWebAuthRequest: WebAuthSessionRequest {
 
     /// The system's matcher decides; `callback` only when there is none.
     func matches(_ url: URL) -> Bool {
-        request.callback?.matchesURL(url) ?? callback.matches(url)
+        if #available(macOS 14.4, *), let system = request.callback { return system.matchesURL(url) }
+        return callback.matches(url)
     }
 
     func complete(with url: URL) {

@@ -1,5 +1,5 @@
 import CmuxNextMobile
-import Synchronization
+import CmuxNextCompat
 
 /// Hands usable phone connections to whoever publishes them (the control
 /// socket's `mobile.rpc.ready` event). The host is created before the

@@ -2,7 +2,7 @@
 //! SIGKILL of both, a host that died while no daemon ran) gets a new shell
 //! under the same terminal id and a new incarnation. Its tab never reads
 //! dead, the new shell starts below the previous screen and one dim marker
-//! line, an agent session it ran is offered for resume on the prompt
+//! line, an agent session or a command it ran is offered on the prompt
 //! (typed, never run), and a real process end or a close stays ended.
 
 use std::io::Write as _;
@@ -213,6 +213,37 @@ fn a_host_that_died_without_a_daemon_is_respawned_at_the_next_start() {
     assert_eq!(lines[0]["cause"], "dead_before_adoption");
 }
 
+/// b2. A reboot with no checkpoint made by a client: the daemon gets
+/// `SIGTERM`, then its host dies. The next daemon respawns the terminal with
+/// the screen it had when the daemon stopped, also while another terminal
+/// keeps writing (a build log, an agent's spinner).
+#[test]
+fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-reboot-screen");
+    let (_, _, busy) = start_default_shell(&harness, "busy");
+    send_line(&harness.socket, busy, "while :; do echo busy; sleep 0.005; done");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "reboot");
+    // The output, not the echoed command line, carries the marker.
+    send_line(&harness.socket, surface, "printf 'shutdown-%s\\n' marker");
+    wait_for_screen(&harness.socket, surface, "shutdown-marker\n");
+    let (_, record) = wait_for_host_records(&harness.host_root(), 2)
+        .into_iter()
+        .find(|(_, record)| record.terminal_id == terminal_id)
+        .expect("the terminal has no host record");
+    harness.terminate();
+    // SAFETY: the record PID is the harness-owned terminal host.
+    assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    harness.restart();
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "reboot");
+    assert_eq!(tab["dead"], false, "{tab}");
+    let surface = tab["surface"].as_u64().expect("the respawned tab has a surface");
+    let text = wait_for_screen(&harness.socket, surface, MARKER);
+    assert!(text.contains("shutdown-marker"), "the screen at shutdown is gone: {text}");
+}
+
 /// c. An agent session the terminal ran is typed on the new prompt for the
 /// user to resume; it does not run.
 #[test]
@@ -278,6 +309,130 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
     assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
+}
+
+/// c2. A command tab respawned by a later daemon (the daemon was killed,
+/// then the host died) offers its command line on the new prompt, typed,
+/// never run. A command with an argument that looks like a credential is
+/// not stored at all: its tab only names the program.
+#[test]
+fn a_command_tab_offers_its_command_after_a_daemon_restart_without_secrets() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-argv");
+    let entropy = "Zx9Qw2Lp7Rt4Vb8Nm3Kj6Hg1Fd5Sa0YcXeUiOo";
+    let tabs = [
+        ("argv", serde_json::json!(["/bin/sh", "-c", "echo ran-$((6*7)); sleep 600", "cmuxargv"])),
+        (
+            "secret",
+            serde_json::json!([
+                "/bin/sh",
+                "-c",
+                "sleep 600",
+                "cmuxsecret",
+                "--password",
+                "pw-hunter2"
+            ]),
+        ),
+        ("token", serde_json::json!(["/bin/sh", "-c", "sleep 600", "cmuxtoken", entropy])),
+        (
+            "bearer",
+            serde_json::json!([
+                "/bin/sh",
+                "-c",
+                "sleep 600; curl -H 'Authorization: Bearer hunter2'",
+                "cmuxbearer"
+            ]),
+        ),
+    ];
+    let mut terminals = Vec::new();
+    for (index, (name, argv)) in tabs.iter().enumerate() {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({"id":index + 1,"cmd":"run","new_workspace":true,"name":name,"argv":argv}),
+        );
+        assert!(created["surface"].as_u64().is_some(), "{created}");
+        let terminal_id = tab_named(&harness, name)["terminal_id"]
+            .as_str()
+            .expect("tab has no terminal id")
+            .to_string();
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+        );
+        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+        terminals.push((*name, terminal_id, incarnation));
+    }
+    let records = wait_for_host_records(&harness.host_root(), tabs.len());
+    harness.sigkill();
+    for (_, terminal_id, _) in &terminals {
+        let (_, record) = records
+            .iter()
+            .find(|(_, record)| &record.terminal_id == terminal_id)
+            .expect("the terminal has no host record");
+        // SAFETY: the record PID is the harness-owned terminal host.
+        assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+    }
+    harness.restart();
+
+    // Whitespace dropped, as in c: the typed line can wrap at any column.
+    let after_marker = |text: &str| {
+        text.rsplit_once(MARKER)
+            .map(|(_, tail)| tail.split_whitespace().collect::<String>())
+            .unwrap_or_default()
+    };
+    for (name, terminal_id, incarnation) in &terminals {
+        wait_for_respawn(&harness, terminal_id, incarnation);
+        let surface = tab_named(&harness, name)["surface"].as_u64().expect("surface");
+        if *name == "argv" {
+            let command = "/bin/sh-c'echoran-$((6*7));sleep600'cmuxargv";
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+            while !after_marker(&screen(&harness, surface)).contains(command) {
+                assert!(
+                    Instant::now() < deadline,
+                    "no command offer: {}",
+                    screen(&harness, surface)
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            let text = screen(&harness, surface);
+            assert!(
+                after_marker(&text).trim_end().ends_with(command),
+                "not on the prompt line: {text}"
+            );
+            assert!(!after_marker(&text).contains("ran-42"), "the offered command ran: {text}");
+            let lines = wait_for_respawn_lines(&harness, terminal_id, 1);
+            assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("command".into()));
+        } else {
+            // The marker names the program instead: "(previous process ended; it ran sh)".
+            let named = "session restored (previous process ended; it ran sh)";
+            let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+            while !screen(&harness, surface).contains(named) {
+                assert!(
+                    Instant::now() < deadline,
+                    "{name}: no restore marker naming the program: {}",
+                    screen(&harness, surface)
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            std::thread::sleep(Duration::from_secs(1));
+            let text = screen(&harness, surface);
+            let tail = text
+                .rsplit_once(named)
+                .map(|(_, tail)| tail.split_whitespace().collect::<String>())
+                .unwrap_or_default();
+            assert!(
+                !tail.contains(&format!("cmux{name}")),
+                "{name}: a credential-like command was offered: {tail}"
+            );
+            for secret in ["hunter2", entropy] {
+                assert!(
+                    !tail.contains(secret),
+                    "{name}: a credential-like argument was offered: {tail}"
+                );
+            }
+        }
+    }
 }
 
 /// d. A real process end is never respawned: the terminal stays exited
@@ -351,3 +506,6 @@ fn a_close_after_a_host_loss_is_never_respawned() {
     assert_ne!(resolved["data"]["lifecycle"], "running", "{resolved}");
     wait_for_no_host_records(&harness.host_root());
 }
+
+#[path = "tab_restart.rs"]
+mod tab_restart;

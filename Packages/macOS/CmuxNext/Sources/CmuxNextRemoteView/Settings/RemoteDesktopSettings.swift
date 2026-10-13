@@ -30,29 +30,4 @@ public nonisolated struct RemoteDesktopSettings: Sendable, Hashable {
     public var showPathBadge = true
 
     public init() {}
-
-    /// Every key with its default as the README table writes it.
-    public static let documentedKeys: [String] = [
-        "remoteDesktop.quality", "remoteDesktop.maxFps", "remoteDesktop.maxBitrateMbps",
-        "remoteDesktop.codec", "remoteDesktop.resolution", "remoteDesktop.keyboard.mode",
-        "remoteDesktop.keyboard.sendSystemShortcuts", "remoteDesktop.clipboard", "remoteDesktop.audio",
-        "remoteDesktop.interactiveMaxRttMs", "remoteDesktop.showPathBadge",
-    ]
-
-    /// `key` -> value rendered like the README (`auto`, `80`, `false`).
-    public var documentedValues: [String: String] {
-        [
-            "remoteDesktop.quality": quality.rawValue,
-            "remoteDesktop.maxFps": maxFps.map(String.init) ?? "auto",
-            "remoteDesktop.maxBitrateMbps": maxBitrateMbps.map { String(format: "%g", $0) } ?? "auto",
-            "remoteDesktop.codec": codec.rawValue,
-            "remoteDesktop.resolution": resolution.rawValue,
-            "remoteDesktop.keyboard.mode": keyboardMode.rawValue,
-            "remoteDesktop.keyboard.sendSystemShortcuts": String(sendSystemShortcuts),
-            "remoteDesktop.clipboard": clipboard.rawValue,
-            "remoteDesktop.audio": String(audio),
-            "remoteDesktop.interactiveMaxRttMs": String(interactiveMaxRttMs),
-            "remoteDesktop.showPathBadge": String(showPathBadge),
-        ]
-    }
 }

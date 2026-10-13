@@ -7,10 +7,38 @@ import { LineSocket } from "./line-socket.ts";
 // socket). New code for the brain host; the method set follows feat-mux
 // mux/packages/acpmux/src/client.ts and `acpmux daemon schema`.
 
-export function acpmuxSocketPath(env: Record<string, string | undefined> = process.env): string {
-  if (env.ACPMUX_SOCKET) return env.ACPMUX_SOCKET;
-  if (env.ACPMUX_HOME) return join(env.ACPMUX_HOME, "acpmux.sock");
-  return join(env.HOME ?? homedir(), ".acpmux", "acpmux.sock");
+/** The longest Unix socket path every host binds (cmux-agent-pane-policy MAX_SOCKET_PATH_BYTES). */
+const MAX_SOCKET_PATH_BYTES = 103;
+
+/** FNV-1a 64 of the UTF-8 bytes, as 16 hex digits. */
+function fnv1a64(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte);
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+/**
+ * The acpmux daemon socket every host and client resolves (cmux-agent-pane-policy
+ * `environment::socket_path`, tests/cases/environment.json): ACPMUX_SOCKET, except an
+ * absolute path past the Unix socket limit (a long TMPDIR), which maps to the short alias
+ * acpmux binds; else `<home>/acpmux.sock`, or the alias of a long home.
+ */
+export function acpmuxSocketPath(
+  env: Record<string, string | undefined> = process.env,
+  uid: number = process.getuid?.() ?? 0,
+): string {
+  const alias = (key: string) => `/tmp/acpmux-${uid}/${fnv1a64(key)}.sock`;
+  const configured = env.ACPMUX_SOCKET;
+  if (configured) {
+    const long = configured.startsWith("/") && Buffer.byteLength(configured) > MAX_SOCKET_PATH_BYTES;
+    return long ? alias(configured) : configured;
+  }
+  const home = env.ACPMUX_HOME || join(env.HOME ?? homedir(), ".acpmux");
+  const preferred = join(home, "acpmux.sock");
+  return Buffer.byteLength(preferred) < 96 ? preferred : alias(home);
 }
 
 export interface Notification {

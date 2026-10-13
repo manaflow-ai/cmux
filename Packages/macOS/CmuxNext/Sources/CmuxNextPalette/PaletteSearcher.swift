@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import os
 
 /// Runs searches off the main actor on the latest index snapshot. Each
@@ -8,6 +9,9 @@ public actor PaletteSearcher {
     private var index = PaletteSearchIndex(entries: [])
     private var indexVersion = -1
     private let bridge: PaletteRankerBridge?
+    /// The user's aliases and pins, applied to every rank. The palette sets them on each open
+    /// (`PaletteSources.rankSettings`), before the open's searches start.
+    nonisolated let rankSettings = Mutex(PaletteRankSettings())
     /// Tests: runs on the actor as each call returns, the moment another caller of the shared
     /// searcher would get it next (state-audit P2), so a test interleaves deterministically.
     private var betweenCalls: (@Sendable (isolated PaletteSearcher) -> Void)?
@@ -31,11 +35,6 @@ public actor PaletteSearcher {
             loadError = reason
             Self.logger.fault("palette searcher ranker did not load, searches have no rows: \(reason.localizedDescription, privacy: .public)")
         }
-    }
-
-    /// Tests: sets ``betweenCalls``.
-    func setBetweenCalls(_ hook: (@Sendable (isolated PaletteSearcher) -> Void)?) {
-        betweenCalls = hook
     }
 
     private func endCall() {
@@ -101,6 +100,31 @@ public actor PaletteSearcher {
                     showsRecent: showsRecent, keepsSectionOrder: keepsSectionOrder, ranksPrefixFirst: ranksPrefixFirst)
     }
 
+    /// Ranks the empty query of `entries` (installed in the bridge once per `version`) off the
+    /// main actor. Nil when the caller was cancelled before its turn: a newer request for the same
+    /// rows superseded it, so it ranks nothing.
+    public func rankEmpty(
+        entries: [PaletteSearchEntry],
+        version: Int,
+        sectionOrders: [Int],
+        frecency: FrecencyStore,
+        now: Date,
+        showsRecent: Bool
+    ) -> [PaletteRankedSection]? {
+        defer { endCall() }
+        if Task.isCancelled { return nil }
+        guard let bridge else { return [] }
+        do {
+            // The page's Pinned section (`PalettePageState` adds it to a page that shows Recent).
+            let pinned = sectionOrders.firstIndex(of: PaletteSection.pinnedOrder)
+            return try bridge.rankEmpty(entries: entries, version: version, sectionOrders: sectionOrders,
+                                        frecency: frecency, now: now, showsRecent: showsRecent,
+                                        settings: rankSettings.withLock { $0 }, pinnedSectionIndex: pinned)
+        } catch {
+            return []
+        }
+    }
+
     private func rank(
         query: String,
         generation: Int,
@@ -123,7 +147,8 @@ public actor PaletteSearcher {
                 now: now,
                 showsRecent: showsRecent,
                 keepsSectionOrder: keepsSectionOrder,
-                ranksPrefixFirst: ranksPrefixFirst
+                ranksPrefixFirst: ranksPrefixFirst,
+                settings: rankSettings.withLock { $0 }
             )
         } catch {
             return (generation, [])

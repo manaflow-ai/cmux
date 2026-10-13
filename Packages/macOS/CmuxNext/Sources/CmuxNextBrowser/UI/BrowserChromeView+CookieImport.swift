@@ -70,6 +70,7 @@ extension BrowserChromeView {
     private func remove(_ card: BrowserCookieImportCard) {
         guard !card.isDismissing else { return }
         card.isDismissing = true
+        pageOverlays.release(card)
         Motion.animate(.fadeOut, in: card, { card.animator().alphaValue = 0 }, completion: { [weak self] in
             self?.pageOverlays.remove(card)
         })

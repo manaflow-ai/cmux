@@ -37,9 +37,13 @@ public final class BrowserDownload: Identifiable {
     var placement: BrowserDownloadPlacement?
     @ObservationIgnored
     var cancelHandler: (() -> Void)?
-    /// Pause and resume, when the engine can (Chromium).
+    /// Pause and resume, when the engine can.
     @ObservationIgnored
     var pauseHandler: ((Bool) -> Void)?
+    /// Starts the same download again as a new one (Retry), when its engine
+    /// can: a web link, from a tab still open. False when it could not start.
+    @ObservationIgnored
+    var retryHandler: (() -> Bool)?
     @ObservationIgnored
     private var finishHandlers: [(BrowserDownload) -> Void] = []
 
@@ -84,7 +88,36 @@ public final class BrowserDownload: Identifiable {
         return item
     }
 
+    /// A download that ended in an earlier run, as the Downloads list kept
+    /// it: nothing runs on its file, and it cannot pause or retry.
+    public static func ended(sourceURL: URL?, filename: String, destination: URL?, status: Status,
+                             receivedBytes: Int64, totalBytes: Int64?) -> BrowserDownload {
+        let item = BrowserDownload(sourceURL: sourceURL, filename: filename)
+        item.destination = destination
+        item.receivedBytes = receivedBytes
+        item.totalBytes = totalBytes
+        if status == .finished { item.fraction = 1 }
+        item.status = status == .inProgress ? .cancelled : status
+        return item
+    }
+
     public var canPause: Bool { pauseHandler != nil && status == .inProgress }
+
+    /// A failed or cancelled download its engine can start again.
+    public var canRetry: Bool {
+        switch status {
+        case .failed, .cancelled: retryHandler != nil
+        case .inProgress, .finished, .blocked: false
+        }
+    }
+
+    /// Starts this download again; the new one is a new `BrowserDownload`
+    /// (the engine's `.download` intent). False when it could not start.
+    @discardableResult
+    public func retry() -> Bool {
+        guard canRetry, let retryHandler else { return false }
+        return retryHandler()
+    }
 
     public func cancel() {
         guard status == .inProgress else { return }

@@ -31,11 +31,6 @@ public actor OmniboxLocalIndex {
         }, now: now)
     }
 
-    /// URLs in the history index (tests, diagnostics).
-    public var historyCount: Int { history.count }
-
-    public func historyContains(_ url: URL) -> Bool { history.contains(url) }
-
     /// The local rows of `query`, or nil when a newer query of the same
     /// omnibar started (its gate moved on): stale work never delivers.
     public func run(_ query: OmniboxLocalQuery) -> [BrowserSuggestion]? {

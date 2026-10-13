@@ -8,19 +8,31 @@ import AppKit
 enum BubblePath {
     /// Bubble outlines by size (cells reuse them for the gradient mask).
     private static var cache: [Key: CGPath] = [:]
-    private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool }
-    /// The bubble outline at the origin (main thread).
-    static func cached(size: CGSize, outgoing: Bool, tail: Bool) -> CGPath {
-        let k = Key(w: size.width, h: size.height, outgoing: outgoing, tail: tail)
+    private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0 }
+    /// The bubble outline at the origin (main thread). `cornersOf`: as `make`.
+    static func cached(size: CGSize, outgoing: Bool, tail: Bool, cornersOf frame: CGSize? = nil) -> CGPath {
+        let k = Key(w: size.width, h: size.height, outgoing: outgoing, tail: tail, cw: frame?.width ?? 0, ch: frame?.height ?? 0)
         if let p = cache[k] { return p }
         if cache.count > 2000 { cache.removeAll() }
-        let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail).cgPath
-        cache.updateValue(p, forKey: k) /* cmux */
+        let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
+        cache.updateValue(p, forKey: k)
         return p
     }
-    static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius) -> UIBezierPath {
-        let rad = min(radius, r.height / 2)
-        let path = UIBezierPath(roundedRect: r, cornerRadius: rad)
+    /// `cornersOf`: the body takes the rounded rect of this size, scaled to `r` (an outgoing text balloon drawn a
+    /// little inside its frame, RowDraw.balloon). It keeps its frame's corners: UIKit's rounded rect switches to
+    /// its limited (pill) corner when half the height is under 1.528665 r (UIKitRoundedRect), 45.86 pt for r = 15,
+    /// so a 45.62 pt balloon built at its own size had pill corners (radius about 22.8 pt; Messages' 2-line
+    /// balloon keeps its 15 pt continuous corner: deactivate-activate/tp1200ms.png). The tail is not scaled.
+    static func make(body r: CGRect, outgoing: Bool, tail: Bool, radius: CGFloat = Fixture.bubbleRadius,
+                     cornersOf frame: CGSize? = nil) -> UIBezierPath {
+        let path: UIBezierPath
+        if let f = frame, f != r.size, f.width > 0, f.height > 0 {
+            let full = UIBezierPath(roundedRect: CGRect(origin: .zero, size: f), cornerRadius: min(radius, f.height / 2)).cgPath
+            var xf = CGAffineTransform(translationX: r.minX, y: r.minY).scaledBy(x: r.width / f.width, y: r.height / f.height)
+            path = full.copy(using: &xf).map { UIBezierPath(cgPath: $0) } ?? UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
+        } else {
+            path = UIBezierPath(roundedRect: r, cornerRadius: min(radius, r.height / 2))
+        }
         guard tail else { return path }
         let t = tailPath(outgoing: outgoing)
         var xf = CGAffineTransform(translationX: r.maxX, y: r.maxY)
@@ -130,7 +142,7 @@ enum Glass {
         let white = UIColor.white
         let space = CGColorSpace(name: CGColorSpace.sRGB)
         for (stops, fromTop) in [(rim.top, true), (rim.bottom, false)] {
-            // cmux: no force unwraps (crash program); an empty rim or a failed gradient draws nothing.
+            // no force unwraps ; an empty rim or a failed gradient draws nothing.
             guard let span = stops.last?.0 else { continue }
             let g = CGGradient(colorsSpace: space, colors: stops.map { white.withAlphaComponent($0.1).cgColor } as CFArray,
                                locations: stops.map { $0.0 / span })

@@ -42,6 +42,9 @@ impl Hub {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
                     }
                 }
+                Inbound::Barrier(done) => {
+                    let _ = done.send(());
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -506,11 +509,16 @@ impl Hub {
             } else {
                 None
             };
+            let decision_nonce = super::person::new_nonce();
             state.pending.insert(
                 permission_id.clone(),
-                PendingPermission { request: request.clone(), reply: tx },
+                PendingPermission {
+                    request: request.clone(),
+                    reply: tx,
+                    decision_nonce: decision_nonce.clone(),
+                },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"decisionNonce":decision_nonce,"personInstance":self.person.instance(),"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id,"remoteFloor":floored}));
             let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
@@ -529,7 +537,10 @@ impl Hub {
         self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
+            if state.pending.is_empty()
+                && session.status() == SessionStatus::Waiting
+                && !self.secrets.waiting_in(&session.id)
+            {
                 let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
                 self.set_status(session, next);
             }
@@ -554,6 +565,7 @@ impl Hub {
         option_id: Option<String>,
         answers: Option<Value>,
         answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
@@ -602,6 +614,41 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            // The authoritative person rule (`person.rs`), here under the
+            // prompt's lock, whatever the request check saw: a client that
+            // is not the person may cancel or reject; an allow, or who
+            // answered, needs the person's decision proof for this very
+            // prompt, which is checked again and spent with the answer.
+            if !answerer.person {
+                let rejects = option_id.as_ref().is_some_and(|o| {
+                    p.request["options"].as_array().into_iter().flatten().any(|x| {
+                        x["optionId"] == *o
+                            && matches!(x["kind"].as_str(), Some("reject_once" | "reject_always"))
+                    })
+                });
+                let allows = option_id.is_some() && !rejects;
+                if allows || answered_by.is_some() {
+                    let proved = match (&option_id, answerer.decision) {
+                        (Some(o), Some((nonce, proof))) => {
+                            answers.is_none()
+                                && cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                                && self.person.decision_proves(
+                                    &session.id,
+                                    permission_id,
+                                    o,
+                                    nonce,
+                                    proof,
+                                )
+                        }
+                        _ => false,
+                    };
+                    let spent = proved
+                        && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n));
+                    if !spent {
+                        return Err(super::person::person_required("allowing a permission"));
+                    }
+                }
+            }
             let p = map.remove(permission_id).unwrap();
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
@@ -641,6 +688,8 @@ impl Hub {
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
+        // A secret card waits on the same turn (`secrets.rs`).
+        self.cancel_pending_secrets(session);
     }
 }
 
@@ -675,17 +724,4 @@ fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
         }
     }
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_path;
-    use std::path::Path;
-
-    #[test]
-    fn normalize_resolves_parent_components() {
-        assert_eq!(normalize_path(Path::new("/w/src/../../secret")), Path::new("/secret"));
-        assert_eq!(normalize_path(Path::new("/w/./src/a.rs")), Path::new("/w/src/a.rs"));
-        assert_eq!(normalize_path(Path::new("/../x")), Path::new("/x"));
-    }
 }

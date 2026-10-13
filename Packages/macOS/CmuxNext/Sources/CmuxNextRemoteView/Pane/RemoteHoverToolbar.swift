@@ -93,7 +93,7 @@ final class RemoteHoverToolbar: NSView {
             button.apply(text: on ? colors.accent : colors.textSecondary, hover: colors.hoverFill, fill: on ? colors.selectionFill : .clear)
             let label = on ? RemoteViewStrings.stopSharing(kind) : RemoteViewStrings.share(kind)
             button.setAccessibilityLabel(label)
-            button.toolTip = label
+            button.themedToolTip = label
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
     }

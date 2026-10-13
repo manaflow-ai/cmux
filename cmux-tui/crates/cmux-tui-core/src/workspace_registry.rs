@@ -32,6 +32,9 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+mod detached_terminals;
+pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
+use detached_terminals::require_live_workspace;
 mod effect_store;
 pub(crate) mod feed_local_store;
 mod idle_policy_store;
@@ -49,6 +52,14 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 pub(crate) use registry_connection::RegistryConnection;
+mod registry_intent;
+pub(crate) use registry_intent::{
+    OwnedTransactionWrite, RegistryIntent, RegistryIntentSink, RegistryReceipt, SettleState,
+};
+mod terminal_commit_intent;
+pub(crate) use terminal_commit_intent::TerminalCommitIntent;
+mod workspace_commit_intent;
+pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
@@ -93,8 +104,7 @@ pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_presentation_icon, validate_tab_group_color, validate_tab_group_name,
-    validate_workspace_group_id,
+    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -159,8 +169,10 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 64;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
+// A fresh test registry is already close to 1 MiB (one page per table and
+// index); the test bound leaves room for new tables.
 #[cfg(test)]
-const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
+const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 2 * 1024 * 1024;
 #[cfg(not(test))]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
 #[cfg(test)]
@@ -728,8 +740,8 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
-    _lease: Option<SessionLease>,
-    _session_guard: Option<SessionLease>,
+    pub(crate) lease: Option<SessionLease>,
+    pub(crate) session_guard: Option<SessionLease>,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2332,6 +2344,40 @@ impl std::fmt::Debug for WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    /// The registry id stored for `session_name` under the state root `root`,
+    /// read without the session's locks (its owner may be running). `None`:
+    /// no registry exists there, so no owner of that state dir is running.
+    pub fn stored_registry_id(root: &Path, session_name: &str) -> anyhow::Result<Option<String>> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let db_path = platform::normalize_filesystem_path(
+            persistent_session_state_dir(&root, session_name).join(WORKSPACE_REGISTRY_FILE),
+        );
+        if !db_path.is_file() {
+            return Ok(None);
+        }
+        let connection = open_registry_database_read_only(&db_path)?;
+        connection.busy_timeout(std::time::Duration::from_millis(500))?;
+        meta_value(&connection, "registry_id")
+    }
+
+    /// Fails with `UnsupportedWorkspaceRegistrySchema` when the session's
+    /// saved registry needs a newer build, without opening it for writing.
+    /// The owner checks this before it binds its socket (cx-n3bs), so the
+    /// recovery text still sees whether another server holds the socket.
+    pub fn check_supported_schema(root: &Path, session_name: &str) -> anyhow::Result<()> {
+        let root = platform::normalize_filesystem_path(root.to_path_buf());
+        let session_dir =
+            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
@@ -2779,8 +2825,8 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            _session_guard: session_guard,
-            _lease: lease,
+            session_guard,
+            lease,
         })
     }
 
@@ -2972,119 +3018,17 @@ impl WorkspaceRegistry {
         terminal: &RegistryTerminal,
         result: &Value,
     ) -> anyhow::Result<TerminalRegistryCommit> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        validate_identifier("terminal event kind", event_kind)?;
-        validate_terminal(terminal)?;
-        let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
-        let launch_spec_json = canonical_json(&terminal.launch_spec)?;
-        if launch_spec_json.len() > MAX_LAUNCH_SPEC_BYTES {
-            anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
-        }
-        let exit_json = terminal.exit.as_ref().map(canonical_json).transpose()?;
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-
-        if let Some(replay) = terminal_replay(&tx, mutation, &fingerprint)? {
-            return Ok(replay);
-        }
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "terminal generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        let current_revision = transaction_terminal_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != current_revision
-        {
-            anyhow::bail!(
-                "terminal revision conflict: expected {expected}, current {current_revision}"
-            );
-        }
-        let existing = read_terminal(&tx, &terminal.terminal_id)?;
-        if let Some(existing) = existing.as_ref()
-            && existing.lifecycle == TerminalLifecycle::Exited
-            && terminal.lifecycle == TerminalLifecycle::Exited
-        {
-            if existing.incarnation != terminal.incarnation {
-                anyhow::bail!("terminal_incarnation_mismatch");
-            }
-            // Process exit is a latch: the first observed reason/status is
-            // authoritative. Reader EOF, child wait, and reconnect failure can
-            // race, but later observations neither rewrite metadata nor mint a
-            // new durable revision/event.
-            tx.commit()?;
-            return Ok(TerminalRegistryCommit {
-                revision: current_revision,
-                result: result.clone(),
-                replayed: true,
-            });
-        }
-        validate_terminal_transition(existing.as_ref(), terminal)?;
-        if terminal.lifecycle != TerminalLifecycle::Tombstoned
-            && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
-        {
-            require_live_workspace(&tx, &terminal.workspace_key)?;
-        }
-
-        let revision = current_revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        tx.execute(
-            "INSERT INTO terminal_hosts(
-               terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
-               exit_json, on_exit, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
-             ON CONFLICT(terminal_id) DO UPDATE SET
-               workspace_key=excluded.workspace_key,
-               incarnation=excluded.incarnation,
-               lifecycle=excluded.lifecycle,
-               launch_spec_json=excluded.launch_spec_json,
-               exit_json=excluded.exit_json,
-               on_exit=excluded.on_exit,
-               updated_revision=excluded.updated_revision,
-               deleted_revision=excluded.deleted_revision",
-            params![
-                terminal.terminal_id,
-                terminal.workspace_key,
-                terminal.incarnation,
-                terminal.lifecycle.as_str(),
-                launch_spec_json,
-                exit_json,
-                terminal.on_exit.as_str(),
-                sqlite_revision,
-                (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(sqlite_revision),
-            ],
+        // Through the journal writer batch when it runs (terminal_commit_intent).
+        let intent = self.prepare_terminal_commit(
+            mutation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            event_kind,
+            terminal,
+            result,
         )?;
-        tx.execute(
-            "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
-            [revision.to_string()],
-        )?;
-        let ledger = mutation_ledger::KeyedLedger::Terminal;
-        let row = (fingerprint.as_str(), result_json.as_str(), sqlite_revision);
-        mutation_ledger::insert_keyed_mutation(&tx, ledger, mutation, row.0, row.1, row.2)?;
-        tx.execute(
-            "INSERT INTO terminal_events(
-               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                sqlite_revision,
-                event_kind,
-                terminal.terminal_id,
-                terminal.workspace_key,
-                mutation.origin,
-                mutation.id,
-                result_json,
-            ],
-        )?;
-        tx.commit()?;
-        Ok(TerminalRegistryCommit { revision, result: result.clone(), replayed: false })
+        self.commit_registry_intent(RegistryIntent::Terminal(intent))?.into_terminal()
     }
 
     /// Durably tombstones a terminal before the caller signals its host. This
@@ -3347,202 +3291,6 @@ impl WorkspaceRegistry {
             true,
             Some(&write),
         )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn commit_workspace_registry(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        event_kind: &str,
-        workspace_key: &str,
-        workspaces: &[RegistryWorkspace],
-        active_workspace: Option<&WorkspacePublicId>,
-        result: &Value,
-        project_resource: bool,
-        extra: Option<RegistryTransactionWrite<'_>>,
-    ) -> anyhow::Result<RegistryCommit> {
-        validate_identifier("mutation id", &mutation.id)?;
-        validate_identifier("mutation origin", &mutation.origin)?;
-        let fingerprint = canonical_json(fingerprint)?;
-        let result_json = canonical_json(result)?;
-        let previous_topology =
-            project_resource.then(|| self.resource_topology_snapshot()).transpose()?;
-        let db = self.connection.get();
-        let tx = db.unchecked_transaction()?;
-
-        if let Some((stored_fingerprint, stored_result, revision)) = tx
-            .query_row(
-                "SELECT fingerprint, result_json, committed_revision
-                 FROM mutations WHERE origin = ?1 AND mutation_id = ?2",
-                params![mutation.origin, mutation.id],
-                |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
-                },
-            )
-            .optional()?
-        {
-            if stored_fingerprint != fingerprint {
-                anyhow::bail!(
-                    "mutation {} from {} was retried with a different payload",
-                    mutation.id,
-                    mutation.origin
-                );
-            }
-            return Ok(RegistryCommit {
-                revision: u64::try_from(revision)
-                    .context("stored mutation revision is negative")?,
-                result: serde_json::from_str(&stored_result)?,
-                replayed: true,
-            });
-        }
-
-        validate_workspace_key(workspace_key)?;
-        validate_registry(workspaces)?;
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "workspace generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        if let Some(active_workspace) = active_workspace {
-            anyhow::ensure!(
-                workspaces.iter().any(|workspace| &workspace.public_id == active_workspace),
-                "active workspace is absent from the desired registry: {active_workspace}"
-            );
-        }
-        let (revision, _) = commit_workspace_registry_in_transaction(
-            &tx,
-            mutation,
-            &fingerprint,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            &result_json,
-        )?;
-        // Presentation rows land before the resource batch, so its restated
-        // workspaces carry the new identity fields.
-        if let Some(extra) = extra {
-            extra(&tx)?;
-        }
-        let previous_resource_revision =
-            project_resource.then(|| transaction_resource_revision(&tx)).transpose()?;
-        let resource_revision = previous_resource_revision
-            .map(|revision| {
-                revision
-                    .checked_add(1)
-                    .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))
-            })
-            .transpose()?;
-        let sqlite_resource_revision = resource_revision
-            .map(|revision| {
-                i64::try_from(revision).context("resource revision exceeds SQLite integer range")
-            })
-            .transpose()?;
-        if let (Some(previous_topology), Some(sqlite_resource_revision)) =
-            (previous_topology.as_ref(), sqlite_resource_revision)
-        {
-            let active_screens =
-                previous_topology.active_screens.iter().cloned().collect::<HashMap<_, _>>();
-            let live_workspace_ids = workspaces
-                .iter()
-                .map(|workspace| workspace.public_id.clone())
-                .collect::<HashSet<_>>();
-            let mut resource_changes = workspaces
-                .iter()
-                .enumerate()
-                .map(|(position, workspace)| ResourceChange::UpsertWorkspace {
-                    workspace: workspace.clone(),
-                    position,
-                    active_screen: active_screens.get(&workspace.public_id).cloned().flatten(),
-                })
-                .collect::<Vec<_>>();
-            resource_changes.extend(
-                previous_topology
-                    .active_screens
-                    .iter()
-                    .filter(|(workspace_id, _)| !live_workspace_ids.contains(workspace_id))
-                    .map(|(workspace_id, _)| ResourceChange::TombstoneWorkspace {
-                        workspace_id: workspace_id.clone(),
-                    }),
-            );
-            resource_changes.push(ResourceChange::SetWorkspaceOrder {
-                workspace_ids: workspaces
-                    .iter()
-                    .map(|workspace| workspace.public_id.clone())
-                    .collect(),
-            });
-            resource_changes.push(ResourceChange::SetActiveWorkspace {
-                workspace_id: active_workspace.cloned(),
-            });
-            apply_resource_patch(
-                &tx,
-                &ResourcePatch { changes: resource_changes },
-                sqlite_resource_revision,
-            )?;
-        }
-        if project_resource {
-            if let Some(active_workspace) = active_workspace {
-                tx.execute(
-                    "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)
-                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    [active_workspace.as_str()],
-                )?;
-            } else {
-                tx.execute("DELETE FROM meta WHERE key = 'active_workspace_id'", [])?;
-            }
-        }
-        if let Some(resource_revision) = resource_revision {
-            tx.execute(
-                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
-                [resource_revision.to_string()],
-            )?;
-        }
-        if let (
-            Some(previous_topology),
-            Some(previous_resource_revision),
-            Some(sqlite_resource_revision),
-            Some(resource_revision),
-        ) = (
-            previous_topology.as_ref(),
-            previous_resource_revision,
-            sqlite_resource_revision,
-            resource_revision,
-        ) {
-            insert_resource_mutation(
-                &tx,
-                mutation,
-                event_kind,
-                &fingerprint,
-                &result_json,
-                sqlite_resource_revision,
-            )?;
-            let resource_deltas = normalized_workspace_resource_deltas(
-                &self.session_id,
-                workspaces,
-                active_workspace.map(WorkspacePublicId::as_str),
-                previous_topology,
-            )?;
-            append_resource_journal_record(
-                &tx,
-                resource_revision,
-                previous_resource_revision,
-                &mutation.origin,
-                &mutation.id,
-                event_kind,
-                None,
-                result,
-                &resource_deltas,
-            )?;
-            resource_store::prune_resource_mutations(&tx)?;
-        }
-        tx.commit()?;
-        Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
     }
 
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
@@ -4825,20 +4573,6 @@ fn validate_terminal_transition(
     Ok(())
 }
 
-fn require_live_workspace(connection: &Connection, workspace_key: &str) -> anyhow::Result<()> {
-    let live = connection
-        .query_row(
-            "SELECT 1 FROM workspaces WHERE workspace_key = ?1 AND tombstoned = 0",
-            [workspace_key],
-            |_| Ok(()),
-        )
-        .optional()?;
-    if live.is_none() {
-        anyhow::bail!("terminal workspace is missing or closed: {workspace_key}");
-    }
-    Ok(())
-}
-
 type StoredTerminal = (String, String, Option<String>, String, String, Option<String>, String);
 
 fn terminal_from_stored(stored: StoredTerminal) -> anyhow::Result<RegistryTerminal> {
@@ -5497,7 +5231,7 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
         })
 }
 
-struct SessionLease {
+pub(crate) struct SessionLease {
     file: File,
     path: PathBuf,
     coordinator_waiter_dir: Option<PathBuf>,

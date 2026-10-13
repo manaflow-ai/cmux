@@ -50,10 +50,16 @@ struct SidebarWorkspaceItems {
     /// A workspace's title and the glyph its row stands for: the user's
     /// symbol (tinted), else the mark of the agent in its front tab, else its
     /// front tab's kind glyph (SidebarMapping.row, the one row rule), in the
-    /// workspace's color. The selection marks it active (SidebarModel.selectedItem).
+    /// workspace's color, with the row's status. The selection marks it active (SidebarModel.selectedItem).
     static func workspaceInfo(_ workspace: WorkspaceModel) -> SidebarItemInfo {
         let row = SidebarMapping.shared.row(workspace, machine: .local, showsUnread: false)
-        let color = SidebarMapping.shared.color(workspace.color)
+        var info = glyphInfo(row, color: SidebarMapping.shared.color(workspace.color))
+        info.activity = row.activity
+        info.activityStyle = row.activityStyle
+        return info
+    }
+
+    private static func glyphInfo(_ row: SidebarWorkspace, color: GroupColor?) -> SidebarItemInfo {
         switch row.icon {
         case .symbol(let name, let tint)?: return SidebarItemInfo(title: row.title, symbol: name, color: tint)
         case .emoji(let text, let chip)?: return SidebarItemInfo(title: row.title, symbol: "face.smiling", color: chip, emoji: text)

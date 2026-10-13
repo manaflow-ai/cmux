@@ -17,7 +17,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool)
     case loadStart(browser: Int32, url: String)
     case loadEnd(browser: Int32, httpStatus: Int)
-    case loadError(browser: Int32, code: Int, text: String, url: String)
+    /// `chromiumInterstitial`: Chromium shows its own certificate page for
+    /// it (`cmux_shim_certificate_proceed` left the decision to it).
+    case loadError(browser: Int32, code: Int, text: String, url: String, chromiumInterstitial: Bool)
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
@@ -51,6 +53,18 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The shim cancelled a main-frame navigation to a local file cmux shows
     /// elsewhere (`LocalFileHandoff`).
     case localFileHandoff(browser: Int32, url: String)
+    /// A link to another app (EXTERNAL_URL); `userGesture`: the user's click started it.
+    case externalURL(browser: Int32, url: String, userGesture: Bool)
+    /// A permission request the host decides (PERMISSION_PROMPT; `permissions`
+    /// are `cef_permission_request_types_t` bits), answered with
+    /// `cmux_shim_permission_continue(token, …)`; Chromium may end it first
+    /// (`permissionDismissed`).
+    case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
+    case permissionDismissed(browser: Int32, token: Int32)
+    /// Chromium's password manager asks to save or update a sign-in, or its
+    /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
+    /// `cmux_shim_password_prompt_answer(promptID, …)`.
+    case passwordPrompt(browser: Int32, promptID: Int32, json: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -66,6 +80,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsMessage(browser: Int32, json: String)
     /// A watched profile preference changed (`cmux_shim_pref_watch`).
     case preferenceChanged(name: String, profilePath: String)
+    /// A chrome.bookmarks bridge event of a profile's Chromium store (`CEFBookmarkBridge`).
+    case bookmarks(json: String, profilePath: String)
     /// A download's start, progress or end (`CEFDownloads`).
     case download(CEFDownloadEvent)
     case unknown(kind: Int32)
@@ -83,7 +99,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0)
         case 8: self = .loadStart(browser: browser, url: s1)
         case 9: self = .loadEnd(browser: browser, httpStatus: Int(a))
-        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2)
+        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2, chromiumInterstitial: b != 0)
         case 11: self = .progress(browser: browser, value: min(max(Double(a) / 1000, 0), 1))
         case 12: self = .fullscreen(browser: browser, entering: a != 0)
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
@@ -118,6 +134,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
             let download = CEFDownloadEvent(kind: kind, browser: browser, id: request, a: a, b: b, s1: s1, s2: s2)
             self = download.map(Self.download) ?? .unknown(kind: kind)
         case 38: self = .localFileHandoff(browser: browser, url: s1)
+        case 39: self = .bookmarks(json: s1, profilePath: s2)
+        case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
+        case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
+        case 42: self = .permissionDismissed(browser: browser, token: request)
+        case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
         default: self = .unknown(kind: kind)
         }
     }

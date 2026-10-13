@@ -83,9 +83,36 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
-                MuxEvent::Conversation(event) if event.is_draft() => continue,
+                // A draft goes only to a trusted local connection that asked
+                // for drafts in set-client-info (the admission of
+                // `conversation.events`; old clients never see the event).
+                MuxEvent::Conversation(event) if event.is_draft() => {
+                    let wanted = trusted_pairing_client
+                        && event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
+                        );
+                    match event.as_ref() {
+                        crate::conversation_store::ConversationEvent::Draft {
+                            conversation,
+                            participant,
+                            item,
+                        } if wanted => json!({
+                            "event": "conversation-draft",
+                            "conversation": conversation,
+                            "participant": participant,
+                            "item": item,
+                        }),
+                        _ => continue,
+                    }
+                }
                 MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
                     if !trusted_pairing_client =>
+                {
+                    continue;
+                }
+                MuxEvent::CloudConversation(_)
+                    if !super::cloud_conversations::delivers(&event_mux, client) =>
                 {
                     continue;
                 }
@@ -174,7 +201,26 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
+        MuxEvent::AgentPresenceChanged { surface, presence } => {
+            let presence = presence.as_deref();
+            json!({
+                "event": "agent-presence-changed",
+                "surface": surface,
+                "activity": presence.map(|presence| presence.activity.as_str()),
+                "agent": presence.and_then(|presence| presence.agent.as_deref()),
+                "session": presence.and_then(|presence| presence.session.as_deref()),
+                "tool": presence.and_then(|presence| presence.tool.as_deref()),
+                "path": presence.and_then(|presence| presence.path.as_deref()),
+                "line": presence.and_then(|presence| presence.line),
+                "updated_at_ms": presence.map(|presence| presence.updated_at_ms),
+            })
+        }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+        MuxEvent::ProgramStatusChanged { surface, status } => json!({
+            "event": "program-status-changed",
+            "surface": surface,
+            "program_status": status.map(|status| status.wire()),
+        }),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
             "notification": notification.notification,
@@ -183,6 +229,8 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "level": notification.level.as_str(),
             "surface": notification.surface,
             "source": notification.source.as_str(),
+            "desktop": notification.desktop,
+            "reply": notification.reply,
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -254,6 +302,22 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
+        }),
+        MuxEvent::HistoryChanged { revision, kinds } => json!({
+            "event": "history-changed",
+            "revision": revision,
+            "kinds": kinds,
+        }),
+        MuxEvent::SettingsChanged(change) => json!({
+            "event": "settings-changed",
+            "revision": change.revision,
+            "keys": change.keys,
+            "origin": change.origin.as_str(),
+        }),
+        MuxEvent::KeybindingsChanged(change) => json!({
+            "event": "keybindings-changed",
+            "revision": change.revision,
+            "origin": change.origin.as_str(),
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",

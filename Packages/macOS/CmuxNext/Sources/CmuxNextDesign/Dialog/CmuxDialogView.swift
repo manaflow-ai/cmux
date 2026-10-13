@@ -233,6 +233,7 @@ public final class CmuxDialogView: NSView {
         label.font = font
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
+        label.focusRingType = .none
         performWithTheme { label.textColor = role == .primary ? Palette.textPrimary : Palette.textSecondary }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
@@ -241,19 +242,18 @@ public final class CmuxDialogView: NSView {
     private func fieldViews(_ field: CmuxDialogField, width: CGFloat) -> [NSView] {
         switch field {
         case .text(let id, let caption, let initial, let placeholder, let secure):
-            let input = secure ? NSSecureTextField(string: initial) : NSTextField(string: initial)
-            input.placeholderString = placeholder
+            let input: NSTextField = secure ? ThemedSecureTextField(string: initial) : ThemedTextField(string: initial)
             input.font = Typography.body
+            input.placeholderString = placeholder
             input.delegate = self
             input.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             input.setAccessibilityLabel(caption ?? placeholder ?? spec.title)
-            input.translatesAutoresizingMaskIntoConstraints = false
-            input.widthAnchor.constraint(equalToConstant: width).isActive = true
-            input.heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.fieldHeight).isActive = true
             register(input, id: id)
-            return captioned(caption, input, width: width)
+            let box = ThemedFieldBox(field: input, height: CmuxDialogMetrics.fieldHeight)
+            box.widthAnchor.constraint(equalToConstant: width).isActive = true
+            return captioned(caption, box, width: width)
         case .choice(let id, let caption, let options, let selected):
-            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
@@ -266,7 +266,7 @@ public final class CmuxDialogView: NSView {
             register(popup, id: id)
             return captioned(caption, popup, width: width)
         case .check(let id, let title, let on):
-            let check = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+            let check = ThemedCheckbox(checkboxWithTitle: title, target: nil, action: nil)
             check.state = on ? .on : .off
             check.font = Typography.body
             check.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")

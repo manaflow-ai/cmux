@@ -99,20 +99,10 @@ impl ChiefHome {
         self.root.join("acpmux")
     }
 
-    /// acpmux's own socket rule: `<home>/acpmux.sock`, or
-    /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` when that is 96 bytes or more.
+    /// acpmux's own socket rule for this home (cmux-agent-pane-policy
+    /// `environment::default_socket_path`).
     pub(super) fn acpmux_socket(&self, uid: u32) -> PathBuf {
-        let home = self.acpmux_home();
-        let preferred = home.join("acpmux.sock");
-        if preferred.to_string_lossy().len() < 96 {
-            return preferred;
-        }
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in home.to_string_lossy().as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}.sock"))
+        cmux_agent_pane_policy::environment::default_socket_path(&self.acpmux_home(), uid).into()
     }
 }
 

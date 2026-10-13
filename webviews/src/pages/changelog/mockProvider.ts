@@ -15,6 +15,10 @@ export const sampleNotes: ReleaseNotes[] = [
         action: { id: "palette.checkForUpdates", title: "Try it" },
       },
     ],
+    summary: [
+      { group: "new", title: "Undo a tab close from a toast" },
+      { group: "fixed", title: "The App Store always opens in your window" },
+    ],
     changes: ["updates: R114 install gate", "sidebar: card stack above the spaces dots"],
   },
   {

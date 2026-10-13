@@ -4,6 +4,9 @@
 //! a folder file's command line or env, and a Web or peer connection never
 //! gets the list.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::folder_profiles::{self, FolderGate};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;

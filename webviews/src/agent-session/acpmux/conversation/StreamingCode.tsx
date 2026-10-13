@@ -6,8 +6,10 @@
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
 import { useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
+import { menuPartRef } from "./menuParts";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
@@ -17,10 +19,13 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
   // would make the card a line taller than the closed card it becomes.
   if (open && lines.length > 1 && lines.at(-1) === "") lines.pop();
   return (
-    <div className="cv-codeblock cv-codeblock--plain">
+    <div className="cv-codeblock cv-codeblock--plain" ref={menuPartRef({ code })}>
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
+        <span className="cv-codeblock__actions">
+          <CopyButton text={code} label={t("code.copy")} />
+        </span>
       </div>
       <div className="cv-codeblock__body">
         <pre className="cv-code-plain selectable">

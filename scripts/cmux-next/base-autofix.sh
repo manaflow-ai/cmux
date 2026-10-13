@@ -9,29 +9,61 @@
 #     on Linux dumps the same manifest as the Mac);
 #   - page strings: every React page's generated/strings.json from its xcstrings
 #     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings);
+#   - SDK wire layers: every language binding's generated files from
+#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
+#     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
+#     with --docs-shortcuts);
+#   - the app-host generated files: cmux-tui/crates/cmux-app-host/generated
+#     (the typed cmux global, scopes and ops) from the operation catalogs, the
+#     action catalog export and the first-party apps' fragments
+#     (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts; with --app-host);
+#   - the namespace ratchet: drops the rows of scripts/lint-namespace-types-ratchet.txt
+#     whose type is fixed or gone (shrink only; with --ratchets);
+#   - the cloud wire clients: the TypeScript and Rust clients from the committed
+#     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
+#     export-rust-client.ts; with --cloud-clients);
+#   - webviews formatting: applies PATCH, the `vp fmt` output of the
+#     workflow's read-only webviews-fmt job (it installs webviews' packages,
+#     which never run next to the push token); a patch reaching outside
+#     webviews/, or into its package.json or lockfile, is not applied
+#     (with --webviews-fmt-patch PATCH);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
 #     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
-#   - formatting: cargo fmt over the cmux-tui workspace (unless --no-fmt).
+#   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
+#     (Native/OptChat; unless --no-fmt).
+# Dependency order: the docs shortcuts and app-host files are rewritten from
+# action-surfaces.json, so they run after --generated copied the regenerated
+# exports in. With --unverified-exports (the exports' inputs changed but their
+# Mac job did not regenerate them on this tree) both are left and reported,
+# never rewritten from a possibly stale export.
 # A path matching base-autofix-frozen.txt is never written; it is reported.
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 fmt=1
+generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
     --strings) strings=1; shift ;;
+    --sdk) sdk=1; shift ;;
+    --docs-shortcuts) docs_shortcuts=1; shift ;;
+    --app-host) app_host=1; shift ;;
+    --unverified-exports) unverified_exports=1; shift ;;
+    --ratchets) ratchets=1; shift ;;
+    --cloud-clients) cloud_clients=1; shift ;;
+    --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -88,6 +120,109 @@ if (( strings )) && [[ -f "$repo/webviews/scripts/pages/gen-strings.mjs" ]]; the
   fi
 fi
 
+# 1d. SDK wire layers. A frozen one is put back as it was and reported.
+if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
+  if ! python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --check >/dev/null 2>&1; then
+    python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --write >/dev/null
+    changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- cmux-tui/bindings)"
+    while IFS= read -r rel; do
+      [[ -n "$rel" ]] || continue
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
+  fi
+fi
+
+# 1e. The docs shortcuts copy of the catalog export.
+shortcuts=web/data/cmux-shortcuts.generated.json
+if (( unverified_exports )); then
+  (( docs_shortcuts )) && echo "left: $shortcuts (waits for the action exports; their Mac job did not regenerate them)"
+  (( app_host )) && echo "left: cmux-tui/crates/cmux-app-host/generated (waits for the action exports; their Mac job did not regenerate them)"
+  docs_shortcuts=0 app_host=0
+fi
+if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]; then
+  before="$(cksum < "$repo/$shortcuts" 2>/dev/null || true)"
+  (cd "$repo" && bun web/scripts/export-docs-shortcuts.ts >/dev/null)
+  if [[ "$before" != "$(cksum < "$repo/$shortcuts")" ]]; then
+    if frozen "$shortcuts"; then
+      git -C "$repo" checkout --quiet -- "$shortcuts"
+      echo "skipped (frozen): $shortcuts (stale; bun web/scripts/export-docs-shortcuts.ts)"
+    else
+      echo "fixed: regenerated $shortcuts"
+    fi
+  fi
+fi
+
+# 1e2. The app-host generated files, from the same export and the operation catalogs.
+app_host_gen=cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts
+if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
+  (cd "$repo" && bun "$app_host_gen" >/dev/null)
+  changed="$(git -C "$repo" status --porcelain -- cmux-tui/crates/cmux-app-host/generated | cut -c4-)"
+  if [[ -n "$changed" ]]; then
+    while IFS= read -r rel; do
+      if frozen "$rel"; then
+        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+        echo "skipped (frozen): $rel (stale; bun $app_host_gen)"
+      else
+        echo "fixed: regenerated $rel"
+      fi
+    done <<<"$changed"
+  fi
+fi
+
+# 1f. Stale namespace ratchet rows. The update only drops fixed or gone
+# entries, never adds one; the lint's other findings are left to their PRs.
+ratchet=scripts/lint-namespace-types-ratchet.txt
+if (( ratchets )) && [[ -f "$repo/$ratchet" ]]; then
+  if frozen "$ratchet"; then
+    echo "skipped (frozen): $ratchet"
+  else
+    before="$(cksum < "$repo/$ratchet")"
+    (cd "$repo" && NAMESPACE_RATCHET_UPDATE=1 bash scripts/lint-ios-package-conventions.sh >/dev/null 2>&1) || true
+    [[ "$before" == "$(cksum < "$repo/$ratchet")" ]] || echo "fixed: dropped stale rows from $ratchet"
+  fi
+fi
+
+# 1g. The cloud wire clients. The generators need no installed packages.
+protocol=backend/packages/protocol
+if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" ]]; then
+  (cd "$repo/$protocol" && bun scripts/export-client.ts >/dev/null && bun scripts/export-rust-client.ts >/dev/null)
+  changed="$(git -C "$repo" ls-files --modified --deleted --others --exclude-standard -- clients/ts/cloud cmux-tui/crates/cmux-cloud-wire/src/generated)"
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    if frozen "$rel"; then
+      git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
+      echo "skipped (frozen): $rel (stale; bun run catalog:client and catalog:rust in $protocol)"
+    else
+      echo "fixed: regenerated $rel"
+    fi
+  done <<<"$(sort -u <<<"$changed")"
+fi
+
+# 1h. Webviews formatting, from the read-only job's patch.
+if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
+  outside="" include=()
+  while IFS=$'\t' read -r _ _ rel; do
+    if [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
+      outside+="$rel "
+    elif frozen "$rel"; then
+      echo "skipped (frozen): $rel (unformatted; vp fmt in webviews)"
+    else
+      include+=("--include=$rel")
+    fi
+  done < <(git -C "$repo" apply --numstat "$webviews_patch")
+  if [[ -n "$outside" ]]; then
+    echo "left: the webviews formatting patch reaches $outside; nothing applied (vp fmt in webviews by hand)"
+  elif (( ${#include[@]} )); then
+    git -C "$repo" apply "${include[@]}" "$webviews_patch"
+    for arg in "${include[@]}"; do echo "fixed: vp fmt ${arg#--include=}"; done
+  fi
+fi
+
 # 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target
 # path of cmux-tui-artifacts.yml, a workflow file GITHUB_TOKEN cannot push, and
 # the two lists must change together.
@@ -107,11 +242,26 @@ if [[ -f "$repo/Packages/macOS/CmuxNext/Package.swift" && -x "$repo/scripts/cmux
   fi
 fi
 
-# 4. Formatting.
+# 4. Formatting. Each OptChat crate is its own package; plain cargo fmt keeps
+# to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
   (cd "$repo/cmux-tui" && cargo fmt --all)
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
+fi
+if (( fmt )); then
+  for manifest in "$repo"/Native/OptChat/*/Cargo.toml; do
+    [[ -f "$manifest" ]] || continue
+    crate="${manifest%/Cargo.toml}"; crate="${crate#"$repo"/}"
+    before="$(git -C "$repo" status --porcelain -- "$crate")"
+    # A crate rustfmt cannot parse is reported; it never stops the other repairs.
+    if ! (cd "$repo/$crate" && cargo fmt 2>/dev/null); then
+      echo "left: cargo fmt failed in $crate (run it there by hand)"
+      continue
+    fi
+    after="$(git -C "$repo" status --porcelain -- "$crate")"
+    [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in $crate"
+  done
 fi
 exit 0

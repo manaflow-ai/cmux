@@ -53,6 +53,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The window's focused pane (pane resource id). The CLI, TUI and iOS
     /// read it as this window's current pane (state-ownership.md 3).
     public var focusedPane: String?
+    /// The pane last focused in each workspace the window lists (workspace
+    /// key -> pane resource id), so a relaunch returns each workspace to it.
+    public var focusedPanes: [String: String]
     /// Front-to-back order key; lower is further front.
     public var order: Int
     /// Profile the window shows (plans/cmux-next/data-model.md 4); nil =
@@ -83,6 +86,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.sidebarHidden = sidebarHidden
         self.selectedTabs = selectedTabs
         self.focusedPane = nil
+        self.focusedPanes = [:]
         self.order = order
         self.profile = profile
         self.profileWorkspaces = profileWorkspaces
@@ -100,6 +104,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case sidebarHidden = "sidebar_hidden"
         case selectedTabs = "selected_tabs"
         case focusedPane = "focused_pane"
+        case focusedPanes = "focused_panes"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -126,6 +131,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         }
         selectedTabs = try c.decodeIfPresent([String: String].self, forKey: .selectedTabs) ?? [:]
         focusedPane = try c.decodeIfPresent(String.self, forKey: .focusedPane)
+        focusedPanes = try c.decodeIfPresent([String: String].self, forKey: .focusedPanes) ?? [:]
         order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
         profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]

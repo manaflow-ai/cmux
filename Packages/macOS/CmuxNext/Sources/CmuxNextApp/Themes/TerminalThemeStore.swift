@@ -94,10 +94,10 @@ final class TerminalThemeStore {
             let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
             do {
                 try manager.moveItem(at: url, to: aside)
-                logger.error("terminal-themes.json is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
+                logger.error("\(url.lastPathComponent, privacy: .public) is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
                 return ([:], true)
             } catch {
-                logger.error("terminal-themes.json is not JSON and could not be moved aside: \(String(describing: error), privacy: .public)")
+                logger.error("\(url.lastPathComponent, privacy: .public) is not JSON and could not be moved aside: \(String(describing: error), privacy: .public)")
                 return ([:], false)
             }
         }

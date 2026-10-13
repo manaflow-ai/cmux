@@ -9,8 +9,8 @@ import CmuxNextDesign
 public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
     public var onSend: (ContactAddress) async -> HomeComposeOutcome = { _ in .offline }
     let email = HomeSheetController.field(placeholder: HomeConversationStrings.inviteEmail, identifier: "cmux.home.invite.email")
-    let pendingTitle = NSTextField(labelWithString: HomeConversationStrings.invitePending)
-    let pendingList = NSTextField(wrappingLabelWithString: "")
+    let pendingTitle = ThemedLabel(labelWithString: HomeConversationStrings.invitePending)
+    let pendingList = ThemedLabel(wrappingLabelWithString: "")
     private let pending: [String]
 
     /// `pending`: the addresses of invites nobody accepted yet.
@@ -21,16 +21,16 @@ public final class HomeInviteSheet: HomeSheetController, NSTextFieldDelegate {
     }
 
     override func addContent(to stack: NSStackView) {
-        let body = NSTextField(wrappingLabelWithString: HomeConversationStrings.inviteBody)
+        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.inviteBody)
         body.font = Typography.body
         body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         stack.addArrangedSubview(body)
         email.delegate = self
-        stack.addArrangedSubview(email)
+        stack.addArrangedSubview(Self.boxed(email))
         pendingTitle.font = Typography.header
         stack.addArrangedSubview(pendingTitle)
         pendingList.font = Typography.caption
-        pendingList.textColor = .secondaryLabelColor
+        pendingList.ink = .secondary
         pendingList.stringValue = pending.isEmpty ? HomeConversationStrings.inviteNonePending : pending.joined(separator: "\n")
         pendingList.setAccessibilityIdentifier("cmux.home.invite.pending")
         stack.addArrangedSubview(pendingList)
@@ -71,12 +71,12 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     }
 
     override func addContent(to stack: NSStackView) {
-        let body = NSTextField(wrappingLabelWithString: HomeConversationStrings.chiefBody)
+        let body = ThemedLabel(wrappingLabelWithString: HomeConversationStrings.chiefBody)
         body.font = Typography.body
         body.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         stack.addArrangedSubview(body)
         name.delegate = self
-        stack.addArrangedSubview(name)
+        stack.addArrangedSubview(Self.boxed(name))
     }
 
     public override func viewDidAppear() {

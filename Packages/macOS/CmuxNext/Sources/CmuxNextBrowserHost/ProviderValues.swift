@@ -43,9 +43,12 @@ public nonisolated struct ProviderLease: Hashable, Sendable {
     /// through unchanged: the host owns the state machine, the app never
     /// interprets it, and a state this app does not know is kept as it is.
     public var state: String?
+    /// The holder's cmux terminal (`term_…`) when its client named one, so the
+    /// cursor takes that agent's presence color (cx-gg84). Display only.
+    public var terminal: String?
 
     public init(session: String, actor: String, onBehalfOf: String? = nil, origin: String, label: String, sinceMs: UInt64,
-                state: String? = nil) {
+                state: String? = nil, terminal: String? = nil) {
         self.session = session
         self.actor = actor
         self.onBehalfOf = onBehalfOf
@@ -53,5 +56,6 @@ public nonisolated struct ProviderLease: Hashable, Sendable {
         self.label = label
         self.sinceMs = sinceMs
         self.state = state
+        self.terminal = terminal
     }
 }

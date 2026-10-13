@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import Foundation
 import Observation
@@ -19,7 +20,7 @@ extension AppBrowserPage {
             // The cache's page table is not observable; `pageInstalls` is
             // bumped by every install, so a page installed after the first
             // look wakes this wait (it waited out its bound before).
-            for await present in Observations({ _ = cache.pageInstalls.revision; return cache.existingBrowser(tabID) != nil }) where present {
+            for await present in ObservationStream({ _ = cache.pageInstalls.revision; return cache.existingBrowser(tabID) != nil }) where present {
                 return true
             }
             return false
@@ -33,7 +34,7 @@ extension AppBrowserPage {
     static func awaitPendingNavigation(_ page: any BrowserTab, within: Duration) async -> Bool {
         guard page.state.isLoading else { return true }
         let done = try? await ControlDeadline.shared.run(method: "browser.navigation", deadline: .now + within) { @MainActor in
-            for await loading in Observations({ page.state.isLoading }) where !loading { return true }
+            for await loading in ObservationStream({ page.state.isLoading }) where !loading { return true }
             return false
         }
         return done == true

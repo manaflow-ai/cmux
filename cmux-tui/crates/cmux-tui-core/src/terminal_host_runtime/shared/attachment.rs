@@ -8,18 +8,18 @@ use std::io as std_io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
 use super::clipboard_read::{OwnerIntent, owner_rights_for};
 use super::codec::{
     PayloadDecoder, clear_history_ack_failure, decode_hex_array, decode_kitty_graphics_limits,
-    decode_snapshot_for_version, encode_default_colors_payload, encode_kitty_graphics_limits,
-    protocol_io_error, read_required_frame,
+    decode_snapshot_with_program_status, encode_default_colors_payload,
+    encode_kitty_graphics_limits, protocol_io_error, read_required_frame,
 };
 use super::control_responses::{ControlResponseWaiter, ControlResponses};
 use super::host_state::{
@@ -99,46 +99,6 @@ impl Drop for InputAckReceipt {
             // produce a late targeted ACK. Close this attachment now rather
             // than letting that late frame fail the production reader later.
             self.abort_connection();
-        }
-    }
-}
-
-pub(crate) struct SpawnedHostProcess {
-    pub(crate) child: Option<std::process::Child>,
-}
-
-impl SpawnedHostProcess {
-    pub(crate) fn child_mut(&mut self) -> &mut std::process::Child {
-        self.child.as_mut().expect("terminal-host child is present")
-    }
-
-    pub(crate) fn into_child(mut self) -> std::process::Child {
-        self.child.take().expect("terminal-host child is present")
-    }
-
-    pub(crate) fn wait_timeout(&mut self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        loop {
-            let Some(child) = self.child.as_mut() else { return true };
-            match child.try_wait() {
-                Ok(Some(_)) => {
-                    self.child.take();
-                    return true;
-                }
-                Ok(None) if Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                Ok(None) | Err(_) => return false,
-            }
-        }
-    }
-}
-
-impl Drop for SpawnedHostProcess {
-    fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
         }
     }
 }
@@ -304,36 +264,10 @@ impl HostAttachment {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<bool, ClearHistoryFailure> {
-        if !self.record.supports_clear_history {
-            return Ok(false);
+        match self.begin_clear_history(fallback_key)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let payload = crate::server::encode_terminal_host_clear_history(fallback_key)
-            .map_err(ClearHistoryFailure::known_not_delivered)?;
-        let response = self.send_control_request(
-            MessageKind::ClearHistory,
-            MessageKind::ClearHistoryAck,
-            payload,
-        )?;
-        match response.as_slice() {
-            [CLEAR_HISTORY_ACK_OK] => {}
-            [CLEAR_HISTORY_ACK_OK, ..] if self.smart_renderer => {}
-            [status] => {
-                let Some(failure) = clear_history_ack_failure(*status) else {
-                    self.disconnect();
-                    return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host returned an unknown clear-history status"
-                    )));
-                };
-                return Err(failure);
-            }
-            _ => {
-                self.disconnect();
-                return Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                    "terminal host returned a malformed clear-history response"
-                )));
-            }
-        }
-        Ok(true)
     }
 
     pub fn supports_clear_history(&self) -> bool {
@@ -450,34 +384,10 @@ impl HostAttachment {
         limits: KittyGraphicsLimits,
         deadline: Instant,
     ) -> anyhow::Result<bool> {
-        if self.protocol_version < 3 {
-            return Ok(false);
+        match self.begin_kitty_graphics_limits(limits, deadline)? {
+            Some(pending) => pending.wait().map(|()| true),
+            None => Ok(false),
         }
-        let limits = limits
-            .validate()
-            .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-        encode_kitty_graphics_limits(&mut payload, limits)?;
-        let response = self
-            .send_control_request_with_policy(
-                MessageKind::SetKittyGraphicsLimits,
-                MessageKind::KittyGraphicsLimitsAck,
-                payload,
-                deadline,
-                // Advisory control: a missed ack must degrade graphics for
-                // this surface, not tear down a healthy host connection.
-                false,
-            )
-            .map_err(ClearHistoryFailure::into_error)
-            .context("terminal host did not acknowledge Kitty graphics limits")?;
-        let mut decoder = PayloadDecoder::new(&response);
-        let acknowledged = decode_kitty_graphics_limits(&mut decoder)?;
-        decoder.finish()?;
-        if acknowledged != limits {
-            self.disconnect();
-            anyhow::bail!("terminal host acknowledged different Kitty graphics limits");
-        }
-        Ok(true)
     }
 
     pub(crate) fn reconfigure_kitty_graphics_for_adoption(
@@ -646,14 +556,15 @@ impl HostAttachment {
     /// setup step succeeds. Until then, dropping this attachment exact-
     /// kills and waits the child process through SpawnedHostProcess.
     pub(crate) fn commit_launched_host(&mut self) {
-        let Some(process) = self.launch_process.take() else { return };
-        let mut child = process.into_child();
-        // Reaping is housekeeping after the ownership handoff. Failure to
-        // create this helper cannot turn a committed live Surface into an
-        // error; dropping Child leaves the independent host running.
-        let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        if let Some(process) = self.launch_process.take() {
+            process.commit();
+        }
+    }
+
+    /// The uncommitted launched host runs inside the daemon's kill-on-close
+    /// job (Windows, breakaway denied): its terminal ends with that job.
+    pub(crate) fn launch_ends_with_daemon_job(&self) -> bool {
+        self.launch_process.as_ref().is_some_and(SpawnedHostProcess::ends_with_daemon_job)
     }
 
     /// Release a newly launched protocol-v4 host only after its public

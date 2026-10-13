@@ -35,8 +35,12 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
         }
     }
 
-    isolated deinit {
-        if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let displayOptionsObserver { NSWorkspace.shared.notificationCenter.removeObserver(displayOptionsObserver) }
+        }
     }
 
     @available(*, unavailable)
@@ -45,7 +49,8 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The backdrop of `window`'s theme scope and Reduce Transparency.
     public func backdrop(in window: NSWindow) -> WindowBackdrop {
         WindowBackdrop(window.themeScope.tokens, reduceTransparency: reduceTransparency(), art: window.themeScope.backdropArt,
-                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning)
+                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning,
+                       tintOpacity: window.themeScope.backdropTintOpacity)
     }
 
     public func paintWindowSurface(of window: NSWindow) {

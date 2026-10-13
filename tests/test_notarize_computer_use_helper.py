@@ -67,7 +67,13 @@ elif name == 'xcrun':
         ]))
         print(json.dumps({'id': 'fixture-submission', 'status': 'In Progress'}))
     elif args[:2] == ['notarytool', 'wait']:
+        if os.environ.get('FIXTURE_WAIT_TIMEOUT'):
+            # notarytool reports a --timeout on stderr and exits nonzero.
+            print(json.dumps({'message': 'Timeout of 15m reached before processing completed.', 'id': 'fixture-submission'}), file=sys.stderr)
+            sys.exit(1)
         print(json.dumps({'id': 'fixture-submission', 'status': os.environ.get('FIXTURE_NOTARY_STATUS', 'Accepted')}))
+    elif args[:2] == ['notarytool', 'info']:
+        print(json.dumps({'id': args[2], 'status': os.environ.get('FIXTURE_INFO_STATUS', 'In Progress')}))
     elif args[:2] == ['notarytool', 'log']:
         entries = json.loads((root / 'submitted.json').read_text())
         entries = [e for e in entries if e['arch'] != os.environ.get('FIXTURE_LOG_OMIT')]
@@ -151,6 +157,29 @@ class HelperNotarizationTests(unittest.TestCase):
         self.assertEqual(len(self.calls('sign-bundle')), 1)
         self.assertIn('/standalone/cmux Computer Use.app', self.calls('spctl')[0][-1])
         self.assertTrue((self.helper / 'Contents/CodeResources').exists())
+
+    def finish_exit(self, **env):
+        # Only the repository script and fixture arguments are executed, without a shell.
+        return subprocess.run([str(SCRIPT), '--finish', str(self.state), str(self.app),  # noqa: S603
+                               str(self.entitlements), 'Developer ID Application: Fixture'],
+                              env=dict(self.env, **env), text=True,
+                              capture_output=True, check=False)
+
+    def test_a_helper_still_in_apples_queue_after_the_bounded_wait_is_reported_pending(self):
+        # The nightly falls through to the DMG (whose ticket covers the helper)
+        # instead of failing, so it needs a pending exit that is not a failure.
+        self.run_helper('--start', self.state)
+        result = self.finish_exit(FIXTURE_WAIT_TIMEOUT='1', CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT='15m')
+        self.assertEqual(result.returncode, 75, result.stdout + result.stderr)
+        self.assertIn('fixture-submission', result.stderr)
+        self.assertFalse(self.calls('xcrun', 'stapler'))
+        self.assertFalse(self.calls('sign-bundle'))
+
+    def test_a_timed_out_wait_for_a_rejected_helper_still_fails(self):
+        self.run_helper('--start', self.state)
+        result = self.finish_exit(FIXTURE_WAIT_TIMEOUT='1', FIXTURE_INFO_STATUS='Invalid')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertFalse(self.calls('xcrun', 'stapler'))
 
     def test_each_submission_has_distinct_signed_hashes(self):
         self.run_helper('--start', self.state)

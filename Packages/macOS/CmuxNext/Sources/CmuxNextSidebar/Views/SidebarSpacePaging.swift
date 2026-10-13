@@ -28,6 +28,15 @@ import QuartzCore
 
     // MARK: Gesture
 
+    /// Pages from the list and the dots: a trackpad 1:1, a mouse wheel by
+    /// one space a notch.
+    func attach(list: SidebarScrollView, dots: ProfileBarView) {
+        list.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        dots.onHorizontalScroll = { [weak self] phase, dx, time in self?.scroll(phase, deltaX: dx, time: time) }
+        list.onWheelPage = { [weak self] step in self?.page(by: step) }
+        dots.onWheelPage = { [weak self] step in self?.page(by: step) }
+    }
+
     /// One horizontal scroll event over the list (`SidebarScrollView`).
     func scroll(_ phase: ProfileSwipeTracker.Phase, deltaX: CGFloat, time: TimeInterval) {
         switch phase {
@@ -148,31 +157,23 @@ import QuartzCore
             layer.setValue(x, forKeyPath: keyPath)
         }
         guard let spring, Motion.animatesMovement, start != x else {
-            if x != 0 { layer.add(Self.hold(keyPath, at: x), forKey: Self.slideKey) }
+            if x != 0 { layer.add(Motion.hold(keyPath, at: x), forKey: Self.slideKey) }
             return
         }
-        let parameters = Motion.spring(spring)
-        let animation = CASpringAnimation(keyPath: keyPath)
-        animation.mass = 1
-        animation.stiffness = parameters.stiffness
-        animation.damping = parameters.damping
-        animation.duration = parameters.settlingTime(within: 0.002)
-        animation.fromValue = start
-        animation.toValue = x
+        let animation = Motion.springAnimation(spring, keyPath, from: start, to: x)
         animation.fillMode = .forwards
         animation.isRemovedOnCompletion = false
         layer.add(animation, forKey: Self.slideKey)
     }
 
-    /// A constant animation that keeps `keyPath` at `value` on screen until
-    /// it is replaced or removed, whatever AppKit writes to the model.
-    private static func hold(_ keyPath: String, at value: CGFloat) -> CABasicAnimation {
-        let animation = CABasicAnimation(keyPath: keyPath)
-        animation.fromValue = value
-        animation.toValue = value
-        animation.fillMode = .forwards
-        animation.isRemovedOnCompletion = false
-        return animation
+    // MARK: Mouse wheel
+
+    /// One mouse wheel page (`SpaceWheelPager`): the space beside slides in
+    /// like a switch by dot. Past the first or last space nothing moves
+    /// (POLISH: no bouncy transforms).
+    func page(by step: Int) {
+        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        _ = host.model.stepProfile(by: step)
     }
 
     // MARK: Switch by dot, key or a new space
@@ -190,6 +191,7 @@ import QuartzCore
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
         model.workspaceRow = host.model.workspaceRow
+        (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)

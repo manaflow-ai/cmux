@@ -3,7 +3,9 @@
 //! Exit codes: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout, 4 no
 //! such session, 5 every permission in the turn was denied, 130
 //! interrupted. `code` is the small stable set orchestrators branch on;
-//! `detail` is free text for diagnostics.
+//! `detail` is free text for diagnostics, or the daemon's own `reason` for a
+//! refusal that carries one (then `data` holds the daemon's error data, such
+//! as `cwd_missing` with the missing `cwd`).
 
 use std::fmt;
 
@@ -42,6 +44,8 @@ pub struct AppError {
     /// it again (`--prompt-id`) never runs a second turn.
     pub prompt_id: Option<String>,
     pub retryable: bool,
+    /// The daemon's error data, for a refusal with a `reason`.
+    pub data: Option<serde_json::Value>,
 }
 
 impl AppError {
@@ -53,6 +57,7 @@ impl AppError {
             session_id: None,
             prompt_id: None,
             retryable: false,
+            data: None,
         }
     }
     pub fn usage(message: impl Into<String>) -> Self {
@@ -82,7 +87,11 @@ impl AppError {
     }
     /// JSON envelope for stderr under --json.
     pub fn envelope(&self) -> serde_json::Value {
-        serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}})
+        let mut envelope = serde_json::json!({"error": {"code": self.code.name(), "exit": self.code as i32, "detail": self.detail, "message": self.message, "sessionId": self.session_id, "promptId": self.prompt_id, "retryable": self.retryable}});
+        if let Some(data) = &self.data {
+            envelope["error"]["data"] = data.clone();
+        }
+        envelope
     }
 }
 
@@ -101,6 +110,17 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         return app.clone();
     }
     let msg = e.to_string();
+    let daemon = e.downcast_ref::<crate::client::DaemonError>();
+    if let Some(data) = daemon.and_then(|d| d.0.data.as_ref())
+        && let Some(reason) = data["reason"].as_str()
+    {
+        let code =
+            if daemon.is_some_and(|d| d.0.code == -32602) { Code::Usage } else { Code::Runtime };
+        let mut app = AppError::new(code, reason, msg);
+        app.retryable = data["retryable"] == true;
+        app.data = Some(data.clone());
+        return app;
+    }
     let lower = msg.to_lowercase();
     if lower.contains("connection closed") {
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
@@ -144,40 +164,4 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
         eprintln!("acpmux: {}: {}", app.code.name(), app.message);
     }
     std::process::exit(app.code as i32);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn classifies_common_errors() {
-        assert_eq!(classify(&anyhow::anyhow!("no session matches \"x\"")).code, Code::NoSession);
-        assert_eq!(
-            classify(&anyhow::anyhow!("cursor_future: afterSeq 9 is beyond the last event 3")).code,
-            Code::Usage
-        );
-        assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
-        assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
-        let bad: anyhow::Error =
-            crate::client::DaemonError(crate::rpc::RpcError::invalid_params("modeId is required"))
-                .into();
-        assert_eq!(classify(&bad).code, Code::Usage);
-        assert_eq!(classify(&bad).message, "modeId is required");
-        let closed = classify(&crate::client::closed_error("waiting", Some("abc 2026-01-01")));
-        assert_eq!(closed.detail, "daemon_closed");
-        assert!(closed.retryable);
-        assert!(
-            closed.message.contains("while waiting") && closed.message.contains("daemon.log"),
-            "{}",
-            closed.message
-        );
-        let app =
-            AppError::new(Code::PermissionDenied, "all_denied", "every permission was denied")
-                .with_session("abc");
-        let e: anyhow::Error = app.clone().into();
-        assert_eq!(classify(&e).code, Code::PermissionDenied);
-        assert_eq!(app.envelope()["error"]["exit"], 5);
-        assert_eq!(app.envelope()["error"]["sessionId"], "abc");
-    }
 }

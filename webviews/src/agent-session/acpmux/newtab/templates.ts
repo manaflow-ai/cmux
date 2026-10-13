@@ -12,17 +12,24 @@ export type ScreenTemplate = Exclude<NewTabTemplate, "classic" | "terminal">;
 export type ScreenSections = {
   /// Recent chats as cards, as a list, or not at all.
   chats: "cards" | "list" | "none";
-  /// The Tools section and the Integrate a harness link.
-  tools: boolean;
+  /// The page lists every chat (All chats) when the host can page them; else the recent ones only,
+  /// with "All Chats" to see more.
+  allChats: boolean;
+  /// How many recent chats show when the page does not list them all.
+  recent: number;
   /// A `>` glyph before the field, in monospace.
   prompt: boolean;
+  /// The Recently Closed list (cx-d0d.60).
+  closed: boolean;
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  default: { chats: "cards", tools: true, prompt: false },
-  composer: { chats: "none", tools: false, prompt: false },
-  threads: { chats: "list", tools: false, prompt: false },
-  console: { chats: "list", tools: false, prompt: true },
+  // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's
+  // actions live in the palette and the pane's toolbar, not on the page.
+  default: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false },
+  composer: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false },
+  threads: { chats: "list", allChats: true, recent: 3, prompt: false, closed: true },
+  console: { chats: "list", allChats: true, recent: 3, prompt: true, closed: true },
 };
 
 export function screenSections(template: ScreenTemplate): ScreenSections {

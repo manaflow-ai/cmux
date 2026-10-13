@@ -1,13 +1,16 @@
+import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// Writes a Chromium page's back/forward entries and scroll positions to
+/// Writes a browser page's back/forward entries and scroll positions to
 /// its daemon tab (`frontend-browser-history-v1`), so a relaunch restores
 /// them (plans/cmux-next/browser.md, "Session history across relaunch").
 /// Navigations are debounced like the record write-back; scroll changes
-/// fire no page event, so the shown page's position is measured at quit.
+/// fire no page event, so the shown page's position is measured when the
+/// user leaves the app (a crash afterwards keeps it) and at quit.
 final class BrowserHistoryWriter {
     typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
     typealias Page = any BrowserTab & BrowserSessionRestoring
@@ -23,6 +26,8 @@ final class BrowserHistoryWriter {
     private let send: Send
     private var observation: Task<Void, Never>?
     private var pending: Task<Void, Never>?
+    private var leaving: Task<Void, Never>?
+    private var resignObserver: (any NSObjectProtocol)?
 
     init(page: Page, recorded: FrontendBrowserHistory?, delay: Duration, sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
         self.page = page
@@ -31,9 +36,23 @@ final class BrowserHistoryWriter {
         self.sleep = sleep
         self.send = send
         observation = Task { [weak self, page] in
-            for await state in Observations({ HistoryKey(page.state) }) {
+            for await state in ObservationStream({ HistoryKey(page.state) }) {
                 self?.pageDidChange(state)
             }
+        }
+        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.appDidResignActive() } // main-proof: observer on queue: .main
+        }
+    }
+
+    /// The user left the app: save the shown page with its scroll position.
+    /// A save still measuring covers a quick switch back and away again.
+    private func appDidResignActive() {
+        guard leaving == nil else { return }
+        leaving = Task { [weak self] in
+            await self?.flushNow()
+            self?.leaving = nil
         }
     }
 
@@ -53,8 +72,12 @@ final class BrowserHistoryWriter {
     func cancel() {
         observation?.cancel()
         pending?.cancel()
+        leaving?.cancel()
         observation = nil
         pending = nil
+        leaving = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
     }
 
     private func pageDidChange(_ key: HistoryKey) {

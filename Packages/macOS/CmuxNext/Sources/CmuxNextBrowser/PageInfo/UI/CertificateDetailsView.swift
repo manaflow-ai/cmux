@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// selected certificate's fields, the selected field's value, and Export.
 final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private let chain: [PageInfoCertificate]
-    private let hierarchy = NSPopUpButton()
+    private let hierarchy = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let table = NSTableView()
     private let valueView = NSTextView()
     private var fields: [(String, String)] = []
@@ -46,7 +46,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         valueScroll.drawsBackground = false
         valueView.autoresizingMask = [.width]
 
-        let export = NSButton(title: PageInfoStrings.export, target: self, action: #selector(exportChain))
+        let export = ThemedBezelButton(title: PageInfoStrings.export, target: self, action: #selector(exportChain))
         let views: [NSView] = [
             PageInfoWindow.sectionTitle(PageInfoStrings.hierarchy), hierarchy,
             PageInfoWindow.sectionTitle(PageInfoStrings.fields), tableScroll,
@@ -130,4 +130,6 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { showValue() }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ThemedTableRowView() }
 }

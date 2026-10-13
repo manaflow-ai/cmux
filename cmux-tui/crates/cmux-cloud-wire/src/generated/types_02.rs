@@ -47,6 +47,8 @@ pub struct HomeMessage {
     pub parts: Vec<HomePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
     pub created_at: Timestamp,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<Timestamp>,
@@ -249,6 +251,15 @@ pub struct HomeTextRun {
     pub mention: Option<ParticipantId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeThreadSummary {
+    pub root: MessageId,
+    pub reply_count: i64,
+    pub last_reply_seq: Option<i64>,
+    pub last_reply_at: Option<Timestamp>,
+    pub authors: Vec<ParticipantId>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

@@ -20,7 +20,7 @@ pub(crate) mod contention;
 mod effect_intents;
 pub(crate) use completion::JournalBatchReceipt;
 use completion::{complete_batch_error, complete_batch_success};
-pub(crate) use effect_intents::EffectSend;
+pub(crate) use effect_intents::{EffectSend, PendingRegistryReceipt};
 
 const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
@@ -175,8 +175,9 @@ pub(crate) enum JournalIngressEvent {
         origin: String,
         idempotency_key: String,
     },
-    /// An effect receipt commit applied in the batch under its own SAVEPOINT.
-    Effect(Box<crate::workspace_registry::EffectCommitIntent>),
+    /// A registry commit (effect receipt, terminal record, workspace
+    /// registry revision) applied in the batch under its own SAVEPOINT.
+    Effect(Box<crate::workspace_registry::RegistryIntent>),
 }
 
 /// Which bounded ingress lane an event travels on. Terminal bytes and their
@@ -289,7 +290,7 @@ enum JournalIngressCompletion {
         commit_fence: Arc<AtomicU8>,
     },
     Effect {
-        sender: SyncSender<Result<crate::workspace_registry::EffectCommitReceipt, String>>,
+        sender: SyncSender<Result<crate::workspace_registry::RegistryReceipt, String>>,
         deadline: Instant,
         commit_fence: Arc<AtomicU8>,
     },
@@ -694,7 +695,7 @@ impl JournalIngressSender {
         .map_err(anyhow::Error::msg)?;
         let waited = Instant::now();
         let outcome = self.wait_for_commit_result(
-            result,
+            &result,
             deadline,
             &commit_fence,
             "waiting for session journal durability",
@@ -743,7 +744,7 @@ impl JournalIngressSender {
         .map_err(anyhow::Error::msg)?;
         let waited = Instant::now();
         let outcome = self.wait_for_commit_result(
-            result,
+            &result,
             deadline,
             &commit_fence,
             "waiting for a session journal producer receipt",
@@ -908,26 +909,44 @@ impl JournalIngressSender {
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
+        self.enqueue_until_or_return(sender, event, deadline).map_err(|(error, _)| error)
+    }
+
+    /// [`Self::enqueue_until`] that hands the event back when it was not
+    /// queued (deadline, admission closed, writer gone).
+    fn enqueue_until_or_return(
+        &self,
+        sender: &SyncSender<QueuedJournalEvent>,
+        event: QueuedJournalEvent,
+        deadline: Instant,
+    ) -> Result<(), (String, Box<QueuedJournalEvent>)> {
         let lane = event.event.lane();
         let mut pending = event;
         loop {
             if Instant::now() >= deadline {
-                return Err(format!(
-                    "timed out after {} ms waiting to queue a durable session journal event",
-                    JOURNAL_DURABLE_WAIT.as_millis()
+                return Err((
+                    format!(
+                        "timed out after {} ms waiting to queue a durable session journal event",
+                        JOURNAL_DURABLE_WAIT.as_millis()
+                    ),
+                    Box::new(pending),
                 ));
             }
             let space_epoch = self.state.queue_space_epoch();
             let result = {
                 let _admission = self.state.enqueue_admission.lock().unwrap();
                 if Instant::now() >= deadline {
-                    return Err(format!(
-                        "timed out after {} ms waiting to queue a durable session journal event",
-                        JOURNAL_DURABLE_WAIT.as_millis()
+                    return Err((
+                        format!(
+                            "timed out after {} ms waiting to queue a durable session journal \
+                             event",
+                            JOURNAL_DURABLE_WAIT.as_millis()
+                        ),
+                        Box::new(pending),
                     ));
                 }
                 if let Some(error) = self.state.admission_error() {
-                    return Err(error);
+                    return Err((error, Box::new(pending)));
                 }
                 // Count before the event is visible to the writer, which may
                 // drain it before `try_send` returns.
@@ -948,12 +967,14 @@ impl JournalIngressSender {
                     self.state.stats.enqueue_failed(lane);
                     pending = event;
                 }
-                Err(TrySendError::Disconnected(_)) => {
+                Err(TrySendError::Disconnected(event)) => {
                     self.state.stats.enqueue_failed(lane);
-                    return Err(self.writer_error());
+                    return Err((self.writer_error(), Box::new(event)));
                 }
             }
-            self.state.wait_for_queue_space_until(space_epoch, deadline)?;
+            if let Err(error) = self.state.wait_for_queue_space_until(space_epoch, deadline) {
+                return Err((error, Box::new(pending)));
+            }
         }
     }
 
@@ -967,7 +988,7 @@ impl JournalIngressSender {
 
     fn wait_for_commit_result<T>(
         &self,
-        result: Receiver<Result<T, String>>,
+        result: &Receiver<Result<T, String>>,
         deadline: Instant,
         commit_fence: &AtomicU8,
         operation: &str,
@@ -1020,7 +1041,11 @@ pub(crate) fn start(
 ) -> anyhow::Result<()> {
     let Some(receivers) = receivers else { return Ok(()) };
     let weak = Arc::downgrade(mux);
-    mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))
+    mux.spawn_journal_writer("mux-session-journal-writer", move || run(weak, receivers))?;
+    // Registry commits (effect receipts, terminal records, workspace
+    // revisions) ride the writer batch from now on.
+    mux.install_registry_intent_sink();
+    Ok(())
 }
 
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {

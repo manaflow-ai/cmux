@@ -182,7 +182,8 @@ export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
 export function toolFiles(tools: readonly Tool[]): TurnFile[] {
   const files = new Map<string, TurnFile>();
   for (const tool of tools)
-    for (const change of tool.diffs ?? []) {
+    // An edit still waiting for its permission has changed nothing yet.
+    for (const change of tool.status === "pending" ? [] : (tool.diffs ?? [])) {
       let file = files.get(change.path);
       if (!file) {
         file = {

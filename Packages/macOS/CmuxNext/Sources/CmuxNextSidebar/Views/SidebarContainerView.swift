@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextCompat
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
@@ -94,8 +95,12 @@ public final class SidebarContainerView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    isolated deinit {
-        observation?.cancel()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            observation?.cancel()
+        }
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -180,7 +185,7 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth, border) in Observations({
+            for await (_, _, defaultWidth, border) in ObservationStream({
                 // The default width token is tracked so a settings change
                 // resizes live.
                 (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)
@@ -303,7 +308,11 @@ final class SidebarResizeHandle: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .columnResize)
+        if #available(macOS 15, *) {
+            addCursorRect(bounds, cursor: .columnResize)
+        } else {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
     }
 
     override func layout() {

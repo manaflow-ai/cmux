@@ -12,6 +12,18 @@ public struct CmuxTUIManifest: Decodable, Sendable {
     }
 }
 
+/// `https://files.cmux.com/cmux-tui/tree/<key>/source.json`: which commit
+/// published the cmux-tui build of one tree key, and its binaries' digests.
+public struct CmuxTUITreeSource: Decodable, Sendable {
+    public var key: String
+    public var commit: String
+    public var binaries: [String: String]
+
+    public static func decode(_ data: Data) throws -> CmuxTUITreeSource {
+        try JSONDecoder().decode(CmuxTUITreeSource.self, from: data)
+    }
+}
+
 /// SHA-256 of a local file, read in 1 MiB chunks.
 public struct SHA256File {
     public init() {}

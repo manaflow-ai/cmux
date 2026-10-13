@@ -36,3 +36,9 @@ Three things make a skew a dead end today:
 5. The CI skew matrix (hosted lane, two builds).
 6. Live proof on cmux-lawrence-2 with two builds.
 7. Retire the `/tmp/cmux-last-cli-path` writer in `reload.sh` once the app pointer has shipped in the dev builds that `reload.sh` makes. Status 2026-10-09: the app pointer ships in every cmux-next dev build. `git grep` still finds readers of `/tmp/cmux-last-cli-path`: in this repo `cleanup-dev-builds.sh` (safety skip) and `stress-cli-socket-api.py`, which now read `last-app-cli` first; in cmuxterm-hq the Tag Opener (`activeCLITag`), `tools/local-build-guards/cmux` and `keep-devs.sh`, and hq `reload-cloud.sh` also writes it. The dev shim keeps the `/tmp` fallback for an isolated launch (`CMUX_NEXT_NO_ACTIVATE`), which writes no app pointer. So the `reload.sh` writer stays for one release, marked legacy; remove it, and the shim fallback, after the cmuxterm-hq readers read `last-app-cli`.
+
+## Known limits
+
+- No automatic handoff of an older daemon (step 3). Builds have no order: every cmux-tui build is version 0.1.0 and `build_id` is a commit (with a dirty-tree hash), so a CLI cannot tell whether the daemon is older or newer than itself. At a dead end it runs the daemon's CLI when every check passes; when a check refuses, the error names one exact command that stops the daemon and starts it with this CLI (`cli/fix_command.rs`). A monotonic build order in `identify` (for example a build sequence number stamped by the release and tagged builds) would let a newer CLI hand an older daemon off by itself.
+- The script error (`cmux script`) names the restart for the daemon the environment routes to, without `--socket`: its error path does not know the socket it used.
+- On Linux and in an unbundled CLI (a `cargo` build, a copied binary) the CLI never re-execs: the target and this CLI must both be inside a cmux `.app` of the same install family.

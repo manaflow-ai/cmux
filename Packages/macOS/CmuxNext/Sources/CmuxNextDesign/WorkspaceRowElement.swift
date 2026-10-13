@@ -1,8 +1,10 @@
 /// What a sidebar workspace row shows (SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE,
 /// `sidebar.workspaceRow.*` in cmux.json). The default row is the name, the
-/// user's icon when one is set, and the unread/attention mark; every other
-/// element is off until the user turns it on, for all workspaces or for one
-/// kind of workspace.
+/// user's icon when one is set, and the unread/attention mark, plus what
+/// agents and scripts report (status, log, progress: classic's status block),
+/// which draws nothing until something is reported. Every other element is
+/// off until the user turns it on, for all workspaces or for one kind of
+/// workspace.
 public nonisolated enum WorkspaceRowElement: String, CaseIterable, Hashable, Sendable {
     /// The icon or emoji the user chose (no kind glyph is ever drawn).
     case icon
@@ -12,7 +14,8 @@ public nonisolated enum WorkspaceRowElement: String, CaseIterable, Hashable, Sen
     case branch
     /// The front terminal's program, as the shell or program titles it.
     case process
-    /// The status line agents and hooks report (`cmux workspace status set`).
+    /// The status entries agents and hooks report (`cmux workspace status
+    /// set`), one line each with its icon and color under the name.
     case agentStatus
     /// How many tabs the workspace has.
     case tabCount
@@ -27,9 +30,14 @@ public nonisolated enum WorkspaceRowElement: String, CaseIterable, Hashable, Sen
     case progress
     /// The agent-working indicator (WORKING-AND-LOADING-INDICATORS).
     case working
+    /// The newest log line (`cmux workspace log append`), under the status entries.
+    case log
+    /// The newest unread notification's text (classic's
+    /// `sidebar.showNotificationMessage`); nothing once it is read.
+    case notification
 
     /// The elements that make up the second line, in their default order.
-    public static let secondLine: [Self] = [.directory, .branch, .process, .agentStatus, .ports, .lastActivity]
+    public static let secondLine: [Self] = [.notification, .directory, .branch, .process, .agentStatus, .ports, .lastActivity]
 
     public var isSecondLine: Bool { Self.secondLine.contains(self) }
 }

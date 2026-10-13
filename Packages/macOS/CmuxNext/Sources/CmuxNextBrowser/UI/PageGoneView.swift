@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "sad tab": the page's content process ended. Covers the content
 /// area (child-window pages get an occlusion hole there, so this view is
@@ -11,16 +12,18 @@ final class PageGoneView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
+    private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
     private let density = DensityBinding()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
-        symbol.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: nil)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
-        let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
+        codeLabel.focusRingType = .none
+        let reload = reloadButton
+        reload.target = self
         reload.setAccessibilityIdentifier(BrowserChromeView.pageGoneReloadIdentifier)
         let stack = NSStackView(views: [symbol, titleLabel, messageLabel, reload, codeLabel])
         stack.orientation = .vertical
@@ -37,7 +40,7 @@ final class PageGoneView: NSView {
             messageLabel.font = BrowserMetrics.bodyFont
             codeLabel.font = BrowserMetrics.captionFont
             messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth
-            symbol.symbolConfiguration = .init(pointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6, weight: .regular)
+            symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }
         density.start()
@@ -47,8 +50,10 @@ final class PageGoneView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func show(_ exit: BrowserProcessExit) {
-        titleLabel.stringValue = Strings.pageGoneTitle(exit.reason)
-        messageLabel.stringValue = Strings.pageGoneMessage(exit.reason)
+        // A Chromium tab says what Chrome's sad tab says.
+        let chromium = exit.engine == .cef
+        titleLabel.stringValue = chromium ? Strings.pageGoneChromiumTitle : Strings.pageGoneTitle(exit.reason)
+        messageLabel.stringValue = chromium ? Strings.pageGoneChromiumMessage : Strings.pageGoneMessage(exit.reason)
         if let code = exit.codeDescription {
             codeLabel.stringValue = Strings.pageGoneErrorCode(code)
             codeLabel.isHidden = false
@@ -75,4 +80,12 @@ final class PageGoneView: NSView {
     }
 
     @objc private func reload() { onReload?() }
+
+    #if DEBUG
+    /// `debug.browser.page_status`: the title, the message and the button the sad tab shows.
+    var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)\n\(reloadButton.isHidden ? "" : reloadButton.title)" }
+
+    /// Presses Reload through its button, as a click does.
+    func pressReload() { reloadButton.performClick(nil) }
+    #endif
 }

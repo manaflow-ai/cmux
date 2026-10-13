@@ -48,6 +48,22 @@ impl Env {
         }
     }
 
+    fn run(&self, line: &str) -> cmux_server::Result<serde_json::Value> {
+        dispatch(&self.ctx(), &parse(&words(line))?).map(|o| o.json)
+    }
+
+    /// Publishes `latest.json` (and `v/<version>.json`) on the test channel.
+    fn publish(&self, sequence: u64, version: &'static str) {
+        self.publish_needing(sequence, version, "1.0.0");
+    }
+
+    /// Like [`Env::publish`] with a `min_cmux_version`. Returns the
+    /// `cmux` package.
+    fn publish_needing(&self, sequence: u64, version: &'static str, min_cmux: &str) -> Pkg {
+        let archive = files_package(&[("cmux", format!("cmux {version}").as_bytes())]);
+        self.publish_archive(sequence, version, min_cmux, archive)
+    }
+
     /// Publishes one `cmux` package with `archive`.
     fn publish_archive(
         &self,
@@ -115,4 +131,71 @@ fn the_reexec_really_execs_the_server_binary() {
     );
     assert!(lines[4].starts_with("guard=1:"), "{out}");
     assert_eq!(lines.len(), 5, "{out}");
+}
+
+/// The app's reader fixture: `LocalServerStatusTests.status` in
+/// Packages/macOS/CmuxNext/Tests/CmuxNextServerTests/LocalServerStatusTests.swift
+/// (without its `future_field`). Change both together.
+const APP_READER_STATUS_FIXTURE: &str = r#"
+{"enabled": true, "mode": "user",
+ "store": {"generation": 3, "version": "0.9.1", "channel": "stable", "pinned": "0.9.1",
+           "generations": [2, 3], "last_applied_sequence": 7, "packages": [{"name": "cmux", "version": "0.9.1"}]},
+ "service": {"installed": true, "active": true, "enabled": true},
+ "postgres": {"port": 55432, "state": "running"},
+ "roles": [], "apps": [], "alerts": []}
+"#;
+
+/// Every key of `fixture` is in `actual` with the same JSON type (null
+/// matches any type: an absent store or service reads as null).
+fn fixture_fits(fixture: &serde_json::Value, actual: &serde_json::Value, path: &str) {
+    use serde_json::Value;
+    match (fixture, actual) {
+        (_, Value::Null) | (Value::Null, _) => {}
+        (Value::Object(want), Value::Object(got)) => {
+            for (key, value) in want {
+                let at = format!("{path}.{key}");
+                let Some(got) = got.get(key) else { panic!("status lacks {at}: {actual}") };
+                fixture_fits(value, got, &at);
+            }
+        }
+        (Value::Array(want), Value::Array(got)) => {
+            if let (Some(want), Some(got)) = (want.first(), got.first()) {
+                fixture_fits(want, got, &format!("{path}[0]"));
+            }
+        }
+        (Value::Bool(_), Value::Bool(_))
+        | (Value::Number(_), Value::Number(_))
+        | (Value::String(_), Value::String(_)) => {}
+        _ => panic!("{path}: fixture {fixture} but status has {actual}"),
+    }
+}
+
+/// `cmux server status --json` is what the app's menu bar maps
+/// (LocalServerStatus.swift): the reader needs `enabled` or `service` to
+/// tell it from the terminal daemon's status. The top-level keys equal the
+/// fixture's, so a new field also updates the app fixture.
+#[test]
+fn status_json_matches_the_app_reader_fixture() {
+    if cmux_server::sys::is_root() {
+        eprintln!("skipped: user-mode install refuses root");
+        return;
+    }
+    let fixture: serde_json::Value = serde_json::from_str(APP_READER_STATUS_FIXTURE).unwrap();
+    let env = Env::new();
+    // Before install and after: both shapes fit.
+    let before = env.run("status").unwrap();
+    env.publish(1, "1.0.0");
+    env.run(&format!("install {CHAN}")).unwrap();
+    env.run("pin 1.0.0").unwrap();
+    let after = env.run("status").unwrap();
+    for status in [&before, &after] {
+        assert!(status["enabled"].is_boolean(), "{status}");
+        assert!(status["service"].is_object(), "{status}");
+        let keys = |v: &serde_json::Value| {
+            v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>()
+        };
+        assert_eq!(keys(status), keys(&fixture), "top-level keys drifted from the app fixture");
+        fixture_fits(&fixture, status, "status");
+    }
+    assert_eq!(after["store"]["packages"][0]["name"], "cmux");
 }

@@ -108,9 +108,10 @@ impl Mux {
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
-        // A command whose argv this daemon no longer has is only named.
+        // A command whose argv neither this daemon nor its record has is
+        // only named.
         let program = record
-            .filter(|record| record.kind == RelaunchKind::Command)
+            .filter(|record| record.kind == RelaunchKind::Command && record.argv.is_none())
             .filter(|_| self.terminal_respawns.argv(&plan.terminal_id).is_none())
             .and_then(|record| record.program.as_deref());
         let marker = crate::terminal_respawn_text::marker(program);

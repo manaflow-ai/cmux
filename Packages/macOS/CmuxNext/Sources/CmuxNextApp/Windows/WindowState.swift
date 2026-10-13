@@ -76,6 +76,10 @@ final class WindowState {
     /// The focused pane last written to this window's record (or restored
     /// from it), so a focus change saves the record once.
     var savedFocusedPane: String?
+    /// The window was saved in full screen and has not entered it again
+    /// since the relaunch (`WindowManager.enterRestoredFullScreens`). Saves
+    /// keep `full_screen` while it is set.
+    var restoresFullScreen = false
 
     init(id: String = UUID().uuidString.lowercased(), workspaceID: String? = nil, machineID: String? = nil) {
         self.id = id
@@ -103,7 +107,11 @@ extension WindowState {
         sidebarHidden = record.sidebarHidden
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
+        restoresFullScreen = record.isFullScreen
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
+            focus.send(.restoredPane(pane, workspace: workspace))
+        }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

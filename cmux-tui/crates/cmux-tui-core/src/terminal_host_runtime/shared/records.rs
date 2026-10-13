@@ -53,6 +53,7 @@ pub fn validate_terminal_host_record(
             || record.supports_clipboard_read
             || record.supports_viewer_size_priority
             || record.supports_pty_custody
+            || record.supports_program_status
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -75,6 +76,9 @@ pub fn validate_terminal_host_record(
             && (record.supports_clipboard_read || record.supports_pty_custody)
         {
             anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads or custody");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_program_status {
+            anyhow::bail!("pre-v4 terminal-host record advertises program status");
         }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
@@ -117,6 +121,21 @@ pub fn validate_terminal_host_record(
 
 pub(crate) fn liveness_path(record_path: &Path, record: &TerminalHostRecord) -> PathBuf {
     record_path.with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+}
+
+/// Block until the host of `record` has exited: the host holds its live
+/// marker's lease for its whole life, so taking the lease exclusively is the
+/// exit event (no polling). A marker that is already gone means the host
+/// already left.
+pub fn wait_for_terminal_host_exit(
+    record_path: &Path,
+    record: &TerminalHostRecord,
+) -> anyhow::Result<()> {
+    match sys::open_private(&liveness_path(record_path, record), PrivateOpen::ExistingNoFollow) {
+        Ok(marker) => Ok(sys::wait_lease_exclusive(&marker)?),
+        Err(error) if error.kind() == std_io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Probe the process-lifetime nonce lock. `Dead` is positive evidence
@@ -166,6 +185,17 @@ pub fn terminal_host_record_liveness(
     })
 }
 
+/// Serializes stale-record removals (record, proof, endpoint) in this
+/// process, so a respawn never launches a new host for the same terminal
+/// while another thread is still between removing the old record and its
+/// endpoint (cx-6so.49). A leaf lock: nothing else is locked while held.
+static RECORD_REMOVAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Wait until no stale-record removal of this process is in progress.
+pub(crate) fn wait_for_terminal_host_record_removals() {
+    drop(RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+}
+
 /// Remove a discovery record only after the process-lifetime proof says
 /// the exact recorded host is dead. A live or ambiguous record is always
 /// retained for a later adoption attempt.
@@ -173,6 +203,7 @@ pub fn remove_stale_terminal_host_record(
     record_path: &Path,
     expected: &TerminalHostRecord,
 ) -> anyhow::Result<bool> {
+    let _removal = RECORD_REMOVAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
         return Ok(false);
     }

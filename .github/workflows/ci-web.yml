@@ -223,13 +223,23 @@ jobs:
     # 4 vCPU runner (run 37666132324), so this job takes the 8 vCPU size, which
     # has twice the memory. Fork pull requests run the same suite on it.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
-    # Matches the 10-minute siblings in this workflow.
-    timeout-minutes: 10
+    # The 10-minute siblings in this workflow, plus the browser engines and the
+    # browser-lane suites they run.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # A pull request's merge commit with its parents: ui-rules and gallery
+          # coverage fail the PR only for its own findings (test/support/prScope.ts).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
+
+      - name: List the pull request's files
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/pr-changed-files"
+          echo "CMUX_PR_CHANGED_FILES=$RUNNER_TEMP/pr-changed-files" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -265,11 +275,19 @@ jobs:
         working-directory: webviews
         run: bun run check
 
+      # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
+      # without these engines; before, they skipped themselves and passed.
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
       - name: Test webviews
         working-directory: webviews
-        run: ../scripts/ci/run-webviews-tests.sh
+        run: |
+          python3 ../scripts/tests/test_pr_scoped_webviews_checks.py
+          ../scripts/ci/run-webviews-tests.sh
 
       - name: React Doctor
         working-directory: webviews

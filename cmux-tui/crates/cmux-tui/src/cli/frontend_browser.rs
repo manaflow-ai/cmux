@@ -66,28 +66,12 @@ fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
     super::app::connect(&socket).ok()
 }
 
-#[cfg(target_os = "macos")]
+/// Whether `daemon_socket` is the own daemon of the app this `cmux`
+/// belongs to (app.rs `app_owns_daemon`).
 fn app_daemon_is(daemon_socket: &Path) -> bool {
     let exe = std::env::current_exe().ok();
-    let Some(identity) =
-        crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
-    else {
-        return false;
-    };
-    crate::app_identity::app_daemon_socket(&identity)
-        .is_some_and(|app_socket| same_path(&app_socket, daemon_socket))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn app_daemon_is(_daemon_socket: &Path) -> bool {
-    false
-}
-
-/// Two spellings of one socket (`/var` is `/private/var` on macOS).
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn same_path(a: &Path, b: &Path) -> bool {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-    a == b || canonical(a) == canonical(b)
+    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
+        .is_some_and(|identity| super::app::app_owns_daemon(&identity, daemon_socket))
 }
 
 /// Runs a browser creation through the app when `plan` is one and an app
@@ -107,13 +91,9 @@ pub(super) fn run_in_app(
         return None;
     }
     let mut app = owning_app(global, daemon_socket)?;
-    let caller_terminal = caller_route
-        .then(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok())
-        .flatten()
-        .filter(|id| !id.is_empty());
     let key = request.get("idempotency_key").and_then(Value::as_str);
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
-    Some(match open(reader, &mut app, plan, caller_terminal.as_deref(), key) {
+    Some(match open(reader, &mut app, plan, caller_route, key) {
         Ok(result) => {
             key_report.succeeded();
             super::wire::print_result(global, plan, result)
@@ -129,15 +109,62 @@ pub(super) fn run_in_app(
     })
 }
 
+/// The caller's own terminal when the request addresses the caller's
+/// session. An agent session (`CMUX_AGENT_SESSION`) names no terminal: the
+/// app places its tab beside the agent's chat (`caller` in `action.run`).
+fn caller_terminal(caller_route: bool) -> Option<String> {
+    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    if !caller_route || env("CMUX_AGENT_SESSION").is_some() {
+        return None;
+    }
+    env("CMUX_TUI_TERMINAL_ID")
+}
+
+/// The `caller` of the app run for a request that names another session
+/// than the caller's own (cx-91xd): only an agent session, which the app
+/// finds by its own topology. The caller's terminal belongs to the caller's
+/// session, so it is never named there; `null` sends no caller at all
+/// (`app::with_caller`).
+fn other_session_caller() -> Value {
+    super::app::caller_from(|key| std::env::var(key).ok())
+        .filter(|caller| caller.get("agent_session").is_some())
+        .unwrap_or(Value::Null)
+}
+
+/// [`run_in_app`] for a caller that reports results itself (`cmux mcp
+/// serve`): `Some` with the created path, or the failure, when an app owns
+/// the session; `None` for the daemon path. Without this an MCP
+/// `tab_create_browser` made a daemon-rendered tab the app shows blank.
+pub(super) fn open_in_app(
+    global: &GlobalArgs,
+    plan: &RequestPlan,
+    reader: &mut Reader,
+    daemon_socket: &Path,
+    key: Option<&str>,
+) -> Option<Result<Value, Failure>> {
+    if !applies(plan) {
+        return None;
+    }
+    let mut app = owning_app(global, daemon_socket)?;
+    // The caller's session: no session named, by the server's options or
+    // by the call (a named session is in `global.session` or the plan).
+    let named = plan.params.get("session").and_then(Value::as_str);
+    let caller_route = global.socket.is_none()
+        && global.session.is_none()
+        && named.is_none_or(|session| session == "current");
+    let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
+    Some(open(reader, &mut app, plan, caller_route, key))
+}
+
 /// Opens the browser tab through the app and returns the daemon's created
-/// path for it. `caller_terminal` is the caller's own terminal when the
-/// request addresses the caller's session; `key` is the request's
-/// idempotency key, reused for the app run.
+/// path for it. `caller_route` says the request addresses the caller's own
+/// session (its terminal names the pane, and the run names the caller);
+/// `key` is the request's idempotency key, reused for the app run.
 pub(super) fn open(
     reader: &mut Reader,
     app: &mut UnixStream,
     plan: &RequestPlan,
-    caller_terminal: Option<&str>,
+    caller_route: bool,
     key: Option<&str>,
 ) -> Result<Value, Failure> {
     let params = plan
@@ -146,13 +173,16 @@ pub(super) fn open(
         .ok_or_else(|| Failure::Transport("cmux: request params are not an object".into()))?;
     let route = route(params);
     let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
-    let target = target_tab(reader, &route, params, caller_terminal)?;
+    let caller_terminal = caller_terminal(caller_route);
+    let target = target_tab(reader, &route, params, caller_terminal.as_deref())?;
+    let caller = (!caller_route).then(other_session_caller);
     let key = match key {
         Some(key) => key.to_owned(),
         None => super::command::random_prefixed("mutation")
             .map_err(|error| app_failure("app.transport", error.to_string()))?,
     };
-    let (reply, tab, on_default_pane) = match run_open(app, url, target.as_deref(), &key) {
+    let opened = run_open(app, url, target.as_deref(), caller.as_ref(), &key);
+    let (reply, tab, on_default_pane) = match opened {
         // The window shows a page: no focused pane to open in.
         Err(failure) if target.is_none() && never_ran(&failure) => {
             // No default pane either: the app's refusal says why.
@@ -161,7 +191,8 @@ pub(super) fn open(
             else {
                 return Err(failure);
             };
-            let (reply, tab) = run_open(app, url, Some(&default), &format!("{key}.default"))?;
+            let default_key = format!("{key}.default");
+            let (reply, tab) = run_open(app, url, Some(&default), caller.as_ref(), &default_key)?;
             (reply, tab, true)
         }
         opened => {
@@ -203,14 +234,20 @@ pub(super) fn reveal_failure(workspace: &str, error: &Value) -> String {
 }
 
 /// Runs `openBrowser` for `url` on `target` with idempotency key `key`:
-/// the app's reply and the tab it created.
+/// the app's reply and the tab it created. `caller` replaces the caller the
+/// environment names (`app::with_caller`); `None` keeps that one.
 fn run_open(
     app: &mut UnixStream,
     url: &str,
     target: Option<&str>,
+    caller: Option<&Value>,
     key: &str,
 ) -> Result<(Value, String), Failure> {
-    let mut run = Value::Object(open_browser_params(url, target));
+    let mut params = open_browser_params(url, target);
+    if let Some(caller) = caller {
+        params.insert("caller".into(), caller.clone());
+    }
+    let mut run = Value::Object(params);
     insert_run_key(&mut run, Some(key)).map_err(|error| app_failure("app.transport", error))?;
     let reply = match request_with_retry(app, "action.run", &run, super::app::WAITING_RUN_TIMEOUT) {
         Ok(Ok(reply)) => reply,

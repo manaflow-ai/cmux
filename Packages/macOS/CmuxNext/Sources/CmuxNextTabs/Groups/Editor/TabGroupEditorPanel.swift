@@ -45,9 +45,17 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     private var swatches: [TabGroupSwatchView] = []
+    /// After the palette dots: a custom color from the system color panel (cx-wqn5).
+    private let customSwatch = GroupCustomSwatchView(label: Strings.editorCustomColor)
+    private let colorPanel = GroupColorPanel.shared
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false
+    /// The chip the editor opened from (screen coordinates), where it closes to.
+    private var anchor: CGRect = .zero
+    /// Bumped by every open and close, so a finished close that a reopen and
+    /// a second close overtook leaves the panel to the newer close.
+    private var generation = 0
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -88,7 +96,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             swatch.onPick = { [weak self] picked in self?.pick(picked) }
             return swatch
         }
-        let swatchRow = NSStackView(views: swatches)
+        customSwatch.onPress = { [weak self] in self?.pickCustom() }
+        let swatchRow = NSStackView(views: swatches + [customSwatch])
         swatchRow.spacing = Metrics.space2
         swatchRow.distribution = .equalSpacing
 
@@ -130,6 +139,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         glass.applyTheme()
         glass.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(Strings.editorNamePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
         }
         styleFieldEditor()
@@ -150,13 +160,23 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let renamed = self.group?.id != group.id || nameField.currentEditor() == nil
         self.group = group
         if renamed { nameField.stringValue = group.name }
-        for swatch in swatches { swatch.isChosen = swatch.color == group.colorToken }
+        for swatch in swatches { swatch.isChosen = .palette(swatch.color) == group.tint }
+        if case .custom = group.tint { customSwatch.custom = group.tint } else { customSwatch.custom = nil }
+        customSwatch.isChosen = customSwatch.custom != nil
         saveRow?.title = group.isSaved ? Strings.editorUnsave : Strings.editorSave
     }
 
     private func pick(_ color: GroupColor) {
-        guard let group, group.colorToken != color else { return }
-        onCommand?(.setColor(group.id, color))
+        guard let group, group.tint != .palette(color) else { return }
+        onCommand?(.setColor(group.id, .palette(color)))
+    }
+
+    /// Opens the system color panel for this group. The bubble closes when the panel takes the
+    /// keys; the colors the person settles on still go to the group.
+    private func pickCustom() {
+        guard let group else { return }
+        let id = group.id
+        colorPanel.open(current: group.tint) { [weak self] tint in self?.onCommand?(.setColor(id, tint)) }
     }
 
     private func commitName() {
@@ -166,7 +186,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func present(below anchor: CGRect, parent: NSWindow) {
+        let reopening = dismissing && isVisible
         dismissing = false
+        ignoresMouseEvents = false
+        self.anchor = anchor
+        generation += 1
         if self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -180,11 +204,11 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             origin.y = max(origin.y, visible.minY + Metrics.space2)
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)
-        alphaValue = 0
+        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         styleFieldEditor()
-        Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+        openPopup(pivot: popupPivot(toward: anchor))
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.
@@ -192,7 +216,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
         nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill.blended(withFraction: 0.5, of: Palette.textSecondary) ?? Palette.selectionFill]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 
@@ -200,9 +224,20 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard !dismissing, isVisible else { return }
         dismissing = true
         commitName()
-        parent?.removeChildWindow(self)
-        orderOut(nil)
+        ignoresMouseEvents = true
+        // The keys go back to the window under it now, not when the fade ends.
+        makeFirstResponder(nil)
+        if isKeyWindow, let parent, parent.isVisible { parent.makeKey() }
         onClose?()
+        generation += 1
+        let closing = generation
+        closePopup(pivot: popupPivot(toward: anchor)) { [weak self] in
+            // A reopen during the close keeps the panel.
+            guard let self, self.dismissing, self.generation == closing else { return }
+            self.parent?.removeChildWindow(self)
+            self.orderOut(nil)
+            self.resetPopupScale()
+        }
     }
 
     override func resignKey() {
