@@ -18,6 +18,9 @@ cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
+cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
+cmux link stop --state-dir <dir>
+cmux link status --state-dir <dir>
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
@@ -55,6 +58,57 @@ Key order is not part of the contract. Exit codes:
 | 5 | `unreachable` | no path answered |
 | 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
 | 64 | `bad_request` | bad arguments or a malformed dial |
+
+`link ensure`, `link stop` and `link status` let an app run the per-user
+link on demand, as it ensures the session daemon (`server ensure`). One link
+runs per state directory: `serve` holds `<state dir>/link.lock` for its life
+(taken before the UDP bind; a second `serve` exits with "a cmux link already
+runs"), and `ensure` and `stop` hold `<state dir>/link.ensure.lock` while
+they run. The registration is `link.json` in the state directory's parent;
+the socket is `link-<12 hex>.sock` in the runtime directory, named from the
+state directory, in a folder that must be this user's private folder (a real
+folder, owned by this user, mode `0700`; also the `/tmp/cmux-tui-<uid>`
+fallback). `stop`, `status` and `ensure` use a registration only when its
+socket is their state directory's own socket (its `link-<12 hex>.sock`
+name; the folder depends on the `TMPDIR` of the process that started the
+link, so a CLI caller with another `TMPDIR` still finds the app's link, and
+that folder must be this user's private folder), so a link of another state
+folder, or a socket in an open or foreign folder, is never reported or
+stopped.
+
+`ensure` runs `init` first when the state directory has no config (then
+`--install` is required; `--port 0` binds any free UDP port). When a link of
+this state directory runs, `ensure` keeps it and prints
+`{"status":"running","pid","socket","build","udp"}`. Otherwise it starts
+`cmux link serve` in its own session (the link outlives the caller; output
+goes to `<state dir>/link.log`), waits for its ready line on a private pipe,
+and prints `{"status":"started","pid","socket","udp","build"}`. Without
+`--handoff`, `ensure` refuses a different `--install` or `--port` than the
+config has (`install_mismatch`, `port_mismatch`) and a running link that
+serves another `--session-socket` or `server.json` (`config_mismatch`; the
+`server.json` is compared by path and SHA-256), and keeps a running link of
+another build.
+
+`--handoff` is for the app that owns its link only (not in the help text).
+With it, `ensure` restarts a running link of another build or of another
+session socket or `server.json` (`"status":"restarted"`), and a different
+`--install` or `--port` replaces the config: the running link stops, the old
+install's WireGuard key and paired peers are kept under its name
+(`private.key.<install>`, `peers.<install>.json`), and the new install gets
+its own kept pair back, or a new key and no paired peers. Nothing is
+deleted; a new install may be another signed-in person, so another install's
+paired machines never carry over. Same-user access is the trust boundary of
+the state directory.
+
+`stop` signals only the pid that a fresh connection proved serves the
+registered socket, waits for that connection to end (the link removes its
+registration first) and then for the process to exit (an exit event), all
+within 10 s; a link that does not end is an error (`stop_timeout`) and is
+not reported stopped. It prints `{"ok":true,"stopped":true|false}`.
+`status` prints `{"running":false}` or the link's own `link.status` answer
+with `"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`,
+`udp`, `build`, `session_socket`, `server_config: {path, sha256}`). The
+link's local socket also answers `{"op":"link.status"}` with that line.
 
 `apps run` runs one catalog op of an installed app through the session
 daemon (`apps-run`; the CLI sends no `origin`, so gesture-required and

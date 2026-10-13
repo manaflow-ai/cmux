@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Foundation
 
 /// The Home page's conversation actions (HomeActionCatalog): one path for

@@ -37,17 +37,30 @@ impl LinkState {
     pub(super) fn open(dir: Option<PathBuf>) -> io::Result<Self> {
         let dir = match dir {
             Some(dir) => dir,
-            None => cmux_tui_core::platform::workspace_state_dir()
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no state directory"))?
-                .join("link"),
+            None => default_dir()
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no state directory"))?,
         };
         create_private_dir(&dir)?;
         Ok(Self { dir })
     }
 
-    #[cfg(target_os = "macos")]
     pub(super) fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// This link's local socket ([`socket_path_for`]).
+    pub(super) fn socket_path(&self) -> PathBuf {
+        socket_path_for(&self.dir)
+    }
+
+    /// Where a link that `cmux link ensure` started writes its output.
+    pub(super) fn log_path(&self) -> PathBuf {
+        self.dir.join("link.log")
+    }
+
+    /// Whether `init` has run (the config exists).
+    pub(super) fn has_config(&self) -> bool {
+        self.config_path().exists()
     }
 
     /// Where `link.json` goes: the daemon state dir, the parent of the
@@ -96,6 +109,61 @@ impl LinkState {
         write_private(&self.config_path(), &text)
     }
 
+    /// Moves this install's WireGuard key and paired peers aside under
+    /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
+    /// `new`'s archived pair when it has one. Nothing is deleted; a new
+    /// install without an archive gets a new key (`init`) and no peers.
+    /// Both ids must be valid; an existing archive of `old` is never
+    /// replaced; an archive of `new` is restored only when it is a regular
+    /// file of this user that no one else may open. A failed step undoes
+    /// the steps before it.
+    pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
+        let invalid = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, why.to_owned());
+        if !cmux_link::stamp::valid_id(old) || !cmux_link::stamp::valid_id(new) {
+            return Err(invalid("invalid install id"));
+        }
+        let pairs = [
+            (
+                self.key_path(),
+                self.dir.join(format!("private.key.{old}")),
+                self.dir.join(format!("private.key.{new}")),
+            ),
+            (
+                self.peers_path(),
+                self.dir.join(format!("peers.{old}.json")),
+                self.dir.join(format!("peers.{new}.json")),
+            ),
+        ];
+        // Check everything first, then move.
+        for (_, archive_old, archive_new) in &pairs {
+            if std::fs::symlink_metadata(archive_old).is_ok() {
+                return Err(invalid(&format!("{} already exists", archive_old.display())));
+            }
+            if std::fs::symlink_metadata(archive_new).is_ok() {
+                check_private_file(archive_new)?;
+            }
+        }
+        let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
+        let undo = |done: &mut Vec<(PathBuf, PathBuf)>| {
+            while let Some((from, to)) = done.pop() {
+                let _ = std::fs::rename(&to, &from);
+            }
+        };
+        for (current, archive_old, archive_new) in &pairs {
+            for (from, to) in [(current, archive_old), (archive_new, current)] {
+                match std::fs::rename(from, to) {
+                    Ok(()) => done.push((from.clone(), to.clone())),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    Err(error) => {
+                        undo(&mut done);
+                        return Err(error);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
         let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
         let bytes = Zeroizing::new(
@@ -117,14 +185,84 @@ pub(super) fn public_key(private: &[u8; 32]) -> [u8; 32] {
     x25519_dalek::PublicKey::from(&secret).to_bytes()
 }
 
-/// The link's local socket: `<runtime dir>/link.sock`, or the short
-/// fallback runtime dir when that path would not fit `sun_path`.
-pub(super) fn socket_path() -> PathBuf {
-    let preferred = cmux_tui_core::platform::runtime_dir().join("link.sock");
+/// The default state directory: `<daemon state dir>/link`.
+pub(super) fn default_dir() -> Option<PathBuf> {
+    cmux_tui_core::platform::workspace_state_dir().map(|dir| dir.join("link"))
+}
+
+/// The local socket of the link whose state directory is `dir`:
+/// `<runtime dir>/link-<12 hex>.sock`, or the same name in the short
+/// fallback runtime dir when that path would not fit `sun_path`. The name
+/// comes from the state directory, so two links with their own state
+/// directories (a tagged DEV app's and the release app's) never share a
+/// socket, also when they share a runtime directory. Readers find it in the
+/// registration (`link.json`), never by this name.
+pub(super) fn socket_path_for(dir: &Path) -> PathBuf {
+    use sha2::{Digest as _, Sha256};
+    let canonical = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let digest = Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    let hex: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
+    let leaf = format!("link-{hex}.sock");
+    let preferred = cmux_tui_core::platform::runtime_dir().join(&leaf);
     if cmux_unix_socket::fits(&preferred) {
         return preferred;
     }
-    cmux_tui_core::platform::fallback_runtime_dir().join("link.sock")
+    cmux_tui_core::platform::fallback_runtime_dir().join(leaf)
+}
+
+/// A file the link restores is a regular file (not a symlink) of this user
+/// that no group or other user may open.
+fn check_private_file(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path)?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    if !meta.file_type().is_file() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private file of this user", path.display()),
+        ));
+    }
+    Ok(())
+}
+
+/// Opens (or makes, 0600) a lock file of the state directory.
+pub(super) fn open_lock(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+}
+
+/// The link socket's folder is this user's private folder: a real folder
+/// (not a symlink), owned by this user, that no group or other user may
+/// open. Also for the `/tmp/cmux-tui-<uid>` fallback, where another user
+/// could have made the folder first.
+pub(super) fn check_socket_dir(dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(dir)?;
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    let refuse = |why: String| Err(io::Error::new(io::ErrorKind::PermissionDenied, why));
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return refuse(format!("the link socket folder {} is not a folder", dir.display()));
+    }
+    if meta.uid() != uid {
+        return refuse(format!("the link socket folder {} belongs to another user", dir.display()));
+    }
+    if meta.mode() & 0o077 != 0 {
+        return refuse(format!(
+            "the link socket folder {} is open to other users (mode {:o})",
+            dir.display(),
+            meta.mode() & 0o777
+        ));
+    }
+    Ok(())
 }
 
 fn create_private_dir(dir: &Path) -> io::Result<()> {

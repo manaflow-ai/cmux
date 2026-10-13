@@ -129,6 +129,17 @@ export default agentPaneEntry({
         if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
       },
     },
+    "harnesses-from-menu": {
+      note: "Play: Integrate a Harness… from the palette or the File menu on this page (cx-9fqw) shows the Harnesses page here, in place, not in a second tab.",
+      ready: newTab(),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        await ctx.waitFor(() => page.cmuxAcpmuxBridge?.command !== undefined);
+        page.cmuxAcpmuxBridge?.command?.("showHarnesses");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harnesses") !== null);
+      },
+    },
     "many-chats": {
       note: "Threads template: every chat in All chats below the field, named apart by project. The list's rows stay inside the list (dogfood 2026-10-10: they drew from the page top over the field).",
       ready: newTab({ template: "threads" }),

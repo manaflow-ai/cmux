@@ -68,6 +68,15 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/FeedTunables.swift:FeedTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Model/FeedChoiceValidation.swift:FeedChoiceValidation
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AgentSession.swift:AgentResume
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryPageModel.swift:HistoryPageAddress
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefAppLinks.swift:ChiefAppLinks
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefHostStop.swift:ChiefHostStop
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefMigration.swift:ChiefMigration
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefName.swift:HomeChiefName
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeCoreMapping.swift:HomeCoreMapping
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeEngineStrings.swift:HomeEngineStrings
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeMentions.swift:HomeMentions
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomePageMenus.swift:HomePageMenus
+Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeStrings.swift:HomeStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/ColumnGeometry.swift:ColumnStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DockStripGeometry.swift:DockStripGeometry
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Geometry/DropZoneGeometry.swift:DropZoneGeometry
