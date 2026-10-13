@@ -307,9 +307,11 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 7. The daemon's `cmux.protocol/2` selectors take full ids only; unique prefixes work only
    for app action targets and `browser tab_…`. Add prefix resolution to the daemon
    selector (one snapshot, `selector.ambiguous` with candidates) so C7 holds everywhere.
-8. An app action whose target matches nothing still reports `ran: true` (for example
-   `workspace rename --target ws_zzz`). Handlers must fail with `not_found`; the
-   resolver passes unknown ids through so objects the snapshot has not seen yet work.
+8. Done for the kinds the topology lists (window, workspace, screen, pane, tab,
+   terminal, groups): once it is loaded, a target that matches nothing is `not_found`
+   before any handler runs (`PublicIDTargetResolver`, `ActionRunTargetTests`). Before
+   that, and for column, screen group, machine and room, the id passes through;
+   `ActionScope` refuses an unknown tab, pane or workspace as `not_found`.
 9. `current` means the session's focused object, not the caller's terminal; the caller's
    own terminal is `$CMUX_TUI_TERMINAL_ID`.
 10. `cmux agent message` (Leo Li's PR 16430 owns it) has no port yet: it needs a daemon v2 message operation, a Rust verb and hook
@@ -317,9 +319,8 @@ On `feat-cmux-next-browser-storage` (browser group 3):
 11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
     `remote-terminal-tabs-v1`, which is not in cmux-tui yet.
 12. Done: session-qualified ids (`build-box:ws_…`) and `--all-sessions`.
-13. `action.run`'s `created` list is sometimes empty (`cmux tab new` under load): the
-    reply maps created handles through the control snapshot at settle time, which can
-    lag the store. Map from the store, or wait for the snapshot that contains them.
+13. Done: a settled `action.run` waits up to 2 s for a snapshot that shows every
+    object it created before it lists them in `created` (`ActionRunCreatedTests`).
 14. With an explicit `--app-socket` but a different app's `CMUX_*` environment, the daemon
     is found from the environment, not from the named app.
 15. v2 `session.identify` and `capabilities` on `client.metadata.update` (SDK clients
