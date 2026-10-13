@@ -3586,6 +3586,24 @@
               "overlay"
             ]
           }
+        },
+        "role": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "agent_chat"
+            ]
+          },
+          "description": "What the docked column holds: agent_chat is the workspace's agent chat dock. Absent for a plain dock."
+        },
+        "permanent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "True when the dock cannot be undocked or closed. Absent when false."
         }
       },
       "extra": false,
