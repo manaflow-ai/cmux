@@ -2080,28 +2080,29 @@
   "springs": {
    "move": {
     "value": {
-     "response": 0.2,
-     "dampingFraction": 0.9
+     "response": 0.15,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:11 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames"
+    "use": "Tab reflow and reorder, sidebar row moves, pane and divider frames",
+    "note": "Structural (motion.structural): critically damped unless motion.bounce is subtle. Response 0.15 s ends visibly (within 0.5%) at 0.177 s, under the 0.2 s budget (hq-1d D1)."
    },
    "appear": {
     "value": {
-     "response": 0.18,
-     "dampingFraction": 0.9
+     "response": 0.135,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:12 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Palette scale-in, tab grow-in, group expand, row insert, sidebar show"
    },
    "disappear": {
     "value": {
-     "response": 0.15,
-     "dampingFraction": 0.9
+     "response": 0.11,
+     "dampingFraction": 1
     },
-    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:13 (MotionTunables.springDefaults)",
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "Tab close, group collapse, row removal, sidebar hide"
    },
@@ -2158,11 +2159,57 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:19 (MotionTunables.springDefaults)",
     "unit": "s",
     "use": "Hover card slide"
+   },
+   "pinDrag": {
+    "value": {
+     "response": 0.3512407365520363,
+     "dampingFraction": 0.8385254915624211
+    },
+    "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
+    "unit": "s",
+    "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing"
    }
   },
   "springModel": {
-   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega; semi-implicit Euler at 1/480 s (SwiftUI .spring(response:dampingFraction:) equivalent)",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift:18-22,79-96 (SpringParameters.omega)"
+   "value": "omega = 2*pi/response; stiffness = omega^2; damping = 2*dampingFraction*omega (SwiftUI .spring(response:dampingFraction:), mass 1). Stepped in closed form from the current displacement AND velocity (exact damped harmonic oscillator, under-, critically or over-damped), so the path is identical at every frame rate; dt is capped at 0.1 s per frame. Retargeting keeps value and velocity. A spring rests (snaps to its target) once |value - target| < epsilon and |velocity| < epsilon * motion.settle.velocityFactor.",
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (SpringValue::solve); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/SpringParameters.swift (SpringValue.solve)"
+  },
+  "settle": {
+   "value": {
+    "geometry": 0.25,
+    "unit": 0.001,
+    "velocityFactor": 8
+   },
+   "source": "cmux-tui/crates/cmux-motion/src/spring.rs (GEOMETRY_EPSILON, UNIT_EPSILON, SpringValue::is_settled)",
+   "unit": "pt (geometry), fraction (unit)",
+   "use": "Rest rule: 0.25 pt is invisible after pixel snapping at 2x; 0..1 values (opacity) use 0.001"
+  },
+  "structural": {
+   "value": [
+    "move",
+    "appear",
+    "disappear"
+   ],
+   "source": "cmux-tui/crates/cmux-motion (MotionSpring::is_structural); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionKinds.swift (MotionSpring.isStructural)",
+   "use": "Springs that take or give up room. They follow motion.bounce; release, scroll and overlay springs keep their own damping."
+  },
+  "bounce": {
+   "value": {
+    "none": 0,
+    "subtle": 0.15,
+    "default": "none"
+   },
+   "source": "ui.animations.bounce (cmux.json); cmux-tui/crates/cmux-motion (MotionBounce); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.subtleBounce)",
+   "use": "SwiftUI bounce of the structural springs: none = critically damped (never passes the target), subtle = damping fraction 1 - 0.15 (overshoots about 1%)."
+  },
+  "kinds": {
+   "value": {
+    "splits": true,
+    "newTab": true,
+    "newWorkspace": true
+   },
+   "source": "ui.animations.splits / newTab / newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches)",
+   "use": "Per-kind switches under ui.animationSpeed. Off: that change applies in one frame (no crossfade). splits: Cmd-D, Cmd-Shift-D, close split, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {
@@ -2170,6 +2217,12 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:31 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Hover fills, hover-revealed buttons, divider hover"
+   },
+   "hoverOut": {
+    "value": 0,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Hover and pressed fills clearing: 0 is instant"
    },
    "focus": {
     "value": 0.1,
@@ -2218,6 +2271,38 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:39 (MotionTunables.fadeDefaults)",
     "unit": "s",
     "use": "Launch mark resolving on the glass of a window still connecting (Motion.revealLaunchMark); under 400 ms at normal speed"
+   },
+   "clickPulse": {
+    "value": 0.25,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor click ripple grows and fades"
+   },
+   "cursorHide": {
+    "value": 0.3,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "Agent cursor fades out once its agent goes idle"
+   },
+   "pinLift": {
+    "value": 0.15,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: the tile lifting (linear)",
+    "curve": "linear"
+   },
+   "pinSettle": {
+    "value": 0.25,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a dropped tile scaling back (linear)",
+    "curve": "linear"
+   },
+   "pinShrink": {
+    "value": 0.22,
+    "source": "cmux-tui/crates/cmux-motion (MotionFade): MessagesLab SidebarPinDragging.swift",
+    "unit": "s",
+    "use": "Home list pin drag: a ghost shrinking onto its row avatar"
    }
   },
   "loops": {

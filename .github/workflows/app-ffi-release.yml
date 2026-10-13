@@ -1,6 +1,6 @@
 # Builds the app's ONE Rust static library, CCmuxAppFFI.xcframework
-# (cmux-tui/crates/cmux-app-ffi: the remote desktop core and the sidebar layout
-# reducer C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
+# (cmux-tui/crates/cmux-app-ffi: the remote desktop core, the sidebar layout
+# reducer and the cmux-motion C ABIs over one Rust runtime, universal macOS arm64 + x86_64; see
 # scripts/cmux-next/build-app-ffi.sh), and publishes it as a prerelease in this
 # repository, tagged cmux-app-ffi-<full commit sha>.
 # Packages/macOS/CmuxNext/Package.swift pins one release by URL and SwiftPM
@@ -40,6 +40,7 @@ on:
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-motion/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"

@@ -52,6 +52,11 @@ ffi_crates() {
 }
 paths=()
 while IFS= read -r crate; do paths+=("$crate"); done < <(ffi_crates)
+# Not an input: plans/cmux-next/spec-proposals/visuals/design-tokens.json,
+# which cmux-motion's build.rs reads for its token table. A theme edit there
+# must not mark the pin stale; the app passes its own token values to the
+# motion C ABI (cmux_motion_resolve), and scripts/cmux-next/motion-parity.py
+# compares them with the spec's.
 paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh)
 # --list-inputs prints them (tests/app-ffi-release-paths.test.sh keeps the
 # release workflow's push paths in step with this list).
