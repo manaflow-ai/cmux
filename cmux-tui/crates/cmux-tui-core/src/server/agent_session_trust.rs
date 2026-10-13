@@ -20,6 +20,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -34,6 +35,28 @@ pub const AGENT_SESSION_TRUST_CAPABILITY: &str = "agent-session-trust-v1";
 const MAX_CWD_BYTES: usize = 4096;
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const THREAD_STACK_BYTES: usize = 256 * 1024;
+/// Trust calls that may run at once on one daemon (each waits up to
+/// `CALL_TIMEOUT` on acpmux).
+const MAX_CALLS: usize = 8;
+static RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// A taken call slot, given back on drop (also on a panic).
+struct CallSlot;
+
+impl CallSlot {
+    fn take() -> Option<Self> {
+        RUNNING
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < MAX_CALLS).then_some(n + 1))
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for CallSlot {
+    fn drop(&mut self) {
+        RUNNING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -75,15 +98,22 @@ pub(super) fn trust(
     if !own_agent_tab(mux, params.surface) {
         return refuse(writer, id, Refusal::UnknownTab);
     }
+    let Some(slot) = CallSlot::take() else {
+        return refuse(writer, id, Refusal::Limit);
+    };
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let spawned = std::thread::Builder::new()
         .name("mux-agent-trust".into())
         .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || match run(&worker_mux, &socket, &params) {
-            Ok(data) => ok(&worker_writer, worker_id, data),
-            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        .spawn(move || {
+            let result = run(&worker_mux, &socket, &params);
+            drop(slot);
+            match result {
+                Ok(data) => ok(&worker_writer, worker_id, data),
+                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+            }
         });
     if spawned.is_err() {
         return refuse(writer, id, Refusal::Limit);
