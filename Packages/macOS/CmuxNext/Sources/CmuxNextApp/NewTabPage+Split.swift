@@ -27,20 +27,28 @@ extension NewTabPage {
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
         let opened = SplitPageKey()
+        // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
+        // is made, moved to the new pane and shown before it can take them.
+        let input = services.keyRouter.newTabInputCoordinator
+        let keys = input.beginIncoming(in: source.view.window)
+        page.inputToken = keys
+        if let keys { input.attachIncoming(keys) }
         // The page moves to the new pane: its choices act in the pane that shows it now.
         var handler = Self.handler(services, cwd: cwd) { [weak services] key, request in
             guard let services, let pane = Self.hosting(key, services) else { return }
             Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane)
         }
+        handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump
         handler.jump = { [weak services] target, id in
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
-        _ = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: true) { [weak source] key in
+        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: true) { [weak source] key in
             opened.value = key
             if let source { Self.moveToSplit(key, from: source, edge: edge) }
         }
+        if !started { input.endIncoming(keys, pageMade: false) }
     }
 
     /// The workspace's tabs as the Open Tabs list shows them, but New Tab pages.

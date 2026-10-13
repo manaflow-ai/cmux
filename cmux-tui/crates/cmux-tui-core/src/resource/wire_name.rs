@@ -62,6 +62,7 @@ impl ResourceOperation {
             Self::ConversationTyping => "conversation.typing",
             Self::ConversationDraft => "conversation.draft",
             Self::ConversationEvents => "conversation.events",
+            Self::GitBranches => "git.branches",
             Self::GitCommit => "git.commit",
             Self::GitDiff => "git.diff",
             Self::GitFilesList => "git.files.list",
