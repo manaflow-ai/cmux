@@ -3,11 +3,13 @@ import AppKit
 
 /// Waits for the production monitor's callback, with a bounded capture deadline.
 @MainActor
-final class ShortcutHintCaptureWaiter {
+public final class ShortcutHintCaptureWaiter {
     private var continuation: CheckedContinuation<Bool, Never>?
     private var deadline: Task<Void, Never>?
 
-    func wait(post: () -> Void) async -> Bool {
+    public init() {}
+
+    public func wait(post: () -> Void) async -> Bool {
         guard continuation == nil else { return false }
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
@@ -20,7 +22,7 @@ final class ShortcutHintCaptureWaiter {
         }
     }
 
-    func finish(_ shown: Bool) {
+    public func finish(_ shown: Bool) {
         let waiting = continuation
         continuation = nil
         deadline?.cancel()
