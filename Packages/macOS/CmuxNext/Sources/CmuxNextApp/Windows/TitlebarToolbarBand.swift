@@ -218,6 +218,10 @@ final class TitlebarBandButton: NSButton {
 
     /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
     var menuProvider: (() -> NSMenu?)?, longPressOpensMenu = true
+    /// Shows a menu under the button (tests record it instead).
+    var presentMenu: @MainActor (NSMenu, TitlebarBandButton) -> Void = { menu, button in
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -233,8 +237,6 @@ final class TitlebarBandButton: NSButton {
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }
         }
-        if let menu = menuProvider?() {
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: Metrics.space1), in: self)
-        }
+        if let menu = menuProvider?() { presentMenu(menu, self) }
     }
 }
