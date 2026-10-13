@@ -92,11 +92,13 @@ extension PaneController {
     /// This pane as the focus topology sees it: strip order (pending closes
     /// hidden, session browser tabs included) and the selected tab.
     var focusPane: FocusTopology.Pane {
+        // One pass over the pane's tabs, not one per strip tab (cx-6so.21).
+        let byID = Dictionary(pane.tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let tabs = stripModel.orderedTabs.map { item -> FocusTopology.Tab in
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
-            guard let tab = pane.tabs.first(where: { $0.id == id }) else { return FocusTopology.Tab(id: id, kind: .other) }
+            guard let tab = byID[id] else { return FocusTopology.Tab(id: id, kind: .other) }
             return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
         }
         return FocusTopology.Pane(id: paneKey, tabs: tabs, selected: stripModel.selectedID?.rawValue)
@@ -110,7 +112,8 @@ extension WorkspaceContentController {
         focusTopology().panes.flatMap { pane in
             let id = LayoutPaneID(pane.id)
             let models = panes[id]?.pane.tabs ?? handles.panes[id].flatMap(daemon.store.pane)?.tabs ?? []
-            return pane.tabs.map { tab in (tab.id, models.first { $0.id == tab.id }) }
+            let byID = Dictionary(models.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            return pane.tabs.map { tab in (tab.id, byID[tab.id]) }
         }
     }
 }
