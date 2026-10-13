@@ -151,6 +151,9 @@
       location = "container:Packages/macOS"
       name = "Packages (macOS)">
       <FileRef
+         location = "group:CmuxAgentDeliveryCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAgentJournal">
       </FileRef>
       <FileRef
@@ -182,6 +185,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCloudMachines">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudResizeCore">
       </FileRef>
       <FileRef
          location = "group:CmuxCloudTui">
@@ -227,6 +233,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxLiveEval">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMemoryPressure">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileHost">

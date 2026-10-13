@@ -135,6 +135,8 @@ run_helper() {
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
   CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
   CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
+  CMUX_NOTARY_SUBMIT_ONLY="${TEST_NOTARY_SUBMIT_ONLY:-false}" \
+  GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
   CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   ASC_API_KEY_ID="${TEST_ASC_API_KEY_ID-FIXTUREKEY}" \
   ASC_API_ISSUER_ID="${TEST_ASC_API_ISSUER_ID-fixture-issuer}" \
@@ -301,8 +303,53 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
   exit 1
 fi
 
-# A generic submit failure must retain its diagnostics without claiming that
-# the wait deadline was reached.
+# Published variants submit once and leave Apple's asynchronous processing to
+# the continuation workflow. The build lane must retain the exact state while
+# refusing to staple or publish before a later Accepted result.
+: > "$LOG"
+ASYNC_STATE="$TMP_DIR/cmux-nightly-async.state"
+ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-async.log"
+ASYNC_GITHUB_OUTPUT="$TMP_DIR/async.github-output"
+rm -f "$ASYNC_STATE" "$ASYNC_OUTPUT" "$ASYNC_GITHUB_OUTPUT" "$IMMUTABLE"
+if ! TEST_NOTARY_SUBMIT_ONLY=true \
+  CMUX_NOTARY_SUBMISSION_FILE="$ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$ASYNC_OUTPUT" \
+  GITHUB_OUTPUT="$ASYNC_GITHUB_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async.err"; then
+  echo "FAIL: submit-only notarization failed before handing off the published path" >&2
+  exit 1
+fi
+if ! grep -Fxq "submission_id=fixture-id" "$ASYNC_STATE" \
+  || ! grep -Fxq "submission_pending=true" "$ASYNC_GITHUB_OUTPUT" \
+  || ! grep -q '^xcrun notarytool submit .*--output-format json$' "$LOG" \
+  || grep -q '^xcrun notarytool submit .*--wait' "$LOG" \
+  || grep -Fq 'xcrun stapler staple' "$LOG" \
+  || [ -e "$IMMUTABLE" ]; then
+  echo "FAIL: submit-only notarization did not preserve a pending ticket without stapling" >&2
+  cat "$LOG" "$ASYNC_STATE" >&2
+  exit 1
+fi
+
+FAILED_ASYNC_STATE="$TMP_DIR/cmux-nightly-submit-failed.state"
+FAILED_ASYNC_OUTPUT="$TMP_DIR/cmux-nightly-submit-failed.log"
+rm -f "$FAILED_ASYNC_STATE" "$FAILED_ASYNC_OUTPUT"
+if TEST_NOTARY_SUBMIT_ONLY=true CMUX_TEST_NOTARY_TIMEOUT=1 \
+  CMUX_NOTARY_SUBMISSION_FILE="$FAILED_ASYNC_STATE" \
+  CMUX_NOTARY_OUTPUT_FILE="$FAILED_ASYNC_OUTPUT" \
+  run_helper >/dev/null 2>"$TMP_DIR/async-failed.err"; then
+  echo "FAIL: failed submit was reported as an asynchronous handoff" >&2
+  exit 1
+fi
+if ! grep -q "refusing continuation" "$TMP_DIR/async-failed.err" \
+  || ! grep -Fxq "submission_id=fixture-id" "$FAILED_ASYNC_STATE"; then
+  echo "FAIL: nonzero submit did not preserve evidence without claiming handoff" >&2
+  cat "$TMP_DIR/async-failed.err" "$FAILED_ASYNC_STATE" >&2
+  exit 1
+fi
+
+# The exact recovery artifact can be resumed without rebuilding or submitting
+# a second Apple request. The saved SHA and submission id gate all stapling and
+# publication work.
 : > "$LOG"
 GENERIC_STATE="$TMP_DIR/cmux-nightly-generic.state"
 GENERIC_OUTPUT="$TMP_DIR/cmux-nightly-generic.log"
@@ -364,6 +411,68 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   exit 1
 fi
 echo "PASS: rc channel packaging selects rc entitlements and metadata checks"
+
+# Stable packages through the same path with the release entitlements, so the
+# stable release can ship per-architecture DMGs the way nightly does.
+: > "$LOG"
+STABLE_APP="$TMP_DIR/input/cmux.app"
+mkdir -p "$STABLE_APP/Contents/MacOS"
+printf 'signed-stable-fixture\n' > "$STABLE_APP/Contents/MacOS/cmux"
+CMUX_TEST_CALL_LOG="$LOG" \
+CMUX_TEST_SOURCE_APP="$STABLE_APP" \
+CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried-stable" \
+CMUX_CHANNEL=stable \
+CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-stable-mount" \
+CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
+CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+ASC_API_KEY_ID=FIXTUREKEY \
+ASC_API_ISSUER_ID=fixture-issuer \
+ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
+"$SCRIPT" "$STABLE_APP" "$TMP_DIR/cmux-macos-arm64.dmg" "$TMP_DIR/cmux-stable-immutable.dmg"
+for expected in \
+  "notarize-helper $STABLE_APP $ROOT_DIR/cmux.release.entitlements Developer ID Application: Fixture" \
+  "metadata $STABLE_APP stable"; do
+  if ! grep -Fxq "$expected" "$LOG"; then
+    echo "FAIL: stable channel packaging missed: $expected" >&2
+    exit 1
+  fi
+done
+echo "PASS: stable channel packaging selects release entitlements and metadata checks"
+
+# Resuming a stable submission passes the channel gate and stops at the next
+# check (here a deliberate SHA-256 mismatch), never at "Unsupported channel".
+RESUME_SCRIPT="$ROOT_DIR/scripts/ci/resume-nightly-notarization.sh"
+RESUME_DIR="$TMP_DIR/resume-stable"
+mkdir -p "$RESUME_DIR/cmux.app/Contents"
+printf 'stable-dmg\n' > "$RESUME_DIR/cmux-macos-arm64.dmg"
+printf '%s\n' \
+  "submission_id=fixture-submission" \
+  "status=In Progress" \
+  "dmg_path=$RESUME_DIR/cmux-macos-arm64.dmg" \
+  "dmg_sha256=$(printf '0%.0s' $(seq 64))" \
+  "immutable_path=$RESUME_DIR/cmux-macos-arm64-immutable.dmg" \
+  "channel=stable" > "$RESUME_DIR/state"
+printf 'original submission evidence\n' > "$RESUME_DIR/cmux-macos-arm64.dmg.notarization.log"
+if resume_output="$(ASC_API_KEY_ID=FIXTUREKEY ASC_API_ISSUER_ID=fixture-issuer \
+    ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" "$RESUME_SCRIPT" "$RESUME_DIR/state" "$RESUME_DIR/cmux.app" \
+    "$RESUME_DIR/cmux-macos-arm64.dmg" "$RESUME_DIR/cmux-macos-arm64-immutable.dmg" 2>&1)"; then
+  echo "FAIL: resume with a mismatched DMG hash must fail" >&2
+  exit 1
+fi
+if grep -Fq 'Unsupported recovery channel' <<<"$resume_output" \
+   || ! grep -Fq 'SHA-256 does not match' <<<"$resume_output"; then
+  echo "FAIL: resume must accept the stable channel; got: $resume_output" >&2
+  exit 1
+fi
+echo "PASS: stable notarization state resumes past the channel gate"
 
 # Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
 # Computer Use and outer notarization. It must work without Apple API secrets,

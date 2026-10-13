@@ -31,10 +31,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "AppDelegateTerminalTypingShortcutFastPathTests/plainTerminalTextDoesNotResolveAppShortcutContext()": {
-      "classification": "host/display dependency",
-      "issue": 13948
-    },
     "WorkspaceTerminalFocusRecoveryTests/testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction()": {
       "classification": "host/display dependency",
       "issue": 13948

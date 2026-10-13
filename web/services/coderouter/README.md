@@ -90,7 +90,7 @@ Why the threshold checks stay in code rather than moving to PostHog insight aler
 
 Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, and `CRON_SECRET`. Configure `CMUX_ALERTS_SLACK_WEBHOOK_URL` unless `CMUX_ALERTS_SINK_UNCONFIGURED_ACK` records the approved unconfigured sink. `POSTHOG_PROJECT_KEY` has an in-code default. The retired `POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` keys are flagged as legacy by the audit and can be deleted from Vercel.
 
-Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge.
+Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge. No deploy or CI job runs it, and inserts silently drop columns the database lacks, so a new ClickHouse migration must also add its columns to `CLICKHOUSE_EXPECTED_COLUMNS` in `clickhouseSchema.ts` (a test enforces this). The `coderouter-alerts` cron compares that list with `system.columns` and sends one critical `coderouter-clickhouse-schema-drift` Slack alert plus a Sentry event per day while a migration is unapplied.
 
 ## VM team and account access
 
@@ -109,8 +109,13 @@ Removing a pool grant takes effect on the next request, including existing
 sessions. An empty pool returns `no_usable_account` rather than routing through
 another team or a private account. Requests already sent upstream may finish.
 
-New account API writes explicitly set private visibility and their importing user.
-The database default remains shared for compatibility with older servers during
+New account API writes always record their importing user and an explicit
+visibility. A request may name `private` or `team`. When it names neither, as
+`cr add codex`, `cr add opencode` and the cmux sidebar do, an import into an
+organization is shared with the team, so every machine the organization runs
+can use it; an import into a personal scope is private (`defaultImportVisibility`).
+Accounts imported before this default changed keep their visibility until
+someone shares them. The database default remains shared for compatibility with older servers during
 a rolling deployment; old writes must not create ownerless private accounts. Human route tokens can
 use that user's private accounts and the selected team's shared accounts. A
 `crk_` API key is a team credential: in an organization it uses only the team's
@@ -119,9 +124,9 @@ in a personal scope keeps its owner's private accounts. Each key has its own
 sticky-session namespace. An organization VM never inherits its creator's
 private access.
 Private accounts in a personal scope (`team_id = created_by`) are available to
-that user's personal VMs. Importing privately into an organization, even a
-one-person organization, does not grant its VMs access until the account is
-explicitly shared.
+that user's personal VMs. An account imported into an organization with an explicit
+`private` visibility, even in a one-person organization, does not grant its VMs
+access until the account is shared.
 
 The default pool contains that team's shared accounts. Its membership follows
 explicit sharing changes. Custom pools have the same composite foreign-key

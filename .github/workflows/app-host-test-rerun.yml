@@ -169,7 +169,7 @@ jobs:
           git fetch --no-tags --depth=1 --filter=blob:none origin "$SOURCE_SHA"
           # Only vendor/bonsplit is a Swift package; GhosttyKit is downloaded
           # by the submodule's recorded SHA without checking it out.
-          git submodule update --init --depth 1 vendor/bonsplit
+          bash "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/init-submodule.sh" vendor/bonsplit
           echo "GHOSTTY_SHA=$(git ls-tree HEAD ghostty | awk '{print $3}')" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/rerun-out"
 

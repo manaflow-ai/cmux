@@ -72,8 +72,8 @@ cmux vm agent --agent claude --machine brave-otter --sync -- "fix the failing te
       <CodeBlock lang="json">{`{
   "shortcuts": {
     "bindings": {
-      "newCloudMachine": "cmd+y",
-      "newCloudWorkspace": "cmd+shift+y"
+      "newCloudMachine": "cmd+shift+y",
+      "newCloudWorkspace": "cmd+y"
     }
   }
 }`}</CodeBlock>

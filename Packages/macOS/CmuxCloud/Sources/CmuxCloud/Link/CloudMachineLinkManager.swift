@@ -62,14 +62,21 @@ public actor CloudMachineLinkManager {
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
+    /// Create receipts can name a non-default daemon session. Keep that
+    /// contract for native links after the trusted-carrier marker is saved.
+    private var createdTrustedCarrierEndpoints: [String: VMCmuxRemoteEndpoint] = [:]
     /// The team that owns each machine, captured when its provider was
     /// registered. Control-plane calls a link makes name this team, so a link
     /// to another team's machine keeps working after the selected team changes.
     private var ownerTeams: [String: String] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
-    private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
-    private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
+    private struct BrowserProxyKey: Hashable {
+        let machineID: String
+        let remoteNetwork: Bool
+    }
+    private var browserProxies: [BrowserProxyKey: CloudBrowserProxyProcess] = [:]
+    private var browserProxyStarts: [BrowserProxyKey: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     private var machineStatuses: [String: String] = [:]
     private var localStatusChanges: [String: Date] = [:]
@@ -91,6 +98,11 @@ public actor CloudMachineLinkManager {
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
     private let connectTimeout: Duration = .seconds(60)
+    /// Time left before `deadline`. A caller whose budget is already exhausted
+    /// must not be given a fresh second that lets route selection overrun it.
+    static func remaining(until deadline: ContinuousClock.Instant) -> Duration {
+        max(deadline - ContinuousClock.now, .zero)
+    }
     /// Races the private addresses of a dual-stack machine through the hub.
     /// Tests that expect every address to fail pass a short deadline.
     let privateRouteConnector: CloudHubConnector
@@ -158,6 +170,20 @@ public actor CloudMachineLinkManager {
     public func markTrustedCarrier(machineID: String) {
         guard paths.deviceFingerprint(for: machineID) == nil else { return }
         paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+    }
+
+    /// Records the create receipt used by the first native link. The endpoint
+    /// remains available for reconnects until the account is torn down.
+    public func setCreatedTrustedCarrierEndpoint(_ endpoint: VMCmuxRemoteEndpoint, for machineID: String) {
+        createdTrustedCarrierEndpoints[machineID] = endpoint
+    }
+
+    /// The daemon session to use for this machine, preserving an explicit
+    /// create receipt and otherwise using the Cloud daemon default.
+    /// - Parameter machineID: The machine whose link is being opened.
+    /// - Returns: The session shared by native and external CLI links.
+    public func session(for machineID: String) -> String {
+        createdTrustedCarrierEndpoints[machineID]?.session ?? "cloud"
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
@@ -271,7 +297,7 @@ public actor CloudMachineLinkManager {
             self.store(link: link, for: machineID)
             let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
-            var session = "cmux"
+            var session = self.session(for: machineID)
             // The machine's daemon serves a trusted listener inside the private
             // network, so a link needs no enrollment: the first use asks the
             // control plane once (it also brings an older daemon to the trusted
@@ -309,10 +335,14 @@ public actor CloudMachineLinkManager {
             guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
             let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
+            // One deadline covers address selection and the link connect.
+            let connectDeadline = ContinuousClock.now + connectTimeout
             let reachableRoute: String
             do {
                 try Task.checkCancellation()
-                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
+                reachableRoute = try await CloudOperationContext.phase(.route) {
+                    try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready, timeout: connectTimeout)
+                }
             } catch {
                 await releaseLease()
                 throw error
@@ -326,7 +356,7 @@ public actor CloudMachineLinkManager {
                     route: reachableRoute,
                     session: session,
                     carrier: carrier,
-                    timeout: connectTimeout,
+                    timeout: Self.remaining(until: connectDeadline),
                     wireguardHubSocket: claim.ready.socketPath,
                     releaseHubLease: releaseLease
                 )
@@ -412,27 +442,28 @@ public actor CloudMachineLinkManager {
     }
 
     /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
-    public func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
+    public func browserProxy(machineID: String, remoteNetwork: Bool = false) async throws -> CloudBrowserProxyEndpoint {
+        let key = BrowserProxyKey(machineID: machineID, remoteNetwork: remoteNetwork)
         try Task.checkCancellation()
         guard isCloudEnabled(), privateRoutes[machineID] != nil else {
             throw ManagerError.privateRouteRequired(machineID)
         }
-        if let starting = browserProxyStarts[machineID] { return try await browserProxyResult(starting) }
+        if let starting = browserProxyStarts[key] { return try await browserProxyResult(starting) }
         let addresses = privateAddresses(for: machineID)
-        if let existing = browserProxies[machineID] {
+        if let existing = browserProxies[key] {
             let endpoint = await existing.readyEndpoint
-            if browserProxies[machineID] !== existing { return try await browserProxy(machineID: machineID) }
+            if browserProxies[key] !== existing { return try await browserProxy(machineID: machineID, remoteNetwork: remoteNetwork) }
             if existing.addresses == addresses, let endpoint { return endpoint }
-            browserProxies[machineID] = nil
+            browserProxies[key] = nil
             await existing.stop()
-            return try await browserProxy(machineID: machineID)
+            return try await browserProxy(machineID: machineID, remoteNetwork: remoteNetwork)
         }
         guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
-        guard resolvedClientCapabilities(clientURL: clientURL).contains("browser-proxy") else {
+        guard resolvedClientCapabilities(clientURL: clientURL).contains(remoteNetwork ? "cloud-browser-network" : "browser-proxy") else {
             throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
         }
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
-        browserProxies[machineID] = proxy
+        browserProxies[key] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
             let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
             let carrier: Bool
@@ -465,7 +496,7 @@ public actor CloudMachineLinkManager {
             let claim = try await hub.acquire()
             let route: String
             do {
-                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready, timeout: connectTimeout)
                 try Task.checkCancellation()
             } catch {
                 await hub.release(claim.lease)
@@ -474,17 +505,17 @@ public actor CloudMachineLinkManager {
             let arguments = CloudTuiCommandLine.browserProxyArguments(
                 route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
                 wireGuardHubSocket: claim.ready.socketPath,
-                carrier: carrier
+                carrier: carrier, remoteNetwork: remoteNetwork
             )
             return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
         }
-        browserProxyStarts[machineID] = task
+        browserProxyStarts[key] = task
         Task { [weak self] in
             let result = await task.result
-            await self?.browserProxyStartFinished(machineID: machineID, proxy: proxy, result: result)
+            await self?.browserProxyStartFinished(key: key, proxy: proxy, result: result)
         }
         let endpoint = try await browserProxyResult(task)
-        guard browserProxies[machineID] === proxy else { throw CancellationError() }
+        guard browserProxies[key] === proxy else { throw CancellationError() }
         return endpoint
     }
 
@@ -496,11 +527,11 @@ public actor CloudMachineLinkManager {
         return try value.get()
     }
 
-    private func browserProxyStartFinished(machineID: String, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
-        guard browserProxies[machineID] === proxy else { return }
-        browserProxyStarts[machineID] = nil
+    private func browserProxyStartFinished(key: BrowserProxyKey, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
+        guard browserProxies[key] === proxy else { return }
+        browserProxyStarts[key] = nil
         if case .failure = result {
-            browserProxies[machineID] = nil
+            browserProxies[key] = nil
             await proxy.stop()
         }
     }
@@ -553,11 +584,13 @@ public actor CloudMachineLinkManager {
     }
 
     public func disconnect(machineID: String) async {
-        let startingProxy = browserProxyStarts.removeValue(forKey: machineID)
-        startingProxy?.cancel()
-        let proxy = browserProxies.removeValue(forKey: machineID)
-        await proxy?.stop()
-        _ = await startingProxy?.result
+        for key in Set(browserProxies.keys).union(browserProxyStarts.keys) where key.machineID == machineID {
+            let startingProxy = browserProxyStarts.removeValue(forKey: key)
+            startingProxy?.cancel()
+            let proxy = browserProxies.removeValue(forKey: key)
+            await proxy?.stop()
+            _ = await startingProxy?.result
+        }
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
         // An in-flight drain notices the removed link on its next run; dropping the
@@ -571,12 +604,13 @@ public actor CloudMachineLinkManager {
 
     public func disconnectAll() async {
         for task in connecting.values { task.cancel() }
-        for id in Set(links.keys).union(browserProxies.keys).union(browserProxyStarts.keys) {
+        for id in Set(links.keys).union(browserProxies.keys.map(\.machineID)).union(browserProxyStarts.keys.map(\.machineID)) {
             await disconnect(machineID: id)
         }
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
         lastFailure.removeAll()
+        createdTrustedCarrierEndpoints.removeAll()
     }
 
     /// Drops stale routing facts immediately. The registry owns and awaits
@@ -587,6 +621,7 @@ public actor CloudMachineLinkManager {
         machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
         localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
         ownerTeams = ownerTeams.filter { machineIDs.contains($0.key) }
+        createdTrustedCarrierEndpoints = createdTrustedCarrierEndpoints.filter { machineIDs.contains($0.key) }
     }
 
     /// Re-sends this Mac's theme to every connected machine (a Ghostty config reload

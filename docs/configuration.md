@@ -274,9 +274,9 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 ## New Cloud Workspace shortcut and the plus-button menu
 
-Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
+Cmd+Y creates a workspace on the machine that owns the most recently selected Cloud workspace, or the first usable machine in the right-hand Cloud sidebar. If no usable Cloud workspace or machine is available, it opens the New Cloud Machine flow. When a remembered selection is stale, the resolver uses the current right-hand Cloud sidebar order, including pins and manual reordering; an empty or still-loading fleet deterministically stays on the New Cloud Machine flow. Cmd+Shift+Y always opens the New Cloud Machine flow. Cmd+N always creates a local workspace on this Mac. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`.
 
-When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N, local), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newCloudMachine` (Cmd+Shift+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## `terminal.textBoxSubmitActions`
 
@@ -333,8 +333,9 @@ Action fields:
 
 Replace the built-in `scp` for terminal file drops and pastes over SSH with a
 command you choose. When you drop or paste a file into a terminal running an SSH
-session, cmux normally `scp`s it to `/tmp/cmux-drop-<uuid>` on the host and types
-the remote path. `terminal.uploadCommands` is an ordered list of host-scoped
+session, cmux normally `scp`s it into a private directory on the host,
+`~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>`, and types the remote
+path. `terminal.uploadCommands` is an ordered list of host-scoped
 rules; when the ssh destination matches a rule, cmux runs that rule's command
 instead and inserts what the command prints.
 
@@ -360,7 +361,8 @@ instead and inserts what the command prints.
   against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
-  (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,
+  (the `~/.cache/cmux/paste/<session>/cmux-paste-<uuid>.<ext>` path cmux picked;
+  see below), `CMUX_UPLOAD_DESTINATION`,
   `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE`, and `CMUX_UPLOAD_SSH_OPTIONS`
   (newline-separated; the last three are unset when the session has none). The
   rest of the environment is inherited, so a one-liner resolves tools on `PATH`.
@@ -369,6 +371,33 @@ instead and inserts what the command prints.
 
 **First matching enabled rule wins.** If no rule matches, the built-in `scp` runs
 unchanged, so other hosts are untouched.
+
+### The remote path is yours to create
+
+`CMUX_UPLOAD_REMOTE_PATH` starts with `~/` and names a file in a directory that
+does not exist yet. The built-in transport creates that directory with mode
+`0700` before it copies, sets the file to `0600`, deletes files older than a day
+and trims the directory when it passes 200 MB. cmux does none of that for a
+custom command, so a command that writes to the path has to create the directory
+first. A bare `scp` to it fails with `No such file or directory`:
+
+```sh
+dir=$(dirname "$CMUX_UPLOAD_REMOTE_PATH")
+ssh "$CMUX_UPLOAD_DESTINATION" "umask 077; mkdir -p \"\$HOME/${dir#\~/}\"" &&
+  scp "$CMUX_UPLOAD_LOCAL_PATH" "$CMUX_UPLOAD_DESTINATION:$CMUX_UPLOAD_REMOTE_PATH"
+```
+
+The example reaches the host with the settings in your own ssh configuration. A
+session that was opened with a port, an identity file or `-o` options hands them
+to the command as `CMUX_UPLOAD_PORT`, `CMUX_UPLOAD_IDENTITY_FILE` and
+`CMUX_UPLOAD_SSH_OPTIONS`, and a command for such a host has to pass them to
+both `ssh` and `scp`. `scp` copies over SFTP by default. Use `scp -O` if the
+server does not support the `expand-path@openssh.com` extension (OpenSSH
+`sftp-server` added it in 8.7). It copies over the legacy protocol and lets the
+remote shell expand the leading `~`.
+
+Cleaning up old files there is also the command's job. A command that stores
+the file somewhere else can ignore the path and print where it put the file.
 
 ### How the command's output is used
 

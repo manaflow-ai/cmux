@@ -311,14 +311,22 @@ extension MobileShellComposite {
                 method: "feed.list",
                 params: [:]
             )
+            let fetchStarted = ProcessInfo.processInfo.systemUptime
             let data = try await client.sendRequest(request)
+            let decodeStarted = ProcessInfo.processInfo.systemUptime
             let response = try await Self.decodeAgentFeedSnapshot(data)
+            let decodedAt = ProcessInfo.processInfo.systemUptime
             guard !Task.isCancelled,
                   agentFeedClient(for: macDeviceID) === client else { return }
+            feedPerformanceObserver?.updateCompleted(stage: .fetch, startedAt: fetchStarted, endedAt: decodeStarted, itemCount: response.items.count)
+            feedPerformanceObserver?.updateCompleted(stage: .decode, startedAt: decodeStarted, endedAt: decodedAt, itemCount: response.items.count)
             applyAgentFeedSnapshot(
                 response,
                 macDeviceID: macDeviceID,
                 displayName: displayName
+            )
+            feedPerformanceObserver?.updateCompleted(
+                stage: .apply, startedAt: decodedAt, endedAt: ProcessInfo.processInfo.systemUptime, itemCount: agentFeedItems.count
             )
         } catch is CancellationError {
             return

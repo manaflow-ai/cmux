@@ -58,14 +58,18 @@ describe("VM review regressions", () => {
     for (const allowance of [maxActiveVmsForPlan("team", {}, { seats: 10 }), null, 20, undefined]) {
       dbTest(`${operation} resumes a paused Team VM using allowance ${allowance}`, () => withTeam(async team => {
         await sql`
-          insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-          select ${team}, ${team}, 'team', 'freestyle', ${team} || '-' || n, 'snapshot-test', 'running'
+          insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata)
+          select ${team}, ${team}, 'team', 'freestyle', ${team} || '-' || n, 'snapshot-test', 'running',
+            '{"cmuxResourceReservation":{"vcpus":4,"memoryMb":8192,"diskMb":32768}}'::jsonb
           from generate_series(1, 21) n
         `;
         const providerVmId = `${team}-paused`;
         await sql`
-          insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-          values (${team}, ${team}, 'team', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused')
+          insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata)
+          values (
+            ${team}, ${team}, 'team', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused',
+            '{"cmuxResourceReservation":{"vcpus":4,"memoryMb":8192,"diskMb":32768}}'::jsonb
+          )
         `;
         let resumes = 0;
         let operations = 0;
@@ -77,7 +81,8 @@ describe("VM review regressions", () => {
             return { provider: "freestyle", providerVmId, image: "snapshot-test", status: "running", createdAt: Date.now() };
           }),
           getStats: () => Effect.sync(() => ({
-            state: "awake", sampledAt: Date.now(), diskTotalMb: ++statsReads === 1 ? 32768 : 65536,
+            state: "awake", sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8192,
+            diskTotalMb: ++statsReads === 1 ? 32768 : 65536,
           })),
           resize: () => Effect.sync(() => { operations += 1; }),
           exec: () => Effect.sync(() => {

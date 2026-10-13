@@ -98,7 +98,7 @@ struct SidebarAccountMenuButton: View {
             )
         })
         .safeHelp(buttonTitle)
-        .accessibilityLabel(buttonTitle)
+        .hintableAccessibilityLabel(buttonTitle, isEnabled: accountFlow?.isWorkingOnAuth != true)
         .accessibilityIdentifier("SidebarAccountMenuButton")
     }
 }

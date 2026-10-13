@@ -541,8 +541,42 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if ! grep -Eq 'SocketControlServer: Listening on |message = "socket.listener.start"' "$log_path"; then
-    echo "FAIL: app-host xcodebuild output did not include socket listener evidence" >&2
-    exit 1
+    # UI tests can capture app stdout only inside xcresult, separate from the
+    # xcodebuild driver's log. Read the current attempt's real app diagnostics;
+    # runner output, previous bundles and arbitrary attachments are not receipts.
+    evidence_result_bundle="${result_bundle_path:-$caller_result_bundle_path_normalized}"
+    listener_evidence=0
+    invalid_listener_evidence=0
+    if [ -n "$evidence_result_bundle" ] && [ -f "$evidence_result_bundle/Info.plist" ]; then
+      diagnostics_dir="$(mktemp -d "${log_stem}-attempt-${attempt}-diagnostics.XXXXXX")"
+      diagnostics_log="${log_stem}-attempt-${attempt}-diagnostics.log"
+      if python3 "$ci_script_dir/run_with_timeout.py" \
+        --timeout-seconds "$xcresulttool_timeout_seconds" -- \
+        xcrun xcresulttool export diagnostics \
+          --path "$evidence_result_bundle" --output-path "$diagnostics_dir" \
+          >"$diagnostics_log" 2>&1; then
+        while IFS= read -r -d '' app_stdout; do
+          if [ ! -r "$app_stdout" ]; then
+            invalid_listener_evidence=1
+          elif grep -Eq 'SocketControlServer: Listening on /tmp/cmux-debug\.sock|path = "/tmp/cmux-debug\.sock"' "$app_stdout"; then
+            echo "FAIL: xcresult app listener used default debug socket instead of an XCTest-scoped socket" >&2
+            invalid_listener_evidence=1
+          elif grep -Eq 'SocketControlServer: Listening on |message = "socket.listener.start"' "$app_stdout"; then
+            listener_evidence=1
+            echo "Socket readiness confirmed in xcresult app stdout: $evidence_result_bundle / ${app_stdout#"$diagnostics_dir"/}"
+          fi
+        done < <(find "$diagnostics_dir" -type f \( \
+          -name 'StandardOutputAndStandardError-com.cmuxterm.app.debug.txt' -o \
+          -name 'StandardOutputAndStandardError-com.cmuxterm.app.txt' \) -print0)
+      else
+        echo "Could not export xcresult app diagnostics; see $diagnostics_log" >&2
+      fi
+      rm -rf -- "$diagnostics_dir"
+    fi
+    if [ "$listener_evidence" -ne 1 ] || [ "$invalid_listener_evidence" -ne 0 ]; then
+      echo "FAIL: app-host output and xcresult app diagnostics did not include valid socket listener evidence" >&2
+      exit 1
+    fi
   fi
 
   exit 0

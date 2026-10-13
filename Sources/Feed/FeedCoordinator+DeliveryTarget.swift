@@ -88,7 +88,8 @@ extension FeedCoordinator {
             requestId: event.requestId,
             ppid: event.ppid,
             receivedAt: event.receivedAt,
-            extraFieldsJSON: event.extraFieldsJSON
+            extraFieldsJSON: event.extraFieldsJSON,
+            isIdleReminder: event.isIdleReminder
         )
     }
 

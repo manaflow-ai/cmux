@@ -225,6 +225,9 @@ class TabManager: ObservableObject {
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
     let cloudWorkspaceSelection: CloudWorkspaceSelectionState
+    /// Shared by the inline Cloud sidebar and any Cloud tool pane in this
+    /// window so CodeRouter reads and removals never overlap.
+    let coderouterAccountStore = CoderouterAccountStore()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -467,6 +470,7 @@ class TabManager: ObservableObject {
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
     private let defaultWorkspaceWorkingDirectoryProvider: () -> String
+    private let ghosttyWorkingDirectoryInheritanceProvider: () -> GhosttyWorkingDirectoryInheritance
     let workspaceCustomizationStore: WorkspaceCustomizationStore
     private var lastFocusHistoryIncludesPanesAndTabs: Bool
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
@@ -587,6 +591,9 @@ class TabManager: ObservableObject {
                 configuredValue: GhosttyConfig.loadForCmux().workingDirectory
             )
         },
+        ghosttyWorkingDirectoryInheritanceProvider: @escaping () -> GhosttyWorkingDirectoryInheritance = {
+            GhosttyConfig.loadForCmux().workingDirectoryInheritance
+        },
         workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
@@ -600,6 +607,7 @@ class TabManager: ObservableObject {
         self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
+        self.ghosttyWorkingDirectoryInheritanceProvider = ghosttyWorkingDirectoryInheritanceProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
         let focusHistoryScopeKey = SettingCatalog().app.focusHistoryIncludesPanesAndTabs
         self.lastFocusHistoryIncludesPanesAndTabs = settings.value(for: focusHistoryScopeKey)
@@ -1405,6 +1413,7 @@ class TabManager: ObservableObject {
         return withExtendedLifetime((capturedTabs, sourceWorkspace)) {
             let inheritanceEnabled = inheritWorkingDirectory
                 && settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory)
+                && ghosttyWorkingDirectoryInheritance().window
             let inheritedWorkingDirectory = inheritanceEnabled
                 ? preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
                 : nil
@@ -1982,8 +1991,20 @@ class TabManager: ObservableObject {
         }.first
     }
 
+    /// Ghostty's `*-inherit-working-directory` keys (#177).
+    func ghosttyWorkingDirectoryInheritance() -> GhosttyWorkingDirectoryInheritance {
+        ghosttyWorkingDirectoryInheritanceProvider()
+    }
+
+    /// The directory a terminal starts in when it does not inherit one:
+    /// Ghostty's `working-directory`, else home.
+    func defaultTerminalWorkingDirectory() -> String {
+        defaultWorkspaceWorkingDirectoryProvider()
+    }
+
     func implicitWorkingDirectoryForNewWorkspace(from sourceWorkspace: Workspace?) -> String? {
-        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory) else {
+        guard settings.value(for: settingsCatalog.app.workspaceInheritWorkingDirectory),
+              ghosttyWorkingDirectoryInheritance().window else {
             return nil
         }
         return preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
@@ -2291,7 +2312,8 @@ class TabManager: ObservableObject {
         initialBrowserURL: URL? = nil,
         initialBrowserOmnibarVisible: Bool = true,
         initialBrowserTransparentBackground: Bool = false,
-        applyCreationTitleAsCustomTitle: Bool = true
+        applyCreationTitleAsCustomTitle: Bool = true,
+        inheritWorkingDirectory: Bool? = nil
     ) -> Workspace? {
         workspaceGrouping.createWorkspaceInGroup(
             groupId: groupId,
@@ -2303,7 +2325,8 @@ class TabManager: ObservableObject {
             initialBrowserURL: initialBrowserURL,
             initialBrowserOmnibarVisible: initialBrowserOmnibarVisible,
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
-            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+            applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle,
+            inheritWorkingDirectory: inheritWorkingDirectory
         )
     }
 
@@ -3727,6 +3750,13 @@ class TabManager: ObservableObject {
     func performFocusedTextFilePreviewZoom(_ action: (FilePreviewPanel) -> Bool) -> Bool? {
         guard let panel = focusedTextFilePreviewPanel else { return nil }
         return action(panel)
+    }
+
+    /// Runs a Ghostty font-size binding on the focused terminal, or returns nil
+    /// when no terminal is focused.
+    func performFocusedTerminalFontSizeAction(_ action: String) -> Bool? {
+        guard let panel = selectedTerminalPanel else { return nil }
+        return panel.performBindingAction(action)
     }
 
     func zoomInFocusedBrowser() -> Bool {

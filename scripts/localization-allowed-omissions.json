@@ -1,4 +1,8 @@
 {
+  "cloud.welcome.title.eyebrow": {
+    "class": "brand",
+    "source": "cmux cloud"
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
@@ -114,6 +118,30 @@
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "agent.muse.displayName": {
+    "source": "Muse Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
       "bs": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -3149,6 +3177,10 @@
     "class": "technical",
     "source": "SSH"
   },
+  "sidebar.workspace.titleWithHost": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "simulator.action.siri": {
     "class": "brand",
     "source": "Siri"
@@ -4938,5 +4970,9 @@
     "identityLocales": {
       "fr": "Question has the same spelling in this locale; the placeholder is invariant."
     }
+  },
+  "globalSearch.agent.claude": {
+    "class": "brand",
+    "source": "Claude"
   }
 }

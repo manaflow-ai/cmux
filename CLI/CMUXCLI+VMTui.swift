@@ -558,6 +558,9 @@ extension CMUXCLI {
         if config.carrier {
             arguments.append("--carrier")
         }
+        if !config.session.isEmpty {
+            arguments += ["--session", config.session]
+        }
         if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
             arguments += ["--wireguard-hub", hubSocket]
         }

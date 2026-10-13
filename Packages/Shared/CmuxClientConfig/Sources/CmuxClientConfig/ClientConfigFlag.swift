@@ -28,6 +28,9 @@ public extension ClientConfigFlag where Value == Bool {
         }
     }
 
+    // FLAG(key: ios-feed-performance-release, owner: azooz2003-bit, reviewBy: 2026-11-06, defaultWhenUnavailable: false)
+    /// Enables Feed timing after the authenticated ingestion schema is deployed.
+    static let iosFeedPerformanceRelease = Self(booleanKey: "ios-feed-performance-release")
     /// Stops terminal timing collection remotely while preserving connectivity diagnostics.
     static let iosTerminalLatencyEnabled = Self(booleanKey: "ios-terminal-latency-enabled", defaultValue: true)
     /// Enables Windows download/sign-up surfaces.

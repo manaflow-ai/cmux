@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { pauseVm, resumeVm } from "../services/vms/workflows";
+import { VmProviderOperationError } from "../services/vms/errors";
 
 // `cmux vm pause` / `cmux vm resume`: park a machine and wake it through the
 // same suspended-resume path every open and exec uses. Fake repository and
@@ -17,6 +18,8 @@ type Recorded = {
   statusProbes: string[];
   statuses: Array<{ id: string; status: string }>;
   reservations: string[];
+  skipActiveLimits: boolean[];
+  reservationWrites: Array<{ vcpus: number; memoryMb: number; diskMb: number }>;
   events: Array<{ eventType: string; metadata: Record<string, unknown> }>;
 };
 
@@ -52,10 +55,15 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
 function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";
+  /** Successive getStatus answers; the last one repeats. */
+  providerStatuses?: Array<"creating" | "running" | "paused">;
+  pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails";
   withPause?: boolean;
   withResume?: boolean;
+  stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
+  onReservation?: (reservation: { vcpus: number; memoryMb: number; diskMb: number }) => void;
 }) {
-  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], events: [] };
+  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
   const repo = {
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
@@ -67,12 +75,36 @@ function fakes(options: {
       recorded.events.push({ eventType: input.eventType, metadata: input.metadata ?? {} });
       return Effect.void;
     },
-    reservePausedResume: (input: { providerVmId: string }) => {
+    reservePausedResume: (input: { providerVmId: string; skipActiveLimit?: boolean }) => {
       recorded.reservations.push(input.providerVmId);
+      recorded.skipActiveLimits.push(input.skipActiveLimit === true);
       return Effect.succeed({ ...options.row, status: "running" } as CloudVmRow);
     },
+    ...(options.onReservation
+      ? {
+        setResourceReservation: (input: { reservation: { vcpus: number; memoryMb: number; diskMb: number } }) => Effect.sync(() => {
+          recorded.reservationWrites.push(input.reservation);
+          options.onReservation?.(input.reservation);
+          return true;
+        }),
+      }
+      : {}),
   } as unknown as VmRepositoryShape;
   const provider = {
+    getStats: () => Effect.succeed({
+      state: "awake" as const,
+      sampledAt: Date.now(),
+      cpus: options.stats?.cpus ?? 4,
+      memoryTotalMb: options.stats?.memoryTotalMb ?? 8 * 1024,
+      diskTotalMb: options.stats?.diskTotalMb ?? 32768,
+    }),
+    ...(options.pauseState
+      ? {
+        getPauseState: () => options.pauseState === "probe_fails"
+          ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getPauseState", cause: new Error("Status: 500") }))
+          : Effect.succeed(options.pauseState),
+      }
+      : {}),
     ...(options.withPause === false
       ? {}
       : {
@@ -90,6 +122,10 @@ function fakes(options: {
         },
         getStatus: (_provider: string, providerVmId: string) => {
           recorded.statusProbes.push(providerVmId);
+          const sequence = options.providerStatuses;
+          if (sequence && sequence.length > 0) {
+            return Effect.succeed(sequence[Math.min(recorded.statusProbes.length - 1, sequence.length - 1)]);
+          }
           return Effect.succeed(options.providerStatus ?? "running");
         },
       }),
@@ -112,6 +148,17 @@ async function failureTag(
   return failure._tag === "Some" ? ((failure.value as { _tag?: string })._tag ?? "unknown") : "die";
 }
 
+describe("retries during an in-flight first call", () => {
+  // A resume the route answered as in progress is still starting at the
+  // provider. The retry waits for it instead of resuming twice.
+  test("a resume retry while the first resume is starting waits for it", async () => {
+    const { recorded, layer } = fakes({ row: machineRow({ status: "paused" }), providerStatuses: ["creating", "running"] });
+    const result = await Effect.runPromise(resumeVm(resumeCaller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.resumed).toEqual([]);
+  });
+});
+
 describe("pauseVm", () => {
   test("parks a running machine: provider pause, row paused, usage event", async () => {
     const { recorded, layer } = fakes({ row: machineRow() });
@@ -129,6 +176,57 @@ describe("pauseVm", () => {
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
     expect(recorded.events).toEqual([]);
+  });
+
+  // A pause whose route answered "in progress" (routeDeadline.ts) may finish
+  // at the provider after the response. The retry must not pause twice: it
+  // reconciles the row with the provider's observed status.
+  test("a retry after a pause that finished in the background records it without pausing again", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "paused" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
+    expect(recorded.events).toEqual([{ eventType: "vm.paused", metadata: { source: "user" } }]);
+  });
+
+  test("a retry while the first pause is still pausing answers in progress without pausing again", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "in_progress" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a machine gone at the provider answers not found without a pause call", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "destroyed" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmNotFoundError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  // Freestyle refuses to pause a stopped machine: it is recorded as parked
+  // (its compute is already off) without a pause call.
+  test("a powered-off machine is recorded as parked without a pause the provider would refuse", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "stopped" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([{ id: "row-1", status: "paused" }]);
+    expect(recorded.events).toEqual([{ eventType: "vm.paused", metadata: { source: "provider_stopped" } }]);
+  });
+
+  test("a running machine is paused", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused" });
+    const result = await Effect.runPromise(pauseVm(caller).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "paused" });
+    expect(recorded.paused).toEqual(["fs-1"]);
+  });
+
+  test("a state probe that cannot tell answers in progress and never pauses a second time", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "probe_fails" });
+    expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
   });
 
   test("a provider without pause fails with the unsupported error (the route's 501)", async () => {
@@ -150,9 +248,25 @@ describe("resumeVm", () => {
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.statusProbes).toEqual(["fs-1"]);
     expect(recorded.reservations).toEqual(["fs-1"]);
+    // Markerless legacy rows are grandfathered until reconciliation measures
+    // them; their conservative pool claim still blocks new allocation.
+    expect(recorded.skipActiveLimits).toEqual([true]);
     expect(recorded.resumed).toEqual(["fs-1"]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
     expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
+  });
+
+  test("grandfathered oversized paused machines can resume above the current count", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({
+        status: "paused",
+        providerMetadata: { cmuxResourceReservation: { vcpus: 12, memoryMb: 24 * 1024, diskMb: 65536 } },
+      }),
+      providerStatus: "paused",
+    });
+    const result = await Effect.runPromise(resumeVm({ ...resumeCaller, maxActiveVms: 1 }).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.skipActiveLimits).toEqual([true]);
   });
 
   test("is idempotent: a machine the provider reports running answers running without a resume", async () => {
@@ -169,6 +283,20 @@ describe("resumeVm", () => {
     expect(result).toEqual({ id: "fs-1", status: "running" });
     expect(recorded.resumed).toEqual([]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
+  });
+
+  test("persists a measured legacy shape before reserving a resume", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({ status: "paused" }),
+      providerStatus: "paused",
+      // A legacy Max-sized machine has no cmuxResourceReservation marker.
+      stats: { cpus: 12, memoryTotalMb: 24 * 1024, diskTotalMb: 65536 },
+      onReservation: () => undefined,
+    });
+    const result = await Effect.runPromise(resumeVm({ ...resumeCaller, callerPlanId: "max" }).pipe(Effect.provide(layer)));
+    expect(result).toEqual({ id: "fs-1", status: "running" });
+    expect(recorded.reservationWrites).toEqual([{ vcpus: 12, memoryMb: 24 * 1024, diskMb: 65536 }]);
+    expect(recorded.reservations).toEqual(["fs-1"]);
   });
 
   test("a provider without resume: running rows answer running, paused rows fail as unsupported", async () => {

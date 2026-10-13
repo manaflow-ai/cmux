@@ -193,7 +193,7 @@ public actor TeamsClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
-        } catch AuthError.networkError {
+        } catch AuthError.networkError, AuthError.timedOut {
             throw TeamsClientError.sessionRefreshFailed
         } catch {
             throw TeamsClientError.notSignedIn

@@ -171,6 +171,29 @@
       "message": "This machine was created before a Cloud update and can't be attached.",
       "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
     },
+    "guestUnresponsive": {
+      "title": "Machine not responding",
+      "message": "This machine did not respond in time, so the request could not finish.",
+      "action": "Pause the machine, then resume it, and try again. In the Mac app, choose Pause machine, then Resume machine. In a terminal, run cmux vm pause '<machine>', then cmux vm resume '<machine>'."
+    },
+    "inProgress": {
+      "title": "Still in progress",
+      "message": "The cloud provider has not finished this change yet. It may still complete.",
+      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
+    },
+    "providerTimeout": {
+      "title": "Cloud provider is slow",
+      "message": "The cloud provider did not answer in time.",
+      "action": "Try again in a moment."
+    },
+    "networkRuleCapacity": {
+      "title": "Network rules at capacity",
+      "message": "Your network policy is saved but was not applied: cmux Cloud has reached its network rule capacity.",
+      "action": "The cmux team has been alerted. Remove domains this machine no longer needs, or contact support. Until then, this machine's network access may not match the saved policy."
+    },
+    "networkPolicyStatus": {
+      "applyFailed": "The network policy is saved but was not applied. Save it again to retry."
+    },
     "unsupported": {
       "title": "Cloud VM operation unavailable",
       "reason": "This machine kind does not provide this operation.",
@@ -236,6 +259,11 @@
       "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
       "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
       "action": "Pause or delete a VM."
+    },
+    "activeLimit": {
+      "counted": "Counted now: {machines}. Paused machines do not count.",
+      "provisioning": "{name} (provisioning)",
+      "separator": ", "
     }
   },
   "ios": {
@@ -604,7 +632,7 @@
       "cancelAction": "Cancel",
       "shareWithTeam": "Share with team",
       "makePrivate": "Make private",
-      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs.",
+      "privateImportHint": "In an organization, new accounts are shared with the team and its Cloud VMs. In your personal team they stay private to you. Use Make private or Share with team to change an account.",
       "apiKeysTitle": "API keys",
       "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
       "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
@@ -728,7 +756,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM, for $200/mo or $1,920/yr ($160/mo) when billed yearly."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -793,11 +821,11 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
             "The cmux iOS app"
           ],
           "max": [
-            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
+            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
             "Larger machine sizes",
             "Everything in Pro"
           ],
@@ -863,7 +891,8 @@
         "error": "TestFlight could not be updated. Try again shortly.",
         "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
-        "unavailable": "TestFlight enrollment is not available right now."
+        "unavailable": "TestFlight enrollment is not available right now.",
+        "busy": "Another change to your account is in progress. Try again in a moment."
       },
       "notEligible": {
         "title": "Subscription required",
@@ -1580,6 +1609,7 @@
     "copyright": "© {year} Manaflow",
     "language": "Language",
     "assets": "Assets",
+    "art": "Art",
     "openSource": "Open source",
     "guides": "Guides",
     "compare": "Compare"
@@ -1749,7 +1779,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
+        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max.",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1769,9 +1799,12 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
+        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU",
         "Unlimited workspaces and the iOS app"
-      ]
+      ],
+      "annual": {
+        "yearly": "Yearly"
+      }
     },
     "team": {
       "name": "Team",
@@ -1887,9 +1920,9 @@
         {
           "label": "Largest Cloud VM",
           "free": "false",
-          "pro": "32 GB RAM",
-          "max": "64 GB RAM",
-          "team": "32 GB RAM",
+          "pro": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
+          "max": "64 GB RAM / 32 vCPU (includes 24 GB / 12 vCPU and 32 GB / 16 vCPU)",
+          "team": "16 GB RAM / 8 vCPU (24 GB / 12 vCPU and 32 GB / 16 vCPU require Max)",
           "enterprise": "Custom",
           "go": "4 GiB RAM"
         },
@@ -1987,11 +2020,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same allowance for each paid seat, in one pool shared across the team."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team includes the same allowance for each paid seat, in one pool shared across the team."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, including 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes and up to 64 GB RAM / 32 vCPU on one VM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one Pro or Team VM can use up to 16 GB RAM / 8 vCPU. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -2004,7 +2037,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo and Team is $60/user/mo, both billed monthly. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $480/yr ($40/mo) when billed yearly. Max is $200/mo, or $1,920/yr ($160/mo) when billed yearly. Team is $60/user/mo. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2023,7 +2056,7 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
-    "billingAnnualUnavailable": "Annual billing is available only for Pro. Choose a plan below.",
+    "billingAnnualUnavailable": "Annual billing is available for Pro and Max. Choose a plan below.",
     "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
@@ -2037,7 +2070,8 @@
     },
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
-    "manageInAppStore": "Manage in the App Store"
+    "manageInAppStore": "Manage in the App Store",
+    "resumePlan": "Resume {plan}"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -3413,6 +3447,7 @@
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies.",
           "showAgentUsage": "Append coding-agent usage to the Claude Code or Codex status entry: model and context window used, plus for Claude Code an estimated API cost (main thread and subagents) at published Anthropic list prices. The cost is an estimate, not your subscription bill; batch/priority tiers, partner pricing, fast mode and server-tool fees are not modelled.",
+          "showCloudDeviceIcons": "Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details.",
           "beta": {
             "conversations": {
               "enabled": "Show the unified Conversations view in the sidebar picker."
@@ -3442,6 +3477,13 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
+        },
+        "remoteTmux": {
+          "beta": {
+            "newWorkspaceOnHost": {
+              "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
+            }
+          }
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3515,7 +3557,7 @@
       "plusButtonScreenshotAlt": "cmux plus button right-click menu showing Codex Worktree, New Terminal, and New Browser",
       "plusButtonScreenshotCaption": "The right-click menu follows the order from ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Custom plus button actions",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. New Cloud Workspace uses the last selected Cloud workspace's machine, then the first machine in the right-hand sidebar; New Cloud Machine provisions a machine deliberately. Cloud rows appear only when Cloud Machines is enabled.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. New Cloud Workspace uses the last selected Cloud workspace's machine, then the first machine in the right-hand sidebar; when no usable machine exists, it opens New Cloud Machine. New Cloud Machine provisions a machine deliberately. Cloud rows appear only when Cloud Machines is enabled.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
       "workspaceActions": "Workspace layouts",
       "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
@@ -4413,14 +4455,14 @@
       "reqNoVpn": "No VPN, SSH key, or port forwarding setup. cmux connects to your machines over a private network that starts automatically.",
       "quickstartTitle": "Quickstart",
       "stepSignIn": "Sign in. Use the Cloud tab in the right sidebar, or run the login command in a terminal.",
-      "stepCreate": "Create a machine with File › New Cloud Machine or ⌘Y. Choose a size and an optional label. Creation continues in the background, and cmux shows a notification when the machine is ready.",
-      "stepWorkspace": "Open a workspace on the machine with ⇧⌘Y (New Cloud Workspace). Inside a Cloud workspace, ⌘N makes another workspace on the same machine.",
+      "stepCreate": "Create a machine with File › New Cloud Machine or ⇧⌘Y. Choose a size and an optional label. Creation continues in the background, and cmux shows a notification when the machine is ready.",
+      "stepWorkspace": "Open a workspace on the machine with ⌘Y (New Cloud Workspace). Inside a Cloud workspace, ⌘N always makes a local workspace on this Mac.",
       "stepAgent": "Run an agent. Claude Code, Codex, OpenCode, and Pi are already installed on the machine.",
       "stepCli": "You can do the same from the CLI:",
       "appTitle": "Cloud in the app",
       "appSidebar": "The Cloud tab in the right sidebar lists your machines. Under each machine you see its workspaces, forwarded ports, VNC displays, and terminals. Click an item to open it. You can also open the Cloud tree as a pane from the command palette with Open Cloud as Pane.",
       "appMenu": "Right-click a machine to open a shell, create a workspace, open its desktop, open the full cmux TUI client, resize it, rename it, copy its IP address, see its status, make a checkpoint, fork it, or delete it. You can also pin machines and change their order.",
-      "appShortcuts": "New Cloud Machine (⌘Y) and New Cloud Workspace (⇧⌘Y) are in the File menu, the plus-button menu, and the command palette. You can change both shortcuts in Settings or in cmux.json with the keys newCloudMachine and newCloudWorkspace.",
+      "appShortcuts": "New Cloud Machine (⇧⌘Y) and New Cloud Workspace (⌘Y) are in the File menu, the plus-button menu, and the command palette. You can change both shortcuts in Settings or in cmux.json with the keys newCloudMachine and newCloudWorkspace.",
       "cliIntroTitle": "Cloud from the CLI",
       "cliIntroDesc": "cmux vm and cmux cloud are the same command. Run cmux vm with no verb to list your machines. Every verb has a --help page that works without the app, and cmux vm guide prints a full Markdown guide. Add --json to any verb for machine-readable output.",
       "baseTitle": "Your base machine",
@@ -4438,11 +4480,11 @@
       "metaDescription": "Create, size, resize, pause, snapshot, fork, and delete cmux Cloud machines.",
       "intro": "This page explains the life of a cmux Cloud machine: how to create it, what sizes you can choose, how plan limits apply, and how to pause, snapshot, fork, and delete it.",
       "createTitle": "Create a machine",
-      "createApp": "In the app, use File › New Cloud Machine (⌘Y), the plus-button menu, the command palette, or the plus button in the Cloud sidebar. The sheet asks for a size and an optional label.",
+      "createApp": "In the app, use File › New Cloud Machine (⇧⌘Y), the plus-button menu, the command palette, or the plus button in the Cloud sidebar. The sheet asks for a size and an optional label.",
       "createCli": "From the CLI, cmux vm new creates a machine and opens a workspace on it. Use --detach to create it without opening anything. If a create request is retried, cmux reuses the same request so you do not get two machines.",
       "createFailed": "If creation fails, the notification lets you retry, show the error, or copy it for a support request.",
       "sizesTitle": "Sizes",
-      "sizesDesc": "Each size sets memory, vCPU, and disk together. Pick a size in the create sheet or with --size.",
+      "sizesDesc": "Each size sets memory, vCPU, and disk together. Pick a size in the create sheet or with --size. Pro and Team support 4g, 8g, and 16g (2, 4, and 8 vCPU). Max also unlocks 24g and 32g (12 and 16 vCPU), plus 64g (32 vCPU).",
       "sizeColumn": "Size",
       "memoryColumn": "Memory",
       "cpuColumn": "vCPU",
@@ -4456,7 +4498,7 @@
       "limitsFree": "Free accounts cannot create machines.",
       "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 active machines that share 20 vCPUs and 40 GB of memory. A machine is active while it is running or starting.",
       "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
-      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One machine can have up to 32 GB and 16 vCPUs on Pro and Team, or up to 64 GB and 32 vCPUs on Max.",
+      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One Max machine can use up to 64 GB and 32 vCPUs, including the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes; Pro and Team stop at 16 GB and 8 vCPUs.",
       "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
@@ -4467,7 +4509,7 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB. Memory grows up to 32 GB and CPU up to 16 vCPU on Pro and Team, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 128 GB on Pro and Team, or 256 GB on Max (Go is limited to 16 GB). Memory grows up to 16 GB and CPU up to 8 vCPU on Pro, Team, and Founder's Edition, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
       "pauseTitle": "Pause and resume",
       "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",
@@ -4618,7 +4660,7 @@
       "errPlan": "Cloud VMs require a paid plan",
       "fixPlan": "Free accounts cannot create machines. Upgrade on the pricing page.",
       "errSize": "A size needs a larger plan",
-      "fixSize": "Machines larger than 32 GB need cmux Max. Choose a smaller size or upgrade.",
+      "fixSize": "Machines larger than 16 GB need cmux Max. Choose a smaller size or upgrade.",
       "errLimit": "Active machine limit reached",
       "fixLimit": "Pause or delete a machine, then try again.",
       "errPool": "Not enough Cloud VM resources",
@@ -4710,8 +4752,8 @@
       "cloudLink": "How agents are configured on Cloud machines",
       "teamsTitle": "Teams and sharing",
       "teamsScope": "Accounts belong to the team you are signed in to. cr org list shows your teams, and cr org switch changes the team that cr uses. cmux coderouter commands take --team '<id>'.",
-      "teamsPrivate": "A new account is private to the person who added it. In the dashboard, Share with team makes it available to every member and to the team's Cloud machines, and Make private reverses that.",
-      "teamsPersonal": "In your personal team, your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so share an account before you expect a machine to use it.",
+      "teamsPrivate": "An account added to an organization is shared with the team, so every member and the team's Cloud machines can use it. In the dashboard, Make private limits it to the person who added it, and Share with team reverses that.",
+      "teamsPersonal": "In your personal team, new accounts are private, and your private accounts also serve your own Cloud machines. An organization's Cloud machines use only shared accounts, so a private account must be shared before a machine can use it.",
       "teamsManage": "Any team member can add, rename, disable, transfer, and remove the team's shared accounts. cr transfer moves an account to another team after you confirm.",
       "usageTitle": "Usage and limits",
       "usageLimits": "Each provider meters the account that served a request, under that account's own plan and limits. CodeRouter spreads work across accounts but does not raise any single account's limit.",
@@ -4925,6 +4967,23 @@
     "metaTitle": "Wall of Love — cmux",
     "metaDescription": "What people are saying about cmux, the terminal built for multitasking."
   },
+  "art": {
+    "metaTitle": "Art for cmux backgrounds",
+    "metaDescription": "Browse the public-domain paintings cmux offers as window backgrounds: Van Gogh, Friedrich, Goya, Doré and more, with sources and licenses.",
+    "title": "Art",
+    "description": "Famous public-domain paintings and prints you can put behind your terminals. Every work's artist died over 70 years ago and it was published before 1931.",
+    "howToUse": "Coming soon to cmux: set any of these as the background behind your terminals.",
+    "loading": "Loading the collection…",
+    "unavailable": "The collection could not be loaded. Try again in a few minutes.",
+    "collectionsLabel": "Collections",
+    "source": "Public domain · Source",
+    "collections": {
+      "darkArt": "Dark Art",
+      "museumIcons": "Museum Icons",
+      "calm": "Calm",
+      "dore": "Doré"
+    }
+  },
   "testimonials": {
     "mitchellh": "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
     "steipete": "I'm late to the party, but cmux is great. Current split: Codex Mac app for knowledge work, learning, reading; cmux + Codex CLI for coding.",
@@ -4994,7 +5053,10 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "rateLimitedTitle": "Sign-in is busy",
+    "rateLimitedBody": "Our sign-in provider is handling too many requests. Wait a few seconds, then continue. You do not need to sign in again.",
+    "retryButton": "Continue signing in"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",
@@ -7119,7 +7181,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access.",
+    "body": "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus cmux iOS TestFlight access. One VM can use up to 16 GB RAM / 8 vCPU; 24 GB / 12 vCPU and 32 GB / 16 vCPU require Max.",
     "done": "Go to dashboard",
     "steps": {
       "iosApp": {
@@ -7158,6 +7220,14 @@
     "reserved_port": {
       "message": "Port 1337 is reserved for the Cloud VM's cmux connection and cannot be published.",
       "action": "Publish the port your own server listens on instead."
+    },
+    "rule_capacity": {
+      "message": "The Cloud VM domain was not published: cmux Cloud has reached its network rule capacity.",
+      "action": "The cmux team has been alerted. Run `cmux cloud domains rm <id>` to remove the failed entry, or contact support."
+    },
+    "publication_failed": {
+      "message": "This Cloud VM domain failed to publish.",
+      "action": "Delete it with `cmux cloud domains rm <id>` and publish again, or run `cmux cloud domains verify <id>` to retry."
     }
   },
   "cliAuthIdentity": {
@@ -7200,7 +7270,10 @@
     "switchFailed": "Could not sign out. Try again.",
     "invalidTitle": "This invitation is no longer valid",
     "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
-    "goToTeams": "Go to your teams"
+    "goToTeams": "Go to your teams",
+    "unavailableTitle": "Could not confirm your sign-in",
+    "unavailableBody": "Our sign-in provider is busy. Wait a few seconds, then try the invitation again. You do not need to sign in again.",
+    "retry": "Try again"
   },
   "mobile": {
     "agentFeed": {

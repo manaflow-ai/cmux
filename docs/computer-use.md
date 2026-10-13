@@ -150,7 +150,17 @@ logical-window screenshot plus accessibility tree. Its string
 `element_index` values are valid only for the current app snapshot. Mutating
 actions return a compact acknowledgement; perception is explicit through
 `get_app_state`, so one host turn can perform several safe actions and then
-take one authoritative screenshot/tree refresh.
+take one authoritative screenshot/tree refresh. `click` and `drag` accept the
+per-call `delivery_mode` values `background` (the default) and `foreground`.
+Retry a coordinate click rejected with `background_occluded` using
+`delivery_mode:"foreground"`; the helper briefly fronts the snapshotted window,
+dispatches the click, and restores the prior app. macOS reports WindowServer
+rectangles for system surfaces such as the Dock, so that error is a safety stop
+and does not prove that the app screenshot visibly shows an obstruction.
+Background coordinate drags are unavailable on macOS and return
+`background_unavailable`; use `delivery_mode:"foreground"` when a real drag is
+needed. The separate drag report in issue #18595 has not been independently
+reproduced.
 
 Claude Code continues to receive the broader native cmux contract. It uses
 pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
@@ -164,18 +174,18 @@ no Node, Sky, or legacy bridge is involved.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
 automatic computer-use MCP injection. There is no ambient executable override:
-both wrappers fail closed unless the app-bundled `cmux-cua` client and the
-tag-scoped cmux helper are present.
+both wrappers fail closed unless cmux has installed its tag-scoped helper.
+That installed helper's `cmux-cua` executable is the MCP client for both
+Claude Code and Codex.
 
 ## Building the bundled cmux-cua engine
 
 Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
-pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
-engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
-Monitor and permission UI show the product name instead of an implementation
-name. cmux installs that helper into its tag-scoped directory only when the
-helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
+pinned `manaflow-ai/cmux-cua` commit with Cargo and packages the result as
+the `cmux Computer Use.app` executable (`cmux-cua`), so Activity Monitor and
+permission UI show the product name instead of an implementation name. It is
+the only copy of the engine in the app. cmux installs that helper into its
+tag-scoped directory only when the helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
 tagged dev build bundles an ad-hoc helper, which can never satisfy the
 Accessibility and Screen Recording rows, and a grant to it replaces the
 release helper's row. A dev build therefore copies the helper of an installed
@@ -190,5 +200,9 @@ toolchain on the build machine:
 
 The pinned source is cached under `~/Library/Caches/cmux/cmux-cua`; after
 the first successful build no network access is needed until the pinned
-commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
-checkout (it must still be at the pinned commit).
+commit changes. The build applies the checked-in
+`scripts/cmux-cua-codex-delivery-mode.patch` after the SHA check because the
+pinned native engine has the delivery ladder while its Codex adapter does not
+forward that field. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
+checkout (it must still be at the pinned commit); the same patch is applied
+idempotently there.
