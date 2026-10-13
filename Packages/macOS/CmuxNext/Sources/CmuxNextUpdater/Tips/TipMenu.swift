@@ -51,7 +51,8 @@ extension UpdaterService {
         if let length = option.muteLength {
             muteTips(until: now().addingTimeInterval(length))
         } else if option == .never {
-            tipsEnabled = false
+            // The setting's echo sets tipsEnabled (one writer: the settings file).
+            tip = nil
             writeSetting?(.tips, false)
         } else {
             dismissTip(id)
@@ -88,9 +89,11 @@ extension UpdaterService {
     /// `debug.updater {action: "tips", press?, at?}` (socket proofs): presses
     /// `press` on the shown tip (`try` or a ``TipMenuOption`` id) like its
     /// card does, or else picks as at launch at `at` (epoch seconds, default
-    /// now); returns the tip shown, `sidebar.cards.tips` and the mute's end.
+    /// now); returns the tip shown, `sidebar.cards.tips` and the mute's end
+    /// (`error` when `press` finds no tip shown).
     public func debugTips(press: String?, at epoch: Double?) -> [String: String] {
-        if let press, let id = tip?.id {
+        if let press {
+            guard let id = tip?.id else { return ["error": "no tip shown to press \(press) on"] }
             tipCardAction(id, press)
         } else {
             refreshTip(at: epoch.map(Date.init(timeIntervalSince1970:)))

@@ -167,6 +167,12 @@ def quit_app(app):
         app.wait(timeout=30)
 
 
+def loaded_tips(at):
+    """The tips state once settings have loaded (enabled is "unknown" before)."""
+    return wait_for(lambda: (lambda s: s if s.get("enabled") in ("true", "false") else None)(tips(at=at)),
+                    "settings loaded (tips enabled known)", 30) or {}
+
+
 def setting():
     return (rpc("settings.get", {"path": "sidebar.cards.tips"}) or {}).get("value")
 
@@ -206,17 +212,15 @@ teardown.install()
 print(f"scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     app = launch()
-    now = time.time()
-    state = tips(at=now)
+    state = loaded_tips(time.time())
     check(state.get("enabled") == "true", f"tips on at launch: {state}")
     if not state.get("tip"):
         # A tag that ran this script before may have dismissed or tried every tip today; the next day picks again.
-        state = tips(at=now + DAY)
-        now += DAY
-    first = state.get("tip")
-    check(bool(first), f"a tip shows: {state}")
+        state = tips(at=time.time() + DAY)
+    check(bool(state.get("tip")), f"a tip shows: {state}")
 
-    # 1. one day
+    # 1. one day (the mute's end comes from the app clock: measure from the press)
+    now = time.time()
     state = tips(press="tip-mute-day")
     check(state.get("tip") is None and bool(state.get("mutedUntil")), f"Mute Tips for 1 Day hides the tip and records the end: {state}")
     state = tips(at=now + 23 * HOUR)
@@ -240,29 +244,35 @@ try:
     state = tips(at=real + 9 * DAY)
     check(bool(state.get("tip")) and state.get("tip") != hidden, f"the next day another tip shows, never {hidden}: {state}")
 
-    # 4. a timed mute ends when Settings > Show Tips turns on again
+    # 4. a timed mute ends when Settings > Show Tips turns on again (all reads inside the week)
+    real = time.time()
     state = tips(press="tip-mute-week")
     check(bool(state.get("mutedUntil")), f"muted for a week again: {state}")
     rpc("settings.set", {"path": "sidebar.cards.tips", "value": False})
-    wait_for(lambda: tips(at=real + 9 * DAY).get("enabled") == "false", "the setting turns tips off")
+    state = wait_for(lambda: (lambda s: s if s.get("enabled") == "false" else None)(tips(at=real + HOUR)), "the setting turns tips off") or {}
+    check(bool(state.get("mutedUntil")), f"tips off: the week's mute is still recorded: {state}")
     rpc("settings.set", {"path": "sidebar.cards.tips", "value": True})
-    state = wait_for(lambda: (lambda s: s if s.get("enabled") == "true" else None)(tips(at=real + 9 * DAY)), "the setting turns tips on") or {}
-    check(bool(state.get("tip")) and state.get("mutedUntil") is None, f"Show Tips on again ends the timed mute, a tip shows: {state}")
+    state = wait_for(lambda: (lambda s: s if s.get("enabled") == "true" else None)(tips(at=real + 2 * DAY)), "the setting turns tips on") or {}
+    check(bool(state.get("tip")) and state.get("mutedUntil") is None,
+          f"Show Tips on again ends the timed mute: a tip shows 2 days into the week: {state}")
 
     # 5. never
+    real = time.time()
     state = tips(press="tip-never")
-    check(state.get("tip") is None and state.get("enabled") == "false", f"Never Show Tips turns tips off at once: {state}")
+    check(state.get("tip") is None, f"Never Show Tips hides the tip at once: {state}")
     check(wait_for(lambda: setting() is False, "sidebar.cards.tips is written false") is not None, "Never Show Tips writes sidebar.cards.tips = false")
+    state = wait_for(lambda: (lambda s: s if s.get("enabled") == "false" else None)(tips(at=real + 3 * DAY)), "the setting's echo turns tips off") or {}
+    check(state.get("tip") is None, f"tips off from the setting, no tip on a later day: {state}")
     with open(CONFIG) as f:
         written = f.read()
     print("cmux.json after Never Show Tips:", written.strip(), flush=True)
     check('"tips"' in written and "false" in written, "the scratch cmux.json holds sidebar.cards.tips false")
     quit_app(app)
     app = launch()
-    state = tips(at=real + 10 * DAY)
+    state = loaded_tips(real + 4 * DAY)
     check(state.get("tip") is None and state.get("enabled") == "false", f"after a restart: tips stay off, no tip: {state}")
     rpc("settings.set", {"path": "sidebar.cards.tips", "value": True})
-    state = wait_for(lambda: (lambda s: s if s.get("tip") else None)(tips(at=real + 10 * DAY)), "a tip after Show Tips on") or {}
+    state = wait_for(lambda: (lambda s: s if s.get("tip") else None)(tips(at=real + 4 * DAY)), "a tip after Show Tips on") or {}
     check(state.get("enabled") == "true" and bool(state.get("tip")), f"settings.set sidebar.cards.tips true: tips again: {state}")
 
     # 6. the x's menu, light and dark
