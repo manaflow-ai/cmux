@@ -9,8 +9,10 @@ public final class AppStore {
     public var activeTeamID: String
     public var workspaces: [Workspace]
     public var feed: [FeedEvent]
-    /// The last tab the user had open per workspace on this device.
-    public var lastTabByWorkspace: [String: String] = [:]
+    /// The last tab the user had open per workspace on this device,
+    /// persisted across launches through `tabMemory`.
+    public private(set) var lastTabByWorkspace: [String: String] = [:]
+    @ObservationIgnored private let tabMemory: TabMemory
     /// Load state of the active team's live data (skeletons until the first
     /// `hello` frame; a failure shows the list-level error state).
     public var teamDataState: LoadState = .loaded
@@ -22,7 +24,9 @@ public final class AppStore {
         case loading, loaded, failed
     }
 
-    public init(teams: [Team], activeTeamID: String, workspaces: [Workspace], feed: [FeedEvent]) {
+    public init(teams: [Team], activeTeamID: String, workspaces: [Workspace], feed: [FeedEvent], tabMemory: TabMemory = .standard) {
+        self.tabMemory = tabMemory
+        lastTabByWorkspace = tabMemory.load()
         self.teams = teams
         self.activeTeamID = activeTeamID
         self.workspaces = workspaces
@@ -99,7 +103,41 @@ public final class AppStore {
         return workspace.tabs.first
     }
 
+    /// Records the tab on screen in a workspace (every activation).
     public func noteOpened(tabID: String, in workspaceID: String) {
+        guard lastTabByWorkspace[workspaceID] != tabID else { return }
         lastTabByWorkspace[workspaceID] = tabID
+        tabMemory.save(lastTabByWorkspace)
+    }
+
+    public func workspace(id: String) -> Workspace? {
+        workspaces.first { $0.id == id }
+    }
+
+    /// Appends a tab to a workspace (new tabs go last, as in Safari).
+    public func appendTab(_ tab: WorkspaceTab, to workspaceID: String) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].tabs.append(tab)
+        workspaces[index].lastActivityAt = Date()
+    }
+
+    /// Removes a tab. Returns the tab that should be on screen next when the
+    /// removed one was the remembered tab: its right neighbor, else its left.
+    @discardableResult
+    public func removeTab(_ tabID: String, from workspaceID: String) -> WorkspaceTab? {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let position = workspaces[index].tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        workspaces[index].tabs.remove(at: position)
+        let tabs = workspaces[index].tabs
+        let next = tabs.isEmpty ? nil : tabs[min(position, tabs.count - 1)]
+        if lastTabByWorkspace[workspaceID] == tabID {
+            if let next {
+                noteOpened(tabID: next.id, in: workspaceID)
+            } else {
+                lastTabByWorkspace[workspaceID] = nil
+                tabMemory.save(lastTabByWorkspace)
+            }
+        }
+        return next
     }
 }

@@ -1,0 +1,239 @@
+import CmuxConversationCore
+import Foundation
+
+/// A local Chief for UI work and demos: a seeded history, read receipts,
+/// a typing indicator while Chief "thinks", replies drawn from what was
+/// asked, and tapbacks on messages that thank or praise it. The real Chief
+/// is `ChiefDaemonBackend` (cmux-tui `conversation-*` over the link); both
+/// sit behind `ConversationBackend`, so the screen does not change.
+public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
+    public typealias Sleep = @Sendable (Duration) async -> Void
+    let engine: Engine
+
+    /// `sleep` paces Chief (pass a no-op in tests); `now` stamps messages.
+    public init(identity: ChiefIdentity = .standard, now: Date = Date(),
+                sleep: @escaping Sleep = { try? await Task.sleep(for: $0) }) {
+        engine = Engine(identity: identity, now: now, sleep: sleep)
+    }
+
+    public func events() -> AsyncStream<ConversationBackendEvent> {
+        let (stream, continuation) = AsyncStream<ConversationBackendEvent>.makeStream(bufferingPolicy: .unbounded)
+        Task { await engine.connect(continuation) }
+        return stream
+    }
+
+    public func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
+        await engine.history(beforeSeq: beforeSeq, limit: limit)
+    }
+
+    public func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        await engine.send(draft)
+    }
+
+    public func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
+        try await engine.react(messageID: messageID, reaction: reaction)
+    }
+
+    public func edit(messageID: String, text: String) async throws -> ConversationMessage {
+        try await engine.update(messageID) { $0.text = text; $0.editedAt = Date(); $0.editCount += 1 }
+    }
+
+    public func unsend(messageID: String) async throws -> ConversationMessage {
+        try await engine.update(messageID) { $0.text = ""; $0.unsentAt = Date(); $0.reactions = [] }
+    }
+
+    public func setTyping(_ isTyping: Bool) async {}
+
+    public func markRead(upToSeq: Int) async {
+        await engine.markRead(upToSeq)
+    }
+
+    public func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
+        throw ConversationBackendError(code: -1, message: "Chief can't take photos yet")
+    }
+
+    public func close() {
+        Task { await engine.close() }
+    }
+
+    actor Engine {
+        let identity: ChiefIdentity
+        let sleep: Sleep
+        let conversationID = "conv_chief_local"
+        private var messages: [ConversationMessage] = []
+        private var eventSeq = 0
+        private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
+        private var replyIndex = 0
+
+        init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep) {
+            self.identity = identity
+            self.sleep = sleep
+            messages = ChiefMockScript.history(identity: identity, now: now)
+        }
+
+        private var headSeq: Int { messages.compactMap(\.seq).max() ?? 0 }
+
+        func connect(_ continuation: AsyncStream<ConversationBackendEvent>.Continuation) {
+            self.continuation = continuation
+            continuation.yield(.connected(info: identity.info(id: conversationID), meID: identity.meID, lagged: false))
+            continuation.yield(.readState(ConversationReadState(lastReadSeq: headSeq, unreadCount: 0, headSeq: headSeq)))
+        }
+
+        func close() {
+            continuation?.finish()
+            continuation = nil
+        }
+
+        func history(beforeSeq: Int?, limit: Int) -> ConversationHistoryPage {
+            let eligible = messages.filter { message in beforeSeq.map { (message.seq ?? 0) < $0 } ?? true }
+            let page = Array(eligible.suffix(limit))
+            return ConversationHistoryPage(messages: page, hasMore: eligible.count > page.count)
+        }
+
+        private func emit(_ message: ConversationMessage) {
+            eventSeq += 1
+            continuation?.yield(.message(message, eventSeq: eventSeq))
+        }
+
+        private func store(_ message: ConversationMessage) {
+            if let index = messages.firstIndex(where: { $0.id == message.id }) {
+                messages[index] = message
+            } else {
+                messages.append(message)
+            }
+        }
+
+        func send(_ draft: ConversationOutgoingDraft) -> ConversationMessage {
+            if let existing = messages.first(where: { $0.clientMessageID == draft.clientMessageID }) { return existing }
+            let seq = headSeq + 1
+            let message = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: draft.clientMessageID, senderID: identity.meID,
+                sentAt: Date(), text: draft.text, replyToID: draft.replyToID, delivery: .delivered,
+                mentions: draft.mentions, textRuns: draft.textRuns, effect: draft.effect
+            )
+            store(message)
+            emit(message)
+            Task { await self.respond(to: message) }
+            return message
+        }
+
+        /// Read receipt, typing, then the reply (and a tapback when earned).
+        func respond(to message: ConversationMessage) async {
+            await sleep(.milliseconds(700))
+            guard var read = messages.first(where: { $0.id == message.id }) else { return }
+            read.delivery = .read(Date())
+            store(read)
+            emit(read)
+            if let reaction = ChiefMockScript.tapback(for: message.text) {
+                await sleep(.milliseconds(450))
+                if var reacted = messages.first(where: { $0.id == message.id }) {
+                    reacted.reactions.removeAll { $0.participantID == identity.chiefID }
+                    reacted.reactions.append(ConversationReactionMark(participantID: identity.chiefID, reaction: reaction))
+                    store(reacted)
+                    emit(reacted)
+                }
+            }
+            await sleep(.milliseconds(400))
+            continuation?.yield(.typing(participantID: identity.chiefID, isTyping: true))
+            let reply = ChiefMockScript.reply(to: message.text, index: replyIndex)
+            replyIndex += 1
+            // Typing time grows with the reply, as a person's would.
+            await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
+            let seq = headSeq + 1
+            let answer = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: "chief-\(seq)", senderID: identity.chiefID,
+                sentAt: Date(), text: reply
+            )
+            store(answer)
+            emit(answer)
+            continuation?.yield(.typing(participantID: identity.chiefID, isTyping: false))
+        }
+
+        func react(messageID: String, reaction: ConversationReaction?) throws -> ConversationMessage {
+            try update(messageID) { message in
+                message.reactions.removeAll { $0.participantID == self.identity.meID }
+                if let reaction {
+                    message.reactions.append(ConversationReactionMark(participantID: self.identity.meID, reaction: reaction))
+                }
+            }
+        }
+
+        func update(_ messageID: String, _ change: (inout ConversationMessage) -> Void) throws -> ConversationMessage {
+            guard var message = messages.first(where: { $0.id == messageID }) else {
+                throw ConversationBackendError(code: 404, message: "unknown message")
+            }
+            change(&message)
+            store(message)
+            emit(message)
+            return message
+        }
+
+        func markRead(_ seq: Int) {
+            let head = headSeq
+            let read = min(seq, head)
+            let unread = messages.filter { ($0.seq ?? 0) > read && $0.senderID != identity.meID }.count
+            continuation?.yield(.readState(ConversationReadState(lastReadSeq: read, unreadCount: unread, headSeq: head)))
+        }
+    }
+}
+
+/// Chief's seeded transcript and canned replies.
+struct ChiefMockScript {
+    static func history(identity: ChiefIdentity, now: Date) -> [ConversationMessage] {
+        let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
+            (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cnx-ios is green."),
+            (true, 26 * 60 - 2, "nice. anything waiting on me?"),
+            (false, 26 * 60 - 1.5, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
+            (true, 95, "Can you start a Claude session on the cnx-ios workspace to build the workspaces tab?"),
+            (false, 94, "Started Claude in cnx-ios on cmux mini 2 with your note as the first prompt. I'll tell you when it needs you."),
+            (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: BUILD SUCCEEDED."),
+            (true, 40, "🙌 thanks"),
+            (false, 3, "Heads up: Claude in cmux is asking to run `cargo test -p cnx-link`. Want me to allow it?"),
+        ]
+        var messages: [ConversationMessage] = []
+        for (index, line) in lines.enumerated() {
+            let seq = index + 1
+            var message = ConversationMessage(
+                id: "msg_local_\(seq)", seq: seq, clientMessageID: "seed-\(seq)",
+                senderID: line.me ? identity.meID : identity.chiefID,
+                sentAt: now.addingTimeInterval(-line.minutesAgo * 60), text: line.text,
+                delivery: line.me ? .read(nil) : nil
+            )
+            if seq == 6 {
+                message.reactions = [ConversationReactionMark(participantID: identity.meID, reaction: .heart)]
+            }
+            messages.append(message)
+        }
+        return messages
+    }
+
+    static func tapback(for text: String) -> ConversationReaction? {
+        let lower = text.lowercased()
+        if lower.contains("thank") || lower.contains("love") { return .heart }
+        if lower.contains("great") || lower.contains("nice") || lower.contains("perfect") { return .thumbsup }
+        if lower.contains("lol") || lower.contains("haha") { return .haha }
+        return nil
+    }
+
+    static func reply(to text: String, index: Int) -> String {
+        let lower = text.lowercased()
+        if lower.contains("allow") || lower.contains("yes") || lower.contains("go ahead") {
+            return "Done. I allowed `cargo test -p cnx-link` once; 42 tests passed in 6.1s. Claude is moving on to the dialers."
+        }
+        if lower.contains("status") || lower.contains("what's") || lower.contains("whats") || lower.contains("update") {
+            return "3 workspaces are active. cmux: Claude is waiting on you (1 permission). cmux.com: Codex is working on the pricing page. fleet: idle for 2h."
+        }
+        if lower.contains("test") {
+            return "Running the tests in cmux on Aziz's Mac Studio now. I'll post the result here."
+        }
+        if lower.contains("stop") || lower.contains("cancel") {
+            return "Stopped. Nothing else is running."
+        }
+        let fallbacks = [
+            "On it. I'll start that in the right workspace and report back here.",
+            "Got it. Want me to do that on Aziz's Mac Studio or on cmux mini 2?",
+            "Sure. I'll keep an eye on it and ping you only if an agent needs a decision.",
+        ]
+        return fallbacks[index % fallbacks.count]
+    }
+}

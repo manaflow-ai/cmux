@@ -70,6 +70,13 @@ extension ConversationViewController {
                   let model = cell.model else { return "error no row" }
             presentActions(for: model, cell: cell, mode: verb == "longpress" ? .menu : .tapbacks)
             return "ok"
+        case "react":
+            // Picks a tapback in the open tapback bar ("doubletap" first),
+            // through the same path as tapping it.
+            guard let reaction = ConversationReaction(rawValue: argument),
+                  let overlay = view.subviews.compactMap({ $0 as? MessageActionOverlay }).last else { return "error no tapback bar" }
+            overlay.onReaction?(reaction)
+            return "ok"
         case "notunsent":
             // Taps the newest "(!) Not Unsent" notice.
             guard let notice = rows.reversed().lazy.compactMap({ row -> ConversationNotice? in

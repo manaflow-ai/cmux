@@ -1,6 +1,8 @@
 #if os(iOS) && DEBUG
+import CnxChief
 import CnxDesign
 import CnxModel
+import CnxWorkspaces
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -22,6 +24,9 @@ struct DemoDriver {
         case "states": await states()
         case "editor": await editor()
         case "rubber": await rubber()
+        case "workspaces": await workspaces()
+        case "workspaces-reopen": await workspacesReopen()
+        case "chief": await chief()
         default: break
         }
     }
@@ -125,6 +130,77 @@ struct DemoDriver {
         await pause(1.0)
         shell.toast = CnxToast(symbol: "checkmark", text: "Paired with cmux mini 2")
         await pause(2.0)
+    }
+
+    /// Open a workspace on its last tab, chat, switch tabs through the grid
+    /// (zoom out, zoom into a card), leave, and reopen on the new last tab.
+    private func workspaces() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.6)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        shell.workspacesPath = [ws]
+        await pause(2.4)
+        DemoDirector.shared.post(.chatSend("Summarize what changed in the transport layer"))
+        await pause(7.0)
+        tabs.post(.showGrid(true))
+        await pause(2.2)
+        tabs.post(.activate("t-zsh"))
+        await pause(2.2)
+        tabs.post(.showGrid(true))
+        await pause(2.0)
+        tabs.post(.activate("t-docs"))
+        await pause(3.5)
+        tabs.post(.showGrid(true))
+        await pause(1.8)
+        tabs.post(.showGrid(false))
+        await pause(1.8)
+        tabs.post(.exit)
+        await pause(1.8)
+        // Reopen: starts on the browser tab used last.
+        shell.workspacesPath = [ws]
+        await pause(2.6)
+        tabs.post(.exit)
+        await pause(1.5)
+    }
+
+    /// After a relaunch: the workspace opens on the tab used last before it.
+    private func workspacesReopen() async {
+        shell.tab = .workspaces
+        await pause(1.6)
+        guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+        shell.workspacesPath = [ws]
+        await pause(3.0)
+        WorkspaceDemoDirector.shared.post(.showGrid(true))
+        await pause(2.2)
+        WorkspaceDemoDirector.shared.post(.showGrid(false))
+        await pause(2.0)
+    }
+
+    /// Home list, open Chief, send (receipt, Chief's tapback, typing, reply),
+    /// tapback Chief's reply, send again, scroll, back to the list.
+    private func chief() async {
+        let hook = ChiefDemoHook.shared
+        shell.tab = .home
+        await pause(2.4)
+        shell.homePath.append(ChiefRoute())
+        await pause(2.6)
+        hook.lab("send thanks! what's the status?")
+        await pause(6.5)
+        hook.lab("doubletap last")
+        await pause(1.8)
+        hook.lab("react thumbsup")
+        await pause(2.2)
+        hook.lab("send yes, allow it")
+        await pause(6.5)
+        hook.scroll(toTop: true)
+        await pause(2.2)
+        hook.scroll(toTop: false)
+        await pause(1.8)
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.5)
     }
 
     private func editor() async {

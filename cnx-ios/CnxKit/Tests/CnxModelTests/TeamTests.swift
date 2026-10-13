@@ -15,7 +15,7 @@ import Testing
     }
 
     @MainActor @Test func openingTabPrefersLastUsed() {
-        let store = AppStore.mock()
+        let store = AppStore.mock(tabMemory: .inMemory())
         let ws = store.workspaces[0]
         #expect(store.openingTab(for: ws)?.id == "t-claude")
         store.noteOpened(tabID: "t-zsh", in: ws.id)
@@ -25,7 +25,7 @@ import Testing
 
 @MainActor @Suite struct AccountTeamTests {
     @Test func accountTeamsReplaceMockTeamsAndKeepSelection() {
-        let store = AppStore.mock()
+        let store = AppStore.mock(tabMemory: .inMemory())
         store.applyAccountTeams([
             AppStore.AccountTeam(id: "a", name: "Alpha"),
             AppStore.AccountTeam(id: "b", name: "Beta"),
@@ -36,7 +36,7 @@ import Testing
     }
 
     @Test func unknownSelectionFallsBackToAMemberTeam() {
-        let store = AppStore.mock()
+        let store = AppStore.mock(tabMemory: .inMemory())
         store.applyAccountTeams([AppStore.AccountTeam(id: "only", name: "Only")], selectedID: "gone")
         #expect(store.activeTeamID == "only")
     }
