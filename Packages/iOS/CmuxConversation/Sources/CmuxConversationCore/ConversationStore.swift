@@ -87,6 +87,18 @@ public final class ConversationStore {
         for observer in observers { observer(change) }
     }
 
+    // MARK: Transcript journal
+
+    /// Bumps on every change to what the transcript's rows are built from.
+    public private(set) var transcriptRevision = 0
+
+    /// How many leading messages are the same messages, unchanged and in the
+    /// same places, as at `revision`: a transcript built then needs only
+    /// the rows from there on. 0 when that is not known.
+    public func unchangedMessagePrefix(since revision: Int) -> Int {
+        0
+    }
+
     /// Client-side translation state (Translate menu, automatic translation).
     public lazy var translations = ConversationTranslations(store: self)
 
