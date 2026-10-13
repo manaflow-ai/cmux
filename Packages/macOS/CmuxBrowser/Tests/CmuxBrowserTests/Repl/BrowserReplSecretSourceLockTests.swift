@@ -51,21 +51,18 @@ struct BrowserReplSecretSourceLockTests {
         #expect(finishedInWindow.value == false, "the navigation's check ran while secrets.load had the file open and unprotected")
     }
 
-    /// Starts a file navigation's check on a thread of its own. Its block is
-    /// formed here, outside any actor, so it carries no actor isolation the
-    /// runtime would check on that thread (macOS 15 traps on such a check).
+    /// Starts a file navigation's check on a thread of its own, through an
+    /// Objective-C target rather than a Swift block: the Xcode 26.3
+    /// compiler gave that block an actor isolation check, which traps on
+    /// the new thread under macOS 15's concurrency runtime.
     private nonisolated static func startNavigation(
         to url: String,
         roots: [BrowserReplFileRoot],
         loaded: NavigationOutcome,
         finished: DispatchSemaphore
     ) {
-        let thread = Thread {
-            let started = (try? BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots) { _ in true }) ?? false
-            loaded.set(started)
-            finished.signal()
-        }
-        thread.start()
+        let navigation = NavigationThread(url: url, roots: roots, loaded: loaded, finished: finished)
+        Thread(target: navigation, selector: #selector(NavigationThread.run), object: nil).start()
     }
 }
 
@@ -244,6 +241,29 @@ struct BrowserReplSecretSourceVolumeTests {
         let judgedExisting = identity.exists(lookup: { _, _ in ENOENT })
         #expect(judgedExisting, "a file with no known volume id was judged gone")
     }
+}
+
+/// A file navigation's check, run by a thread of its own (`run`).
+private final class NavigationThread: NSObject, @unchecked Sendable {
+    private let url: String
+    private let roots: [BrowserReplFileRoot]
+    private let loaded: NavigationOutcome
+    private let finished: DispatchSemaphore
+
+    init(url: String, roots: [BrowserReplFileRoot], loaded: NavigationOutcome, finished: DispatchSemaphore) {
+        self.url = url
+        self.roots = roots
+        self.loaded = loaded
+        self.finished = finished
+    }
+
+    @objc func run() {
+        let started = (try? BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, Self.accept)) ?? false
+        loaded.set(started)
+        finished.signal()
+    }
+
+    private static func accept(_ readAccess: URL) -> Bool { true }
 }
 
 /// A value one thread sets and another reads after a semaphore.
