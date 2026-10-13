@@ -3714,6 +3714,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/ws_conversations.rs"]
+mod ws_conversations;
 use state_helpers::*;
 
 #[cfg(unix)]

@@ -193,7 +193,7 @@ impl Mux {
         if let Some(peer) = self.remote_relay().peer_checked(client).ok()? {
             return Some(Principal::Remote(peer));
         }
-        if !self.control_clients.is_unix(client) {
+        if !self.control_clients.is_owner_client(client) {
             return None;
         }
         // A poisoned bindings lock gives no principal, never `user_local`.
