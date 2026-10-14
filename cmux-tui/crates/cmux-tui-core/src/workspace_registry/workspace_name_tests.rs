@@ -185,7 +185,7 @@ fn workspace_name_source_store_refuses_a_rename_older_than_storage() {
     assert_eq!(registry.snapshot().unwrap().workspaces[0], pinned);
 
     // Writes that agree with storage still land.
-    commit(&mut registry, "same", pinned.clone());
+    commit(&mut registry, "same", pinned);
     commit(&mut registry, "user", renamed("Payments", NameSource::User, 4));
     commit(&mut registry, "release", renamed("Payments", NameSource::Auto, 5));
     resource_upsert(&mut registry, "auto", renamed("Refunds", NameSource::Auto, 6)).unwrap();
