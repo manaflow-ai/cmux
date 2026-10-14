@@ -21,6 +21,9 @@ environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
+FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
+`skills`, ...); every `mcp_toggle` control request is kept, and
+"toggles-probe" replies with them as JSON.
 """
 import json
 import os
@@ -55,6 +58,7 @@ if STORE:
             SESSION = sys.argv[sys.argv.index(flag) + 1]
             if flag == "--resume":
                 RESUME = SESSION
+TOGGLES = []
 
 for line in sys.stdin:
     try:
@@ -76,10 +80,14 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
+        if request.get("subtype") == "mcp_toggle":
+            TOGGLES.append({"serverName": request.get("serverName"), "enabled": request.get("enabled")})
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
-            send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
-                  "permissionMode": MODE, "tools": [], "mcp_servers": []})
+            init = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
+                    "permissionMode": MODE, "tools": [], "mcp_servers": []}
+            init.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
+            send(init)
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
         home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
@@ -160,6 +168,8 @@ for line in sys.stdin:
             text = json.dumps({"prompts": [r["message"]["content"] for r in records
                                            if r.get("type") == "user" and r["message"]["content"] != "history-probe"],
                                "sessions": sorted({r["sessionId"] for r in records})})
+        if said.strip() == "toggles-probe":
+            text = json.dumps(TOGGLES)
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
