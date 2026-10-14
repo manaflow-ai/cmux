@@ -131,13 +131,15 @@ const COMMANDS_KIND = "available_commands_update";
 const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
-/// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
-/// A record that opens a turn: older pages split before one, so each holds whole turns.
-const startsTurn = (event: EventRecord) => event.dir === "mux" && event.kind === "user_message";
+/// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
+/// joins the running turn, so it opens none.
+const startsTurn = (event: EventRecord) =>
+  event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
@@ -391,13 +393,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   private ordered: AcpmuxRow[] | undefined;
   private orderedIndex = new Map<string, number>();
 
-  /// Puts back the earlier object of each row a rebuild made again unchanged (same kind and version),
-  /// so what is keyed on the object (drawn heights, memoized rows, reused turns) survives the rebuild:
-  /// paging older history in rebuilds every row.
+  /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
+  /// plain fields: a turn's totals change with what was folded before it, not its version), so what
+  /// is keyed on the object (drawn heights, memoized rows, reused turns) survives the rebuild: paging
+  /// older history in rebuilds every row.
   keepSame(previous: ReadonlyMap<string, AcpmuxRow>): void {
+    const plainSame = (a: AcpmuxRow, b: AcpmuxRow) => {
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof AcpmuxRow>;
+      for (const key of keys) if (typeof a[key] !== "object" && a[key] !== b[key]) return false;
+      return true;
+    };
     for (const [id, row] of this) {
       const old = previous.get(id);
-      if (!old || old === row || old.kind !== row.kind || old.version !== row.version) continue;
+      if (!old || old === row || old.kind !== row.kind || old.version !== row.version || !plainSame(old, row)) continue;
       super.set(id, old);
       const at = this.orderedIndex.get(id);
       if (this.ordered && at !== undefined) this.ordered[at] = old;
@@ -447,6 +455,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const before = ordered[index - 1];
     const after = ordered[index + 1];
     return (!before || this.order.get(before.id) !== order) && (!after || this.order.get(after.id) !== order);
+  }
+
+  /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
+  orderOf(id: string): number {
+    return this.order.get(id) ?? Infinity;
   }
 
   /// An event was reduced (it may have made no row).
@@ -625,6 +638,8 @@ export class AcpmuxDirectClient {
   private historyExhausted = false;
   /// An older page is on its way: the reader's scroll asks again on every frame near the top.
   private loadingOlder?: Promise<void>;
+  /// While an older page folds, the first sequence number the pane held before it.
+  private foldingBelow: number | undefined;
   /// After a failed older page the next waits until then, so a reader near the top does not retry every frame.
   private olderRetryAt = 0;
   /// The daemon's harness list or a harness's models changed (`_acpmux/harnesses_changed`: a
@@ -834,6 +849,8 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.historyExhausted = false;
     this.olderRetryAt = 0;
+    // A page still in flight belongs to the session before; it is dropped when it lands.
+    this.loadingOlder = undefined;
     this.rows.clear();
     this.forkedAtSeq = undefined;
     this.failedPrompts.clear();
@@ -1709,7 +1726,11 @@ export class AcpmuxDirectClient {
   /// The tool calls and time since the turn's user message. A prompt still sending (queued
   /// behind this turn) or one that failed to send did not start a turn.
   private turnTotals(endedAt: number): { durationMs?: number; toolCount: number } {
-    const rows = this.rows.sorted().filter((row) => !row.pending && !row.failed);
+    // An older page's turn ends below the held rows: its own prompt is the last one before them.
+    const below = this.foldingBelow;
+    const rows = this.rows
+      .sorted()
+      .filter((row) => !row.pending && !row.failed && (below === undefined || this.rows.orderOf(row.id) < below));
     let start = rows.length;
     while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
     const user = rows[start - 1];
@@ -2427,13 +2448,17 @@ export class AcpmuxDirectClient {
   /// selection changed belongs to another session and is dropped.
   loadOlder(): Promise<void> {
     if (Date.now() < this.olderRetryAt) return Promise.resolve();
-    this.loadingOlder ??= this.fetchOlder()
+    if (this.loadingOlder) return this.loadingOlder;
+    const loading = this.fetchOlder()
       .catch((error: unknown) => {
         this.olderRetryAt = Date.now() + 2_000;
         throw error;
       })
-      .finally(() => (this.loadingOlder = undefined));
-    return this.loadingOlder;
+      .finally(() => {
+        if (this.loadingOlder === loading) this.loadingOlder = undefined;
+      });
+    this.loadingOlder = loading;
+    return loading;
   }
   private async fetchOlder(): Promise<void> {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
@@ -2510,11 +2535,18 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
-    for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
-      this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
-      this.reduce(event);
+    this.foldingBelow = this.firstSeq ?? Infinity;
+    try {
+      for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
+        this.firstSeq = Math.min(this.firstSeq ?? event.seq, event.seq);
+        this.reduce(event);
+      }
+    } finally {
+      this.foldingBelow = undefined;
     }
-    Object.assign(this, live);
+    // A fork older than every held event is only in this page.
+    const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
+    Object.assign(this, live, { forkedAtSeq });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
   }

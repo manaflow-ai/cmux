@@ -57,12 +57,11 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   ];
   for (let n = 1; n <= TURNS; n++) {
     if (n % TOOL_ONLY === 0) {
-      steps.push(
-        ["mux", "user_message", { text: `Question ${n}` }],
-        ["mux", "turn_started", {}],
-        ...tool(n),
-        ["mux", "turn_result", { status: "completed" }],
-      );
+      steps.push(["mux", "user_message", { text: `Question ${n}` }], ["mux", "turn_started", {}], ...tool(n), [
+        "mux",
+        "turn_result",
+        { status: "completed" },
+      ]);
       continue;
     }
     steps.push(
