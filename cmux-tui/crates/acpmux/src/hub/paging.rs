@@ -14,6 +14,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queued",
     "dequeued",
     "queue_removed",
+    "prompt_retracted",
     "turn_started",
     "turn_result",
     "permission_request",

@@ -211,6 +211,8 @@ pub mod method {
     pub const MUX_KILL: &str = "_acpmux/kill";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// An agent message's sender takes it back (`hub/withdraw.rs`).
+    pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
