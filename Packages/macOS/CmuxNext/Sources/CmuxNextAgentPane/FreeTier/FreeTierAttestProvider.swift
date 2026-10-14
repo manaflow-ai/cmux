@@ -110,7 +110,10 @@ public actor FreeTierAttestProvider {
         generation += 1
         let register = Self.encode([
             "op": "attest_provider", "version": 1, "platform": "mac", "origin": origin,
-            "enabled": enabled, "managed": managed, "has_key": keys.load() != nil, "signed_in": signedIn,
+            // No Keychain read where App Attest cannot work (no prompt in an ad-hoc DEV build);
+            // a read error says no key here, and the attest request then refuses (no new key).
+            "enabled": enabled, "managed": managed,
+            "has_key": attest.isSupported && ((try? keys.load()) ?? nil) != nil, "signed_in": signedIn,
         ])
         let (lines, sink) = AsyncStream.makeStream(of: Data?.self, bufferingPolicy: .bufferingNewest(64))
         let connection = AcpmuxCheckedLine(environment: routerEnvironment)
@@ -200,22 +203,24 @@ public actor FreeTierAttestProvider {
             switch request["req"] as? String {
             case "attest":
                 let started = generation
-                if request["fresh_key"] as? Bool == true { keys.delete() }
+                if request["fresh_key"] as? Bool == true { try keys.delete() }
                 let keyID: String
-                if let known = keys.load() {
+                // A store error throws: no new key is made when the old id cannot be read.
+                if let known = try keys.load() {
                     keyID = known
                 } else {
                     keyID = try await attest.generateKey()
                     // A reconnect while the key was made: a newer request owns the key id now.
                     guard generation == started else { return ["error": "failed"] }
-                    keys.save(keyID)
+                    // Saved before the attestation: a key whose id cannot be kept is never attested.
+                    try keys.save(keyID)
                 }
                 let attestation = try await attest.attestKey(keyID, clientDataHash: hash)
                 let token = try await attest.deviceCheckToken()
                 return ["key_id": keyID, "attestation": attestation.base64EncodedString(),
                         "device_token": token.base64EncodedString()]
             case "assert":
-                guard let keyID = keys.load() else { return ["error": "invalid_key"] }
+                guard let keyID = try keys.load() else { return ["error": "invalid_key"] }
                 let assertion = try await attest.generateAssertion(keyID, clientDataHash: hash)
                 return ["key_id": keyID, "assertion": assertion.base64EncodedString()]
             default:
@@ -229,6 +234,10 @@ public actor FreeTierAttestProvider {
                 logger.info("free tier: an App Attest call failed")
                 return ["error": "failed"]
             }
+        } catch let error as AttestKeyStoreError {
+            // The key id cannot be read or kept (a denied Keychain access): no new key, no proof.
+            logger.error("free tier: the App Attest key id store failed (status \(error.status, privacy: .public)); no new key")
+            return ["error": "failed"]
         } catch {
             return ["error": "failed"]
         }
