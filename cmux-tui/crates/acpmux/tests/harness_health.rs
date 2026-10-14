@@ -615,3 +615,75 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `fake` at `dir/codex`: `codex login status` exits `code`, as Codex does
+/// (0 signed in, 1 "Not logged in").
+fn codex_login(dir: &Path, code: i32) {
+    std::fs::create_dir_all(dir).unwrap();
+    let file = dir.join("codex");
+    std::fs::write(
+        &file,
+        format!(
+            "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\n[ {code} = 0 ] && echo 'Logged in using ChatGPT' || echo 'Not logged in'\nexit {code}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// cx-ae9eb: a harness found on PATH has no profile check, so its sign-in read
+// unknown and the model rail could not tell a signed-out Codex from a working
+// one. Codex answers `codex login status`; Claude's own sign-in sources only
+// ever prove a sign-in (none found stays unknown, never a guess).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn health_reads_codex_login_status_and_claude_credentials_without_a_check() {
+    let root = scratch("builtin-signin");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+    let adapter = root.join("npm/bin/codex-acp");
+    program(&root.join("npm/lib/codex-acp.js"), &adapter, "codex-acp 0.3.1");
+    for (id, code) in [("codex-out", 1), ("codex-in", 0)] {
+        let bin = root.join(format!("bin-{id}"));
+        codex_login(&bin, code);
+        profile(
+            &user,
+            id,
+            &format!(
+                "command = \"{}\"\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n",
+                adapter.display(),
+                bin.display()
+            ),
+        );
+    }
+    let claude = home.join(".local/bin/claude");
+    program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
+    let signed = root.join("claude-signed");
+    std::fs::create_dir_all(&signed).unwrap();
+    std::fs::write(signed.join(".credentials.json"), "{}").unwrap();
+    let empty = root.join("claude-empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    for (id, dir) in [("claude-in", &signed), ("claude-none", &empty)] {
+        profile(
+            &user,
+            id,
+            &format!(
+                "protocol = \"claude-stdio\"\ncommand = \"{}\"\n[env]\nCLAUDE_CONFIG_DIR = \"{}\"\n",
+                claude.display(),
+                dir.display()
+            ),
+        );
+    }
+
+    let hub = hub_for(&root, &user, &home);
+    let mut app = Client::open(&hub, Origin::LocalApp);
+    let reply = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+
+    let auth = |id: &str| row(&reply, id)["auth"].as_str().map(str::to_owned);
+    assert_eq!(auth("codex-out").as_deref(), Some("signedOut"), "{reply}");
+    assert_eq!(row(&reply, "codex-out")["login"], "codex login", "{reply}");
+    assert_eq!(auth("codex-in").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("claude-in").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("claude-none").as_deref(), Some("unknown"), "{reply}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
