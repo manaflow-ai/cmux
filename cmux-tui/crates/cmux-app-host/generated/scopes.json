@@ -993,6 +993,14 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "scope": "participant:read",
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "scope": "participant:write",
+      "class": "mutation"
+    },
     "participants.add": {
       "scope": "participants:write",
       "class": "mutation"
@@ -1373,6 +1381,10 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "scope": "sidebar:write",
       "class": "mutation"
@@ -1382,6 +1394,10 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "scope": "sidebar:write",
       "class": "mutation"
     },
@@ -1805,6 +1821,7 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
     "automation.delete",
     "automation.settings.set",

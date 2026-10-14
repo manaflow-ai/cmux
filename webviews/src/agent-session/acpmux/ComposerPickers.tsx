@@ -20,8 +20,7 @@ import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
-import { HideableChrome } from "../../ui/HideableChrome";
-import { useComposerChrome } from "./composerChrome";
+import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -122,15 +121,15 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
-  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  /// Add harness… (see ModelPickerProps.onAddAgent): the picker's last row, and the whole chip
+  /// once acpmux has listed no harness at all.
   onAddAgent?(): void;
+  /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
+  harnessesListed?: boolean;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
   showPlan?: boolean;
-  /// Runs the agent's compact command from the context popover; offered only when set and the
-  /// agent lists a `compact` command.
-  onCompact?(): void;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
@@ -147,11 +146,11 @@ export type ComposerPermissionAccess = {
   grants: readonly ComposerPermissionGrant[];
 };
 
-/// The composer bar's controls: the
-/// permission mode (in the warning color when it skips approvals) and a
-/// Plan/Build toggle after the attach button, then at the right the context
-/// ring and one model chip that names the effort beside the model (its menu
-/// holds both). Each control shows only when the agent offers it.
+/// The composer bar's controls after the + button: the model chip (its tooltip says how much of
+/// the context window the chat has used), effort, the permission mode (in the warning color when
+/// it skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
+/// The row draws no context ring (hq#1957 item 15 compact row): the running state shows on
+/// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
   permissionAccess,
@@ -162,18 +161,18 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  harnessesListed = false,
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
   showPlan = true,
-  onCompact,
   catalogRefresh,
   pickerCatalog,
 }: Props) {
   const t = useT();
-  // The ring hides from its right-click; the composer's button row shows it again (composerChrome.tsx).
-  const chrome = useComposerChrome();
+  // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
+  const { showContextUsage } = useComposerSettings();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -384,7 +383,7 @@ export function ComposerPickers({
     return (
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
-      modelIdName(id)
+      modelIdName(id, t)
     );
   };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
@@ -419,7 +418,7 @@ export function ComposerPickers({
       snapshot.catalog
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
-      modelIdName(resolvedId));
+      modelIdName(resolvedId, t));
   // A New Tab's chat names the model it will start on (the last pick here), not the default's last
   // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
   const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
@@ -445,18 +444,28 @@ export function ComposerPickers({
         ? t("picker.reasoning")
         : effortChoice.name
       : undefined;
-  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
+  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
+  const modeLabel = shownMode?.name;
+  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
+  // level acpmux starts it on (`_acpmux/harnesses` start), so Reasoning never goes missing.
+  const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
+  const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
+  const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
+      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
   const usage = summary?.usage;
-  const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
+  const usageNote =
+    showContextUsage && usage && usage.size > 0
+      ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
+      : undefined;
 
   const chips = (
     <div className="acpmux-chips">
-      {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
+      {models.length > 0 || snapshot.catalog.length > 0 || harness ? (
         <ModelPicker
           catalog={pickerEntries}
           harness={harness}
@@ -484,19 +493,19 @@ export function ComposerPickers({
               : undefined
           }
           measureRoom={measurePickerRoom}
+          usage={usageNote}
         />
-      )}
-      {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || snapshot.isWorking) && (
-        <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
-          <ContextRing
-            used={usage?.used}
-            size={usage?.size}
-            setup={setupTokens(summary?.sessionId, summary?.turnCount, usage?.used)}
-            onCompact={compact}
-            working={snapshot.isWorking}
-          />
-        </HideableChrome>
+      ) : (
+        // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
+        // the model chip, with no menu and no chevron. Before acpmux answers, nothing shows.
+        harnessesListed &&
+        onAddAgent && (
+          <span className="acpmux-picker acpmux-model">
+            <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
+              <span className="acpmux-model-name">{t("composer.addHarness")}</span>
+            </button>
+          </span>
+        )
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
@@ -517,9 +526,10 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
-      <span className="acpmux-chips-spacer" aria-hidden="true" />
-      {modes.length === 0 && !hasGrants && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
+      {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
+      {modes.length === 0 && !hasGrants && lastChips?.mode && (
+        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      )}
       {/* Granted folder trust and chat allowance stay revocable when the harness offers no modes. */}
       {(modes.length > 0 || hasGrants) && (
         <AccessMenu
@@ -565,7 +575,9 @@ export function ComposerPickers({
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
-function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+/// `modeId` is read from storage: only a string names a mode that may skip approvals.
+function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+  const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
       <span className="acpmux-picker-button">
@@ -574,7 +586,7 @@ function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }
       </span>
     </span>
   ) : (
-    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
         <LockIcon />
         <span className="acpmux-mode-text">{label}</span>
@@ -703,17 +715,7 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// A new chat's first usage reading, per session: the agent's system prompt, tools and
-/// instructions, plus the first message. No harness reports that split over ACP, so this is the
-/// closest the pane can tell. A chat first seen past its first turn (resumed) has none.
-const firstReadings = new Map<string, number | null>();
-function setupTokens(sessionId?: string, turnCount?: number, used?: number): number | undefined {
-  if (!sessionId || used === undefined || used <= 0) return undefined;
-  if (!firstReadings.has(sessionId)) firstReadings.set(sessionId, (turnCount ?? 0) <= 1 ? used : null);
-  return firstReadings.get(sessionId) ?? undefined;
-}
-
-/// How much of the context window the session has used, as a ring that fills. A click opens
+/// How much of the context window the session has used, as a pie that fills. A click opens
 /// the details: the share used, tokens used of the window, and Compact when the agent offers it.
 export function ContextRing({
   used,
@@ -740,8 +742,10 @@ export function ContextRing({
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const radius = 6.5;
-  const circumference = 2 * Math.PI * radius;
+  // A 1px track ring, and the share used as a filled wedge inside it (a pie, not a spinner):
+  // a circle stroked as wide as its diameter, dashed to the share, with butt ends.
+  const wedgeRadius = 2.75;
+  const wedgeCircumference = 2 * Math.PI * wedgeRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% popover.
@@ -776,19 +780,23 @@ export function ContextRing({
         }}
       >
         <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
-          {fraction > 0 && (
-            <circle
-              cx="8"
-              cy="8"
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeDasharray={`${circumference * fraction} ${circumference}`}
-              transform="rotate(-90 8 8)"
-            />
+          <circle cx="8" cy="8" r={7} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={1} />
+          {fraction >= 1 ? (
+            <circle cx="8" cy="8" r={wedgeRadius * 2} fill="currentColor" />
+          ) : (
+            fraction > 0 && (
+              <circle
+                cx="8"
+                cy="8"
+                r={wedgeRadius}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={wedgeRadius * 2}
+                strokeLinecap="butt"
+                strokeDasharray={`${wedgeCircumference * fraction} ${wedgeCircumference}`}
+                transform="rotate(-90 8 8)"
+              />
+            )
           )}
         </svg>
       </button>
@@ -1177,13 +1185,6 @@ export const MicIcon = () => (
   <Icon>
     <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
-  </Icon>
-);
-/// The context usage ring, as its Hide and Show menu items draw it.
-export const RingIcon = () => (
-  <Icon>
-    <circle cx="8" cy="8" r="5.5" opacity="0.35" />
-    <path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" />
   </Icon>
 );
 export const SlashIcon = () => (

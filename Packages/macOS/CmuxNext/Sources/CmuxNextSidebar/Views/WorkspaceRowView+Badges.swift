@@ -7,8 +7,7 @@ import Foundation
 /// on that icon's bottom-right corner (or, as a stack, in the trailing slot), and the right side
 /// shows the dim time since the last change.
 extension WorkspaceRowView {
-    /// Applies `style` after the rest of `configure`: the leading icon, the badge, and the hidden
-    /// count and trailing glyph. `trailing` leaves the row as it was.
+    /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
@@ -16,11 +15,7 @@ extension WorkspaceRowView {
             rowBadge.configure([], look: .corner)
             return
         }
-        if shown.icon == nil {
-            icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
-        }
-        badge.configure(.none)
-        activity.configure(.idle)
+        // The kind icon, the cleared unread badge and the idle activity are set in `configure`.
         if timeText == nil, let time = shown.badgeTime {
             timeText = time
             timeLabel.stringValue = time

@@ -30,7 +30,7 @@ pub(super) const NOTIFICATION_HELP: &str = "\
 USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
-    [--level info|success|warning|error] [--terminal <term_id>]
+    [--level info|warning|error] [--terminal <term_id>]
   cmux notification clear [--terminal <term_id>]
   cmux notification ack --client <id> <notification_id>...
 

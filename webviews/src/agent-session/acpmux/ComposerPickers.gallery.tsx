@@ -234,19 +234,6 @@ const modeFocus: Play = async (ctx) => {
   await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
 };
 
-const openContext: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-context-ring" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
-};
-
-const contextFocus: Play = async (ctx) => {
-  const trigger = ctx.find({ selector: ".acpmux-context-ring" });
-  await ctx.click({ selector: ".acpmux-context-ring" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
-  await ctx.press("Escape");
-  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-context-pop") && ctx.document.activeElement === trigger);
-};
-
 const planToggle: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Build" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Plan" }).getAttribute("aria-pressed") === "true");
@@ -310,12 +297,6 @@ export default componentEntry<Props>({
       note: "The numeric mode shortcut picks Full access; Escape from a reopen returns focus to Mode.",
       props: {},
       play: modeFocus,
-    },
-    "context-details": { props: {}, play: openContext },
-    "context-focus": {
-      note: "Escape closes the context details popover and restores focus to the context ring.",
-      props: {},
-      play: contextFocus,
     },
     plan: { props: {}, play: planToggle },
   },

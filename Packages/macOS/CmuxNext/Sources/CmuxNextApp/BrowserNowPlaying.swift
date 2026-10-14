@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextNowPlaying
+import CmuxNextSidebar
 import MediaPlayer
 
 /// The playing Chromium tab in macOS Now Playing (Control Center, the lock
@@ -12,7 +13,9 @@ import MediaPlayer
 /// the page's `mediaSession` handlers and are enabled only when it has
 /// them. With no such tab Now Playing is cleared and the commands are
 /// disabled. WebKit tabs are left out: WebKit publishes its pages' media
-/// itself, from its GPU process.
+/// itself, from its GPU process. cmux's own music player (cx-imt2i) takes
+/// Now Playing and the keys by the card's rule (`NowPlayingSources.playerHolds`);
+/// turning `labs.previewFeatures` off stops it.
 final class BrowserNowPlaying {
     nonisolated enum Command: String, Sendable {
         case play, pause, toggle, next, previous
@@ -25,6 +28,11 @@ final class BrowserNowPlaying {
     private var registered = false
     /// The tab Now Playing shows.
     private(set) var current: Session?
+    /// The music player's state, and whether it holds Now Playing over `current`.
+    private var music: SidebarNowPlaying?
+    /// The music player's artwork as decoded for Now Playing.
+    private var musicArtwork: (data: Data, artwork: MPMediaItemArtwork)?
+    private var musicHolds: Bool { NowPlayingSources.playerHolds(music, tabPlaying: current?.media.isPlaying == true) }
     /// The current tab's artwork, once loaded.
     private var artwork: (url: URL, artwork: MPMediaItemArtwork?)?
 
@@ -38,8 +46,12 @@ final class BrowserNowPlaying {
         }
         register()
         observation = Task { [weak self, weak services] in
-            for await sessions in ObservationStream({ [weak services] in services.map(Self.sessions) ?? [] }) {
-                self?.update(sessions)
+            for await (sessions, music, preview) in ObservationStream({ [weak services] in
+                services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
+                    ?? ([], nil, false)
+            }) {
+                if !preview, music != nil { services?.cache.pageRequests.music.stop() }
+                self?.update(sessions, music: preview ? music : nil)
             }
         }
     }
@@ -47,6 +59,16 @@ final class BrowserNowPlaying {
     /// Runs a media key's command on the current tab; false without one.
     @discardableResult
     func perform(_ command: Command) -> Bool {
+        if musicHolds, let player = services?.cache.pageRequests.music {
+            switch command {
+            case .play: player.resume()
+            case .pause: player.pause()
+            case .toggle: player.perform(.playPause)
+            case .next: player.perform(.next)
+            case .previous: player.perform(.previous)
+            }
+            return true
+        }
         guard let current, let tab = browserTab(current.tab) else { return false }
         let media: BrowserMediaCommand = switch command {
         case .play: .play
@@ -69,16 +91,18 @@ final class BrowserNowPlaying {
         services?.cache.browsers.values.first { $0.tab.id == id }?.tab
     }
 
-    private func update(_ sessions: [Session]) {
+    private func update(_ sessions: [Session], music: SidebarNowPlaying?) {
         let next = Session.pick(after: current, from: sessions)
-        guard next != current else { return }
+        guard next != current || music != self.music else { return }
         current = next
+        self.music = music
         publish()
     }
 
     private func publish() {
         let center = MPNowPlayingInfoCenter.default()
         let commands = MPRemoteCommandCenter.shared()
+        if musicHolds, let music { return publish(music, center: center, commands: commands) }
         guard let current else {
             center.nowPlayingInfo = nil
             center.playbackState = .stopped
@@ -106,6 +130,32 @@ final class BrowserNowPlaying {
         commands.nextTrackCommand.isEnabled = media.actions.contains(.nexttrack)
         commands.previousTrackCommand.isEnabled = media.actions.contains(.previoustrack)
         loadArtwork(media.artworkURL, tab: current.tab)
+    }
+
+    /// The music player's song: its title, artist, artwork and position, with the keys on it.
+    private func publish(_ music: SidebarNowPlaying, center: MPNowPlayingInfoCenter, commands: MPRemoteCommandCenter) {
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: music.title,
+            MPNowPlayingInfoPropertyPlaybackRate: music.isPlaying ? music.rate : 0.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyIsLiveStream: music.position == nil,
+        ]
+        if !music.artist.isEmpty { info[MPMediaItemPropertyArtist] = music.artist }
+        if let duration = music.duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if let position = music.position(at: Date()) { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = position }
+        if let data = music.artwork, musicArtwork?.data != data, let image = NSImage(data: data) {
+            // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw.
+            nonisolated(unsafe) let shown = image
+            musicArtwork = (data, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })
+        }
+        if let data = music.artwork, let cached = musicArtwork, cached.data == data { info[MPMediaItemPropertyArtwork] = cached.artwork }
+        center.nowPlayingInfo = info
+        center.playbackState = music.isPlaying ? .playing : .paused
+        for command in [commands.playCommand, commands.pauseCommand, commands.togglePlayPauseCommand, commands.previousTrackCommand] {
+            command.isEnabled = true
+        }
+        commands.nextTrackCommand.isEnabled = music.canNext
+        artwork = nil
     }
 
     /// Loads the page's artwork through its tab (its cookies, its proxy).

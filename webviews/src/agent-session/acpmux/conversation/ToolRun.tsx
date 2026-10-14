@@ -2,6 +2,7 @@
 // that opens to the calls themselves, in a list that scrolls past nine rows.
 import { useFindReveal } from "./chatFind";
 import { useId, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { ChevronRight, Globe, Magnifier, Pencil, TerminalSquare, ToolGroup } from "./icons";
 import { toolRunCategories, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
@@ -24,6 +25,7 @@ function runIcon(category: ToolRunCategory | undefined): ReactNode {
 }
 
 export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[]; children: ReactNode }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useFindReveal(items, () => setOpen(true));
   const list = useId();
@@ -38,7 +40,7 @@ export function ToolRun({ items, children }: { items: readonly AcpmuxActivity[];
       >
         <span className="cv-tool__icon">{runIcon(toolRunCategories(items)[0])}</span>
         <span className="cv-tool__text" data-find-skip>
-          {toolRunSummary(items)}
+          {toolRunSummary(t, items)}
         </span>
         <ChevronRight
           size={14}

@@ -249,6 +249,13 @@ impl ConnectionSurfaceScheduler {
         let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         crate::debug_spans::install(trace);
         crate::debug_spans::mark("commit.start");
+        // The terminal id the app minted (or the prelaunch chose) names the
+        // trace, so app marks join it, and owes the first-output marks
+        // (`debug_spans::FOLLOW_MARKS`): its reader starts in this commit.
+        let created_terminal = slot.creating_terminal.as_ref().map(|(terminal_id, _)| terminal_id);
+        if let Some(terminal_id) = launched.as_ref().or(created_terminal) {
+            crate::debug_spans::follow(terminal_id);
+        }
         let cancelled = self.cancelled.is_cancelled();
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
