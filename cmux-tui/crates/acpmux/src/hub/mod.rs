@@ -591,6 +591,7 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            input_since: AtomicU64::new(0),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
@@ -929,7 +930,11 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
+                let result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error});
+                // The session shows that turn failed (`lastTurn`), not idle; recorded before
+                // the record goes out, as every turn's end is.
+                self.record_last_turn(&session, &result);
+                self.append(&session, "mux", "turn_result", result);
                 self.save_meta(&session);
             }
         }
@@ -951,6 +956,8 @@ impl Hub {
             changed
         };
         if changed {
+            let since = if status == SessionStatus::Waiting { now_ms() } else { 0 };
+            session.input_since.store(since, Ordering::SeqCst);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }
