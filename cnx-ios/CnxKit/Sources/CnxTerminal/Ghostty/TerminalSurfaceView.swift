@@ -235,6 +235,23 @@ final class TerminalSurfaceView: UIView {
     /// The lowest row with text in `top...bottom` (absolute rows), reading one
     /// row at a time from the bottom: rows below the cursor that an inline
     /// TUI draws (hints, status). Nil when all are blank.
+    /// Plain text of one absolute row (0 = oldest scrollback row).
+    func rowText(_ row: Int) -> String? {
+        guard let surface, row >= 0 else { return nil }
+        let columns = max(1, grid.columns)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
+            bottom_right: ghostty_point_s(tag: GHOSTTY_POINT_SCREEN, coord: GHOSTTY_POINT_COORD_EXACT,
+                                          x: UInt32(columns - 1), y: UInt32(row)),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
+    }
+
     func lastNonBlankRow(from top: Int, through bottom: Int) -> Int? {
         guard surface != nil, top <= bottom else { return nil }
         for row in stride(from: bottom, through: top, by: -1) {

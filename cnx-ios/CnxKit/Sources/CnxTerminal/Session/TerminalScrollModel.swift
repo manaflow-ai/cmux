@@ -87,6 +87,13 @@ public struct TerminalScrollModel: Equatable, Sendable {
     /// was cleared: the rows being read are gone.
     public mutating func reset() { state = .following }
 
+    /// A mirror reset's replay is in: the reader goes back to their rows
+    /// (TerminalReadingMark), unless a finger took the page meanwhile.
+    public mutating func restoreReading(_ anchor: Anchor) {
+        guard state == .following else { return }
+        state = .reading(anchor)
+    }
+
     /// The keyboard follows the finger in a drag that began at the prompt
     /// (M6): the prompt rides the composer for the rest of the gesture.
     public mutating func keyboardDragPinned() { state = .interacting(startedFollowing: true) }

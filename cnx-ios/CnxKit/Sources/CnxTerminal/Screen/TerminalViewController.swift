@@ -694,8 +694,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if isReset {
                 sizingLog.notice("mirror reset cause=session-reset (the session's replay follows)")
                 freezeLastFrame()
-                // The rows being read are rebuilt from the replay: back to the
-                // prompt once it is laid out (user report 2026-10-14).
+                // The rows being read are rebuilt from the replay: a reader
+                // goes back to their rows once it is in (V2-3,
+                // TerminalReadingMark); otherwise to the prompt.
+                if case .reading(let anchor) = scroll.state, !model.isTUI, readingMark == nil {
+                    let surface = surface
+                    readingMark = TerminalReadingMark(anchor: anchor, totalRows: scrollbar.total) { surface.rowText($0) }
+                    sizingLog.notice("reading mark row \(anchor.row, privacy: .public) of \(self.scrollbar.total, privacy: .public): \(self.readingMark == nil ? "none" : "kept", privacy: .public)")
+                }
+                // A second reset (D4) waits for its own replay.
+                readingMarkAwaitsReport = false
                 scroll.reset()
             }
             replayGate.received(data.count, isReset: isReset)
@@ -776,6 +784,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         outputLink = nil
     }
 
+    /// The reader's rows kept over a mirror reset (V2-3).
+    private var readingMark: TerminalReadingMark?
+    /// The replay is parsed; the mark is placed at the next scrollbar report.
+    private var readingMarkAwaitsReport = false
+
+    /// The reset's replay is parsed: put a reader back on their rows.
+    private func restoreReadingMark() {
+        guard let mark = readingMark else { return }
+        readingMark = nil
+        readingMarkAwaitsReport = false
+        guard !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating else { return }
+        let total = scrollbar.total
+        let surface = surface
+        guard let anchor = mark.locate(totalRows: total, rowText: { surface.rowText($0) }) else { return }
+        sizingLog.notice("reading mark restored row \(mark.row, privacy: .public) -> \(anchor.row, privacy: .public) of \(total, privacy: .public)")
+        scroll.restoreReading(anchor)
+    }
+
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         feedInFlight = false
@@ -789,13 +815,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         if replayDone {
             outputSinceProbe = true
+            // Ghostty's next scrollbar report has the replay's row count.
+            if readingMark != nil { readingMarkAwaitsReport = true }
             updateDocument()
         }
         if freezeView != nil, raw > Self.mirrorReset.count || replayDone, replayHasContent() {
             // The replay is parsed and draws something: drop the held frame on
             // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
-            if freezeBatches >= 2 { unfreeze() }
+            if freezeBatches >= 2, readingMark == nil { unfreeze() }
         }
         if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
         #if DEBUG
@@ -820,7 +848,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         switch event {
         case .scrollbar(let total, let offset, let visible):
             scrollbar = (total, offset, visible)
+            let restoring = readingMarkAwaitsReport
+            if restoring { restoreReadingMark() }
             updateDocument()
+            if restoring { applyScroll() }
             #if DEBUG
             if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
             #endif
@@ -868,6 +899,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.replayGate.expire()
                 self.outputSinceProbe = true
                 self.updateDocument()
+            }
+            if self.readingMark != nil {
+                self.restoreReadingMark()
+                self.updateDocument()
+                self.applyScroll()
             }
             self.unfreeze()
         }
@@ -1109,7 +1145,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         TerminalBenchProbe.shared?.presented()
         #endif
-        if freezeView != nil, freezeBatches > 0 { unfreeze() }
+        // A reader's rows are placed first (V2-3): the held frame stays until then.
+        if freezeView != nil, freezeBatches > 0, readingMark == nil { unfreeze() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? 3
         let rowPixels = Int((cell.height * scale).rounded())
