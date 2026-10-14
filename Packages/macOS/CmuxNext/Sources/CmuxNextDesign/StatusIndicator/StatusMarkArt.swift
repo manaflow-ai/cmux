@@ -238,17 +238,18 @@ enum StatusMarkArt {
         let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
         var proposed = CGRect(origin: .zero, size: size)
         guard let cg = image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
-        // The ink, not the symbol's box, is centered: a symbol's box carries baseline room that
-        // left the check a quarter point low. Whole-pixel offsets keep it crisp.
+        // The ink, not the symbol's box, is centered vertically: a symbol's box carries baseline
+        // room that left the check a quarter point low. Across, the box keeps the symbol's own side
+        // bearings. Whole-pixel offsets keep it crisp.
         let pixels = inkBounds(cg) ?? CGRect(x: 0, y: 0, width: cg.width, height: cg.height)
         let ink = pixels.applying(CGAffineTransform(scaleX: size.width / CGFloat(max(1, cg.width)), y: size.height / CGFloat(max(1, cg.height))))
-        let target = CGRect(x: (rect.midX - ink.midX).rounded(), y: (rect.midY - ink.midY).rounded(),
+        let target = CGRect(x: (rect.midX - size.width / 2).rounded(), y: (rect.midY - ink.midY).rounded(),
                             width: size.width, height: size.height)
         // The template's alpha is the mark.
         context.draw(cg, in: target)
     }
 
-    /// The box of `image`'s pixels at least half covered, bottom-left origin (CG drawing space).
+    /// The box of `image`'s pixels more than half covered, bottom-left origin (CG drawing space).
     private static func inkBounds(_ image: CGImage) -> CGRect? {
         let width = image.width, height = image.height
         var alpha = [UInt8](repeating: 0, count: width * height)
