@@ -490,6 +490,16 @@
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
             }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
           }
         ],
         "id" : "agents",
@@ -9452,10 +9462,6 @@
         "font",
         "text",
         "size",
-        "zoom",
-        "scale",
-        "bigger",
-        "smaller",
         "chromeFontSize"
       ],
       "kind" : "number",
@@ -9478,10 +9484,7 @@
         "1"
       ],
       "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.interfaceSize.summary",
-        "text" : "Text size of tabs, sidebar and controls"
-      },
+      "summary" : null,
       "title" : {
         "key" : "settings.appearance.interfaceSize",
         "text" : "Interface Size"
@@ -9539,7 +9542,7 @@
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.1,
+        -0.09999999999999998,
         2.25,
         "1"
       ],
@@ -14209,6 +14212,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14220,6 +14224,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14240,7 +14251,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14249,9 +14260,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -15433,7 +15446,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23598,7 +23611,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "99e43e3e6058a642a5734116bceb4b94947b4506051ccc939786e3a20bfb602d",
+  "schema_hash" : "8aca0ac10cf8c3292f1c8667395babe890fbd695fd1c30f7aa2fa0f65aa5fd43",
   "sections" : [
     {
       "id" : "general",
