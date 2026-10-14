@@ -139,9 +139,7 @@ const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
-    name: ctx.document.querySelector(".acpmux-permission-ask")
-      ? "Yes, and don't ask again"
-      : "Allow for this chat",
+    name: ctx.document.querySelector(".acpmux-permission-ask") ? "Yes, and don't ask again" : "Allow for this chat",
   });
   if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
