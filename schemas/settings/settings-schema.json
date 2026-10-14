@@ -19335,6 +19335,7 @@
     },
     {
       "accepts" : [
+        "transparent",
         "regular",
         "clear",
         "off"
@@ -19342,6 +19343,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.transparent",
+            "text" : "Transparent"
+          },
+          "value" : "transparent"
+        },
         {
           "title" : {
             "key" : "settings.choice.glass",
@@ -19367,7 +19375,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "regular",
+      "default" : "transparent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -19375,7 +19383,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.glass.help",
-        "text" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
+        "text" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.glass",
@@ -23365,7 +23373,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "377a98ac966aa50de064da932c8137620e76c0d891d6bff829255e98f3e14f59",
+  "schema_hash" : "d1c990c0f9d449bb6c2c0c72bdf07613174598229af03f04b590d16523eb1a81",
   "sections" : [
     {
       "id" : "general",

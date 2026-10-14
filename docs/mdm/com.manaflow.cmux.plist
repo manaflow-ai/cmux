@@ -3782,13 +3782,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>regular</string>
+			<string>transparent</string>
 			<key>pfm_description</key>
-			<string>The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.</string>
+			<string>The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.</string>
 			<key>pfm_name</key>
 			<string>browser.omnibar.glass</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>transparent</string>
 				<string>regular</string>
 				<string>clear</string>
 				<string>off</string>

@@ -1068,9 +1068,10 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "regular",
-      "description" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.",
+      "default" : "transparent",
+      "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
+        "transparent",
         "regular",
         "clear",
         "off"
