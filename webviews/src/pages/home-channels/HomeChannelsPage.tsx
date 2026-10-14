@@ -210,7 +210,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     },
     copyLink: () => copyLink(focusedMessage ?? sheetRoot),
     resolve: () => {
-      const target = snap.thread ?? (focusedMessage && threads.some((x) => x.root.id === focusedMessage.id) ? focusedMessage.id : undefined);
+      const target =
+        snap.thread ??
+        (focusedMessage && threads.some((x) => x.root.id === focusedMessage.id) ? focusedMessage.id : undefined);
       if (target) toggleStatus(target);
     },
   });
@@ -244,7 +246,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         group: "threads",
         title: entry.object.title,
         meta: `${t(entry.object.status === "open" ? "thread.status.open" : "thread.status.resolved")} · ${
-          entry.summary.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(entry.summary.count))
+          entry.summary.count === 1
+            ? t("thread.replies.one")
+            : format("thread.replies.many", String(entry.summary.count))
         }`,
         mark: <span className={`lg-status ${entry.object.status}`} />,
         run: () => openThread(entry.root.id),
@@ -456,9 +460,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                   onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
                   owners={open.participants}
                   onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
-                  onRename={(title) =>
-                    sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
-                  }
+                  onRename={(title) => (sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false))}
                   onSend={(text, parent) => store.send(text, snap.thread, parent)}
                   onCopyLink={(message) => copyLink(message)}
                   onReact={(message, value) => void store.react(message, value)}
