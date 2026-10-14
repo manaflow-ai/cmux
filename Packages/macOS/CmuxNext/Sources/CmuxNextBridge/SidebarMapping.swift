@@ -11,11 +11,10 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-<<<<<<< HEAD
-    /// The front page's title, else the workspace's name. A daemon default
-    /// name (`workspace-7`) is shown: a terminal workspace gets no page or
-    /// agent title, so hiding it left the row blank until a rename (#21357).
-    /// The creating row sends the same name, so the reply changes nothing.
+    /// What a workspace's row shows of its front tab: a name in place of one
+    /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
+    /// hq#1957), and a page's favicon in place of an icon the user never chose.
+    /// A daemon default name (`workspace-7`) remains visible until a rename.
     private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
         return workspace.displayName
@@ -26,11 +25,6 @@ public struct SidebarMapping {
     /// What a browser workspace's row shows of its front tab's page
     /// (cx-e32b): the title in place of a name the user never gave, and the
     /// favicon in place of an icon the user never chose.
-=======
-    /// What a workspace's row shows of its front tab: a name in place of one
-    /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
-    /// hq#1957), and a page's favicon in place of an icon the user never chose.
->>>>>>> e53782516722b (feat(next): hq#1957 workspace auto-naming from the front tab)
     public struct PageFace {
         public var title: String?
         public var favicon: SidebarFavicon?

@@ -27,12 +27,8 @@ enum TunableCatalog {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + [AgentPaneTunables.sessionRail.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-<<<<<<< HEAD
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
-=======
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
             + OmnibarGlassDesign.debugDescriptors
->>>>>>> e53782516722b (feat(next): hq#1957 workspace auto-naming from the front tab)
     }
 }
 
