@@ -1593,6 +1593,10 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "thread.update": {
+      "scope": "thread:write",
+      "class": "mutation"
+    },
     "title.set": {
       "scope": "title:write",
       "class": "mutation"

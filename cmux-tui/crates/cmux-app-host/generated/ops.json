@@ -399,6 +399,7 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "thread.update",
     "title.set",
     "usage.summary",
     "usage_app.cycle_variant",
