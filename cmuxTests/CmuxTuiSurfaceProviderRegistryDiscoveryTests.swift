@@ -29,7 +29,10 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
         #expect(registry.provider(machineID: summary.id) == nil)
         #expect(lists == 0)
-        #expect(await registry.privateRoute(machineID: summary.id) == "ws://10.16.0.7:1337/v1/link")
+        #expect(
+            await registry.privateRoute(machineID: summary.id) == nil,
+            "An untrusted create receipt must wait for the control plane to advertise an attach route"
+        )
         #expect(lists == 1)
         let provider = registry.provider(machineID: summary.id)
         var renamed = discovered
@@ -328,8 +331,13 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         summary.addressIPv4 = "10.16.0.7"
         var lists = 0
         var refreshes = 0
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-saved-route-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: summary.id)
         let registry = CmuxTuiSurfaceProviderRegistry(
-            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            links: CloudMachineLinkManager(paths: paths, clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: {
                 lists += 1
