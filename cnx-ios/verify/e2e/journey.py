@@ -893,31 +893,31 @@ class Journey:
 
     def s_device_removal(self):
         """Settings > Paired Macs > swipe the rig Mac > Remove. It must leave the phone's
-        Mac list and stay gone (the rig Mac keeps running with iPhone connections on)."""
+        Mac list and stay gone (the rig Mac keeps running with iPhone connections on).
+        The row is found by the rig Mac's device id, never by name: the dev account
+        lists several Macs with the same name."""
+        check(self.device_id, "the rig Mac has no cnx-hostd device id; refusing to pick a Mac to remove by name")
+        row_id = f"settings.pairedMacs.{self.device_id}"
         self.back_to_list()
         self.tab("Settings")
         pm = self.settings_find(contains="Paired Macs", kind="Button")
         check(pm, "no Paired Macs row in Settings")
         self.sim.tap_el(pm); time.sleep(2.5)
-        rows = [e for e in self.sim.tree() if e.kind in ("Button", "Cell", "StaticText") and (e.label or "").startswith(self.mac.computer_name())
-                and 100 < e.center[1] < 780 and e.frame[2] > 300]
-        online = [e for e in rows if re.search(r"Connected|WebRTC|WireGuard|Online", e.label or "")] or rows
-        check(online, f"the rig Mac ({self.mac.computer_name()}) is not in Paired Macs")
-        before = len(rows)
-        y = online[0].center[1]
+        row = self.settings_find(ident=row_id)
+        check(row, f"the rig Mac (device {self.device_id}) is not in Paired Macs")
+        y = row.center[1]
         self.sim.drag(370, y, 120, y, 0.4, 20, 0.2); time.sleep(1)
         rm = self.sim.wait(label="Remove", kind="Button", timeout=4)
         check(rm, "no Remove action on the row's trailing swipe")
         self.sim.tap_el(rm); time.sleep(1.2)
         conf = [e for e in self.sim.find(label="Remove", kind="Button")]
         check(conf, "no Remove confirmation")
-        msg = [e.label for e in self.sim.tree() if (e.label or "").startswith(self.mac.computer_name()) and "leaves" in (e.label or "")]
+        msg = [e.label for e in self.sim.tree() if "leaves the Mac list" in (e.label or "")]
         self.sim.press(*conf[-1].center, hold=0.1)
         t = time.time()
         gone = None
         while time.time() - t < 20:
-            now = [e for e in self.sim.tree() if (e.label or "").startswith(self.mac.computer_name()) and 100 < e.center[1] < 780 and e.frame[2] > 300]
-            if len(now) < before:
+            if not self.sim.find(ident=row_id):
                 gone = time.time() - t
                 break
             time.sleep(1)
