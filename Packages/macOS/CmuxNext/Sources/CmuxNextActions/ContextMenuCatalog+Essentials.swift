@@ -36,10 +36,8 @@ nonisolated enum ContextMenuEssentials {
         let keep = { (entry: ContextMenuEntry) in ContextMenuCatalog.referencedIDs([entry]).allSatisfy(placed.contains) }
         let top = rows.top.filter(keep), group = rows.group.filter(keep)
         let close = rows.close.filter(placed.contains)
-        let trailers: [ActionID] = (top + group).compactMap { entry -> ActionID? in
-            if case .choices(let id) = entry { choiceTrailers[id] } else { nil }
-        }
-        let rest = ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close + trailers), from: entries)
+        // referencedIDs counts a choices row's trailer, so More drops New Group with Move to Group.
+        let rest = ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries)
         let more: [ContextMenuEntry] = rest.contains { if case .separator = $0 { false } else { true } } ? [.folder(.more, rest)] : []
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
         return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action)
