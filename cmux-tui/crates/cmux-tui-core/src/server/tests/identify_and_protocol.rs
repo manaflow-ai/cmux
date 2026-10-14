@@ -18,6 +18,7 @@ fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
             key: Some(key.into()),
             end_terminals: false,
             reason: None,
+            if_empty: false,
             mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
         },
         Command::RenameWorkspace {
@@ -241,6 +242,7 @@ fn provider_managed_workspaces_reject_ordinary_server_mutations() {
                 key: Some(workspace.key.clone()),
                 end_terminals: false,
                 reason: None,
+                if_empty: false,
                 mutation: MutationRequest::default(),
             },
             "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",

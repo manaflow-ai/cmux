@@ -411,18 +411,19 @@ unchanged retry publishes nothing. Bookmarks advance neither
 
 Published by the session's history module when the merged history changes:
 a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
-`history.restore`, `history.visit.record`, `history.visit.title` or
-`history.visit.remove` that changed something, or agent and command journal
-records the module newly folded. The payload is
+`history.restore`, `history.visit.record`, `history.visit.title`,
+`history.visit.remove` or `history.trail.record` that changed something,
+agent and command journal records the module newly folded, or terminal
+command rows the command worker stored or a client deleted. The payload is
 `{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
-names the entry kinds that changed (`page`, `command`, `agent`, and
+names the entry kinds that changed (`page`, `location`, `command`, `agent`, and
 `closed` when a history remove or clear deleted closed groups, or when a
 committed change closed or deleted a workspace, tab, screen or group in the
 closed-history store, after the module's journal feed started with a history
 read); interested frontends re-read `history.entries.list`. A replayed
 mutation publishes nothing, and a deletion can publish `closed` twice (the
-mutation and its journal record). Changes of the app's location trail are
-announced by the app, not by this event. A page relay hears this event when
+mutation and its journal record). The daemon owns the location trail
+(cx-hnmbt.12), so its changes are announced here with kind `location`. A page relay hears this event when
 its page lists it in page-router.json (`page-events-v1`). Page visits are shared
 by the sessions of a machine; the event goes to the session that served the
 change.
