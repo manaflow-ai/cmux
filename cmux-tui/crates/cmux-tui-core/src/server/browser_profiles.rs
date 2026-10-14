@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Mux;
+use crate::resource::{BrowserPublicId, ContentPublicId};
 use crate::workspace_registry::{BrowserProfileInput, BrowserProfileUpdate};
 
 /// `create-browser-profile`. A caller-chosen `browser_profile` id makes a
@@ -119,10 +120,21 @@ pub(super) fn delete(mux: &Mux, client: u64, params: DeleteParams) -> anyhow::Re
     let ((id, deletion), _) = mux.personal_mutation(|registry| {
         let id = registry.resolve_browser_profile_id(&params.browser_profile)?;
         let deletion = registry.delete_browser_profile(&id)?;
+        if !deletion.cleared_browsers.is_empty() {
+            mux.reload_presentation(registry)?;
+        }
         Ok(((id, deletion), true))
     })?;
     if let Some(revision) = deletion.bookmarks_revision {
         mux.emit_bookmarks_changed(id.to_string(), revision);
+    }
+    // Each tab that named the profile is on the default one now (cx-d0d.89).
+    for browser_id in &deletion.cleared_browsers {
+        let Ok(browser_id) = BrowserPublicId::parse(browser_id.clone()) else { continue };
+        let content = ContentPublicId::Browser(browser_id);
+        if let Some(surface) = mux.with_state(|state| state.single_placement_of_content(&content)) {
+            mux.emit_tab_changed(surface);
+        }
     }
     let workspaces = deletion
         .cleared_workspaces
@@ -136,5 +148,6 @@ pub(super) fn delete(mux: &Mux, client: u64, params: DeleteParams) -> anyhow::Re
         "cleared_workspaces": workspaces,
         "cleared_rooms": deletion.cleared_rooms,
         "deleted_bookmarks": deletion.deleted_bookmarks,
+        "cleared_browsers": deletion.cleared_browsers,
     }))
 }
