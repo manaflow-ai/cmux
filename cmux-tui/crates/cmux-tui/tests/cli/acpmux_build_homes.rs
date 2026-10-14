@@ -155,7 +155,7 @@ fn stopping_one_builds_acpmux_leaves_nightlys_running() {
     let dev_home = user_home.join(".acpmux/builds").join(DEV);
     let mut links = Vec::new();
     let mut copied = Vec::new();
-    let mut pending = vec![dev_home.clone()];
+    let mut pending = vec![dev_home];
     while let Some(dir) = pending.pop() {
         for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
             let kind = entry.file_type().unwrap();
