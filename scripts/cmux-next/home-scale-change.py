@@ -111,9 +111,10 @@ def scale_state(name, want):
     if g.get("rowBitmapsOffScale"):
         cleared = poll(lambda: (x := geometry()).get("rowBitmapsOffScale") == 0 and x, timeout=2)
         print(f"     {name}: old-scale bitmaps {g.get('rowBitmapsOffScale')} after one frame; "
-              + (f"none after {time.time() - t0:.3f} s" if cleared else "still some after 2 s"), flush=True)
+              + (f"none after {time.time() - t0:.3f} s" if cleared else f"still some after 2 s: {json.dumps(geometry())}"), flush=True)
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
-                                                             "cellsOffScale", "composeScale", "headerScale")}), flush=True)
+                                                             "cellsOffScale", "composeScale", "headerScale", "bitmapPxPerPtMin",
+                                                             "bitmapPxPerPtMax")}), flush=True)
     check(f"{name}: the window, the transcript view, its cells, compose bar and header are at {want:g}x",
           all(g.get(k) == want for k in ("windowScale", "renderScale", "composeScale", "headerScale")) and g.get("cellsOffScale") == 0, g)
     check(f"{name}: no visible row shows a bitmap of the old scale ({g.get('rowBitmaps')} row bitmaps)",
