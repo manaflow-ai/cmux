@@ -1666,6 +1666,7 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
         XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertTrue(fileExplorerState.isVisible)
         XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
         XCTAssertEqual(fileExplorerState.mode, .sessions)
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
@@ -1713,19 +1714,22 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
     @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
+        let fileExplorerState = FileExplorerState()
         let controller = MainWindowFocusController(
             windowId: UUID(),
             window: nil,
             tabManager: TabManager(),
-            fileExplorerState: FileExplorerState()
+            fileExplorerState: fileExplorerState
         )
         let workspaceId = UUID()
         let panelId = UUID()
 
         controller.noteRightSidebarInteraction(mode: .feed)
+        XCTAssertFalse(fileExplorerState.isVisible)
         XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
+        XCTAssertFalse(fileExplorerState.isVisible)
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
     }
 
