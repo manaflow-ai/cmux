@@ -205,6 +205,8 @@ export type StripeBillingStatus = {
   readonly activePlanId: PersonalPlanId | null;
   /** Lifetime purchases grant access but cannot be switched in Stripe. */
   readonly hasRecurringSubscription?: boolean;
+  /** Whether a lifetime Founder entitlement is active for this owner. */
+  readonly hasFounderEntitlement?: boolean;
   /** Whether the newest subscription is scheduled to cancel at period end. */
   readonly cancelAtPeriodEnd: boolean;
   readonly hasCustomer: boolean;
@@ -717,6 +719,10 @@ export async function stripeBillingStatusForUser(
       activePersonalPlanForUser(stackUserId),
     ]);
     const recurringRows = subscriptionRows.filter((row) => !isFounderSubscriptionRow(row));
+    const hasFounderEntitlement = subscriptionRows.some((row) =>
+      isFounderSubscriptionRow(row) &&
+      (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status),
+    );
     const subscription = recurringRows.find((row) =>
       row.plan === activePlanId && (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
     ) ?? pickPortalMetadataRow(recurringRows);
@@ -728,7 +734,9 @@ export async function stripeBillingStatusForUser(
     ), subscriptionStatus: subscription?.status ?? null,
     hasRecurringSubscription: recurringRows.some((row) =>
       (ACTIVE_STRIPE_PRO_STATUSES as readonly string[]).includes(row.status)
-    ) };
+    ),
+    hasFounderEntitlement,
+    };
   } catch (error) {
     if (isMissingDatabaseConfig(error)) return emptyStripeBillingStatus();
     throw error;

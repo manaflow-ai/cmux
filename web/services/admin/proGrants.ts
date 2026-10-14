@@ -100,6 +100,8 @@ export type AdminTeamRow = {
     readonly subscriptionStatus: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
+    readonly hasRecurringSubscription: boolean;
+    readonly hasFounderEntitlement: boolean;
   };
   readonly lastGrant: AdminPlanGrantRecord | null;
 };
@@ -137,6 +139,8 @@ export type AdminUserRow = {
     readonly subscriptionStatus: string | null;
     readonly cancelAtPeriodEnd: boolean;
     readonly hasActiveSubscription: boolean;
+    readonly hasRecurringSubscription: boolean;
+    readonly hasFounderEntitlement: boolean;
   };
   readonly lastGrant: AdminPlanGrantRecord | null;
 };
@@ -216,6 +220,8 @@ export function adminUserRow(
       subscriptionStatus: stripe.subscriptionStatus,
       cancelAtPeriodEnd: stripe.cancelAtPeriodEnd,
       hasActiveSubscription: stripe.hasActiveSubscription,
+      hasRecurringSubscription: stripe.hasRecurringSubscription === true,
+      hasFounderEntitlement: stripe.hasFounderEntitlement === true,
     },
     lastGrant: grantRecordFromServerMetadata(user.serverMetadata),
   };
@@ -451,6 +457,8 @@ export function adminTeamRow(
       subscriptionStatus: stripe.subscriptionStatus,
       cancelAtPeriodEnd: stripe.cancelAtPeriodEnd,
       hasActiveSubscription: stripe.hasActiveSubscription,
+      hasRecurringSubscription: stripe.hasRecurringSubscription === true,
+      hasFounderEntitlement: stripe.hasFounderEntitlement === true,
     },
     lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
   };
