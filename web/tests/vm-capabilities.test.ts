@@ -11,13 +11,14 @@ import { MockVMProvider } from "../services/vms/drivers/mock";
 describe("vm capability derivation", () => {
   test("freestyle: derived from the real driver, not hardcoded", () => {
     const caps = vmCapabilitiesFor("freestyle");
+    expect(caps.restart).toBe(false);
     expect(caps).toEqual({
       snapshot: true,
       restore: true,
       fork: false,
       exec: true,
       stats: true,
-      restart: true,
+      restart: false,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
       ports: true,
       desktop: true,

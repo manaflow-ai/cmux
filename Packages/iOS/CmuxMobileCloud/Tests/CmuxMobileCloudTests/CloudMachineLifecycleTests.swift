@@ -91,6 +91,30 @@ import Testing
         #expect(controller.machineActionsInFlight.isEmpty)
     }
 
+    @Test func restartClosesTheCachedConnectionEvenWhenLifecycleStaysRunning() async throws {
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let connector = FakeConnector()
+        let controller = makeController(service: service, connector: connector)
+        controller.sectionDidAppear()
+        await settle {
+            controller.machines.elements == [Self.running]
+                && controller.tunnel == .ready(fingerprint: "ios-abc")
+        }
+        let oldConnection = try #require(controller.connection(for: Self.running))
+        _ = try await oldConnection.loadCatalog()
+        let generation = controller.connectionRetryGeneration
+
+        #expect(await controller.restartMachine(Self.running))
+        #expect(connector.session.state.disconnected == 1)
+        #expect(controller.connectionRetryGeneration == generation + 1)
+        let replacement = try #require(controller.connection(for: Self.running))
+        #expect(replacement !== oldConnection)
+        _ = try await replacement.loadCatalog()
+        #expect(connector.connects.count == 2)
+        controller.sectionDidDisappear()
+    }
+
     @Test func pauseCallsTheControlPlaneAndReconcilesFromTheList() async {
         let service = FakeCloudVMService()
         service.machines = .success([Self.paused])

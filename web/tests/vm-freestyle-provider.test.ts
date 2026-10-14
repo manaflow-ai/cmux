@@ -704,69 +704,9 @@ describe("FreestyleProvider create with edge rules", () => {
     });
   });
 
-  test("uses the provider control plane for a hard restart", async () => {
-    let request: { path: string; method: string | undefined } | undefined;
-    const client = {
-      fetch: async (path: string, init?: RequestInit) => {
-        request = { path, method: init?.method };
-        return new Response(null, { status: 202 });
-      },
-    } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client });
-    await provider.restart(VM_ID);
-    expect(request).toEqual({ path: `/v5/vms/${encodeURIComponent(VM_ID)}/restart`, method: "POST" });
-  });
-
-  test("falls back to documented pause/start when the hard endpoint is not on the edge", async () => {
-    const calls: string[] = [];
-    const client = {
-      fetch: async () => Response.json({ code: "NOT_FOUND", message: "route not found" }, { status: 404 }),
-      vms: {
-        ref: () => ({
-          pause: async () => { calls.push("pause"); },
-          start: async () => { calls.push("start"); return {}; },
-        }),
-      },
-    } as unknown as Freestyle;
-    await new FreestyleProvider({ client: () => client }).restart(VM_ID);
-    expect(calls).toEqual(["pause", "start"]);
-  });
-
-  test("reconciles a pause that timed out before retrying restart", async () => {
-    const calls: string[] = [];
-    let pauseAttempts = 0;
-    const client = {
-      fetch: async () => new Response(null, { status: 404 }),
-      vms: {
-        ref: () => ({
-          pause: async () => {
-            calls.push("pause");
-            pauseAttempts += 1;
-            if (pauseAttempts === 1) throw new Error("pause request timed out");
-          },
-          data: async () => ({ state: "paused" }),
-          start: async () => { calls.push("start"); return {}; },
-        }),
-      },
-    } as unknown as Freestyle;
-    await new FreestyleProvider({ client: () => client }).restart(VM_ID);
-    expect(calls).toEqual(["pause", "start"]);
-  });
-
-  test("does not hide an unrelated pause failure behind start", async () => {
-    const calls: string[] = [];
-    const client = {
-      fetch: async () => new Response(null, { status: 404 }),
-      vms: {
-        ref: () => ({
-          pause: async () => { calls.push("pause"); throw new Error("permission denied"); },
-          data: async () => ({ state: "running" }),
-          start: async () => { calls.push("start"); return {}; },
-        }),
-      },
-    } as unknown as Freestyle;
-    await expect(new FreestyleProvider({ client: () => client }).restart(VM_ID)).rejects.toThrow("restart");
-    expect(calls).toEqual(["pause"]);
+  test("does not expose hard restart without a supported provider contract", () => {
+    const provider: VMProvider = providerWith(fakeFreestyle({ probeExit: 0 }));
+    expect(provider.restart).toBeUndefined();
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
@@ -829,6 +769,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
+      automaticRestart: true,
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
