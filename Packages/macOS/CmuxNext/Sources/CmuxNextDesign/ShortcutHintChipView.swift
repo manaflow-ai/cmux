@@ -11,7 +11,7 @@ import CmuxTheme
 /// round. Click-through and hidden from accessibility.
 @MainActor
 public final class ShortcutHintChipView: NSView {
-    private static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+    private static let font = CheckedFont.resolve(size: 10) { .monospacedDigitSystemFont(ofSize: 10, weight: .semibold) }
     private static let horizontalPadding: CGFloat = 6
     private static let verticalPadding: CGFloat = 2
 
