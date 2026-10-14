@@ -134,6 +134,8 @@ export class CloudHome {
       unread: num(entry.unread),
       mentions: num(entry.mentions),
       pinned: entry.pinned === true,
+      ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+      ...(entry.marked_unread === true ? { markedUnread: true } : {}),
       muted: entry.muted === true,
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
@@ -322,5 +324,7 @@ function fromEntry(entry: Json): HomeConversation {
     mentions: num(entry.mentions),
     muted: entry.muted === true,
     pinned: entry.pinned === true,
+    ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+    ...(entry.marked_unread === true ? { markedUnread: true } : {}),
   };
 }

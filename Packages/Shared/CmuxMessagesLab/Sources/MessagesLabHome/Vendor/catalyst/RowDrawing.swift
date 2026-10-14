@@ -282,8 +282,17 @@ enum PartRenderer {
         switch p.part {
         case .text:
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
-            BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
-                                  cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
+            // A copy with a window y (thread view, captures) fills my balloon through the cell's soft mask
+            // (SoftBalloon.clip, cx-3cb soft-copies); without a window y the cell's gradient layer fills it.
+            ctx.saveGState()
+            if p.outgoing, !windowY.isNaN, SoftBalloon.clip(ctx, frame: body, row: p) {
+                ctx.drawLinearGradient(Fixture.outgoingGradient, start: CGPoint(x: 0, y: -windowY),
+                                       end: CGPoint(x: 0, y: Fixture.gradientHeight - windowY), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
+            } else {
+                BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
+                                      cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
+            }
+            ctx.restoreGState()
             _ = lines
             if let md = p.markdown {
                 // Every block, at its scroll offset (thread view, morph and menu copies of the row are
@@ -327,8 +336,15 @@ enum PartRenderer {
         }
         if highlight {
             UIColor(white: 1, alpha: 0.12).setFill()
-            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
-                            circularEnds: RowDraw.circularEnds(p)).fill()
+            ctx.saveGState()
+            // My text balloon's highlight has its soft edge (SoftBalloon.clip), as the balloon under it.
+            if p.outgoing, SoftBalloon.clip(ctx, frame: body, row: p) {
+                ctx.fill(ctx.boundingBoxOfClipPath)
+            } else {
+                BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
+                                circularEnds: RowDraw.circularEnds(p)).fill()
+            }
+            ctx.restoreGState()
         }
         if p.failed {
             let c = CGPoint(x: body.minX - 14, y: body.midY)

@@ -1856,7 +1856,7 @@ pre.cv-math-source {
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
   /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
+  box-shadow: var(--ui-popup-drop, var(--elevation-2));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
@@ -1951,8 +1951,7 @@ pre.cv-math-source {
   backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   box-shadow:
     inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
-    0 4px 14px color-mix(in srgb, black 14%, transparent),
-    0 1px 2px color-mix(in srgb, black 10%, transparent);
+    var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
