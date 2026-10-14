@@ -32,10 +32,10 @@ import Testing
     }
 
     /// `body` runs inside a live resize, as between AppKit's start and end notifications.
-    static func liveResize(_ body: () throws -> Void) rethrows {
+    static func liveResize(_ body: () -> Void) {
         Motion.liveResizeOverride = true
         defer { Motion.liveResizeOverride = nil }
-        try body()
+        body()
     }
 
     static func split(_ ratio: Double) -> [LayoutScreen] {
@@ -65,7 +65,7 @@ import Testing
             return abs(shown.minX - target.minX) < 0.5 && abs(shown.width - target.width) < 0.5
         }
 
-        try Self.liveResize {
+        Self.liveResize {
             // One frame of the drag each: the window grows, then another client's divider move lands.
             for (step, ratio) in [0.45, 0.4, 0.35, 0.3].enumerated() {
                 window.setContentSize(NSSize(width: 1000 + 40 * CGFloat(step + 1), height: 700))
@@ -78,10 +78,14 @@ import Testing
                 #expect(abs(screen.frame.width - root.bounds.width) < 0.5)
             }
         }
-        // The resize ended: the next layout change springs as it did before.
+        // The resize ended: the next layout change springs as it did before. Pinned, because another
+        // test's window can be in a resize of its own on a busy host.
+        let otherWindowsResizing = LiveResizeWindows.shared.isActive
+        Motion.liveResizeOverride = false
+        defer { Motion.liveResizeOverride = nil }
         model.apply(screens: Self.split(0.6))
         root.syncWithModel()
-        #expect(!settled("p1"), "a layout change after the resize did not animate")
+        #expect(!settled("p1"), "a layout change after the resize did not animate (moves \(Motion.animatesMovement), other windows resizing \(otherWindowsResizing))")
     }
 
     @Test func aTabStripThatStartsOverflowingMidDragFadesItsEdgeAtOnce() throws {
@@ -96,7 +100,7 @@ import Testing
         strip.layoutSubtreeIfNeeded()
         try #require(!strip.fadedEdges.trailing, "eight tabs overflow a 1600 pt strip")
 
-        try Self.liveResize {
+        Self.liveResize {
             // The window narrows until the tabs no longer fit.
             for width in stride(from: 1400, through: 200, by: -100) {
                 strip.setFrameSize(NSSize(width: CGFloat(width), height: strip.frame.height))
