@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -14,7 +15,7 @@ import CmuxNextWakeups
 /// `tabs`, `strip`, `sidebar` and `window`, default all but `strip`), `stop` (the samples, then idle) or `read`.
 /// Each sample has `t` (ms since the first tick) and, per target: `tabs` (each tab cell of the
 /// focused pane's strip as `[id, x, width, opacity]`, by x), `strip` (`[strip width, width its
-/// tabs get, selected tab id]`), `sidebar` (`[width, presented
+/// tabs get, selected tab id, the pane toolbar's tab and kind, whether its "…" shows, the selected tab's kind now]`), `sidebar` (`[width, presented
 /// width]` of the sidebar container) and `window` (`[window width, height, focused pane
 /// content width, height]`). `stop` also lists `looping`: animations in the window's own
 /// layer tree that repeat (Reduce Motion should leave none). A run ends by itself after
@@ -83,7 +84,11 @@ final class DebugTraceFrames {
         }
         if targets.contains("strip"), let strip = pane?.view.stripView {
             let row = TabStripDebug.row(in: strip)
-            sample["strip"] = .array([Self.number(row.width), Self.number(row.viewport), row.selected.map(JSONValue.string) ?? .null])
+            // The pane's "…" takes its width from the strip: what it follows, and whether it shows.
+            let toolbar = pane?.view.toolbar
+            sample["strip"] = .array([Self.number(row.width), Self.number(row.viewport), row.selected.map(JSONValue.string) ?? .null,
+                                      toolbar?.target.map(JSONValue.string) ?? .null, toolbar?.kind.map { .string("\($0)") } ?? .null,
+                                      .bool(toolbar?.view.hasMore == true), Self.selectedKind(pane)])
         }
         if targets.contains("sidebar") {
             let container = controller.sidebar.container
@@ -97,6 +102,12 @@ final class DebugTraceFrames {
         }
         samples.append(.object(sample))
         return true
+    }
+
+    /// What the pane's selected tab is to "…" now (`PaneToolbar.kind`; "chat": none).
+    private static func selectedKind(_ pane: PaneController?) -> JSONValue {
+        guard let pane, let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else { return .null }
+        return .string(PaneToolbar.kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)).map { "\($0)" } ?? "chat")
     }
 
     private func report(looping: Bool) -> JSONValue {
