@@ -3,7 +3,12 @@
 # installs and feedback. Nothing is uploaded anywhere (no App Store, no TestFlight).
 #
 # usage: cnx-ios/scripts/demo-build.sh [--config Demo|Production] [--ref <git ref>]
-#          [--tag <tag>] [--install-device <udid>] [--skip-device] [--skip-mac]
+#          [--tag <tag>] [--install-device <udid>] [--skip-device] [--skip-mac] [--strict]
+#
+# Every build first runs scripts/check-tabskit-sync.sh: CmuxTabsKit and
+# CmuxConversation must be byte-identical to their upstream branches
+# (feat-cmux-next-tabs-kit, feat-imsg-parity-gui). Drift prints a loud warning
+# and is recorded in MANIFEST.md; --strict makes it fail the build.
 #
 # Output: ~/cnx-ios-builds/<UTC date>-<shortsha>[-<tag>]/
 #   ios-device/cnx-<tag>.ipa            Demo config, bundle dev.cmux.cnx.<tag>
@@ -33,7 +38,7 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-ref=HEAD tag=cnx install_device="" skip_device=0 skip_mac=0 build_config=Demo
+ref=HEAD tag=cnx install_device="" skip_device=0 skip_mac=0 build_config=Demo strict=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --config) build_config=$2; shift 2 ;;
@@ -42,7 +47,8 @@ while [[ $# -gt 0 ]]; do
     --install-device) install_device=$2; shift 2 ;;
     --skip-device) skip_device=1; shift ;;
     --skip-mac) skip_mac=1; shift ;;
-    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
+    --strict) strict=1; shift ;;
+    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -70,6 +76,20 @@ mac_host=${CNX_MAC_BUILD_HOST:-mini-cmuxs-mac-mini-2}
 mac_dir=${CNX_MAC_BUILD_DIR:-cnx-ios-e2e/demo-build}
 log() { printf '\n==> %s\n' "$*"; }
 notes=()   # known build-time issues for the manifest
+
+# --- Shared packages must match upstream ----------------------------------
+log "shared packages vs upstream"
+sync_status=0
+sync_report=$("$script_dir/check-tabskit-sync.sh" --ref "$sha" 2>&1) || sync_status=$?
+echo "$sync_report"
+if [[ $sync_status != 0 ]]; then
+  printf '\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n' >&2
+  printf '!!  %s: shared iOS packages are NOT the latest upstream.\n' "$([[ $strict == 1 ]] && echo ERROR || echo WARNING)" >&2
+  printf '!!  Sync them (see above) or this build ships stale TabsKit/Conversation UX.\n' >&2
+  printf '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n\n' >&2
+  [[ $strict == 0 ]] || exit 1
+  notes+=("Shared packages differ from upstream (check-tabskit-sync.sh): $(grep -E '^(DRIFT|error)' <<<"$sync_report" | paste -sd ';' -)")
+fi
 
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/src" "$work/logs" "$cache"
