@@ -64,7 +64,14 @@ async fn a_running_turn_is_working_since_it_started_and_a_permission_is_input() 
     c.send(method::SESSION_PROMPT, prompt(&id, "ask: rm -rf /", None)).await;
     let s = settled(&hub, &mut c, &id, |s| s["pendingPermissions"].as_u64() > Some(0)).await;
     assert_eq!(s["lane"]["state"], "input", "{s}");
-    assert!(s["lane"]["since"].as_u64().is_some(), "{s}");
+    let asked = s["lane"]["since"].as_u64().expect("waiting has a since");
+
+    // Typing in the composer saves a draft (and moves updatedAt): still waiting since the ask.
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    c.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": "hmm"})).await.unwrap();
+    let s = settled(&hub, &mut c, &id, |s| s["updatedAt"].as_u64() > Some(asked)).await;
+    assert_eq!(s["lane"]["state"], "input", "{s}");
+    assert_eq!(s["lane"]["since"].as_u64(), Some(asked), "{s}");
 }
 
 #[tokio::test]

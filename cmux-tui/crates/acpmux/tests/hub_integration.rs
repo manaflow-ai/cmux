@@ -16,12 +16,12 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
-#[path = "hub_integration/restart.rs"]
-mod restart;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/restart.rs"]
+mod restart;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]

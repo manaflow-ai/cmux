@@ -51,22 +51,32 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 /// - `lost`: the agent process is gone without an answer.
 /// - `idle` since its last turn ended, or since it was created.
 ///
+/// A session lost mid-turn (its agent or its peer gone before the turn
+/// ended) is lost since it went, and its `lastTurn` is the turn before: no
+/// error from it. Waiting reads `inputSince` (when it began waiting), so a
+/// later record or a draft save does not move it.
+///
 /// `{state, since, error}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
     }
-    let ended = summary["lastTurn"]["endedAt"].as_u64();
-    let since_ended = ended.or(summary["createdAt"].as_u64());
+    let updated = summary["updatedAt"].as_u64();
+    let in_turn = !summary["turn"].is_null();
+    // A session with turns but no `lastTurn` (saved before it existed) is not idle since it was made.
+    let made = if summary["turnCount"].as_u64() > Some(0) { updated } else { summary["createdAt"].as_u64() };
+    let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
         Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
-        Some("input") => ("input", summary["updatedAt"].as_u64()),
-        Some("failed") => ("failed", since_ended),
-        Some("lost") => ("lost", ended.or(summary["updatedAt"].as_u64())),
-        _ => ("idle", since_ended),
+        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("failed") => ("failed", ended),
+        Some("lost") if in_turn => ("lost", updated),
+        Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
+        _ => ("idle", ended),
     };
     let error = match state {
-        "failed" | "lost" => summary["lastTurn"]["errorText"].clone(),
+        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
         _ => Value::Null,
     };
     json!({"state": state, "since": since, "error": error})
@@ -163,6 +173,11 @@ impl Hub {
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
             "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
+            // Since when it waits on the person (`lane`); null while it does not.
+            "inputSince": match session.input_since.load(Ordering::SeqCst) {
+                0 => Value::Null,
+                since => json!(since),
+            },
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
             "policy": m.permission_policy,

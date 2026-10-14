@@ -32,6 +32,10 @@ pub struct Session {
     /// permissions are cancelled; a request that started before the bump
     /// is answered `cancelled` instead of being registered.
     pub(super) permission_epoch: AtomicU64,
+    /// When the session last began waiting on the person (`Waiting`), in ms;
+    /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
+    /// a draft save or a second ask do not move it.
+    pub(super) input_since: AtomicU64,
     pub(super) rehydrate: AtomicBool,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).

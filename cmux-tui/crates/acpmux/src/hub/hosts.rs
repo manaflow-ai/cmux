@@ -494,9 +494,10 @@ impl Hub {
                 (None, _) => {
                     let error = "the agent host never received this turn's prompt";
                     let result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "error": error, "errorText": error});
-                    self.append(session, "mux", "turn_result", result.clone());
-                    // The session shows that turn failed (`lastTurn`), not idle.
+                    // The session shows that turn failed (`lastTurn`), not idle; recorded
+                    // before the record goes out, as every turn's end is.
                     self.record_last_turn(session, &result);
+                    self.append(session, "mux", "turn_result", result);
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
