@@ -69,6 +69,9 @@ final class ComposerModel {
 
     /// Another connection (or Mac): uploaded paths belong to the old one.
     func connectionChanged() {
+        // A send in flight holds the old session and would type into nothing;
+        // cancelling keeps the draft for the new connection.
+        sendTask?.cancel()
         uploadedPaths = [:]
         failedUpload = nil
     }

@@ -35,8 +35,12 @@ struct TerminalScreen: View {
     /// Retry from the status capsule (AppModel.reconnect).
     let onReconnect: () -> Void
 
+    /// The Mac this terminal belongs to (connections come and go).
+    private let hostID: String
+
     init(connection: HostConnection, tab: DaemonTab, onReconnect: @escaping () -> Void) {
         self.connection = connection
+        self.hostID = connection.host.id
         self.onReconnect = onReconnect
         self.tab = tab
         _session = State(initialValue: connection.terminalSession(for: tab.surface))
@@ -63,8 +67,17 @@ struct TerminalScreen: View {
         // rebuild only the terminal view, keeping the composer's draft.
         .id(ObjectIdentifier(session))
         .onChange(of: ObjectIdentifier(connection)) {
-            session = connection.terminalSession(for: tab.surface)
             composer.connectionChanged()
+            // Another Mac (an automatic switch): its surface numbers name
+            // different terminals, so leave instead of attaching one of them.
+            guard connection.host.id == hostID else {
+                session.detach()
+                dismiss()
+                return
+            }
+            let old = session
+            session = connection.terminalSession(for: tab.surface)
+            old.detach()
         }
         // Full screen: a shell's output scrolls under the floating top
         // controls (the controller insets its content by the safe area).

@@ -295,11 +295,17 @@ final class HostConnection {
     }
 
     func setPinned(surface: Int, pinned: Bool) async {
+        guard let control else {
+            Haptics.warning()
+            return
+        }
         do {
-            try await control?.setTabPinned(surface, pinned: pinned)
+            try await control.setTabPinned(surface, pinned: pinned)
             Haptics.selection()
         } catch {
+            // An older daemon without tab metadata refuses it.
             lastError = error.localizedDescription
+            Haptics.warning()
         }
         await refresh()
     }
