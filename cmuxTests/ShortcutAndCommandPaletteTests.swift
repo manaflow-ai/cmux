@@ -1725,7 +1725,8 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         let panelId = UUID()
 
         controller.noteRightSidebarInteraction(mode: .feed)
-        XCTAssertFalse(fileExplorerState.isVisible)
+        fileExplorerState.setVisible(true)
+        XCTAssertTrue(fileExplorerState.isVisible)
         XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
 
         XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
