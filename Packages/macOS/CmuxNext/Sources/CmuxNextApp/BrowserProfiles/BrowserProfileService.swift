@@ -26,6 +26,7 @@ final class BrowserProfileService {
     @ObservationIgnored private var saving: Task<Void, Never>?
     @ObservationIgnored private var loadWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored var homeRecordsObservation: Task<Void, Never>?
+    @ObservationIgnored var recordProfileObservation: Task<Void, Never>?
     @ObservationIgnored var migratingRecords = false
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-profiles")
 
@@ -58,6 +59,7 @@ final class BrowserProfileService {
             loadWaiters.removeAll()
             cleanUpDeletedProfiles()
             observeHomeRecords()
+            followRecordProfiles()
             migrateImports()
         }
     }
@@ -120,11 +122,11 @@ final class BrowserProfileService {
         if case let windows = services.windows, let incognito = windows.browserProfile(forWorkspace: services.workspaceID(ofTab: key)) {
             return incognito
         }
-        return book.engineProfile(for: services.cache.tabModel(key)?.snapshot.browserProfileID)
+        return book.engineProfile(for: services.cache.tabModel(key)?.browserProfileID)
     }
 
     /// The wire id of a tab's profile (nil record = `default`).
     func profileID(ofTab tab: TabModel) -> String {
-        tab.snapshot.browserProfileID ?? BrowserProfileRecord.defaultID
+        tab.browserProfileID ?? BrowserProfileRecord.defaultID
     }
 }
