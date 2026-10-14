@@ -85,6 +85,23 @@ public struct StatusMapping {
         tab.agentSession.flatMap(turns.state(for:))
     }
 
+    /// The tab's unread notification is the alert of a status the row already marks (cx-ldocj:
+    /// the badge counts notifications only, not a status alone): an OSC 7501 record that blocks,
+    /// finished or failed (the daemon posts its alert as a notification), an agent hook that
+    /// blocks or finished, or an acpmux turn that waits, finished or failed. Seen or not: a
+    /// status already looked at must not leave its alert behind as a badge.
+    public func notificationIsStatusAlert(_ tab: TabModel) -> Bool {
+        switch ProgramStatusRecord.strongest(tab.programStatus)?.state {
+        case .blocked?, .done?, .error?: return true
+        default: break
+        }
+        switch tab.agent?.state {
+        case .blocked?, .done?: return true
+        default: break
+        }
+        return turn(tab).map { $0 != .working } ?? false
+    }
+
     /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
@@ -151,9 +168,27 @@ public struct StatusMapping {
         tabs.contains { tab in reports(tab).contains { $0.state.isWorking } }
     }
 
-    /// A workspace's merged status over its tabs.
-    public func summary(tabs: [TabModel]) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports), honoring: honored)
+    /// A workspace's merged status over its tabs and its `cmux status set` entries.
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
+        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    }
+
+    /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,
+    /// `status run`; cx-lko8w): busy with its progress, waiting, error, success. `info` and plain
+    /// lines draw only their text. The daemon clears owned entries (TTL, owner exit).
+    public func reports(_ status: WorkspaceStatus?) -> [StatusReport] {
+        (status?.entries ?? []).compactMap { entry in
+            let state: StatusIndicatorState? = switch entry.state {
+            case "busy": .busy(progress: entry.progress.map { min(max($0, 0), 1) })
+            case "waiting": .waiting
+            case "error": .error
+            case "success": .success
+            default: nil
+            }
+            guard let state else { return nil }
+            return StatusReport(id: "status:\(entry.key)", source: .explicit, state: state, label: entry.text,
+                                style: entry.style.flatMap(StatusIndicatorStyle.init(rawValue:)))
+        }
     }
 
     /// Sources whose style hint wins (`appearance.statusIndicator.honorStatusStyle`).
