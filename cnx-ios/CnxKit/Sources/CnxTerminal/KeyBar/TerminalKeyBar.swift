@@ -12,6 +12,10 @@ struct TerminalKeyBar: View {
     /// hidden from accessibility, offered as row actions.
     @State private var clipped: Set<KeyBarKey> = []
     @State private var edges = KeyBarScrollEdges()
+    /// Keys the scroller's edges cut (not wholly visible).
+    @State private var cut: Set<KeyBarKey> = []
+    /// The row is being dragged or is decelerating or snapping.
+    @State private var scrolling = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -21,19 +25,31 @@ struct TerminalKeyBar: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
                     ForEach(KeyBarKey.middle, id: \.self) { key in
+                        let hidesCut = !scrolling && cut.contains(key)
                         KeyCap(key: key, model: model)
                             .onGeometryChange(for: Bool.self) { proxy in
                                 KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
                             } action: { visible in
                                 if visible { clipped.remove(key) } else { clipped.insert(key) }
                             }
-                            .accessibilityHidden(clipped.contains(key))
+                            .onGeometryChange(for: Bool.self) { proxy in
+                                KeyBarClipping().isWhole(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
+                            } action: { whole in
+                                if whole { cut.remove(key) } else { cut.insert(key) }
+                            }
+                            // At rest, a key the edge cuts is not drawn: no sliver (R2-4).
+                            .opacity(hidesCut ? 0 : 1)
+                            .animation(.easeOut(duration: 0.12), value: hidesCut)
+                            .accessibilityHidden(clipped.contains(key) || hidesCut)
                     }
                 }
                 .scrollTargetLayout()
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.viewAligned(limitBehavior: .never))
+            .onScrollPhaseChange { _, phase in
+                scrolling = phase != .idle
+            }
             .onScrollGeometryChange(for: KeyBarScrollEdges.self) { geometry in
                 KeyBarScrollEdges(offset: geometry.contentOffset.x, contentWidth: geometry.contentSize.width,
                                   visibleWidth: geometry.containerSize.width)
@@ -48,12 +64,13 @@ struct TerminalKeyBar: View {
                 GeometryReader { proxy in
                     let width = max(1, proxy.size.width)
                     let lead = edges.fadesLeading ? KeyBarScrollEdges.fade / width : 0
-                    let trail = edges.fadesTrailing ? KeyBarScrollEdges.trailingFade / width : 0
+                    let fadesTrailing = scrolling && edges.fadesTrailing
+                    let trail = fadesTrailing ? KeyBarScrollEdges.trailingFade / width : 0
                     LinearGradient(stops: [
                         .init(color: edges.fadesLeading ? .clear : .black, location: 0),
                         .init(color: .black, location: lead),
                         .init(color: .black, location: 1 - trail),
-                        .init(color: edges.fadesTrailing ? .clear : .black, location: 1),
+                        .init(color: fadesTrailing ? .clear : .black, location: 1),
                     ], startPoint: .leading, endPoint: .trailing)
                 }
             }

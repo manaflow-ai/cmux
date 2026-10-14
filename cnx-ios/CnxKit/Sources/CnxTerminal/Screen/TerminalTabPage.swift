@@ -62,8 +62,17 @@ public struct TerminalTabPage: View {
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
                         .transition(.opacity)
+                } else if let frame = model.coldFrame {
+                    // Attached, the replay not drawn yet: the saved frame stays
+                    // (same look, no label) until the live one is drawn, then
+                    // goes in 120 ms. It is never blended over live rows (R2-5).
+                    TerminalConnectingView(state: .attached, topInset: insets.top, lastFrame: frame, showsLabel: false)
+                        .ignoresSafeArea()
+                        .padding(.bottom, insets.bottom)
+                        .transition(.opacity)
                 }
             }
+            .animation(.easeOut(duration: 0.12), value: model.coldFrame != nil)
             .animation(.easeOut(duration: 0.2), value: model.connectionState)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the

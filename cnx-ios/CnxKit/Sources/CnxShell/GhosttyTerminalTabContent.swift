@@ -152,6 +152,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
+        if live != nil, let frameStore {
+            // The next cold launch shows what was on screen last (R2-5), not
+            // the frame from the last time the app went to the background.
+            let id = tab.id
+            model.frameSaver = { image in
+                Task.detached(priority: .utility) {
+                    if let data = image.jpegData(compressionQuality: 0.7) { frameStore.save(data, for: id) }
+                }
+            }
+        }
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)

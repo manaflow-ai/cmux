@@ -68,8 +68,9 @@ struct TerminalComposer: View {
         // Paste is offered only for an image or a file (text pastes into the
         // field itself), and then first (R1-8). Reading the types does not
         // trigger the paste prompt.
-        let pasteFirst = UIPasteboard.general.hasImages
-            || UIPasteboard.general.contains(pasteboardTypes: [UTType.fileURL.identifier])
+        let pasteFirst = ComposerPasteRoute.offersPaste(
+            hasImage: UIPasteboard.general.hasImages,
+            hasFileURL: UIPasteboard.general.contains(pasteboardTypes: [UTType.fileURL.identifier]))
         return Menu {
             if pasteFirst {
                 Section { pasteButton }
@@ -156,12 +157,24 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.send")
     }
 
+    /// An image or a copied file becomes an attachment (uploaded to the Mac on
+    /// send, its Mac path typed: the same path as Files); text goes into the
+    /// field; a phone `file:///` path is never typed (R2-2).
     private func pasteFromClipboard() {
-        if model.uploader != nil, let image = UIPasteboard.general.image, let data = image.pngData() {
+        let board = UIPasteboard.general
+        let route = ComposerPasteRoute.route(hasImage: board.hasImages, fileURL: board.hasURLs ? board.url : nil,
+                                             string: board.hasStrings ? board.string : nil)
+        switch route {
+        case .image:
+            guard let image = board.image, let data = image.pngData() else { return }
             model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
                                                    thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
-        } else if let text = UIPasteboard.general.string {
+        case .file(let url):
+            Task { await loadFiles([url]) }
+        case .text(let text):
             model.composerText += text
+        case .nothing:
+            break
         }
     }
 
