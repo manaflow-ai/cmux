@@ -235,8 +235,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
-        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
-        controller.workspace = self
+        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self)
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
