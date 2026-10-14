@@ -486,5 +486,5 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         &["--json", "raw", "operation", "chief.profile.update", "--params-json", &update],
         &[],
     ));
-    assert_eq!(person["role"], "Boss", "{person}");
+    assert_eq!(person["value"]["role"], "Boss", "{person}");
 }

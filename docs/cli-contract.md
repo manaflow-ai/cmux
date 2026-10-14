@@ -85,10 +85,14 @@ session explicitly (`--socket`, `--session`, `<session>:<id>`) still works.
 an agent caller with the same code, reason and marker (`details.refused` names
 the refused word), for every field of every Chief. A Chief changes its own
 profile only with its `profile` tool on its own bound connection.
-`cmux chief list` stays open. This check is cooperative, like the one above:
-`cmux chief engine` and `cmux raw operation chief.profile.*` do not check the
-marker, and the daemon cannot yet tell a Chief turn's unbound connection from
-the person's.
+`cmux chief list` stays open. `cmux chief engine` with a change
+(`details.refused` `engine`), `cmux chief stop` (`stop`), and `cmux raw
+operation` or `cmux raw command` naming a `chief.*` write (`details.refused`
+the operation) are refused the same way; `cmux chief engine` with no change
+and the `chief.engine.get`, `chief.profile.list`, `chief.profile.get` and
+`chief.profile.avatar.get` reads stay open. This check is cooperative, like
+the one above: the daemon cannot yet tell a Chief turn's unbound connection
+from the person's.
 
 ## Output and exit codes
 
