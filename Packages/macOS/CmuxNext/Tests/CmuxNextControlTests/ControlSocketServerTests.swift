@@ -265,6 +265,25 @@ import Testing
         #expect(access(path, F_OK) != 0, "stop removes the restored socket")
     }
 
+    /// A listening socket at `path` that is not a ``ControlSocketServer`` (no watch of its own).
+    func plainListener(at path: String) throws -> Int32 {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array(path.utf8) + [0]) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(bound == 0 && listen(descriptor, 8) == 0)
+        return descriptor
+    }
+
+    func inode(_ path: String) -> ino_t? {
+        var info = stat()
+        return lstat(path, &info) == 0 ? info.st_ino : nil
+    }
+
     @Test func aPathAnotherServerTookIsLeftAlone() async throws {
         let path = temporarySocketPath()
         let first = try makeServer(.allowAll, path: path)
@@ -272,14 +291,15 @@ import Testing
         // Another server's socket replaces the file in one rename, so there is
         // no moment with nothing at the path for the first server to fill.
         let other = temporarySocketPath()
-        let second = try makeServer(.automation, path: other)
-        defer { second.stop() }
+        let listener = try plainListener(at: other)
+        defer { close(listener) }
+        let taken = try #require(inode(other))
         #expect(rename(other, path) == 0)
         try await Task.sleep(for: .milliseconds(500))
-        let identify = try LineClient(path: path).call("system.identify")
-        #expect(identify["result"]?["access_mode"] == "automation", "the first server leaves the path alone")
+        #expect(inode(path) == taken, "the first server leaves the path alone")
         first.stop()
-        #expect(try LineClient(path: path).send("ping") == "PONG", "stopping the first never removes the second's socket")
+        #expect(inode(path) == taken, "stopping the first never removes the other socket")
+        unlink(path)
     }
 
     /// A quit landing while a restore is binding: the restore's new listener
