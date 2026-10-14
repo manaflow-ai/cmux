@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d";
+inline constexpr std::string_view kProtocolIrSha256 = "442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,9 @@ struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
 struct ConversationTextRun;
+struct ConversationThreadResolution;
+struct ConversationThreadState;
+enum class ConversationThreadStatus;
 struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
@@ -283,6 +286,8 @@ struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
 struct ConversationImportRequest;
 struct ConversationImportResult;
+struct ConversationLinkResolveRequest;
+struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
@@ -681,6 +686,7 @@ enum class AgentState {
 struct AgentChangedEvent {
     Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -711,7 +717,9 @@ struct AgentPresenceChangedEvent {
 };
 
 struct AgentRecord {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -1761,6 +1769,20 @@ struct ConversationReaction {
     friend bool operator==(const ConversationReaction&, const ConversationReaction&) = default;
 };
 
+struct ConversationThreadResolution {
+    std::string at{};
+    std::string by{};
+    std::uint64_t seq{};
+    friend bool operator==(const ConversationThreadResolution&, const ConversationThreadResolution&) = default;
+};
+
+struct ConversationThreadState {
+    std::optional<std::string> owner{};
+    std::optional<ConversationThreadResolution> resolved{};
+    std::optional<std::string> title{};
+    friend bool operator==(const ConversationThreadState&, const ConversationThreadState&) = default;
+};
+
 struct ConversationMessage {
     std::optional<std::vector<std::string>> answers{};
     std::optional<std::vector<std::string>> answers_pending{};
@@ -1775,6 +1797,7 @@ struct ConversationMessage {
     std::optional<ConversationPartRef> reply_to{};
     std::optional<std::string> retracted_at{};
     std::uint64_t seq{};
+    std::optional<ConversationThreadState> thread{};
     std::optional<std::string> thread_root{};
     friend bool operator==(const ConversationMessage&, const ConversationMessage&) = default;
 };
@@ -1867,12 +1890,22 @@ struct ConversationHistoryRequest {
     friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
 };
 
+enum class ConversationThreadStatus {
+    open,
+    resolved,
+};
+
 struct ConversationThreadSummary {
     std::vector<std::string> authors{};
     std::optional<std::string> last_reply_at{};
     std::optional<std::uint64_t> last_reply_seq{};
+    std::optional<std::string> owner{};
     std::uint64_t reply_count{};
+    std::optional<std::string> resolved_at{};
+    std::optional<std::string> resolved_by{};
     std::string root{};
+    std::optional<ConversationThreadStatus> status{};
+    std::optional<std::string> title{};
     friend bool operator==(const ConversationThreadSummary&, const ConversationThreadSummary&) = default;
 };
 
@@ -1902,6 +1935,21 @@ struct ConversationImportResult {
     std::vector<std::uint64_t> imported{};
     std::uint64_t skipped{};
     friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
+};
+
+struct ConversationLinkResolveRequest {
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveRequest&, const ConversationLinkResolveRequest&) = default;
+};
+
+struct ConversationLinkResolveResult {
+    ConversationSummary conversation{};
+    std::optional<ConversationMessage> message{};
+    std::vector<std::string> path{};
+    std::optional<std::string> thread_root{};
+    std::optional<bool> truncated{};
+    std::string url{};
+    friend bool operator==(const ConversationLinkResolveResult&, const ConversationLinkResolveResult&) = default;
 };
 
 struct ConversationListRequest {
@@ -5598,6 +5646,24 @@ struct Codec<ConversationTextRun> {
 };
 
 template <>
+struct Codec<ConversationThreadResolution> {
+    static Result<Json> encode(const ConversationThreadResolution& value);
+    static Result<ConversationThreadResolution> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadState> {
+    static Result<Json> encode(const ConversationThreadState& value);
+    static Result<ConversationThreadState> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadStatus> {
+    static Result<Json> encode(const ConversationThreadStatus& value);
+    static Result<ConversationThreadStatus> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationThreadSummary> {
     static Result<Json> encode(const ConversationThreadSummary& value);
     static Result<ConversationThreadSummary> decode(const Json& value);
@@ -6933,6 +6999,18 @@ template <>
 struct Codec<ConversationImportResult> {
     static Result<Json> encode(const ConversationImportResult& value);
     static Result<ConversationImportResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLinkResolveRequest> {
+    static Result<Json> encode(const ConversationLinkResolveRequest& value);
+    static Result<ConversationLinkResolveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLinkResolveResult> {
+    static Result<Json> encode(const ConversationLinkResolveResult& value);
+    static Result<ConversationLinkResolveResult> decode(const Json& value);
 };
 
 template <>

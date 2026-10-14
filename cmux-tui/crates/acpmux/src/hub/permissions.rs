@@ -122,8 +122,13 @@ impl Hub {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                // A harness title made from the first input stops before a client context
+                // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
-                    m.title = Some(title.to_owned());
+                    let title = cmux_chat_index::without_client_context(title).trim_end();
+                    if !title.is_empty() {
+                        m.title = Some(title.to_owned());
+                    }
                 }
             }
             _ => {}

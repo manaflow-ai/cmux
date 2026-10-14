@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d. */
+/* cmux-tui mux protocol 12, IR 442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -20,7 +20,11 @@ export type ActivitySubscribeResult = {
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
+  /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
+  "agent"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
   "surface": Id;
@@ -239,6 +243,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread"?: ConversationThreadState;
   "thread_root"?: string;
 };
 
@@ -332,12 +337,31 @@ export type ConversationTextRun = {
   "start": number;
 };
 
+export type ConversationThreadResolution = {
+  "at": string;
+  "by": string;
+  "seq": bigint;
+};
+
+export type ConversationThreadState = {
+  "owner"?: string;
+  "resolved"?: ConversationThreadResolution;
+  "title"?: string;
+};
+
+export type ConversationThreadStatus = "open" | "resolved";
+
 export type ConversationThreadSummary = {
   "authors": Array<string>;
   "last_reply_at": (string) | null;
   "last_reply_seq": (bigint) | null;
+  "owner"?: string;
   "reply_count": bigint;
+  "resolved_at"?: string;
+  "resolved_by"?: string;
   "root": string;
+  "status"?: ConversationThreadStatus;
+  "title"?: string;
 };
 
 export type CopyResult = {

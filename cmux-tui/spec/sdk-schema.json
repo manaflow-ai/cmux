@@ -4856,6 +4856,26 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "since_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
+    },
+    "agent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
     }
    },
    "additional_properties": false
@@ -7240,6 +7260,14 @@
      "presence": "optional",
      "nullable": false
     },
+    "thread": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadState"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
     "created_at": {
      "type": {
       "kind": "scalar",
@@ -7271,6 +7299,66 @@
        "kind": "ref",
        "name": "ConversationReaction"
       }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationThreadState": {
+   "kind": "object",
+   "fields": {
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadResolution"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationThreadResolution": {
+   "kind": "object",
+   "fields": {
+    "by": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
      },
      "presence": "required",
      "nullable": false
@@ -7323,9 +7411,56 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationThreadStatus"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved_by": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "resolved_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false
+  },
+  "ConversationThreadStatus": {
+   "kind": "enum",
+   "values": [
+    "open",
+    "resolved"
+   ]
   },
   "ConversationImportMessage": {
    "kind": "object",
@@ -20333,6 +20468,86 @@
     "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
    ]
   },
+  "conversation-link-resolve": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "conversation-tree-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "message": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationMessage"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "thread_root": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "path": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. url is <scheme>://conversation/<conv_id>[/message/<msg_id>] (scheme cmux or cmux-<tag>, at most 512 bytes; query and fragment ignored), else bad request. An unknown conversation is unknown_conversation, a message unknown or of another conversation unknown_message. path runs from the thread root to the message along reply_to parents. See spec/commands.md."
+   ]
+  },
   "conversation-search": {
    "authority": "local-admin",
    "since": 12,
@@ -22828,6 +23043,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
      }
     },
     "additional_properties": false

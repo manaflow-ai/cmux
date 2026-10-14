@@ -265,11 +265,12 @@ declare namespace Cmux {
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
   type ProjectChange = { changed: Array<string> }
-  type ProjectList = { projects: Array<Cmux.ProjectSnapshot> }
+  type ProjectList = { projects: Array<Cmux.ProjectSnapshot>; sources: Array<Cmux.ProjectSourceSummary> }
   type ProjectObservation = { path: string; last_used_ms: string }
   type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
   type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
   type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
+  type ProjectSourceSummary = { id: string; enabled: boolean; projects: number }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
   type PushToken = string
@@ -357,6 +358,7 @@ declare namespace Cmux {
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
   type TeamAiLimitMember = { user: Cmux.UserId; display_name: string; role: string; limit_usd: unknown; source: "personal" | "team" | "default"; spent_usd: unknown }
+  type TeamAiUsageLine = { billed: boolean; included_usd: unknown | null; per_seat: boolean; seats: number; spent_usd: unknown; period_start: number | null; period_end: number; stop_applies: boolean; stopped: boolean }
   type TeamAuditEntry = { n: number; op: string; actor: string; at: number; category: "admin" | "billing"; summary: string; detail: string; hash: string }
   type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
@@ -1071,6 +1073,10 @@ interface CmuxGlobal {
     observe: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.ProjectObservation>; complete?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.remove` (mutation, scope `project:write`) */
     remove: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    source: {
+      /** `project.source.update` (mutation, scope `project:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; source: string; enabled: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
+    }
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
@@ -1348,8 +1354,8 @@ interface CmuxGlobal {
   }
   team: {
     ai_limit: {
-      /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend. */
-      get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; next_cursor?: string | null }>
+      /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
+      get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; team_usage?: Cmux.TeamAiUsageLine; next_cursor?: string | null }>
     }
     device: {
       /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
