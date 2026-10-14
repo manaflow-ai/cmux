@@ -362,9 +362,9 @@ declare namespace Cmux {
   type StashImportGroup = { name?: string; created_ms?: string; tabs: Array<Cmux.StashImportTab> }
   type StashImportResult = { stash_ids: Array<Cmux.StateId>; imported_tabs: number; skipped_tabs: number }
   type StashImportTab = { url: string; title?: string }
-  type StashRestoreResult = { stash_id: Cmux.StateId; workspace_id: string /* workspace_… */ | null; workspace_ids: Array<string /* workspace_… */>; tab_ids: Array<string /* tab_… */>; remaining: number }
+  type StashRestoreResult = { stash_id: Cmux.StateId; workspace_id: string /* workspace_… */ | null; workspace_ids: Array<string /* workspace_… */>; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */>; remaining: number }
   type StashSnapshot = { id: Cmux.StateId; name: string | null; created_at_ms: string; member_count: number; members: Array<Cmux.StashTab> }
-  type StashTab = { url: string; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null }
+  type StashTab = { id: Cmux.StateId; url: string; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null }
   type StateDelete = { kind: "state_delete"; sequence: number; resource: Cmux.StateResourceKind; id: string }
   type StateDeleteResult = { id: Cmux.StateId; deleted: boolean }
   type StateEntitySnapshot = unknown
@@ -1396,13 +1396,13 @@ interface CmuxGlobal {
     /** `stash.create` (mutation, scope `stash:write`) */
     create: CmuxOp<{ machine?: string; session?: string; tabs?: Array<string /* tab_… */>; workspace?: string /* workspace_… */ }, Cmux.MutationResult<Cmux.StashCreateResult>>
     /** `stash.delete` (mutation, scope `stash:write`) */
-    delete: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<number> }, Cmux.MutationResult<Cmux.StashDeleteResult>>
+    delete: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<Cmux.StateId> }, Cmux.MutationResult<Cmux.StashDeleteResult>>
     /** `stash.import` (mutation, scope `stash:write`) */
     import: CmuxOp<{ machine?: string; session?: string; source: "onetab"; groups: Array<Cmux.StashImportGroup>; engine?: "webkit" | "cef" }, Cmux.MutationResult<Cmux.StashImportResult>>
     /** `stash.list` (read, scope `stash:read`) */
     list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.StashSnapshot>>
     /** `stash.restore` (mutation, scope `stash:write`) */
-    restore: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<number>; target?: "here" | "new_workspace" }, Cmux.MutationResult<Cmux.StashRestoreResult>>
+    restore: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<Cmux.StateId>; target?: "here" | "new_workspace"; pane?: string /* pane_… */ }, Cmux.MutationResult<Cmux.StashRestoreResult>>
   }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */

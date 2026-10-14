@@ -12122,6 +12122,14 @@
     "StashTab": {
       "kind": "object",
       "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The member's stable id; stash.restore and stash.delete name members by it."
+        },
         "url": {
           "required": true,
           "type": {
@@ -12211,7 +12219,7 @@
               "name": "StashTab"
             }
           },
-          "description": "The pages in restore order; stash.restore and stash.delete name them by index."
+          "description": "The pages in restore order; stash.restore and stash.delete name them by id."
         }
       },
       "extra": false
@@ -12281,6 +12289,17 @@
               "resource": "workspace"
             }
           }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "The screens the pages reopened in."
         },
         "tab_ids": {
           "required": true,
@@ -26537,13 +26556,13 @@
             "type": {
               "kind": "array",
               "items": {
-                "kind": "primitive",
-                "name": "uint32"
+                "kind": "ref",
+                "name": "StateId"
               },
               "min_items": 1,
               "max_items": 1000
             },
-            "description": "Indexes into the stash's members to delete. Omit to delete the whole stash."
+            "description": "Ids of the stash's members to delete; an unknown id is resource.not_found and nothing changes. Omit to delete the whole stash."
           }
         },
         "extra": false,
@@ -26711,13 +26730,13 @@
             "type": {
               "kind": "array",
               "items": {
-                "kind": "primitive",
-                "name": "uint32"
+                "kind": "ref",
+                "name": "StateId"
               },
               "min_items": 1,
               "max_items": 1000
             },
-            "description": "Indexes into the stash's members to restore. Omit to restore every member; the rest stay."
+            "description": "Ids of the stash's members to restore; an unknown id is resource.not_found and nothing changes. Omit to restore every member; the rest stay."
           },
           "target": {
             "required": false,
@@ -26729,6 +26748,14 @@
               ]
             },
             "description": "here (default): each page reopens in its pane at its index when that pane is live, else in its workspace's focused pane, else in the session's focused pane. new_workspace: every page opens, in order, in one new workspace named after the stash."
+          },
+          "pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "With here: the pane a page opens in (at its end) when its own pane is gone, normally the focused pane of the window the user acted from. An unknown pane is resource.not_found."
           }
         },
         "extra": false,

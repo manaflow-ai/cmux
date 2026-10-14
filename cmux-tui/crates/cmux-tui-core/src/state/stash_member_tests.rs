@@ -115,7 +115,7 @@ fn stash_restore_here_opens_a_member_without_a_live_pane_in_the_named_pane() {
     let refused = send(
         &mux,
         "stash.restore",
-        json!({"stash": stash, "pane": "pane_00000000000000000000000000"}),
+        json!({"stash": stash, "pane": "pane_00000000000000000000000000000000"}),
         Some("restore-nowhere"),
     );
     assert_eq!(error_code(refused), "resource.not_found");
