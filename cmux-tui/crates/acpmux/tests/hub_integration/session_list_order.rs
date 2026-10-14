@@ -51,9 +51,12 @@ async fn the_session_list_answers_while_other_clients_keep_changing_sessions() {
             while !stop.load(Ordering::SeqCst) {
                 // Each write moves one session to the top of the list.
                 let id = &ids[n % ids.len()];
-                wc.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": format!("d{n}")}))
-                    .await
-                    .unwrap();
+                wc.request(
+                    method::MUX_DRAFT_SET,
+                    json!({"sessionId": id, "text": format!("d{n}")}),
+                )
+                .await
+                .unwrap();
                 n += WRITERS;
             }
         }));
