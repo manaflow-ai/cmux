@@ -183,45 +183,45 @@ function ListRow({
   return (
     <ContextMenu items={items} className="lg-row-host">
       <button
-      type="button"
-      data-list-row={row.id}
-      className={`lg-row${active ? " active" : ""}${unread ? " unread" : ""}${row.muted ? " muted" : ""}`}
-      aria-current={active ? "page" : undefined}
-      data-name={label}
-      data-pinned={row.pinned ? "" : undefined}
-      onClick={() => onSelect(row.id)}
-      onKeyDown={openMenuFromKeyboard}
-    >
-      {unread && <span className="lg-unread-dot" aria-hidden="true" />}
-      <span className="lg-row-mark">
-        {channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}
-      </span>
-      <span className="lg-row-name">
-        {channel && <span className="lg-visually-hidden">#</span>}
-        {name}
-        {unread && badge === 0 && (
-          <span className="lg-visually-hidden">, {format("unread.messages", String(row.unread))}</span>
+        type="button"
+        data-list-row={row.id}
+        className={`lg-row${active ? " active" : ""}${unread ? " unread" : ""}${row.muted ? " muted" : ""}`}
+        aria-current={active ? "page" : undefined}
+        data-name={label}
+        data-pinned={row.pinned ? "" : undefined}
+        onClick={() => onSelect(row.id)}
+        onKeyDown={openMenuFromKeyboard}
+      >
+        {unread && <span className="lg-unread-dot" aria-hidden="true" />}
+        <span className="lg-row-mark">
+          {channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}
+        </span>
+        <span className="lg-row-name">
+          {channel && <span className="lg-visually-hidden">#</span>}
+          {name}
+          {unread && badge === 0 && (
+            <span className="lg-visually-hidden">, {format("unread.messages", String(row.unread))}</span>
+          )}
+        </span>
+        <time className="lg-row-time">{stamp(activityAt(row))}</time>
+        <span className="lg-row-preview">
+          {state === "working" || state === "waiting" ? (
+            <span className={`lg-state ${state}`}>{t(state === "working" ? "chief.working" : "chief.waiting")}</span>
+          ) : null}
+          {(state === "working" || state === "waiting") && preview && <span className="lg-sep">·</span>}
+          {showAuthor && <span className="lg-row-author">{author}</span>}
+          <span className="lg-row-text">{preview}</span>
+        </span>
+        {badge > 0 && (
+          <>
+            <span className="lg-count" aria-hidden="true">
+              {badge}
+            </span>
+            <span className="lg-visually-hidden">
+              {format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
+            </span>
+          </>
         )}
-      </span>
-      <time className="lg-row-time">{stamp(activityAt(row))}</time>
-      <span className="lg-row-preview">
-        {state === "working" || state === "waiting" ? (
-          <span className={`lg-state ${state}`}>{t(state === "working" ? "chief.working" : "chief.waiting")}</span>
-        ) : null}
-        {(state === "working" || state === "waiting") && preview && <span className="lg-sep">·</span>}
-        {showAuthor && <span className="lg-row-author">{author}</span>}
-        <span className="lg-row-text">{preview}</span>
-      </span>
-      {badge > 0 && (
-        <>
-          <span className="lg-count" aria-hidden="true">
-            {badge}
-          </span>
-          <span className="lg-visually-hidden">
-            {format(row.mentions > 0 ? "unread.mentions" : "unread.messages", String(badge))}
-          </span>
-        </>
-      )}
       </button>
     </ContextMenu>
   );

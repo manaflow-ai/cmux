@@ -555,9 +555,16 @@ export class HomeChannelsStore {
     const before = this.snapshot.conversations.get(id);
     if (!this.client || !before || before.pinned === pinned) return false;
     const last = Math.max(0, ...[...this.snapshot.conversations.values()].map((c) => c.pinPosition ?? 0));
-    this.patchConversation(id, pinned ? { pinned, pinPosition: Math.max(Date.now(), last + 1) } : { pinned, pinPosition: undefined });
+    this.patchConversation(
+      id,
+      pinned ? { pinned, pinPosition: Math.max(Date.now(), last + 1) } : { pinned, pinPosition: undefined },
+    );
     try {
-      await this.client.call(HomeOps.pin, { conversation: id, pinned, idempotencyKey: this.key("pin") } satisfies HomePinRequest);
+      await this.client.call(HomeOps.pin, {
+        conversation: id,
+        pinned,
+        idempotencyKey: this.key("pin"),
+      } satisfies HomePinRequest);
       return true;
     } catch (error) {
       this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
