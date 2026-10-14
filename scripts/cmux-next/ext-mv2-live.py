@@ -16,9 +16,10 @@ $NX_ARTIFACTS/<phase>/. Exit 0 when every check of the phase passed.
 
 Checks (ublock): loaded and enabled as manifest 2 with a background page;
 a known ad script is blocked by a network filter; a cosmetic filter hides an
-ad slot; the d3ward ad block test score; the popup opens; the dashboard
-loads; a dynamic rule (`* * 3p-script block`) blocks a third-party script
-that loads without it.
+ad slot (with a control that the host itself reaches both scripts); the
+popup opens; the dashboard loads; a dynamic rule (`* * 3p-script block`)
+blocks a third-party script that loads without it. The public score pages
+(d3ward, turtlecute) are recorded as information, not checks.
 """
 import argparse
 import base64
@@ -26,11 +27,13 @@ import functools
 import http.server
 import json
 import os
+import plistlib
 import re
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
@@ -39,7 +42,12 @@ from ext_e2e.app import free_port  # noqa: E402
 
 STORE_EXTENSION = ("eimadpbcbfnmbkopoojfekhnkhdbieeh", "Dark Reader")  # MV3 on the store
 UBO_NAME = "uBlock Origin"
-D3WARD = "https://d3ward.github.io/toolz/adblock.html"
+# Public ad block score pages: informational only (third-party pages that can
+# change or stop running; d3ward's is archived). The gating checks are the
+# local ad page and dynamic filtering.
+SCORE_PAGES = (("d3ward", "https://d3ward.github.io/toolz/adblock.html", "d3ward.github.io"),
+               ("turtlecute", "https://adblock.turtlecute.org/", "adblock.turtlecute.org"))
+AD_SCRIPT = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
 JQUERY = "https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"
 
 ADS_PAGE = """<!doctype html><meta charset="utf-8"><title>mv2 ads</title>
@@ -48,7 +56,7 @@ ADS_PAGE = """<!doctype html><meta charset="utf-8"><title>mv2 ads</title>
 <div class="adsbygoogle ad-banner" id="ad-slot" style="width:300px;height:120px;background:#fdd">ad slot (.adsbygoogle)</div>
 <p id="state">running</p>
 <script>window.mv2 = {};</script>
-<script src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"
+<script src="%s"
   onload="mv2.ad='loaded'" onerror="mv2.ad='blocked'"></script>
 <script src="%s" onload="mv2.jq='loaded'" onerror="mv2.jq='blocked'"></script>
 <script>
@@ -59,7 +67,7 @@ addEventListener('load', () => setTimeout(() => {
   document.getElementById('state').textContent = JSON.stringify(mv2);
 }, 1500));
 </script>
-""" % JQUERY
+""" % (AD_SCRIPT, JQUERY)
 
 
 def log(message):
@@ -119,14 +127,15 @@ class Job:
         while time.monotonic() < deadline:
             try:
                 self.client = Client(self.socket, timeout=30)
-                if (self.client.call("debug.cef").get("result") or {}).get("ok", True):
+                if (self.client.call("debug.cef").get("result") or {}).get("ok"):
                     break
             except (OSError, ConnectionError, ValueError):
-                time.sleep(0.3)
+                pass
+            time.sleep(0.3)
         else:
             raise SystemExit("the app socket never answered")
-        binary = os.path.join(self.app, "Contents/MacOS")
-        binary = os.path.join(binary, os.listdir(binary)[0])
+        with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as plist:
+            binary = os.path.join(self.app, "Contents/MacOS", plistlib.load(plist)["CFBundleExecutable"])
         listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
         pids = [int(p) for p, _, c in (line.strip().partition(" ") for line in listing.splitlines()) if c == binary]
         self.pid = pids[-1] if pids else None
@@ -167,9 +176,11 @@ class Job:
         return (self.call("browser.extensions").get("result") or {}).get("extensions") or []
 
     # -- evidence ---------------------------------------------------------
-    def row(self, check, ok, detail):
-        self.results.append({"check": check, "ok": bool(ok), "detail": detail})
-        log(f"{'PASS' if ok else 'FAIL'} {check}: {json.dumps(detail)[:400]}")
+    def row(self, check, ok, detail, gating=True):
+        """`gating=False`: recorded evidence that does not decide the phase."""
+        self.results.append({"check": check, "ok": bool(ok), "gating": gating, "detail": detail})
+        label = ("PASS" if ok else "FAIL") if gating else "INFO"
+        log(f"{label} {check}: {json.dumps(detail)[:400]}")
 
     def page_shot(self, session, name, full=False):
         """A 2x PNG of a Chromium page through CDP."""
@@ -204,10 +215,11 @@ class Job:
         return os.path.basename(path)
 
     def finish(self):
-        ok = bool(self.results) and all(r["ok"] for r in self.results)
+        gating = [r for r in self.results if r["gating"]]
+        ok = bool(gating) and all(r["ok"] for r in gating)
         with open(os.path.join(self.out, "results.json"), "w") as out:
             json.dump({"phase": self.phase, "ok": ok, "results": self.results}, out, indent=2)
-        log(f"{self.phase}: {'ALL PASS' if ok else 'FAILURES'} ({sum(r['ok'] for r in self.results)}/{len(self.results)})")
+        log(f"{self.phase}: {'ALL PASS' if ok else 'FAILURES'} ({sum(r['ok'] for r in gating)}/{len(gating)} gating)")
         return 0 if ok else 1
 
 
@@ -248,18 +260,35 @@ def ads_check(job, url, label, expect_blocked):
     return state
 
 
-def d3ward_score(job, label):
-    session = job.open_tab(D3WARD, match="d3ward.github.io")
+def host_reaches(url):
+    """The GUI host itself reaches `url` (the control for a "blocked" result)."""
     try:
-        time.sleep(20)  # the page runs its probes, then writes the score
-        text = session.evaluate("document.body.innerText") or ""
-        shot = job.page_shot(session, f"{label}-d3ward", full=True)
-    finally:
-        session.close()
-    numbers = re.findall(r"(\d{1,3}(?:\.\d+)?)\s*%", text)
-    detail = {"percents": numbers[:6], "text_head": text[:600], "shot": shot}
-    job.row(f"{label}: d3ward score read", bool(numbers), detail)
-    return detail
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=15) as response:
+            return response.status
+    except Exception as error:  # noqa: BLE001
+        return repr(error)
+
+
+def score_pages(job, label):
+    """Informational: the public ad block score pages, text and a full-page shot."""
+    scores = {}
+    for name, url, match in SCORE_PAGES:
+        try:
+            session = job.open_tab(url, match=match)
+        except RuntimeError as error:
+            job.row(f"{label}: {name} score page", False, repr(error), gating=False)
+            continue
+        try:
+            time.sleep(25)  # the page runs its probes, then writes the score
+            text = session.evaluate("document.body.innerText") or ""
+            shot = job.page_shot(session, f"{label}-{name}", full=True)
+        finally:
+            session.close()
+        percents = re.findall(r"(\d{1,3}(?:\.\d+)?)\s*%", text)
+        scores[name] = percents[:6]
+        job.row(f"{label}: {name} score page", bool(percents),
+                {"percents": percents[:6], "text_head": text[:500], "shot": shot}, gating=False)
+    return scores
 
 
 def phase_store(_args):
@@ -319,7 +348,7 @@ def phase_baseline(_args):
     job.launch()
     try:
         ads_check(job, url, "baseline", expect_blocked=False)
-        d3ward_score(job, "baseline")
+        score_pages(job, "baseline")
     finally:
         job.stop()
         server.shutdown()
@@ -353,8 +382,12 @@ def phase_ublock(args):
         job.row("ublock: MV2 background page runs", manifest_version == 2 and background is not None,
                 {"background": (background or {}).get("url"), "manifest_version": manifest_version})
         time.sleep(10)  # first start compiles the bundled filter lists
+        # Controls: the host reaches both scripts, so "blocked" in the page is uBlock Origin.
+        for name, address in (("ad script", AD_SCRIPT), ("jQuery CDN", JQUERY)):
+            status = host_reaches(address)
+            job.row(f"control: the host reaches the {name}", status == 200, {"url": address, "status": status})
         ads_check(job, url, "ublock", expect_blocked=True)
-        d3ward_score(job, "ublock")
+        score_pages(job, "ublock")
 
         # Popup through the toolbar button's own click path.
         before = {t.get("id") for t in cdp.targets(job.port)}
