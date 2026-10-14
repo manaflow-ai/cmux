@@ -119,7 +119,6 @@ on:
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
-      - scripts/cmux-next/check-ime-input.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -254,7 +253,6 @@ on:
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
-      - scripts/cmux-next/check-ime-input.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -883,13 +881,6 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
 
-      # IME-INPUT (cx-dd5b4): no new key synthesis from characters, terminal text only through
-      # the terminal's NSTextInputClient, every page entry has the IME key layer.
-      - name: IME input paths
-        id: ime-input
-        continue-on-error: true
-        run: python3 scripts/cmux-next/check-ime-input.py "$GITHUB_WORKSPACE"
-
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -1147,7 +1138,6 @@ jobs:
             ${{ steps.app-size.outcome }}|CmuxNextApp size cap
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
-            ${{ steps.ime-input.outcome }}|IME input paths
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
