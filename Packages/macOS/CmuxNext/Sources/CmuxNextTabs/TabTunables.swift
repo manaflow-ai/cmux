@@ -21,7 +21,7 @@ public nonisolated enum TabTunables {
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
     public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x inside the close button.") { Metrics.space4 - Metrics.space1 / 2 }
     public static let iconTitleSpacing = points("iconTitleSpacing", "Icon to title", help: "Gap between a tab's icon and its title.") {
-        Metrics.density == .compact ? Metrics.space2 : Metrics.space3
+        Metrics.compactTabs ? Metrics.space2 : Metrics.space3
     }
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }
