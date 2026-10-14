@@ -419,7 +419,7 @@ pub use frontend_browser_history::{
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
-pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use split_respawn::{TAB_SPLIT_KEEP_FOCUS_CAPABILITY, TAB_SPLIT_RESPAWN_CAPABILITY};
 pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
@@ -1568,6 +1568,9 @@ enum Command {
         ratio: Option<f32>,
         #[serde(default)]
         respawn: Option<SplitRespawnRequest>,
+        /// `tab-split-keep-focus-v1`: the focused pane stays focused.
+        #[serde(default)]
+        keep_focus: bool,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -3376,18 +3379,25 @@ fn handle_command_with_cancellation(
         Command::MoveTabToWorkspace { surface, workspace, transaction } => {
             cmd_tabs::move_tab_to_workspace(mux, actor, surface, workspace, transaction)
         }
-        Command::MoveTabToSplit { surface, pane, edge, ratio, respawn, transaction } => {
-            cmd_tabs::move_tab_to_split(
-                mux,
-                client,
-                surface,
-                pane,
-                edge,
-                ratio,
-                respawn,
-                transaction,
-            )
-        }
+        Command::MoveTabToSplit {
+            surface,
+            pane,
+            edge,
+            ratio,
+            respawn,
+            keep_focus,
+            transaction,
+        } => cmd_tabs::move_tab_to_split(
+            mux,
+            client,
+            surface,
+            pane,
+            edge,
+            ratio,
+            respawn,
+            keep_focus,
+            transaction,
+        ),
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
