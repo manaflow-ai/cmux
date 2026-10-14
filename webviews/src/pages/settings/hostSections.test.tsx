@@ -98,7 +98,10 @@ test("Development shows only when the host is a DEV build, however it is reached
   dev.unmount();
   // NIGHTLY and Release: the deep link (and the relay key's focus link) open the default page.
   for (const path of ["/settings/development", "/settings/development?focus=macScreen.debug.relayOnly"]) {
-    const page = await renderPage({ path, setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }) });
+    const page = await renderPage({
+      path,
+      setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+    });
     expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
     expect(page.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).toBeNull();
     expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();

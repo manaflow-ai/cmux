@@ -3,7 +3,15 @@
 import { expect, test } from "bun:test";
 import exported from "../../../../schemas/settings/settings-schema.json";
 import "./testCatalog";
-import { CATEGORY_CARDS, categories, categoryOf, defaultCategory, homes, shownCategories, shownSection } from "./categories";
+import {
+  CATEGORY_CARDS,
+  categories,
+  categoryOf,
+  defaultCategory,
+  homes,
+  shownCategories,
+  shownSection,
+} from "./categories";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
 import { schema, sections } from "./schema";
@@ -38,7 +46,9 @@ test("a route to the Development category opens the default category outside DEV
   expect(shownSection("development", true)).toBe("development");
   expect(shownSection("advanced", false)).toBe("advanced");
   // The relay key's own focus link lands in Development, which a non-DEV build does not show.
-  expect(shownSection(parseLocation("/settings/development?focus=macScreen.debug.relayOnly").section, false)).toBe(defaultCategory);
+  expect(shownSection(parseLocation("/settings/development?focus=macScreen.debug.relayOnly").section, false)).toBe(
+    defaultCategory,
+  );
 });
 
 test("the Development category shows only in DEV builds", () => {
@@ -96,6 +106,8 @@ test("the page renders the exported layout", () => {
     })),
   ).toEqual(
     // dev_only is the Category's devOnly (checked by the DEV-only test above).
-    (page!.categories as Array<Record<string, unknown>>).map(({ aliases: _aliases, dev_only: _devOnly, ...category }) => category) as never,
+    (page!.categories as Array<Record<string, unknown>>).map(
+      ({ aliases: _aliases, dev_only: _devOnly, ...category }) => category,
+    ) as never,
   );
 });

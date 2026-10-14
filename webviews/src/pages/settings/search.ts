@@ -46,7 +46,13 @@ export type ListFilter = {
 // Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes.
 const UNLISTED = new Set(["appearance.themeEdits"]);
 
-export function filterRows({ query, changedOnly = false, valueOf, isChanged, devBuild = false }: ListFilter): SearchGroup[] {
+export function filterRows({
+  query,
+  changedOnly = false,
+  valueOf,
+  isChanged,
+  devBuild = false,
+}: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
     !UNLISTED.has(row.key) &&

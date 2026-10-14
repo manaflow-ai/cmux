@@ -74,7 +74,13 @@ export function SettingsApp() {
   // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
   const section = shownSection(location.section, state.host?.dev_build === true);
   const submit = () => {
-    const first = filterRows({ query, changedOnly, valueOf: (key) => valueOf(state, key), isChanged, devBuild: state.host?.dev_build === true })[0]?.rows[0];
+    const first = filterRows({
+      query,
+      changedOnly,
+      valueOf: (key) => valueOf(state, key),
+      isChanged,
+      devBuild: state.host?.dev_build === true,
+    })[0]?.rows[0];
     if (first) reveal(first.key);
   };
 
