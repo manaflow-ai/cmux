@@ -104,10 +104,7 @@ export const MODEL_PICKER_MIN_HEIGHT = 220;
 /// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can
 /// still grow it.
-export function pickerHeightBounds(
-  room: unknown,
-  opened: number | undefined,
-): { maxHeight: number; minHeight: number } {
+export function pickerHeightBounds(room: unknown, opened: number | undefined): { maxHeight: number; minHeight: number } {
   const roomed = typeof room === "number" && Number.isFinite(room) ? room : MODEL_PICKER_MAX_HEIGHT;
   const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
