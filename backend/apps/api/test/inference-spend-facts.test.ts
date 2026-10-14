@@ -326,3 +326,43 @@ describe("usage sync (cx-y79zh S4)", () => {
     expect(Number(stripe.events[1]!.timestamp)).toBeLessThan(closedEnd)
   })
 })
+
+describe("the included-amount stop (cx-y79zh S5)", () => {
+  const stopOn = { ...(env as object), USAGE_HARD_STOP_UNBILLED: "1" }
+  const spend = async (team: string, usd: number) =>
+    (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any).record(team, [{ key: `seed:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() }])
+
+  it("stops a team that cannot be billed at its plan's included amount, and lets it go once it is billable", async () => {
+    const stackUser = "included-stop-pro"
+    const { t, team } = await paidPerson(stackUser)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    fakeBoundaries(stripe, 0.000001)
+    await spend(team, 19.99999)
+    // Off by default: the member limit (200) is the only brake, as before.
+    expect((await chat(t)).status).toBe(200)
+    const stopped = await chat(t, stopOn)
+    expect(stopped.status).toBe(402)
+    const body = JSON.parse(stopped.text)
+    expect(body.error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 20 } })
+    expect(body.error.message).not.toMatch(/stripe|openrouter|stack/i)
+    // The usage sync sees the team on a subscription with a usage item: usage above the included amount is billed.
+    stripe.addSub("sub_inc1", "cus_inc1", { plan: "pro", stackUserId: stackUser }, "cmux-pro-monthly-50")
+    expect((await sync()).body).toMatchObject({ items_added: 1 })
+    expect((await chat(t, stopOn)).status).toBe(200)
+    // A mark the sync stopped renewing (canceled, moved off the card plan) expires: the stop applies again.
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+      m.ctx.storage.sql.exec(`UPDATE usage_billable SET seen_at = ?`, Date.now() - 3 * 3600_000)
+    })
+    expect((await chat(t, stopOn)).status).toBe(402)
+  })
+
+  it("gives Founders the Pro included amount", async () => {
+    const { t, team } = await paidPerson("included-stop-founders", "founders")
+    fakeBoundaries(fakeStripe({ start: 1, end: 2 }), 0.000001)
+    expect((await chat(t, stopOn)).status).toBe(200)
+    await spend(team, 20)
+    const r = await chat(t, stopOn)
+    expect(r.status).toBe(402)
+    expect(JSON.parse(r.text).error).toMatchObject({ code: "usage.included_reached", details: { included_usd: 20 } })
+  })
+})
