@@ -61,9 +61,11 @@ public struct RootView: View {
     /// Whether setup asks for notifications (a push build the system has not
     /// asked yet); nil until known.
     @State private var asksNotifications: Bool?
-    /// Set right after the launch handoff: later Welcome insertions (sign-out)
-    /// crossfade instead of replaying the launch intro.
-    @State private var handoffDone = false
+    /// The launch handed off straight to Welcome: Welcome is cut in (it
+    /// redraws the launch mark and plays its intro) instead of crossfading.
+    /// Fixed for the session, so a Welcome rebuilt mid-intro keeps playing;
+    /// cleared on sign-out, where Welcome crossfades in, settled.
+    @State private var welcomeCut = false
     @AppStorage("cnx.setupComplete") private var setupComplete = false
     private let options: ShellLaunchOptions
 
@@ -94,7 +96,7 @@ public struct RootView: View {
                 Group {
                     switch destination {
                     case .welcome:
-                        WelcomeView(auth: auth, playsLaunchIntro: !handoffDone, initialEmail: options.initialEmail)
+                        WelcomeView(auth: auth, playsLaunchIntro: welcomeCut, initialEmail: options.initialEmail)
                     case .setup:
                         SetupFlow(
                             steps: setupSteps, auth: auth, store: store,
@@ -110,7 +112,13 @@ public struct RootView: View {
                         ShellView(store: store, auth: auth, settings: settings, sidebar: sidebar, live: live, options: options)
                     }
                 }
-                .transition(.opacity.animation(theme.motion.gentle.animation))
+                // The launch-to-Welcome swap is a cut on both sides (an
+                // animation attached to a transition ignores the cut's
+                // transaction); every other swap crossfades, Welcome's exit
+                // after sign-in included.
+                .transition(welcomeCut && destination == .welcome
+                    ? .asymmetric(insertion: .identity, removal: .opacity.animation(theme.motion.gentle.animation))
+                    : .opacity.animation(theme.motion.gentle.animation))
             } else {
                 // Welcome redraws this mark on its first frame and animates it
                 // from there, so on that path the swap is a true cut: an
@@ -133,7 +141,10 @@ public struct RootView: View {
                 // animates it from there, so the swap must not fade either side.
                 var cut = Transaction()
                 cut.disablesAnimations = true
-                withTransaction(cut) { launchFinished = true }
+                withTransaction(cut) {
+                    welcomeCut = true
+                    launchFinished = true
+                }
             } else {
                 withAnimation(theme.motion.gentle.animation) { launchFinished = true }
             }
@@ -146,7 +157,6 @@ public struct RootView: View {
             accountChanged()
             await auth.loadTeams()
         }
-        .onChange(of: launchFinished) { _, finished in handoffDone = finished }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         .onChange(of: auth.teamList.phase, initial: true) { _, _ in planSetup() }
         .onChange(of: asksNotifications) { _, _ in planSetup() }
@@ -226,7 +236,7 @@ public struct RootView: View {
             LiveCoordinator.forgetSnapshots()
         }
         setupComplete = false
-        handoffDone = false
+        welcomeCut = false
         log.info("signed out: account state reset")
     }
 
