@@ -532,7 +532,15 @@ public final class ScreenStreamViewer: @unchecked Sendable {
             }
         }
         lock.withLock { tasks = [peerTask, signalTask] }
-        try await opened.wait(timeout: 30)
+        do {
+            try await opened.wait(timeout: 30)
+        } catch {
+            // A connect that failed leaves nothing behind: its room socket would
+            // otherwise offer to the host when it next joins and open a session
+            // nobody sees (the host shows a viewer that is not there).
+            close()
+            throw error
+        }
     }
 
     private func handleSignal(_ message: SignalMessage, link: VNCPeerLink, opened: OpenSignal) async throws {

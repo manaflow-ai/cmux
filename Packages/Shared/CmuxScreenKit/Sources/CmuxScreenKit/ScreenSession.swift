@@ -226,6 +226,9 @@ public final class ScreenSession {
     /// (backing off) before showing the error.
     private func streamDropped(_ message: String) {
         guard reconnectAttempts < reconnectLimit else {
+            // Giving up: the dropped stream's room socket would keep reconnecting.
+            stream?.close()
+            stream = nil
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
