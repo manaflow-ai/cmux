@@ -1,6 +1,7 @@
 {
   "en": {
     "action.archiveChief": "Archive Chief",
+    "action.back": "Back to Conversations",
     "action.copy": "Copy text",
     "action.copyConversationLink": "Copy Conversation Link",
     "action.copyLink": "Copy Link",
@@ -220,6 +221,7 @@
   },
   "ar": {
     "action.archiveChief": "أرشفة Chief",
+    "action.back": "العودة إلى المحادثات",
     "action.copy": "نسخ النص",
     "action.copyConversationLink": "نسخ رابط المحادثة",
     "action.copyLink": "نسخ الرابط",
@@ -439,6 +441,7 @@
   },
   "bs": {
     "action.archiveChief": "Arhiviraj Chief",
+    "action.back": "Nazad na razgovore",
     "action.copy": "Kopiraj tekst",
     "action.copyConversationLink": "Kopiraj link razgovora",
     "action.copyLink": "Kopiraj link",
@@ -658,6 +661,7 @@
   },
   "da": {
     "action.archiveChief": "Arkivér Chief",
+    "action.back": "Tilbage til samtaler",
     "action.copy": "Kopiér tekst",
     "action.copyConversationLink": "Kopiér link til samtale",
     "action.copyLink": "Kopiér link",
@@ -877,6 +881,7 @@
   },
   "de": {
     "action.archiveChief": "Chief archivieren",
+    "action.back": "Zurück zu den Unterhaltungen",
     "action.copy": "Text kopieren",
     "action.copyConversationLink": "Link zur Unterhaltung kopieren",
     "action.copyLink": "Link kopieren",
@@ -1096,6 +1101,7 @@
   },
   "es": {
     "action.archiveChief": "Archivar Chief",
+    "action.back": "Volver a las conversaciones",
     "action.copy": "Copiar texto",
     "action.copyConversationLink": "Copiar enlace de la conversación",
     "action.copyLink": "Copiar enlace",
@@ -1315,6 +1321,7 @@
   },
   "fr": {
     "action.archiveChief": "Archiver le Chief",
+    "action.back": "Retour aux conversations",
     "action.copy": "Copier le texte",
     "action.copyConversationLink": "Copier le lien de la conversation",
     "action.copyLink": "Copier le lien",
@@ -1534,6 +1541,7 @@
   },
   "it": {
     "action.archiveChief": "Archivia Chief",
+    "action.back": "Torna alle conversazioni",
     "action.copy": "Copia testo",
     "action.copyConversationLink": "Copia link della conversazione",
     "action.copyLink": "Copia link",
@@ -1753,6 +1761,7 @@
   },
   "ja": {
     "action.archiveChief": "Chief をアーカイブ",
+    "action.back": "会話一覧に戻る",
     "action.copy": "テキストをコピー",
     "action.copyConversationLink": "会話のリンクをコピー",
     "action.copyLink": "リンクをコピー",
@@ -1972,6 +1981,7 @@
   },
   "km": {
     "action.archiveChief": "ទុកក្នុងបណ្ណសារ Chief",
+    "action.back": "ត្រឡប់ទៅការសន្ទនា",
     "action.copy": "ចម្លងអត្ថបទ",
     "action.copyConversationLink": "ចម្លងតំណការសន្ទនា",
     "action.copyLink": "ចម្លងតំណ",
@@ -2191,6 +2201,7 @@
   },
   "ko": {
     "action.archiveChief": "Chief 보관",
+    "action.back": "대화 목록으로 돌아가기",
     "action.copy": "텍스트 복사",
     "action.copyConversationLink": "대화 링크 복사",
     "action.copyLink": "링크 복사",
@@ -2410,6 +2421,7 @@
   },
   "nb": {
     "action.archiveChief": "Arkiver Chief",
+    "action.back": "Tilbake til samtaler",
     "action.copy": "Kopier tekst",
     "action.copyConversationLink": "Kopier lenke til samtalen",
     "action.copyLink": "Kopier lenke",
@@ -2629,6 +2641,7 @@
   },
   "pl": {
     "action.archiveChief": "Archiwizuj Chief",
+    "action.back": "Wróć do rozmów",
     "action.copy": "Kopiuj tekst",
     "action.copyConversationLink": "Kopiuj link do rozmowy",
     "action.copyLink": "Kopiuj link",
@@ -2848,6 +2861,7 @@
   },
   "pt-BR": {
     "action.archiveChief": "Arquivar Chief",
+    "action.back": "Voltar às conversas",
     "action.copy": "Copiar texto",
     "action.copyConversationLink": "Copiar link da conversa",
     "action.copyLink": "Copiar link",
@@ -3067,6 +3081,7 @@
   },
   "ru": {
     "action.archiveChief": "Архивировать Chief",
+    "action.back": "Назад к разговорам",
     "action.copy": "Копировать текст",
     "action.copyConversationLink": "Скопировать ссылку на беседу",
     "action.copyLink": "Скопировать ссылку",
@@ -3286,6 +3301,7 @@
   },
   "th": {
     "action.archiveChief": "เก็บ Chief ถาวร",
+    "action.back": "กลับไปที่การสนทนา",
     "action.copy": "คัดลอกข้อความ",
     "action.copyConversationLink": "คัดลอกลิงก์การสนทนา",
     "action.copyLink": "คัดลอกลิงก์",
@@ -3505,6 +3521,7 @@
   },
   "tr": {
     "action.archiveChief": "Chief'i arşivle",
+    "action.back": "Konuşmalara dön",
     "action.copy": "Metni kopyala",
     "action.copyConversationLink": "Sohbet bağlantısını kopyala",
     "action.copyLink": "Bağlantıyı kopyala",
@@ -3724,6 +3741,7 @@
   },
   "uk": {
     "action.archiveChief": "Архівувати Chief",
+    "action.back": "Назад до розмов",
     "action.copy": "Копіювати текст",
     "action.copyConversationLink": "Копіювати посилання на розмову",
     "action.copyLink": "Копіювати посилання",
@@ -3943,6 +3961,7 @@
   },
   "vi": {
     "action.archiveChief": "Lưu trữ Chief",
+    "action.back": "Quay lại cuộc trò chuyện",
     "action.copy": "Sao chép văn bản",
     "action.copyConversationLink": "Sao chép liên kết cuộc trò chuyện",
     "action.copyLink": "Sao chép liên kết",
@@ -4162,6 +4181,7 @@
   },
   "zh-Hans": {
     "action.archiveChief": "归档 Chief",
+    "action.back": "返回对话",
     "action.copy": "复制文本",
     "action.copyConversationLink": "拷贝对话链接",
     "action.copyLink": "拷贝链接",
@@ -4381,6 +4401,7 @@
   },
   "zh-Hant": {
     "action.archiveChief": "封存 Chief",
+    "action.back": "返回對話",
     "action.copy": "拷貝文字",
     "action.copyConversationLink": "拷貝對話連結",
     "action.copyLink": "拷貝連結",
