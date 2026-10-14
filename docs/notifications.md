@@ -395,7 +395,7 @@ cmux sets these in child shells:
 ```
 cmux notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 cmux notification list [--limit <n>]
-cmux notification create --title <text> --body <text> [--subtitle <text>] [--level info|success|warning|error] [--terminal <term_id>]
+cmux notification create --title <text> --body <text> [--subtitle <text>] [--level info|warning|error] [--terminal <term_id>]
 cmux notification clear [--terminal <term_id>]
 cmux notification ack --client <client-id> <notification_id...>
 cmux app ping
