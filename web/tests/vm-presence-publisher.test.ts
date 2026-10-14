@@ -271,10 +271,12 @@ describe("cron path (no request scope) awaits the publish", () => {
     const vmId = "00000000-0000-4000-8000-000000000001";
     let releasePublish!: () => void;
     const publishGate = new Promise<void>((resolve) => { releasePublish = resolve; });
+    let markPublishStarted!: () => void;
+    const publishStarted = new Promise<void>((resolve) => { markPublishStarted = resolve; });
     const published: string[] = [];
     const deps: VmSyncPublisherDeps = {
       readRow: async () => row({ id: vmId }),
-      publish: async (teamId) => { await publishGate; published.push(teamId); },
+      publish: async (teamId) => { markPublishStarted(); await publishGate; published.push(teamId); },
       // The cron-path scheduler: no request scope, so it awaits the work.
       schedule: scheduleVmSyncWork,
     };
@@ -284,7 +286,7 @@ describe("cron path (no request scope) awaits the publish", () => {
     let writeSettled = false;
     const write = Effect.runPromise(repo.markProviderObservedStatus({ id: vmId, providerVmId: "vm-1", status: "paused" }))
       .then((value) => { writeSettled = true; return value; });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await publishStarted;
     expect(writeSettled).toBe(false);
     expect(published).toEqual([]);
     releasePublish();

@@ -314,6 +314,7 @@ function emptyCapabilities(): VmCapabilities {
     snapshot: false,
     restore: false,
     fork: false,
+    restart: false,
     exec: false,
     stats: false,
     ports: false,
