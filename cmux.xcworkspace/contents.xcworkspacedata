@@ -286,6 +286,9 @@
          location = "group:CmuxStatusBar">
       </FileRef>
       <FileRef
+         location = "group:CmuxStatusBarUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSudoBroker">
       </FileRef>
       <FileRef

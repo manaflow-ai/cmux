@@ -1571,6 +1571,8 @@
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
 		B07700010000000000000005 /* CmuxStatusBar in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000004 /* CmuxStatusBar */; };
 		B07700010000000000000006 /* CmuxStatusBar in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000004 /* CmuxStatusBar */; };
+		B07700010000000000000009 /* CmuxStatusBarUI in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000008 /* CmuxStatusBarUI */; };
+		B0770001000000000000000A /* CmuxStatusBarUI in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000008 /* CmuxStatusBarUI */; };
 		D96970000000000000000001 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
 		D96970000000000000000002 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
 		D96970000000000000000003 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
@@ -9206,6 +9208,7 @@
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
 				B07700010000000000000005 /* CmuxStatusBar in Frameworks */,
+				B07700010000000000000009 /* CmuxStatusBarUI in Frameworks */,
 				D96970000000000000000001 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000004 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000005 /* CmuxSurfaceCatalogModel in Frameworks */,
@@ -9306,6 +9309,7 @@
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
 				B07700010000000000000006 /* CmuxStatusBar in Frameworks */,
+				B0770001000000000000000A /* CmuxStatusBarUI in Frameworks */,
 				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000004 /* CmuxSurfaceCatalogModel in Frameworks */,
@@ -13968,6 +13972,7 @@
 			packageProductDependencies = (
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				B07700010000000000000004 /* CmuxStatusBar */,
+				B07700010000000000000008 /* CmuxStatusBarUI */,
 				C10DC1000000000000000002 /* CmuxCloud */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				C1D7A0000000000000000002 /* CmuxCloudTui */,
@@ -14133,6 +14138,7 @@
 			packageProductDependencies = (
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
 				B07700010000000000000004 /* CmuxStatusBar */,
+				B07700010000000000000008 /* CmuxStatusBarUI */,
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
@@ -14309,6 +14315,7 @@
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
 				B07700010000000000000003 /* XCLocalSwiftPackageReference "CmuxStatusBar" */,
+				B07700010000000000000007 /* XCLocalSwiftPackageReference "CmuxStatusBarUI" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -19832,6 +19839,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxStatusBar;
 		};
+		B07700010000000000000007 /* XCLocalSwiftPackageReference "CmuxStatusBarUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxStatusBarUI;
+		};
 		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxRemoteDaemon;
@@ -20216,6 +20227,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B07700010000000000000003 /* XCLocalSwiftPackageReference "CmuxStatusBar" */;
 			productName = CmuxStatusBar;
+		};
+		B07700010000000000000008 /* CmuxStatusBarUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B07700010000000000000007 /* XCLocalSwiftPackageReference "CmuxStatusBarUI" */;
+			productName = CmuxStatusBarUI;
 		};
 		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
 			isa = XCSwiftPackageProductDependency;
