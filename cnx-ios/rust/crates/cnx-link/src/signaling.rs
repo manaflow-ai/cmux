@@ -374,6 +374,11 @@ impl SignalingClient {
         &self.shared.device_id
     }
 
+    /// Whether `other` is a handle of this same socket.
+    pub fn same_socket(&self, other: &SignalingClient) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared)
+    }
+
     /// When the socket opened.
     pub fn opened_at(&self) -> std::time::Instant {
         self.shared.opened

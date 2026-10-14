@@ -81,6 +81,12 @@ pub struct DialOptions {
     /// Network privacy answers for LAN peers).
     #[doc(hidden)]
     pub refuse_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
+    /// Test support: WireGuard drops plain UDP from any address it has not
+    /// sent plain UDP to, as an address-restricted NAT in front of this
+    /// side would. A peer that roams then reaches this side only after
+    /// announcing its new endpoints.
+    #[doc(hidden)]
+    pub restrict_inbound_udp: bool,
     /// Offer and accept the input lane (PROTOCOL.md "Lanes"): a second
     /// stream for keystrokes and resizes. Off only to measure or test the
     /// single-stream behavior of older peers.
@@ -105,6 +111,7 @@ impl Default for DialOptions {
             relay_only: false,
             drop_outbound_udp: false,
             refuse_udp_to: None,
+            restrict_inbound_udp: false,
             input_lane: true,
             stock_ice_waits: false,
             timeout: Duration::from_secs(25),
