@@ -37,6 +37,9 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false
+    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
+    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
+    public var classicHome = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
