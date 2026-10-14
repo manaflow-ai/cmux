@@ -78,6 +78,14 @@ extension IPhoneHostService {
         case .ask:
             break
         }
+        // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
+        // pairs without the person-only prompt (IPhonePairingSeed).
+        if let seed = dependencies?.pairingSeed, seed.trusts(request), var trusted = paired, trusted.userID == account?.userID {
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the test seed")
+            trusted.approve(request, at: Date())
+            savePaired(trusted)
+            return
+        }
         let outcome = prompts.receive(request, at: Date())
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
         if outcome == .ask { announce(request) }
