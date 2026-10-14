@@ -916,7 +916,9 @@ describe("Freestyle client configuration", () => {
   });
 
   test("public vm exec leaves the guest user to the provider default", () => {
-    expect(driverSource).toContain("const r = await vm.exec({ command, timeoutMs });");
+    expect(driverSource).toContain(
+      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+    );
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {
