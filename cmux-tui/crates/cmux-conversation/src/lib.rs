@@ -49,7 +49,8 @@ pub use search::{
 };
 pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
-    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
+    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
+    ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.
