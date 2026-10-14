@@ -35,6 +35,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
 parser.add_argument("--cua", default=os.path.expanduser("~/.local/bin/cua-driver"))
+parser.add_argument("--moves", choices=("real", "warp"), default="real",
+                    help="real: posted mouse-moved events along a path (pointer-probe path); warp: cua move_cursor (no move events)")
+parser.add_argument("--quick", action="store_true", help="only the at-rest cursor checks (and the still pointer over a reloading page)")
 parser.add_argument("--env", action="append", default=[], help="K=V passed to the app (repeatable)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="omnibar-real-"))
 opts = parser.parse_args()
@@ -133,7 +136,16 @@ def activate():
 
 
 def real_move(x, y):
-    cua("move_cursor", {"x": round(x * SCALE), "y": round(y * SCALE), "scope": "desktop"})
+    """Moves the pointer to screen point (x, y) (top left). `real`: mouse-moved events along a path,
+    as a mouse sends them; `warp`: cua-driver warps the pointer (the app gets no move event)."""
+    if opts.moves == "warp":
+        cua("move_cursor", {"x": round(x * SCALE), "y": round(y * SCALE), "scope": "desktop"})
+        return
+    try:
+        x0, y0 = map(float, probe("where").split())
+    except ValueError:
+        x0, y0 = x, y
+    probe("path", x0, y0, x, y, 8)
 
 
 def move(point):
@@ -239,7 +251,7 @@ def real_drag(start, end):
     if not found:
         return print("cua-driver lists no cmux window", flush=True)
     window_id = found[0]["window_id"]
-    state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_screenshot": True})
+    state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
     width = png_width(state.get("screenshot_png_b64") or "")
     frame = (main_window() or {}).get("frame") or {}
     scale = (width / frame["width"]) if width and frame.get("width") else SCALE
@@ -247,6 +259,22 @@ def real_drag(start, end):
               "to_x": round(end[0] * scale), "to_y": round(end[1] * scale), "delivery_mode": "foreground", "steps": 30,
               "duration_ms": 900}
     print("   cua drag", params, json.dumps(cua("drag", params))[:200], flush=True)
+
+
+def still_pointer_checks(engine, text):
+    """The pointer rests on the omnibar text and does not move while the page reloads, and while
+    the page sets its own cursor."""
+    got = cursor_at(center(text), "iBeam")
+    call("browser.page.eval", {"script": "location.reload(); 1"})
+    time.sleep(2.0)  # the reload's own cursor changes land while the pointer stays still
+    now = probe("cursor")
+    print(f"   t={time.monotonic():.3f} screen cursor {now} (still pointer, after a reload)", flush=True)
+    check(now == "iBeam", f"{engine} at rest, still pointer over the text while the page reloads: iBeam (screen shows {now})")
+    call("browser.page.eval", {"script": "document.documentElement.style.cursor='progress'; 1"})
+    time.sleep(1.0)
+    now = probe("cursor")
+    check(now == "iBeam", f"{engine} at rest, still pointer over the text while the page sets its cursor: iBeam (screen shows {now})")
+    call("browser.page.eval", {"script": "document.documentElement.style.cursor=''; 1"})
 
 
 def page_checks(engine, frames, page):
@@ -257,6 +285,7 @@ def page_checks(engine, frames, page):
     if not origin:
         return check(False, f"{engine}: the page reports a real pointer move (viewport origin)")
     link = element_center(origin, "lnk")
+    move(center(text))
     move(link)
     check(bool(quiet_wait(lambda: page_eval("lnk.matches(':hover')") is True, 3)),
           f"{engine}: the page link shows its hover under the real pointer")
@@ -339,6 +368,9 @@ try:
             got = cursor_at(point, want)
             check(got == want, f"{engine} at rest, page has the keyboard: {want} over {name} (screen shows {got})")
         check(alive(), f"{engine}: the app answers after the pointer moves")
+        still_pointer_checks(engine, text)
+        if opts.quick:
+            continue
         page_checks(engine, frames, page)
         check(alive(), f"{engine}: the app answers after the hover and drag checks")
         # The after-move hook's cost (DEBUG `move_hook`, ArrowCursorView.pointerDidMove past its
@@ -383,5 +415,10 @@ finally:
         app.wait()
     teardown.end()
 
+with open(os.path.join(opts.out, "app.log"), errors="replace") as f:
+    log = f.read()
+if "cursor trace installed" in log:
+    print(f"trace: the app got {log.count('] event moved ')} mouseMoved, {log.count('] event entered ')} mouseEntered, "
+          f"{log.count('] event cursorUpdate ')} cursorUpdate events (moves: {opts.moves})", flush=True)
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)

@@ -22,7 +22,26 @@ public class ArrowCursorView: NSView {
     private(set) var trackedCursor: OmnibarPointer.Cursor?
 
     public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
+        let arrow = OmnibarPointer.cursor(.toolbar).cursor
+        guard Self.experiment("r"), let text = omnibarTextArea() else { return addCursorRect(bounds, cursor: arrow) }
+        // The arrow everywhere but over the omnibar's text area (its own I-beam rect).
+        for strip in [NSRect(x: bounds.minX, y: bounds.minY, width: text.minX - bounds.minX, height: bounds.height),
+                      NSRect(x: text.maxX, y: bounds.minY, width: bounds.maxX - text.maxX, height: bounds.height),
+                      NSRect(x: text.minX, y: bounds.minY, width: text.width, height: text.minY - bounds.minY),
+                      NSRect(x: text.minX, y: text.maxY, width: text.width, height: bounds.maxY - text.maxY)]
+            where strip.width > 0 && strip.height > 0 {
+            addCursorRect(strip, cursor: arrow)
+        }
+    }
+
+    /// The first omnibar's text area in the row's coordinates (cursor rects only).
+    private func omnibarTextArea() -> NSRect? {
+        var stack = subviews
+        while let view = stack.popLast() {
+            if let bar = view as? AddressBarView { return bar.convert(bar.textArea, to: self) }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
     }
 
     public override func updateTrackingAreas() {
@@ -36,8 +55,9 @@ public class ArrowCursorView: NSView {
         CursorTrace.install()
         #endif
         cursorTracker.row = self
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                  owner: cursorTracker)
+        var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect]
+        if Self.experiment("u") { options.insert(.cursorUpdate) }
+        let area = NSTrackingArea(rect: .zero, options: options, owner: cursorTracker)
         addTrackingArea(area)
         cursorArea = area
     }
@@ -108,4 +128,10 @@ private final class RowCursorTracker: NSResponder {
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {}
+    /// Experiment `u`: the row answers AppKit's cursor update with its own cursor at the pointer
+    /// (read from the window, not from the event).
+    override func cursorUpdate(with event: NSEvent) {
+        guard let row, let window = row.window else { return }
+        row.setCursor(at: window.mouseLocationOutsideOfEventStream)
+    }
 }

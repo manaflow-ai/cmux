@@ -2,6 +2,8 @@
 // (`nx-remote --needs input`; omnibar-pointer-real.py builds and runs it).
 //
 //   pointer-probe move X Y     post a mouse move (needs an Accessibility grant; the proof moves through cua-driver)
+//   pointer-probe path X0 Y0 X1 Y1 N   post N mouse moves along a line, about 120 Hz, as a mouse does
+//   pointer-probe where        print the pointer (screen points from the top left)
 //   pointer-probe click X Y    post a left press and release there
 //   pointer-probe cursor       print the cursor on screen now: iBeam, arrow, or other:<hot spot> <size>
 //   pointer-probe screen       print the main screen's height in points
@@ -29,6 +31,20 @@ func same(_ a: NSCursor, _ b: NSCursor) -> Bool {
 switch args.count > 1 ? args[1] : "" {
 case "move":
     post(.mouseMoved, at: point())
+case "path":
+    guard args.count >= 7, let x0 = Double(args[2]), let y0 = Double(args[3]), let x1 = Double(args[4]), let y1 = Double(args[5]),
+          let steps = Int(args[6]), steps > 0 else {
+        FileHandle.standardError.write("usage: pointer-probe path X0 Y0 X1 Y1 N\n".data(using: .utf8)!)
+        exit(2)
+    }
+    for step in 1...steps {
+        let t = Double(step) / Double(steps)
+        post(.mouseMoved, at: CGPoint(x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t))
+        usleep(8_000) // a mouse reports about every 8 ms; the window server coalesces faster posts
+    }
+case "where":
+    let location = CGEvent(source: nil)?.location ?? .zero
+    print("\(location.x) \(location.y)")
 case "click":
     let location = point()
     post(.leftMouseDown, at: location)

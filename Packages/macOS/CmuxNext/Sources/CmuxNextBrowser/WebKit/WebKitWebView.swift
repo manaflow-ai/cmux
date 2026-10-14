@@ -16,9 +16,6 @@ final class WebKitWebView: WKWebView {
     /// A move outside the page (AppKit sends the first responder every move in the window) is
     /// withheld past the first, so the page sets no cursor over the toolbar (`ArrowCursorView+PageMoves`).
     override func mouseMoved(with event: NSEvent) {
-        #if DEBUG
-        CursorTrace.event(event)
-        #endif
         guard ArrowCursorView.pageTakesMove(at: convert(event.locationInWindow, from: nil), visibleRect: visibleRect,
                                             hadPointer: &hadPointer) else { return }
         super.mouseMoved(with: event)

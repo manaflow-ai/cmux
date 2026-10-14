@@ -21,16 +21,24 @@ public import AppKit
 ///   selection or a drag that starts in the page follows the pointer anywhere.
 /// No allocation; reads only `window` and `locationInWindow` of a move.
 extension ArrowCursorView {
-    /// `CMUX_NEXT_PAGE_MOVES=all` (DEBUG) gives the page every move again, to compare.
-    static let withholdsOutsideMoves: Bool = {
+    /// Experiments for the at-rest cursor (DEBUG, `CMUX_NEXT_OMNIBAR_EXPERIMENT`, letters):
+    /// `f` withholds page moves outside the page, `u` makes the row answer cursor updates,
+    /// `r` keeps the row's arrow rect out of the omnibar text area. Release: none.
+    static func experiment(_ letter: Character) -> Bool {
         #if DEBUG
-        ProcessInfo.processInfo.environment["CMUX_NEXT_PAGE_MOVES"] != "all"
+        experiments.contains(letter)
         #else
-        true
+        false
         #endif
-    }()
+    }
 
-    private static let chromiumWindowClass: AnyClass? = NSClassFromString("NativeWidgetMacNSWindow")
+    #if DEBUG
+    private static let experiments = ProcessInfo.processInfo.environment["CMUX_NEXT_OMNIBAR_EXPERIMENT"] ?? ""
+    #endif
+
+    static var withholdsOutsideMoves: Bool { experiment("f") }
+
+    private static let chromiumWindowClasses: [AnyClass] = ["NativeWidgetMacNSWindow", "CefNSWindow"].compactMap(NSClassFromString)
     /// The Chromium page window the pointer was last inside (0: none), for the one leave.
     private static var chromiumWindowWithPointer = 0
 
@@ -38,11 +46,8 @@ extension ArrowCursorView {
     /// move for a Chromium page window (a child window) outside that window,
     /// past the one leave. The caller then runs `pointerDidMove` itself.
     public static func withholdsPageMove(_ event: NSEvent) -> Bool {
-        #if DEBUG
-        CursorTrace.event(event)
-        #endif
         guard withholdsOutsideMoves, let window = event.window, window.parent != nil,
-              let chromiumWindowClass, window.isKind(of: chromiumWindowClass) else { return false }
+              chromiumWindowClasses.contains(where: { window.isKind(of: $0) }) else { return false }
         let point = event.locationInWindow
         let size = window.frame.size
         if point.x >= 0, point.y >= 0, point.x < size.width, point.y < size.height {

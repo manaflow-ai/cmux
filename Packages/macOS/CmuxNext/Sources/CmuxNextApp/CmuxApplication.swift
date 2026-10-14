@@ -63,6 +63,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         inputObserver?(event)
+        #if DEBUG
+        ArrowCursorView.traceEvent(event)
+        #endif
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
