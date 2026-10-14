@@ -652259,6 +652259,124 @@
         "tr": { "stringUnit": { "state": "translated", "value": "Cloud makinesi süre dolmadan isteğe yanıt vermedi. Yeniden denemeden önce bağlantı kontrol edilecek." } },
         "uk": { "stringUnit": { "state": "translated", "value": "Хмарна машина не відповіла до завершення терміну. Перед повторною спробою з’єднання буде перевірено." } }
       }
+    },
+    "cloud.welcome.note.teamAvailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud can be enabled through your team; machine access follows the team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن تفعيل Cloud عبر فريقك؛ ويعتمد الوصول إلى الأجهزة على خطة الفريق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud kann über Ihr Team aktiviert werden; der Maschinenzugriff richtet sich nach dem Teamplan."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud se puede activar a través de tu equipo; el acceso a las máquinas depende del plan del equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud peut être activé via votre équipe ; l’accès aux machines dépend du forfait de l’équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud はチームを通じて有効にできます。マシンへのアクセスはチームのプランに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 통해 Cloud를 활성화할 수 있으며 머신 사용 권한은 팀 요금제에 따라 결정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可通过您的团队启用 Cloud；机器访问权限取决于团队方案。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 可透過您的團隊啟用；機器存取權限取決於團隊方案。"
+          }
+        }
+      }
+    },
+    "cloud.welcome.note.teamIncluded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Included through your team’s plan."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مضمّن في خطة فريقك."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Teamplan enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incluido en el plan de tu equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inclus dans le forfait de votre équipe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームのプランに含まれています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 요금제에 포함되어 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您团队的方案中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含在您團隊的方案中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

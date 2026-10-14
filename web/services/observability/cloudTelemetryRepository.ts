@@ -25,7 +25,8 @@ export async function acceptCloudTelemetry(
   const rows = batch.spans.map((span) => {
     const payload = { client: batch.client, span, source: serverErrorCode ? "server" : "client", ...(serverErrorCode ? { serverErrorCode } : {}) };
     const encoded = canonicalJSON(payload);
-    // Hash only the submitted event: retries across deployments remain idempotent.
+    // Hash only the event, not ingest metadata, so retries across deployments remain idempotent.
+    // The event is the contract-normalized span; see parseCloudTelemetryUpload for the catalog-change window.
     // Store origin metadata separately so a later drain cannot relabel old errors.
     const backend = {
       tag: process.env.CMUX_DEV_BUILD_TAG ?? "unknown",

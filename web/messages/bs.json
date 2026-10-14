@@ -45,6 +45,16 @@
       "message": "Cloud provajder nije odgovorio na vrijeme.",
       "action": "Pokušajte ponovo za trenutak."
     },
+    "providerCapacity": {
+      "title": "Trenutno nema Cloud kapaciteta",
+      "message": "Cloud servis trenutno nema mjesta za ovu mašinu. Ništa nije promijenjeno.",
+      "action": "Pokušajte ponovo za minutu."
+    },
+    "stateConflict": {
+      "title": "Mašina je zauzeta",
+      "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
+      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
+    },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
       "message": "Vaša mrežna politika je sačuvana, ali nije primijenjena: cmux Cloud je dostigao kapacitet mrežnih pravila.",
