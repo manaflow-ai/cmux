@@ -16,6 +16,21 @@ export type StoredCloudDiagnostic = {
   readonly attempts: number;
 };
 
+/** An account's routine diagnostics budget per minute: storage bytes of newly accepted spans. */
+export const CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE = 262_144;
+/**
+ * Failure, timeout, cancellation and sign-in records may use this reserve above
+ * the routine budget. When routine success detail has filled the minute, a batch
+ * still stores its evidence before it answers 429, so the evidence is durable on
+ * the first attempt and the client's retry deduplicates it. The ceiling is
+ * budget plus reserve.
+ */
+export const CLOUD_DIAGNOSTICS_PRIORITY_RESERVE_BYTES = 131_072;
+
+function isPriorityCloudDiagnostic(span: CloudTelemetrySpan): boolean {
+  return span.outcome !== "success" || span.auth !== undefined;
+}
+
 /** Account quota and deduplication are transactional across all server instances. */
 export async function acceptCloudTelemetry(
   userId: string, batch: CloudTelemetryBatch,
@@ -25,7 +40,8 @@ export async function acceptCloudTelemetry(
   const rows = batch.spans.map((span) => {
     const payload = { client: batch.client, span, source: serverErrorCode ? "server" : "client", ...(serverErrorCode ? { serverErrorCode } : {}) };
     const encoded = canonicalJSON(payload);
-    // Hash only the submitted event: retries across deployments remain idempotent.
+    // Hash only the event, not ingest metadata, so retries across deployments remain idempotent.
+    // The event is the contract-normalized span; see parseCloudTelemetryUpload for the catalog-change window.
     // Store origin metadata separately so a later drain cannot relabel old errors.
     const backend = {
       tag: process.env.CMUX_DEV_BUILD_TAG ?? "unknown",
@@ -35,9 +51,13 @@ export async function acceptCloudTelemetry(
     // The sample weight is ingest policy, not submitted evidence, so it stays outside the hash.
     const sampleWeight = sampleWeights?.get(span.eventId);
     const stored = { ...payload, backend, ...(sampleWeight && sampleWeight !== 1 ? { sampleWeight } : {}) };
-    return { id: span.eventId, payload: canonicalJSON(stored), hash: createHash("sha256").update(encoded).digest("hex") };
+    return {
+      id: span.eventId, payload: canonicalJSON(stored), hash: createHash("sha256").update(encoded).digest("hex"),
+      priority: isPriorityCloudDiagnostic(span),
+    };
   });
-  return cloudDb().transaction(async (tx) => {
+  /** Pending spans left unstored by the budget; zero accepts the whole batch. */
+  const refused = await cloudDb().transaction(async (tx) => {
     await tx.execute(sql`set local statement_timeout = '3000ms'`);
     // One account lock also makes duplicate-content checks race-free.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`cloud-diagnostics:${userId}`}, 0))`);
@@ -51,21 +71,33 @@ export async function acceptCloudTelemetry(
       if (previous && previous !== row.hash) throw new CloudTelemetryConflictError();
     }
     const pending = rows.filter((row) => !existing.has(row.id));
-    if (pending.length === 0) return rows.length;
-    const bytes = pending.reduce((sum, row) => sum + Buffer.byteLength(row.payload), 0);
+    if (pending.length === 0) return 0;
     const minute = Math.floor(Date.now() / 60_000);
-    const quota = await tx.execute(sql`
-      insert into cloud_diagnostic_budgets (user_id, minute, bytes) values (${userId}, ${minute}, ${bytes})
-      on conflict (user_id, minute) do update set bytes = cloud_diagnostic_budgets.bytes + excluded.bytes
-      where cloud_diagnostic_budgets.bytes + excluded.bytes <= 262144 returning bytes
-    `);
-    if (!quota[0]) throw new CloudTelemetryLimitError();
-    await tx.execute(sql`
-      insert into cloud_diagnostic_events (user_id, event_id, payload, payload_hash)
-      values ${sql.join(pending.map((row) => sql`(${userId}, ${row.id}::uuid, ${row.payload}::jsonb, ${row.hash})`), sql`, `)}
-    `);
-    return rows.length;
+    const charge = async (charged: typeof pending, limit: number) => {
+      const bytes = charged.reduce((sum, row) => sum + Buffer.byteLength(row.payload), 0);
+      const quota = await tx.execute(sql`
+        insert into cloud_diagnostic_budgets (user_id, minute, bytes) values (${userId}, ${minute}, ${bytes})
+        on conflict (user_id, minute) do update set bytes = cloud_diagnostic_budgets.bytes + excluded.bytes
+        where cloud_diagnostic_budgets.bytes + excluded.bytes <= ${limit} returning bytes
+      `);
+      if (!quota[0]) return false;
+      await tx.execute(sql`
+        insert into cloud_diagnostic_events (user_id, event_id, payload, payload_hash)
+        values ${sql.join(charged.map((row) => sql`(${userId}, ${row.id}::uuid, ${row.payload}::jsonb, ${row.hash})`), sql`, `)}
+      `);
+      return true;
+    };
+    if (await charge(pending, CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE)) return 0;
+    // Over the routine budget: keep the batch's evidence within the reserve and refuse the rest.
+    // A retry deduplicates the stored evidence, so only its routine spans are charged again.
+    const priority = pending.filter((row) => row.priority);
+    if (priority.length === 0) return pending.length;
+    const kept = await charge(priority, CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE + CLOUD_DIAGNOSTICS_PRIORITY_RESERVE_BYTES);
+    return kept ? pending.length - priority.length : pending.length;
   });
+  // Thrown after the commit, so evidence kept from a refused batch stays stored.
+  if (refused > 0) throw new CloudTelemetryLimitError(rows.length - refused);
+  return rows.length;
 }
 
 export async function claimCloudDiagnostics(limit = 100, onlyOwner?: string): Promise<{ leaseId: string; rows: StoredCloudDiagnostic[] }> {

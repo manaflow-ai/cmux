@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
@@ -351,14 +352,16 @@ func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
     return normalizedFlags.isEmpty
 }
 
-/// Returns true when a terminal arrow key-equivalent should be sent through keyDown.
-func shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+/// Returns true when a terminal navigation key-equivalent should be sent through keyDown.
+func shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsTerminal: Bool,
     firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
-    guard firstResponderIsTerminal, !firstResponderHasMarkedText, (123...126).contains(keyCode) else { return false }
+    let isArrow = (123...126).contains(keyCode)
+    let isHomeOrEnd = keyCode == UInt16(kVK_Home) || keyCode == UInt16(kVK_End)
+    guard firstResponderIsTerminal, !firstResponderHasMarkedText, isArrow || isHomeOrEnd else { return false }
     return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
 }
 

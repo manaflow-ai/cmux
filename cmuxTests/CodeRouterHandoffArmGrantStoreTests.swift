@@ -372,10 +372,9 @@ struct CodeRouterHandoffArmGrantStoreTests {
             )
         ) == nil)
         #expect(TerminalController.codeRouterHandoffCompleteChallenge(
-            exact.replacingOccurrences(
-                of: "coderouter-handoff-complete",
-                with: "wrong",
-                maxReplacements: 1
+            exact.replacingCharacters(
+                in: exact.range(of: "coderouter-handoff-complete")!,
+                with: "wrong"
             )
         ) == nil)
         #expect(TerminalController.codeRouterHandoffCompleteChallenge(
@@ -431,10 +430,9 @@ struct CodeRouterHandoffArmGrantStoreTests {
             )
         ) == nil)
         #expect(TerminalController.codeRouterHandoffArmProofRequest(
-            exact.replacingOccurrences(
-                of: "coderouter-handoff-arm",
-                with: "wrong",
-                maxReplacements: 1
+            exact.replacingCharacters(
+                in: exact.range(of: "coderouter-handoff-arm")!,
+                with: "wrong"
             )
         ) == nil)
         #expect(TerminalController.codeRouterHandoffArmProofRequest(

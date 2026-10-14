@@ -235,6 +235,19 @@ public actor CloudVMService: CloudVMServing {
         )
     }
 
+    /// Hard-restarts a running machine through the provider recovery path.
+    public func restartMachine(id: String) async throws {
+        let credentials = try await credentials()
+        _ = try await send(
+            requests.restartMachine(
+                id: id,
+                accessToken: credentials.accessToken,
+                refreshToken: credentials.refreshToken
+            ),
+            teamID: credentials.teamID
+        )
+    }
+
     public func deleteMachine(id: String) async throws {
         let credentials = try await credentials()
         _ = try await send(
