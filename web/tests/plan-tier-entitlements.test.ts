@@ -31,6 +31,7 @@ describe("plan tier ordering", () => {
     expect(planTier("founders")).toBe("pro");
     expect(planTier("max")).toBe("max");
     expect(planTier("enterprise")).toBeNull();
+    expect(planTier("constructor")).toBeNull();
     expect(planTier(null)).toBeNull();
     expect(planTierRank("free")).toBeLessThan(planTierRank("go"));
     expect(planTierRank("go")).toBeLessThan(planTierRank("pro"));

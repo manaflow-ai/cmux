@@ -437,10 +437,7 @@ function personalPlanIdForStatus(
   if (activeStripePlan === MAX_PLAN_ID || manualOverride === MAX_PLAN_ID) return MAX_PLAN_ID;
   if (activeStripePlan) return activeStripePlan;
   if (!isPaidPlanId(manualOverride)) return FREE_PLAN_ID;
-  if (manualOverride === MAX_PLAN_ID) return MAX_PLAN_ID;
-  // A Go grant is Go, as its machine limits are. Team and Founder's Edition
-  // grants carry the Pro feature set.
-  return manualOverride === GO_PLAN_ID ? GO_PLAN_ID : PRO_PLAN_ID;
+  return manualOverride === MAX_PLAN_ID ? MAX_PLAN_ID : PRO_PLAN_ID;
 }
 
 /**

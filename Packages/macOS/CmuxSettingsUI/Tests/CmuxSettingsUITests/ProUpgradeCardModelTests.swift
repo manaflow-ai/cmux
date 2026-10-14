@@ -12,6 +12,11 @@ import Testing
         }
     }
 
+    @Test func managedGoKeepsBillingBesideTheProOffer() {
+        let model = ProUpgradeCardModel(tier: .go, isProActive: true, canManageBilling: true, isSignedIn: true)
+        #expect(model.actions == [.upgradeToPro, .manageBilling])
+    }
+
     @Test func proIsOfferedMaxAndBilling() {
         let model = ProUpgradeCardModel(tier: .pro, isProActive: true, canManageBilling: true, isSignedIn: true)
         #expect(model.actions == [.upgradeToMax, .manageBilling])

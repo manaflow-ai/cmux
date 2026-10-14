@@ -36,6 +36,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
+    /// The account and team the current plan answer belongs to.
+    @ObservationIgnored private var billingPlanScope: String?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
@@ -267,8 +269,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         billingPlanRequestID = requestID
         // Do not project the previous team/account's entitlement while this
         // request is in flight. Unknown keeps Cloud enabled until a verified
-        // response arrives and avoids a false Free/Upgrade state.
-        billingPlanState = .unknown
+        // response arrives and avoids a false Free/Upgrade state. A refresh
+        // of the same account and team keeps its answer, so a failed refresh
+        // does not hide every upgrade entrypoint until the next change.
+        let scope = "\(identityID):\(confirmedTeamID ?? "personal")"
+        if billingPlanScope != scope {
+            billingPlanState = .unknown
+            billingPlanScope = scope
+        }
         let tokens = try? await coordinator.currentTokens()
 
         do {

@@ -23,7 +23,8 @@ const PLAN_TIER_BY_ID: Readonly<Record<string, PlanTier>> = {
 /** The tier a plan ID grants, or null for an unknown ID. */
 export function planTier(planId: string | null | undefined): PlanTier | null {
   if (typeof planId !== "string") return null;
-  return PLAN_TIER_BY_ID[planId.trim().toLowerCase()] ?? null;
+  const key = planId.trim().toLowerCase();
+  return Object.hasOwn(PLAN_TIER_BY_ID, key) ? PLAN_TIER_BY_ID[key]! : null;
 }
 
 /** Sort key for a tier or plan ID; an unknown ID ranks with Free. */

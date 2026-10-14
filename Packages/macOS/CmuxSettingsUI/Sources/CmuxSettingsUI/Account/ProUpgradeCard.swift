@@ -80,7 +80,7 @@ struct ProUpgradeCardModel: Equatable {
             case .upgradeToPro:
                 String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
             case .upgradeToMax:
-                String(localized: "settings.account.max.upgrade", defaultValue: "Upgrade to Max…")
+                String(localized: "settings.account.max.upgrade", defaultValue: "Upgrade to Max…", bundle: .module)
             case .manageBilling:
                 String(localized: "settings.account.pro.manageBilling", defaultValue: "Manage billing")
             }
@@ -105,10 +105,11 @@ struct ProUpgradeCardModel: Equatable {
         self.tier = tier
         switch tier {
         case .max:
-            title = String(localized: "settings.account.max.title", defaultValue: "cmux Max")
+            title = String(localized: "settings.account.max.title", defaultValue: "cmux Max", bundle: .module)
             subtitle = String(
                 localized: "settings.account.max.activeSubtitle",
-                defaultValue: "Your Max subscription is active. It includes everything in Pro."
+                defaultValue: "Your Max subscription is active. It includes everything in Pro.",
+                bundle: .module
             )
             actions = canManageBilling ? [.manageBilling] : []
         case .pro:
@@ -132,7 +133,14 @@ struct ProUpgradeCardModel: Equatable {
                 localized: "settings.account.pro.subtitle",
                 defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the iOS app. $50/month."
             )
-            actions = tier == nil && isSignedIn ? [] : [.upgradeToPro]
+            if tier == nil && isSignedIn {
+                actions = []
+            } else if tier == .go && canManageBilling {
+                // A Go subscriber still manages or cancels Go in the portal.
+                actions = [.upgradeToPro, .manageBilling]
+            } else {
+                actions = [.upgradeToPro]
+            }
         }
     }
 }
