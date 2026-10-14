@@ -29,11 +29,11 @@ struct CrashMarkerChildTests {
     @Test func aCrashAfterAFailedChromiumStartShowsTheNoticeOnTheNextLaunch() async throws {
         let directory = CrashChild.directory("chromium", parent: getpid())
         defer { try? FileManager.default.removeItem(at: directory) }
-        await #expect(processExitsWith: .signal(SIGSEGV)) {
+        await #expect(processExitsWith: .failure) {
             await CrashChild.crashAfterAFailedChromiumStart()
         }
         let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
-        #expect(previous.signal == SIGSEGV,
+        #expect(previous.signal == SIGSEGV || previous.signal == SIGBUS,
                 "a crash after a failed Chromium start recorded no signal (\(previous.signal.map(String.init) ?? "none"))")
         #expect(LaunchRecovery.decide(previous: previous).isRestart,
                 "a crash after a failed Chromium start showed no restart notice")
@@ -72,7 +72,8 @@ enum CrashChild {
 
     /// Chromium fails to start (no runtime at this layout) after it reset
     /// the signal actions, as `CefInitialize` does before it can fail; then
-    /// the app crashes.
+    /// the app crashes on a bad memory access. (A `raise(SIGSEGV)` reads as
+    /// a fault on macOS, whose handler returns and the process goes on.)
     @MainActor
     static func crashAfterAFailedChromiumStart() async {
         let marker = await markRun("chromium")
@@ -83,8 +84,14 @@ enum CrashChild {
         for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS] { _ = Darwin.signal(signal, SIG_DFL) }
         await engine.warmStart(reason: "test")
         #expect(!engine.isRunning)
-        _ = raise(SIGSEGV)
+        badAccess()
         withExtendedLifetime(marker) {}
+    }
+
+    /// A store to an unmapped address: SIGSEGV (or SIGBUS) from the CPU.
+    @inline(never)
+    static func badAccess() {
+        UnsafeMutablePointer<Int>(bitPattern: 16)?.pointee = 1
     }
 
     /// About 300 bytes of stack per call, never a tail call.
