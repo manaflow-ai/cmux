@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextNowPlaying
 import CmuxNextSettings
 @testable import CmuxNextSidebar
 import Foundation
@@ -69,7 +70,7 @@ import Testing
         source.nowPlaying = Self.track(playing: playing)
         let flag = Flag(previewOn)
         let model = SidebarModel()
-        model.onIntent = { [source] intent in SidebarNowPlayingFeed.handle(intent, source: source) }
+        model.onIntent = { [source] intent in source.handle(intent) }
         let sidebar = SidebarView(model: model, design: DesignSettings())
         scope?.root(sidebar)
         let width = Metrics.sidebarWidth
@@ -79,7 +80,7 @@ import Testing
         window.contentView = sidebar
         sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 640)
         window.orderFrontRegardless()
-        let feed = SidebarNowPlayingFeed.start(model: model, source: source, enabled: { flag.on })
+        let feed = model.followNowPlaying(source, enabled: { flag.on })
         let harness = Harness(source: source, flag: flag, model: model, sidebar: sidebar, window: window, feed: feed)
         await harness.cardShows(previewOn)
         return harness

@@ -12,7 +12,8 @@ nonisolated extension Strings {
 
 /// The media controls' titles for surfaces outside the browser (the
 /// sidebar's Now Playing card, cx-ouoxo), the same words as the media hub's.
-public nonisolated enum BrowserMediaStrings {
+public nonisolated struct BrowserMediaStrings {
+    public nonisolated init() {}
     public static var play: String { Strings.mediaPlay }
     public static var pause: String { Strings.mediaPause }
     public static var previous: String { Strings.mediaPrevious }

@@ -1,34 +1,37 @@
 import AppKit
-import CmuxNextBrowser
-import CmuxNextSidebar
+public import CmuxNextBrowser
+public import CmuxNextSidebar
 import Observation
 
 /// The sidebar Now Playing card's source (cx-ouoxo): the browser tab that
 /// plays, in either engine, picked the way macOS Now Playing picks it
-/// (`BrowserNowPlaying.pick`), with its artwork loaded through the tab
+/// (`NowPlayingSession.pick`), with its artwork loaded through the tab
 /// (its cookies, its proxy). Controls run the media hub's commands on it.
+/// The App hands it the tabs (`follow`); reading them while observing tracks them.
 @Observable
-final class BrowserTabsNowPlaying: NowPlayingSource {
-    @ObservationIgnored private weak var services: AppServices?
-    /// Bumped when `follow` changes the services, so readers look again.
+public final class BrowserTabsNowPlaying: NowPlayingSource {
+    @ObservationIgnored private var sessions: () -> [NowPlayingSession] = { [] }
+    @ObservationIgnored private var browserTab: (BrowserTabID) -> (any BrowserTab)? = { _ in nil }
+    /// Bumped when `follow` changes the tabs, so readers look again.
     private var generation = 0
     /// The tab the card showed last; it keeps the card while it plays.
-    @ObservationIgnored private var shown: BrowserNowPlaying.Session?
+    @ObservationIgnored private var shown: NowPlayingSession?
     /// The shown tab's artwork, small PNG data once loaded (nil while loading or without art).
     private var artwork: (url: URL, data: Data?)?
     private static let artworkSide: CGFloat = 96
 
-    func follow(_ services: AppServices?) {
-        self.services = services
+    public init() {}
+
+    /// Follows these tabs: the media sessions in either engine, and a tab by its id.
+    public func follow(sessions: @escaping () -> [NowPlayingSession], tab: @escaping (BrowserTabID) -> (any BrowserTab)?) {
+        self.sessions = sessions
+        browserTab = tab
         generation &+= 1
     }
 
-    var nowPlaying: SidebarNowPlaying? {
+    public var nowPlaying: SidebarNowPlaying? {
         _ = generation
-        guard let services else { return nil }
-        let sessions = services.cache.pageRequests.media.sessions(in: services.cache)
-            .map { BrowserNowPlaying.Session(tab: $0.entry.tab.id, media: $0.media) }
-        shown = BrowserNowPlaying.pick(after: shown, from: sessions)
+        shown = NowPlayingSession.pick(after: shown, from: sessions())
         guard let shown else { return nil }
         let media = shown.media
         return SidebarNowPlaying(
@@ -39,7 +42,7 @@ final class BrowserTabsNowPlaying: NowPlayingSource {
                                              previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next))
     }
 
-    func perform(_ command: SidebarNowPlayingCommand) {
+    public func perform(_ command: SidebarNowPlayingCommand) {
         guard let shown, let tab = browserTab(shown.tab) else { return }
         let media: BrowserMediaCommand = switch command {
         case .playPause: .playPause
@@ -48,10 +51,6 @@ final class BrowserTabsNowPlaying: NowPlayingSource {
         case .seek(let seconds): .seek(seconds)
         }
         Task { await tab.media(media) }
-    }
-
-    private func browserTab(_ id: BrowserTabID) -> (any BrowserTab)? {
-        services?.cache.browsers.values.first { $0.tab.id == id }?.tab
     }
 
     /// The artwork for `url` once loaded; asks the tab for it the first time.
