@@ -133,3 +133,24 @@ test("Remove sends cmux.settings.mobile.remove_phone for that phone and the list
   expect(card(page.container)!.querySelector("[data-mobile-error]")!.textContent).toBe("Could not remove this phone.");
   page.unmount();
 });
+
+test("a removed Mac says so and Allow Again sends cmux.settings.mobile.allow_again", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const removed: IPhoneHostState = {
+    ...state,
+    phase: "removed",
+    status: "This Mac was removed from your account's devices.",
+    allow_again_title: "Allow Again",
+    phones: [],
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: removed }));
+  await settle();
+  const element = card(page.container)!;
+  expect(element.dataset.phase).toBe("removed");
+  expect(element.textContent).toContain("This Mac was removed");
+  await act(async () => element.querySelector<HTMLButtonElement>("[data-allow-again]")!.click());
+  await settle();
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.mobile.allow_again")).toBe(true);
+  expect(card(page.container)!.querySelector("[data-allow-again]")).toBeNull();
+  page.unmount();
+});

@@ -23,6 +23,16 @@ import Testing
         }
     }
 
+    @Test func allowAgainNeedsTheSettingsPageAndAGesture() async throws {
+        let provider = MobilePageProvider(host: IPhoneHostService())
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.mobile.allow_again", params: .object([:]), context: PageCallContext(page: "cmux.settings"))
+        }
+        let answer = try await provider.call("cmux.settings.mobile.allow_again", params: .object([:]),
+                                             context: PageCallContext(page: "cmux.settings", userGesture: true))
+        #expect(answer == .object([:]))
+    }
+
     @Test func aHostWithNoAccountShowsOffWithNoPhones() {
         let json = IPhoneHostService().pageJSON
         #expect(json["allowed"] == .bool(false))

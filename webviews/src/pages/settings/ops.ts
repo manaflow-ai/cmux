@@ -152,6 +152,8 @@ export type IPhoneHostState = {
   phones_error: string | null;
   remove_title: string;
   remove_help: string;
+  /** With phase `removed` (the owner removed this Mac): the button that allows connections again. */
+  allow_again_title?: string;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -333,6 +335,8 @@ export type SettingsOps = {
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
+  /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
+  "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
