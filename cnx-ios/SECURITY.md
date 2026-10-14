@@ -225,6 +225,26 @@ the Mac.
   `agent_tabs_refuse_other_sources_and_hosts` (policy), and the
   `new-conversation-tab` rewrite in `tests/host.rs`.
 
+## `daemon`: terminal agents in the Feed
+
+The Feed shows events of agents that run in terminal tabs (Codex, Claude Code)
+from the daemon's notification ledger, as the Mac's notifications panel does.
+It uses only commands that were already on the allowlist, and adds none:
+`subscribe` (the `notification` event), `list-notifications {limit}` (read
+the ledger) and `ack-tab-notifications {surface}` (mark a tab's notifications
+read when the person reads them on the phone). Rule 2 answers:
+
+- Executes commands or opens content: no. An ask from a terminal agent (an
+  approval or a question in its TUI) is not answered from the Feed; the item
+  opens the terminal tab.
+- Mutates objects the session does not own: the read mark is the person's
+  own, on their own tab, the same mark the Mac's panel sets.
+- Reads local state: the notification titles and bodies the Mac already shows
+  for the person's own tabs. Agent hooks redact prompt text before the
+  journal accepts it, so the body is at most the tool an approval waits on.
+- Rule 6: `allows_the_terminal_feed` (policy) covers these exact lines and
+  refuses the activity stream, the session journal and replies into a terminal.
+
 ## `acpmux`: messages larger than one link frame
 
 The link splits a write above 256 KiB into several data frames. hostd now
