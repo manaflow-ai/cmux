@@ -54,7 +54,7 @@ final class WorkspaceAutoNamer {
             for workspace in daemon.store.workspaces where workspace.kind != SidebarMapping.homeKind && workspace.app == nil {
                 let front = SidebarMapping.shared.frontTab(workspace) { [services] pane in Self.selection(pane, in: workspace, services) }
                 guard let name = rule.persistedName(name: workspace.name, title: workspace.title, front: front.flatMap(names.front),
-                                                    alreadyRenamed: renamed.contains(workspace.id)) else { continue }
+                                                    isLocalMachine: daemon === services.machines.local, alreadyRenamed: renamed.contains(workspace.id)) else { continue }
                 renames.append(Rename(workspaceID: workspace.id, name: name))
             }
         }
