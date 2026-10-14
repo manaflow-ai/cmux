@@ -1,5 +1,5 @@
 // cmux's own music player (cx-imt2i, behind labs.previewFeatures): play the person's songs or
-// folders, and stop. The Now Playing card and the media keys run play, pause, next and previous.
+// folders (a `path`, or an http(s) stream URL there, skips the picker), and stop. The Now Playing card and the media keys run play, pause, next and previous.
 // Titles live in MusicActions.xcstrings.
 
 nonisolated enum MusicActionCatalog: ActionCatalogGroup {
@@ -8,7 +8,7 @@ nonisolated enum MusicActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "music.open", title: t("action.music.open", "Play Music…"),
                 keywords: ["music", "songs", "audio", "player", "play", "folder", "mp3", "now playing"], category: .window,
-                symbol: "music.note", surfaces: [.palette]
+                symbol: "music.note", surfaces: [.palette], arguments: [CatalogArgument.optionalPathString]
             ),
             ActionDescriptor(
                 id: "music.stop", title: t("action.music.stop", "Stop Music"),

@@ -3,8 +3,9 @@ import CmuxNextActions
 import CmuxNextNowPlaying
 import UniformTypeIdentifiers
 
-/// cmux's own music player (cx-imt2i): Play Music… picks songs or folders and plays them on the
-/// Now Playing card and the media keys; Stop Music ends it. A preview feature: without
+/// cmux's own music player (cx-imt2i): Play Music… picks songs or folders (or plays its `path`,
+/// a file, a folder or an http(s) stream URL) on the Now Playing card and the media keys; Stop
+/// Music ends it. A preview feature: without
 /// `labs.previewFeatures` both are unavailable everywhere.
 enum MusicHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -12,11 +13,14 @@ enum MusicHandlers {
         let preview: @MainActor () -> String? = { [weak services] in
             services?.settings?.snapshot.previewFeatures == true ? nil : MusicStrings.preview
         }
-        registry.bind("music.open", unavailable: preview, invoke: { [weak services, weak registry] _ in
+        registry.bind("music.open", unavailable: preview, invoke: { [weak services, weak registry] invocation in
             guard let services, let registry else { return }
             let anchor = services.windows.active?.window
+            let given = invocation["path"]?.stringValue.flatMap(url(for:))
             registry.track(Task { @MainActor in
-                guard let urls = await choose(anchor: anchor) else { return nil }
+                var urls = given.map { [$0] }
+                if urls == nil { urls = await choose(anchor: anchor) }
+                guard let urls else { return nil }
                 let tracks = await Task.detached { MusicPlayer.tracks(from: urls) }.value
                 guard !tracks.isEmpty else {
                     registry.refuse(MusicStrings.noSongs)
@@ -33,6 +37,14 @@ enum MusicHandlers {
             }
             music.stop()
         })
+    }
+
+    /// A stream URL as is, else a file path (with `~`); nil when empty.
+    private static func url(for path: String) -> URL? {
+        let path = path.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else { return nil }
+        if let url = URL(string: path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") { return url }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
     }
 
     /// The songs and folders the person picks, nil on cancel.
