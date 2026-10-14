@@ -18,7 +18,7 @@ use crate::{AnimationSwitches, MotionBounce, MotionPolicy, MotionSpeed};
 const UNSET: u8 = u8::MAX;
 static SPEED: AtomicU8 = AtomicU8::new(UNSET);
 static REDUCE_OVERRIDE: AtomicU8 = AtomicU8::new(UNSET);
-/// `AnimationSwitches` as bits (1 splits, 2 newTab, 4 newWorkspace, 8
+/// `AnimationSwitches` as bits (1 paneAnimations, 2 newTab, 4 newWorkspace, 8
 /// bounce subtle); `UNSET` until the host sets them (the spec defaults).
 static SWITCHES: AtomicU8 = AtomicU8::new(UNSET);
 
@@ -57,7 +57,7 @@ pub fn set_speed(s: MotionSpeed) {
 /// for the whole process. Running animations pick them up on their next
 /// frame.
 pub fn set_animation_switches(switches: AnimationSwitches) {
-    let bits = u8::from(switches.splits)
+    let bits = u8::from(switches.pane_animations)
         | (u8::from(switches.new_tab) << 1)
         | (u8::from(switches.new_workspace) << 2)
         | (u8::from(switches.bounce == MotionBounce::Subtle) << 3);
@@ -70,7 +70,7 @@ pub fn animation_switches() -> AnimationSwitches {
     match SWITCHES.load(Ordering::Relaxed) {
         UNSET => AnimationSwitches::DEFAULT,
         bits => AnimationSwitches {
-            splits: bits & 1 != 0,
+            pane_animations: bits & 1 != 0,
             new_tab: bits & 2 != 0,
             new_workspace: bits & 4 != 0,
             bounce: if bits & 8 != 0 { MotionBounce::Subtle } else { MotionBounce::None },

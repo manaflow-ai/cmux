@@ -153,12 +153,12 @@ enum AppearanceHandlers {
         context.writeSetting("set animation speed", AnimationSpeedSetting.configPath, .string(speed.rawValue), reloadOnFailure: true)
     }
 
-    /// `ui.animations.<kind>`: flipped at once, then written (on removes the key).
+    /// `ui.animations.<kind>`: flipped at once, then written (off, the default, removes the key).
     private static func toggleAnimation(_ kind: MotionKind, _ context: AppActionContext) throws {
         try requireUnmanaged(AnimationKindsSetting.path(kind), context)
-        let off = !context.design.disabledAnimations.contains(kind)
-        if off { context.design.disabledAnimations.insert(kind) } else { context.design.disabledAnimations.remove(kind) }
-        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), off ? .bool(false) : nil, reloadOnFailure: true)
+        let on = !context.design.enabledAnimations.contains(kind)
+        if on { context.design.enabledAnimations.insert(kind) } else { context.design.enabledAnimations.remove(kind) }
+        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), on ? .bool(true) : nil, reloadOnFailure: true)
     }
 
     /// `ui.animations.bounce`: applied at once, then written (none removes the key).

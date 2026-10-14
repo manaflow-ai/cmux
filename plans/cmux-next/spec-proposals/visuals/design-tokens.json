@@ -2222,12 +2222,12 @@
   },
   "kinds": {
    "value": {
-    "splits": true,
-    "newTab": true,
-    "newWorkspace": true
+    "paneAnimations": false,
+    "newTab": false,
+    "newWorkspace": false
    },
-   "source": "ui.animations.splits / newTab / newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches)",
-   "use": "Per-kind switches under ui.animationSpeed. Off: that change applies in one frame (no crossfade). splits: Cmd-D, Cmd-Shift-D, close split, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
+   "source": "ui.paneAnimations / ui.animations.newTab / ui.animations.newWorkspace (cmux.json); cmux-tui/crates/cmux-motion (AnimationSwitches, MotionKind::config_path)",
+   "use": "Per-kind switches under ui.animationSpeed, all off by default (Lawrence 2026-10-14: no big animations by default): the change applies in one frame (no crossfade); true opts into its spring. paneAnimations: split grow-in, close, move, swap, zoom and unzoom, column reveal, screen switch, divider release. newTab: a tab growing into its slot. newWorkspace: a sidebar row opening."
   },
   "fades": {
    "hover": {

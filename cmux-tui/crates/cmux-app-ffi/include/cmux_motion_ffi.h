@@ -24,7 +24,7 @@ typedef struct {
     uint8_t speed;
     bool reduce_motion;
     uint8_t bounce;
-    bool splits;
+    bool pane_animations;
     bool new_tab;
     bool new_workspace;
 } CmuxMotionPolicy;
@@ -37,7 +37,7 @@ bool cmux_motion_spring_base(uint8_t token, CmuxMotionSpring *out);
 bool cmux_motion_spring_is_structural(uint8_t token);
 CmuxMotionSpring cmux_motion_resolve(CmuxMotionSpring base, bool structural, CmuxMotionPolicy policy);
 bool cmux_motion_step(CmuxMotionState *state, double dt, CmuxMotionSpring spring, double epsilon);
-/* kind: 0 splits, 1 newTab, 2 newWorkspace. */
+/* kind: 0 paneAnimations, 1 newTab, 2 newWorkspace (all off by default). */
 bool cmux_motion_animates(uint8_t kind, CmuxMotionPolicy policy);
 double cmux_motion_fade_seconds(uint8_t fade, CmuxMotionPolicy policy);
 

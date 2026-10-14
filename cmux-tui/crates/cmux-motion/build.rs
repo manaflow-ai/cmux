@@ -112,7 +112,13 @@ fn generate(m: &json::Value) -> Result<String, String> {
     }
     let flags: Vec<String> =
         SPRINGS.iter().map(|k| structural.iter().any(|s| s == k).to_string()).collect();
-    writeln!(code, "pub(crate) const STRUCTURAL: [bool; {}] = [{}];", SPRINGS.len(), flags.join(", ")).ok();
+    writeln!(
+        code,
+        "pub(crate) const STRUCTURAL: [bool; {}] = [{}];",
+        SPRINGS.len(),
+        flags.join(", ")
+    )
+    .ok();
 
     let subtle = number(m, &["bounce", "value", "subtle"], 0.0..=0.9)?;
     if number(m, &["bounce", "value", "none"], 0.0..=0.0).is_err() {
@@ -130,12 +136,13 @@ fn generate(m: &json::Value) -> Result<String, String> {
     )
     .ok();
 
-    let kinds = ["splits", "newTab", "newWorkspace"].map(|k| flag(m, &["kinds", "value", k]));
-    let [splits, new_tab, new_workspace] = kinds;
+    let kinds =
+        ["paneAnimations", "newTab", "newWorkspace"].map(|k| flag(m, &["kinds", "value", k]));
+    let [pane_animations, new_tab, new_workspace] = kinds;
     writeln!(
         code,
         "pub(crate) const DEFAULT_KINDS: [bool; 3] = [{}, {}, {}];",
-        splits?, new_tab?, new_workspace?
+        pane_animations?, new_tab?, new_workspace?
     )
     .ok();
 

@@ -11,9 +11,9 @@ import CmuxNextWakeups
 /// false overrides Reduce Motion in memory (null follows the system setting
 /// again), so a bench records reduced motion without the system setting.
 /// `work` is each timed animation's main-thread work per frame (`MotionTrace.measure`).
-/// `bounce` with `value` ("none", "subtle") and `kind` with `name` ("splits",
-/// "newTab", "newWorkspace") and `value` true or false set `ui.animations.*`
-/// in memory the same way. The report lists the display links alive
+/// `bounce` with `value` ("none", "subtle") and `kind` with `name`
+/// ("paneAnimations", "newTab", "newWorkspace") and `value` true or false set
+/// `ui.paneAnimations` / `ui.animations.*` in memory the same way. The report lists the display links alive
 /// (`display_links`: 0 once every spring rests, so the window idles).
 /// Spans carry `at_ms` (from `start`); `samples` lists per-frame values
 /// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the
@@ -38,8 +38,12 @@ enum DebugMotion {
                 DesignSettings.shared.animationBounce = bounce
             }
         case "kind":
-            if let name = params["name"]?.stringValue, let kind = MotionKind(rawValue: name), let on = params["value"]?.boolValue {
-                if on { DesignSettings.shared.disabledAnimations.remove(kind) } else { DesignSettings.shared.disabledAnimations.insert(kind) }
+            if let name = params["name"]?.stringValue, let on = params["value"]?.boolValue {
+                if name == "paneAnimations" {
+                    DesignSettings.shared.paneAnimations = on
+                } else if let kind = MotionKind(rawValue: name) {
+                    if on { DesignSettings.shared.enabledAnimations.insert(kind) } else { DesignSettings.shared.enabledAnimations.remove(kind) }
+                }
             }
         case "trajectory":
             return MotionParityCorpus.document

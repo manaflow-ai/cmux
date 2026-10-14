@@ -38,7 +38,7 @@ pub struct CmuxMotionPolicy {
     pub speed: u8,
     pub reduce_motion: bool,
     pub bounce: u8,
-    pub splits: bool,
+    pub pane_animations: bool,
     pub new_tab: bool,
     pub new_workspace: bool,
 }
@@ -63,7 +63,7 @@ fn policy(p: &CmuxMotionPolicy) -> MotionPolicy {
     };
     let bounce = if p.bounce == 1 { MotionBounce::Subtle } else { MotionBounce::None };
     MotionPolicy::new(speed, p.reduce_motion).with_animations(AnimationSwitches {
-        splits: p.splits,
+        pane_animations: p.pane_animations,
         new_tab: p.new_tab,
         new_workspace: p.new_workspace,
         bounce,
@@ -144,7 +144,7 @@ pub unsafe extern "C" fn cmux_motion_step(
     advance_spring(&mut s.value, &mut s.velocity, s.target, dt, spring.into(), epsilon)
 }
 
-/// True when kind `kind` (0 splits, 1 newTab, 2 newWorkspace) animates
+/// True when kind `kind` (0 paneAnimations, 1 newTab, 2 newWorkspace) animates
 /// under `policy`: movement animates and its switch is on.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_animates(kind: u8, policy: CmuxMotionPolicy) -> bool {

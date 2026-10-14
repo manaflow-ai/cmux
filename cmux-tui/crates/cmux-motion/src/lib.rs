@@ -26,8 +26,9 @@
 //! the same file cmux-next macOS and cmux-theme-tokens read. Springs step in
 //! closed form (`SpringValue::solve`), so a path is exact at any frame rate.
 //! Structural springs (`MotionSpring::is_structural`) follow
-//! `ui.animations.bounce`; `ui.animations.splits|newTab|newWorkspace` turn
-//! one kind off (`MotionPolicy::animates`). The host passes these settings
+//! `ui.animations.bounce`; `ui.paneAnimations`, `ui.animations.newTab` and
+//! `ui.animations.newWorkspace` turn one kind on (`MotionPolicy::animates`;
+//! all off by default). The host passes these settings
 //! in (`set_animation_switches` or `MotionPolicy::with_animations`).
 
 mod clock;

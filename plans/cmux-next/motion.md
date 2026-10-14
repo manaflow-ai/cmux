@@ -41,21 +41,25 @@ would do it, spring curves", "proper physics". Design:
 - Bounce: structural tokens (`move`, `appear`, `disappear`) are critically
   damped by default (never past the target); `ui.animations.bounce`
   "subtle" gives them bounce `motion.spring.subtleBounce` (0.15).
-- Per kind, under `ui.animationSpeed`: `ui.animations.splits`,
-  `ui.animations.newTab`, `ui.animations.newWorkspace` (default true). Off
-  applies that change in one step. Palette: Toggle Split / New Tab / New
-  Workspace Animations, Use Bouncy Animations, Use Animations Without Bounce.
+- Per kind, under `ui.animationSpeed`, all off by default (Lawrence
+  2026-10-14: no big animations by default): `ui.paneAnimations` (pane
+  layout, rule 9), `ui.animations.newTab`, `ui.animations.newWorkspace`.
+  Off applies that change in one step; true opts into its spring. cmux-motion
+  `MotionKind` / `AnimationSwitches` carry exactly these three keys
+  (`MotionKind::config_path`). Palette: Toggle New Tab / New Workspace
+  Animations, Use Bouncy Animations, Use Animations Without Bounce.
 - Reduce Motion: no movement and no crossfade standing in for it; chrome
   takes its new places in one step (the tab strip and sidebar crossfades are
   gone).
-- Splits: every pane edge and divider of a split, a close or a released
+- Splits (only with `ui.paneAnimations` on): every pane edge and divider of a split, a close or a released
   divider springs together from rest (or from the release velocity, in
   fractions of the travel), so the change is one spring on the divider
   fraction. A pane that changes size keeps one host frame for the motion
   (`SplitMotion.heldFrame`) and is clipped to the presented rect: content
   lays out once. A released divider flung onto a snap within
   `motion.divider.releaseProjection` of its velocity lands there.
-- New tab: Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
+- New tab (only with `ui.animations.newTab` on; off, every entry point shows
+  the tab in its final slot at once): Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
   slot with the strip's spring; what a New Tab page turns into takes the
   page's cell in place (`TabStripView.expectReplacement(of:)`).
 - New workspace: the row opens at its index and the rows below slide; the

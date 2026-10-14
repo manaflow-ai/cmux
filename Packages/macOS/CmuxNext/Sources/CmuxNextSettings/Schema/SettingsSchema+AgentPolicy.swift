@@ -94,7 +94,6 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
-        "ui.animations.splits",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",

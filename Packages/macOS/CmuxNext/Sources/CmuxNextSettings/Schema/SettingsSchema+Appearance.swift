@@ -223,25 +223,26 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
             ),
             SettingDescriptor(
-                AnimationKindsSetting.path(.splits), section: .appearance, group: look,
-                title: SettingsText.keyed("settings.ui.animations.splits", "Animate Splits"),
-                help: SettingsText.keyed("settings.ui.animations.splits.help",
-                                        "A new split grows from its edge and a closed one gives its room back. Off applies them at once."),
-                kind: .toggle, default: .bool(true), keywords: ["motion", "animation", "split", "pane", "divider"]
+                PaneAnimationsSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help",
+                                        "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
+                kind: .toggle, default: .bool(PaneAnimationsSetting.fallback),
+                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.path(.newTab), section: .appearance, group: look,
                 title: SettingsText.keyed("settings.ui.animations.newTab", "Animate New Tabs"),
                 help: SettingsText.keyed("settings.ui.animations.newTab.help",
                                         "A new tab grows into its place in the tab bar. Off shows it there at once."),
-                kind: .toggle, default: .bool(true), keywords: ["motion", "animation", "tab"]
+                kind: .toggle, default: .bool(false), keywords: ["motion", "animation", "tab"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.path(.newWorkspace), section: .appearance, group: look,
                 title: SettingsText.keyed("settings.ui.animations.newWorkspace", "Animate New Workspaces"),
                 help: SettingsText.keyed("settings.ui.animations.newWorkspace.help",
                                         "A new workspace row opens in the sidebar. Off shows it there at once."),
-                kind: .toggle, default: .bool(true), keywords: ["motion", "animation", "workspace", "sidebar"]
+                kind: .toggle, default: .bool(false), keywords: ["motion", "animation", "workspace", "sidebar"]
             ),
             SettingDescriptor(
                 AnimationKindsSetting.bouncePath, section: .appearance, group: look,
@@ -253,14 +254,6 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice(MotionBounce.subtle.rawValue, SettingsText.keyed("settings.choice.subtle", "Subtle")),
                 ]),
                 default: .string(AnimationKindsSetting.bounceFallback.rawValue), keywords: ["motion", "spring", "bounce"]
-            ),
-            SettingDescriptor(
-                PaneAnimationsSetting.configPath, section: .appearance, group: look,
-                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
-                help: SettingsText.keyed("settings.ui.paneAnimations.help",
-                                        "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
-                kind: .toggle, default: .bool(PaneAnimationsSetting.fallback),
-                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
             ),
             SettingDescriptor(
                 ["layout", "paneSeparation"], section: .appearance, group: panes,
