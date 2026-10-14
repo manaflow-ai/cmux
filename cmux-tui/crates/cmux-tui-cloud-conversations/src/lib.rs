@@ -17,7 +17,9 @@ mod service;
 mod session;
 mod stream;
 
-pub use contract::{CLOUD_OP_KINDS, OpRequest, Target, valid_conversation_id};
+pub use contract::{
+    CLOUD_INBOX_OP_KINDS, CLOUD_OP_KINDS, InboxOpRequest, OpRequest, Target, valid_conversation_id,
+};
 pub use error::CloudError;
 pub use service::{
     CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply, RangeReply,

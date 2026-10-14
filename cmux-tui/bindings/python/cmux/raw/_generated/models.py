@@ -644,6 +644,9 @@ class ConversationSummary:
     title: str
     updated_at: str
     last_message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    marked_unread: Union[bool, MissingType] = field(default=MISSING)
+    pin_position: Union[int, MissingType] = field(default=MISSING)
+    pinned: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2495,6 +2498,14 @@ class CloudInboxListRequest:
 
 
 @dataclass(frozen=True)
+class CloudInboxOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-op/request'
+    conversation: str
+    idempotency_key: str
+    op: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
 class CloudInboxSubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/cloud-inbox-subscribe/request'
     pass
@@ -2729,6 +2740,23 @@ class ConversationImportResult:
     conversation: ConversationSummary
     imported: List[int]
     skipped: int
+
+
+@dataclass(frozen=True)
+class ConversationInboxOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-inbox-op/request'
+    conversation: str
+    op: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class ConversationInboxOpResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-inbox-op/result'
+    conversation: str
+    marked_unread: bool
+    participant: str
+    pinned: bool
+    pin_position: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3760,7 +3788,7 @@ class NotifyRequest:
 @dataclass(frozen=True)
 class PageCredentialRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
-    pass
+    page: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4919,6 +4947,18 @@ class ConversationDraftEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ConversationInboxChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-inbox-changed/payload'
+    conversation: str
+    event: Literal['conversation-inbox-changed']
+    marked_unread: bool
+    participant: str
+    pinned: bool
+    pin_position: Union[int, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class ConversationRunChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/conversation-run-changed/payload'
     conversation: str
@@ -5541,7 +5581,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentPresenceChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationRunChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SettingsChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -5808,6 +5848,7 @@ __all__ = [
     'CloudConversationThreadRequest',
     'CloudConversationUnsubscribeRequest',
     'CloudInboxListRequest',
+    'CloudInboxOpRequest',
     'CloudInboxSubscribeRequest',
     'CloudInboxUnsubscribeRequest',
     'CloudMuxAckRequest',
@@ -5837,6 +5878,8 @@ __all__ = [
     'ConversationHistoryResult',
     'ConversationImportRequest',
     'ConversationImportResult',
+    'ConversationInboxOpRequest',
+    'ConversationInboxOpResult',
     'ConversationLinkResolveRequest',
     'ConversationLinkResolveResult',
     'ConversationListRequest',
@@ -6089,6 +6132,7 @@ __all__ = [
     'ConfigReloadRequestedEvent',
     'ConversationChangedEvent',
     'ConversationDraftEvent',
+    'ConversationInboxChangedEvent',
     'ConversationRunChangedEvent',
     'ConversationTypingEvent',
     'DaemonShutdownEvent',

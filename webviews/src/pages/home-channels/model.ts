@@ -428,6 +428,25 @@ export function chronological(conversations: Iterable<HomeConversation>): HomeCo
   return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
 }
 
+/** The list as it shows: my pinned conversations first, in my pin order (lower position first),
+ * then every other conversation newest activity first. */
+export function listOrder(conversations: Iterable<HomeConversation>): {
+  pinned: HomeConversation[];
+  rest: HomeConversation[];
+} {
+  const pinned: HomeConversation[] = [];
+  const rest: HomeConversation[] = [];
+  for (const conversation of chronological(conversations)) (conversation.pinned ? pinned : rest).push(conversation);
+  // Stable: equal positions (an owner without positions) keep the chronological order.
+  pinned.sort((a, b) => (a.pinPosition ?? 0) - (b.pinPosition ?? 0));
+  return { pinned, rest };
+}
+
+/** Unread as the list shows it: messages after my read cursor, or my own unread mark. */
+export function isUnread(conversation: HomeConversation): boolean {
+  return (conversation.unread > 0 || conversation.markedUnread === true) && !conversation.muted;
+}
+
 /** A conversation's last activity: its last message, else its last change (a new, empty room). */
 export function activityAt(conversation: HomeConversation): number {
   return conversation.lastAt ?? conversation.updatedAt;

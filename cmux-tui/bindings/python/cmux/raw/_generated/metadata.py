@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'f6d4d6c7ce3551e88a1fab7946cf2f5f1ca98b8d8fce300184966138cf85baba'
+IR_SHA256 = '3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e'
 
 
 @dataclass(frozen=True)
@@ -650,6 +650,19 @@ COMMANDS = {
             'limit': CommandFieldMetadata(None, None),
         },
     ),
+    'cloud-inbox-op': CommandMetadata(
+        'cloud-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+        },
+    ),
     'cloud-inbox-subscribe': CommandMetadata(
         'cloud-inbox-subscribe',
         'local-admin',
@@ -870,6 +883,18 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'messages': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-inbox-op': CommandMetadata(
+        'conversation-inbox-op',
+        'local-admin',
+        12,
+        'conversation-inbox-state-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -2249,6 +2274,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'page': CommandFieldMetadata(None, None),
         },
     ),
     'pairing-response': CommandMetadata(
@@ -3642,6 +3668,7 @@ EVENTS = {
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
     'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'conversation-draft': EventMetadata('conversation-draft', 12, 'conversation-draft-events-v1', ('subscribe',), 'emitted'),
+    'conversation-inbox-changed': EventMetadata('conversation-inbox-changed', 12, 'conversation-inbox-state-v1', ('subscribe',), 'emitted'),
     'conversation-run-changed': EventMetadata('conversation-run-changed', 12, 'conversation-runs-v1', ('subscribe',), 'emitted'),
     'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),

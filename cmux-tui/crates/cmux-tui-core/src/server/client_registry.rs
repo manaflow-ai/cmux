@@ -679,6 +679,10 @@ impl ClientRegistry {
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
                     || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
                     || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    // No placement restatement on `session.events`
+                    // (state/placement_shift.rs).
+                    || capability == crate::state::placement_shift::CAPABILITY
+                    || capability == crate::state::sidebar_doc_store::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
