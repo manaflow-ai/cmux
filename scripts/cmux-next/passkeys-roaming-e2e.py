@@ -40,6 +40,8 @@ parser.add_argument("--site", default="https://webauthn.io")
 parser.add_argument("--no-dialogs", action="store_true")
 parser.add_argument("--real", action="store_true", help="a real key or phone and a person; no virtual authenticator")
 parser.add_argument("--real-seconds", type=int, default=120, help="--real: how long each step waits for the person")
+parser.add_argument("--hybrid-only", action="store_true", help="--real: only the phone step")
+parser.add_argument("--hybrid", action="store_true", help="--real: after the key, register and sign in with a phone (QR + Bluetooth)")
 parser.add_argument("--discoverable", default="", choices=["", "discouraged", "preferred", "required"],
                     help="webauthn.io Discoverable Credential; `discouraged` needs only a touch on a key with no PIN")
 opts = parser.parse_args()
@@ -280,37 +282,37 @@ def say(text):
         pass
 
 
-def real_key(tab):
-    """A real security key or phone, no virtual authenticator: a person touches the key, types
-    the PIN in Chromium's dialog, or scans the QR code. Pictures every 3 s while a sheet is up."""
-    if not load_site(tab):
-        return "FAIL", f"{opts.site} did not load"
+def real_key(tab, username, discoverable, prompts, label):
+    """A real security key or phone, no virtual authenticator: a person touches the key or scans
+    the QR code with a phone. Pictures every 3 s while a sheet is up."""
+    # A signed-in webauthn.io session sends the next visit to /profile: start signed out
+    # (a DEV tag's throwaway profile; Network.clearBrowserCookies clears all of its cookies).
+    devtools("Network.clearBrowserCookies")
+    if not load_site(tab) or js(tab, "location.pathname") != "/":
+        return "FAIL", f"{opts.site} did not load signed out: {js(tab, 'location.href')}"
     devtools("WebAuthn.disable")
-    username = f"cmux-real-{uuid.uuid4().hex[:8]}"
     steps = []
     for step, button, done, prompt in (
-        ("register", "register-button", lambda: alert_kind(tab) != "",
-         "Passkey test. Touch the security key now. If cmux asks for a PIN, type the PIN and press return."),
-        ("sign-in", "login-button", lambda: on_profile(tab) or alert_kind(tab) == "error",
-         "Touch the security key again to sign in. Type the PIN if cmux asks."),
+        ("register", "register-button", lambda: alert_kind(tab) != "", prompts[0]),
+        ("sign-in", "login-button", lambda: on_profile(tab) or alert_kind(tab) == "error", prompts[1]),
     ):
-        if step == "register" and fill(tab, username, "cross_platform", opts.discoverable) != "cross_platform":
+        if step == "register" and fill(tab, username, "cross_platform", discoverable) != "cross_platform":
             return "FAIL", "attachment not set to Cross-Platform"
         click(tab, button)
         say(prompt)
         began, index = time.time(), 0
         while time.time() - began < opts.real_seconds and not done():
             if index % 3 == 0:
-                shot(f"real-{step}-{index:03d}")
+                shot(f"real-{label}-{step}-{index:03d}")
             index += 1
             time.sleep(1)  # test harness: a person acts at their own pace
         passed = alert_kind(tab) == "success" if step == "register" else on_profile(tab)
         steps.append(f"{step}: {'pass' if passed else 'fail'} {alert_text(tab) or js(tab, 'location.pathname')!r} after {time.time() - began:.0f} s")
-        shot(f"real-{step}-done")
+        shot(f"real-{label}-{step}-done")
         if not passed:
-            say("The passkey test failed. Thank you.")
+            say(f"The {label} test failed.")
             return "FAIL", f"{username}: " + "; ".join(steps)
-    say("The passkey test passed. Thank you.")
+    say(f"The {label} test passed.")
     return "PASS", f"{username}: " + "; ".join(steps)
 
 
@@ -326,9 +328,19 @@ def main():
         row("(setup)", "FAIL", f"{opts.site} did not load in a CEF tab: {opened}")
     else:
         row("probe", "NOTE", js(tab, "JSON.stringify({ua: navigator.userAgent, secure: isSecureContext, focused: document.hasFocus()})"))
-        if opts.real:
-            status, detail = real_key(tab)
+        if opts.real and not opts.hybrid_only:
+            status, detail = real_key(tab, f"cmux-key-{uuid.uuid4().hex[:8]}", opts.discoverable, (
+                "Passkey test. Touch the security key now. If a PIN box appears, press Cancel.",
+                "Touch the security key again to sign in."), "security key")
             row("webauthn.io real key", status, detail)
+        if opts.real and (opts.hybrid or opts.hybrid_only):
+            status, detail = real_key(tab, f"cmux-phone-{uuid.uuid4().hex[:8]}", "", (
+                "Phone test. Please unplug the security key. In the cmux sheet choose iPhone, iPad, or Android device. Scan the QR code"
+                " with the phone camera and approve on the phone. If the Mac asks to use Bluetooth, click Allow.",
+                "Sign in with the phone. Choose the phone in the sheet, scan the QR code again and approve."), "phone")
+            row("webauthn.io real phone (hybrid)", status, detail)
+        if opts.real:
+            say("All passkey steps are done. Thank you.")
             opts.transports, opts.no_dialogs = "", True
         for transport in [t for t in opts.transports.split(",") if t]:
             status, detail = ceremony(tab, transport)
