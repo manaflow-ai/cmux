@@ -188,6 +188,10 @@ pub(crate) fn project_layout(stored: &Document, doc: &Doc) -> Document {
             .ok()?;
             tile.span = item.span;
             tile.extra = item.extra.clone();
+            // Old clients read a url tile's favicon from `extra.icon_url`.
+            if let Body::Url { icon_url: Some(icon_url), .. } = &item.body {
+                tile.extra.insert("icon_url".into(), icon_url.clone().into());
+            }
             Some(tile)
         })
         .collect();
@@ -340,17 +344,19 @@ pub(crate) fn workspace_order(connection: &Connection) -> anyhow::Result<Vec<Str
         return Ok(legacy);
     }
     let local = local_registry_id(connection)?;
-    let doc = store::read_doc(connection)?;
     let mut seen = HashSet::new();
     let mut order = Vec::new();
-    for item in &doc.items {
-        if let Some(reference) = item.body.workspace()
-            && reference.session_id == local
-            && seen.insert(reference.workspace_id.clone())
-        {
-            order.push(reference.workspace_id.clone());
+    store::with_doc(connection, |doc| {
+        for item in doc.items_in_order() {
+            if let Some(reference) = item.body.workspace()
+                && reference.session_id == local
+                && seen.insert(reference.workspace_id.clone())
+            {
+                order.push(reference.workspace_id.clone());
+            }
         }
-    }
+        Ok(())
+    })?;
     for id in legacy {
         if seen.insert(id.clone()) {
             order.push(id);
