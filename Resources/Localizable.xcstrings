@@ -652235,6 +652235,31 @@
         }
       }
     },
+    "cloud.link.requestTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Cloud machine did not answer the request before its deadline. The connection will be checked before retrying." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Cloud-Maschine hat vor Ablauf der Frist nicht geantwortet. Die Verbindung wird vor dem erneuten Versuch geprüft." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La machine Cloud n’a pas répondu avant la date limite. La connexion sera vérifiée avant une nouvelle tentative." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لم تستجب آلة Cloud قبل الموعد النهائي للطلب. سيتم التحقق من الاتصال قبل إعادة المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La máquina Cloud no respondió antes del plazo. Se comprobará la conexión antes de volver a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 機器未在期限前回應要求。重試前會檢查連線。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 机器未在截止时间前响应请求。重试前将检查连接。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 머신이 기한 내에 요청에 응답하지 않았습니다. 다시 시도하기 전에 연결을 확인합니다." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud マシンは期限内に応答しませんでした。再試行する前に接続を確認します。" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Cloud mašina nije odgovorila prije isteka roka. Veza će biti provjerena prije ponovnog pokušaja." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarede ikke inden tidsfristen. Forbindelsen kontrolleres, før der prøves igen." } },
+        "it": { "stringUnit": { "state": "translated", "value": "La macchina Cloud non ha risposto entro il termine. La connessione verrà controllata prima di riprovare." } },
+        "km": { "stringUnit": { "state": "translated", "value": "ម៉ាស៊ីន Cloud មិនបានឆ្លើយតបមុនពេលកំណត់ទេ។ ការតភ្ជាប់នឹងត្រូវបានពិនិត្យមុនពេលព្យាយាមម្តងទៀត។" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Cloud-maskinen svarte ikke innen tidsfristen. Tilkoblingen blir kontrollert før nytt forsøk." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Maszyna Cloud nie odpowiedziała przed upływem limitu czasu. Połączenie zostanie sprawdzone przed ponowną próbą." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "A máquina Cloud não respondeu antes do prazo. A conexão será verificada antes de tentar novamente." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Облачная машина не ответила до истечения срока. Перед повторной попыткой будет проверено подключение." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เครื่อง Cloud ไม่ตอบสนองก่อนถึงกำหนด จะตรวจสอบการเชื่อมต่อก่อนลองอีกครั้ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cloud makinesi süre dolmadan isteğe yanıt vermedi. Yeniden denemeden önce bağlantı kontrol edilecek." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хмарна машина не відповіла до завершення терміну. Перед повторною спробою з’єднання буде перевірено." } }
+      }
+    },
     "cloud.welcome.note.teamAvailable": {
       "extractionState": "manual",
       "localizations": {

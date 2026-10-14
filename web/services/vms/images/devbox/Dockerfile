@@ -54,6 +54,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     zstd \
     procps \
+    coreutils \
     iproute2 \
     iputils-arping \
     openssh-client \

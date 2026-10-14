@@ -20,7 +20,15 @@ final class ScrollbackTestTerminal {
 
     /// `ioMode: .manual` also delivers parser-generated replies (DSR, CSI 996)
     /// to the input stream; `.manualMirror` suppresses them.
-    init(initialInput: String? = nil, ioMode: TerminalSurfaceIOMode = .manualMirror) throws {
+    /// `pinsOnScreenOcclusion` reports `.visible` occlusion so the renderer
+    /// presents even when the headless app-host process is not the active
+    /// app: the window server then never sets `.visible` and the window never
+    /// becomes key.
+    init(
+        initialInput: String? = nil,
+        ioMode: TerminalSurfaceIOMode = .manualMirror,
+        pinsOnScreenOcclusion: Bool = false
+    ) throws {
         _ = NSApplication.shared
         let pair = AsyncStream<TerminalManualInput>.makeStream()
         inputs = pair.stream
@@ -36,7 +44,8 @@ final class ScrollbackTestTerminal {
             manualInputHandler: { sink.yield($0) }
         )
         view = surface.hostedView.surfaceView
-        window = NSWindow(
+        let windowClass: NSWindow.Type = pinsOnScreenOcclusion ? OnScreenScrollbackTestWindow.self : NSWindow.self
+        window = windowClass.init(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -193,4 +202,10 @@ final class ScrollbackTestTerminal {
         Issue.record("The terminal I/O peer ended before the barrier")
         return bytes
     }
+}
+
+/// Reports the occlusion state an on-screen window has in the running app;
+/// see `OnScreenTestWindow` in SimulatorPanelThemeTests.swift.
+private final class OnScreenScrollbackTestWindow: NSWindow {
+    override var occlusionState: NSWindow.OcclusionState { .visible }
 }
