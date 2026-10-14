@@ -281,6 +281,7 @@ async fn dispatch_request(
                 env: crate::session_env::parse(meta)?,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
+                keep_harness_mode: false,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
@@ -418,7 +419,8 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
-            hub.set_mode(&s, mode).await
+            // The app pane's mode pick is saved for the next new chat (start_mode.rs).
+            hub.client_set_mode(&s, mode, conn.origin == Origin::LocalApp).await
         }
         method::SESSION_SET_CONFIG_OPTION => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;

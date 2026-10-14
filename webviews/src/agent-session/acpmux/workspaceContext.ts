@@ -5,7 +5,7 @@
 // workspace through the cmux CLI, which finds this chat's workspace from the agent's session
 // (`CMUX_AGENT_SESSION`, `cmux app identify`), so nothing in it goes stale.
 //
-// It is text for the agent, not the person, so it is not localized.
+// l10n-allow-file: it is text for the agent, not the person, so it is not localized.
 
 // It starts on its own line: a harness that joins it to the person's text with no break (Codex)
 // still keeps the person's words alone on the first line, where titles come from.
