@@ -257,7 +257,7 @@ struct DiffSnippet: View {
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
-                .frame(height: 40)
+                .frame(height: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -379,8 +379,8 @@ struct EditedFilesCard: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 40)
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

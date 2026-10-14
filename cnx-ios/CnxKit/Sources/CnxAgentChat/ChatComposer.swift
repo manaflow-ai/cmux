@@ -142,7 +142,7 @@ struct ChatComposer: View {
                     Text(placeholder)
                         .lineLimit(1)
                         .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(.rect)
                         .onTapGesture { expand() }
                         .accessibilityAddTraits(.isButton)

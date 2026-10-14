@@ -280,7 +280,6 @@ public struct AgentChatScreen: View {
                     .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
-            .controlSize(.large)
             .accessibilityLabel("More")
         }
     }

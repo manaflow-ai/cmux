@@ -17,7 +17,6 @@ struct SidebarToolbarItem: ToolbarContent {
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
             Button("Teams", systemImage: "line.3.horizontal") { sidebar.open() }
-                .controlSize(.large)
                 .accessibilityLabel("Teams")
         }
     }

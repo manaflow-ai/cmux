@@ -306,6 +306,7 @@ public struct WebPreview: UIViewRepresentable {
 public struct ZoomableImage: View {
     let image: UIImage?
     let label: String
+    @State private var zoom = ZoomControl()
     var onZoomChange: ((Bool) -> Void)?
     var onDismissDrag: ((CGFloat, Bool) -> Void)?
 
@@ -321,8 +322,22 @@ public struct ZoomableImage: View {
 
     public var body: some View {
         if let image {
-            ZoomingImageView(image: image, label: label, onZoomChange: onZoomChange, onDismissDrag: onDismissDrag)
+            ZoomingImageView(image: image, label: label, control: zoom, onZoomChange: onZoomChange, onDismissDrag: onDismissDrag)
                 .background(Color.black)
+                // One labelled image for VoiceOver, with zoom as an action.
+                .accessibilityElement()
+                .accessibilityLabel(Text(label))
+                .accessibilityAddTraits(.isImage)
+                .accessibilityAction(named: Text("Zoom in or fit")) { zoom.view?.toggleZoomAtCenter() }
+                #if DEBUG
+                // `-cnx-image-zoom-demo`: double-tap's zoom path at launch (simulator HID
+                // double-taps do not reach the viewer).
+                .task {
+                    guard CommandLine.arguments.contains("-cnx-image-zoom-demo") else { return }
+                    try? await Task.sleep(for: .seconds(1))
+                    zoom.view?.toggleZoom(at: CGPoint(x: 60, y: 60))
+                }
+                #endif
         } else {
             ContentUnavailableView("Not an image", systemImage: "photo")
         }
@@ -331,9 +346,16 @@ public struct ZoomableImage: View {
 
 /// Pinch, double-tap to zoom to the tapped point, pan while zoomed (a `UIScrollView`
 /// zoom host), and a downward drag reported only at the fitted size.
+/// Reaches the zoom view from SwiftUI (accessibility action, DEBUG demo).
+@MainActor
+final class ZoomControl {
+    weak var view: ZoomingImageScrollView?
+}
+
 struct ZoomingImageView: UIViewRepresentable {
     let image: UIImage
     let label: String
+    let control: ZoomControl
     var onZoomChange: ((Bool) -> Void)?
     var onDismissDrag: ((CGFloat, Bool) -> Void)?
 
@@ -348,6 +370,7 @@ struct ZoomingImageView: UIViewRepresentable {
     }
 
     private func update(_ view: ZoomingImageScrollView) {
+        control.view = view
         view.onZoomChange = onZoomChange
         view.onDismissDrag = onDismissDrag
         view.set(image: image, label: label)
@@ -378,6 +401,9 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
         imageView.isAccessibilityElement = true
         imageView.accessibilityTraits = [.image]
         addSubview(imageView)
+        // The scroll view is a container whose one element is the labelled image.
+        isAccessibilityElement = false
+        accessibilityElements = [imageView]
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
         doubleTap.numberOfTapsRequired = 2
         addGestureRecognizer(doubleTap)
@@ -441,6 +467,10 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
         } else {
             setZoomScale(minimumZoomScale, animated: true)
         }
+    }
+
+    func toggleZoomAtCenter() {
+        toggleZoom(at: CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY))
     }
 
     // MARK: Swipe to dismiss (fitted size only)
