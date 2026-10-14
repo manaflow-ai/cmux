@@ -215,6 +215,21 @@ describe("VM alert checks", () => {
         )), ${new Date(now.getTime() - 6 * 60 * 1000)}
       )
     `;
+    // A stopped allocation, missing heartbeat, foreign sample, malformed
+    // timestamp, and current heartbeat do not establish a frozen running guest.
+    for (const [suffix, status, sample] of [
+      ["paused", "paused", { providerVmId: "excluded-paused", receivedAt: 1 }],
+      ["missing", "running", {}],
+      ["foreign", "running", { providerVmId: "another-vm", receivedAt: 1 }],
+      ["invalid", "running", { providerVmId: "excluded-invalid", receivedAt: "unknown" }],
+      ["fresh", "running", { providerVmId: "excluded-fresh", receivedAt: now.getTime() }],
+    ] as const) {
+      await sql`
+        insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status, provider_metadata)
+        values ('user-health', 'freestyle', ${`excluded-${suffix}`}, 'snapshot-health',
+          ${status}, ${sql.json({ cmuxResourceUsage: sample })})
+      `;
+    }
     const alerts: AlertInput[] = [];
     const summary = await runVmAlertChecks({
       db: cloudDb(),

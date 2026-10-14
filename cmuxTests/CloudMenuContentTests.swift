@@ -136,7 +136,17 @@ struct CloudMenuContentTests {
         limited.capabilities.fork = false
         let plainIDs = recorder.actions.machine.submenuEntries(limited).compactMap(Self.actionID)
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
-                             "machine.plain.rename", "machine.plain.restart", "machine.plain.status", "machine.plain.delete"])
+                             "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
+
+        // Missing or false capability metadata must hide recovery in every
+        // menu. An explicit server opt-in routes to the shared CLI action.
+        limited.capabilities.restart = true
+        let recoveryEntries = recorder.actions.machine.submenuEntries(limited)
+        try Self.perform("machine.plain.restart", in: recoveryEntries)
+        #expect(recorder.log == ["run:plain:vm restart"])
+        recorder.log.removeAll()
+        limited.capabilities.restart = false
+        #expect(!recorder.actions.machine.submenuEntries(limited).contains { $0.id == "machine.plain.restart" })
 
         // Freestyle: no native fork, but the backend forks through snapshot + create.
         var snapshotForked = Self.machine("snap")

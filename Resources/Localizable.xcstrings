@@ -652505,22 +652505,16 @@
             "value": "Restart Machine"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Computer neu starten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrer la machine"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "إعادة تشغيل الجهاز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine neu starten"
           }
         },
         "es": {
@@ -652529,16 +652523,16 @@
             "value": "Reiniciar máquina"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新啟動機器"
+            "value": "Redémarrer la machine"
           }
         },
-        "zh-Hans": {
+        "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新启动机器"
+            "value": "マシンを再起動"
           }
         },
         "ko": {
@@ -652547,10 +652541,16 @@
             "value": "머신 재시작"
           }
         },
-        "ja": {
+        "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンを再起動"
+            "value": "重启机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動機器"
           }
         }
       }
@@ -652561,55 +652561,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restart"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neustart"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Redémarrer"
+            "value": "Restart machine"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة التشغيل"
+            "value": "إعادة تشغيل الجهاز"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine neu starten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reiniciar"
+            "value": "Reiniciar máquina"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新啟動"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "重新启动"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재시작"
+            "value": "Redémarrer la machine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再起動"
+            "value": "マシンを再起動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 재시작"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動機器"
           }
         }
       }
