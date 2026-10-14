@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDesign
 
@@ -13,6 +14,9 @@ import CmuxNextDesign
 protocol PaneParkableContent: NSView {}
 
 extension BrowserChromeView: PaneParkableContent {}
+/// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
+/// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
+extension AgentPaneView: PaneParkableContent {}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
@@ -20,7 +24,7 @@ struct ParkedContent {
 }
 
 extension PaneContentView {
-    /// The most browsers one pane keeps hidden. Older ones leave the window
+    /// The most browsers and agent pages one pane keeps hidden. Older ones leave the window
     /// (the old cost, paid once for a tab visited long ago).
     static let parkLimit = 8
 
@@ -49,7 +53,7 @@ extension PaneContentView {
         if view is PaneParkableContent { view.isHidden = false }
     }
 
-    /// The pane stops showing `view`: a browser stays here, hidden; other
+    /// The pane stops showing `view`: a browser or agent page stays here, hidden; other
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
