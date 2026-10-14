@@ -24,8 +24,8 @@ enum DragTunables {
     /// Chrome's split targets were too eager); before that the drop joins the pane.
     static let splitDwell = Tunable<Double>.number(
         "tabDrag.splitDwell", .tabDrag, "Split dwell",
-        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once.",
-        default: 0.25, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
+        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once (classic).",
+        default: 0, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
 
     static var all: [TunableDescriptor] {
         [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor) + [splitDwell.descriptor]

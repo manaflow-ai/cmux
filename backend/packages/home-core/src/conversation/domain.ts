@@ -249,7 +249,12 @@ const reduceConversation = (
     op: coreOp,
     now: formatRfc3339Millis(ctx.now),
     new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
-    target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
+    // A thread root below the actor's history floor is refused like a missing one (the thread
+    // read's rule), so thread.update never probes or changes hidden history.
+    target: (() => {
+      const row = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
+      return coreOp.kind === "thread.update" ? visible(row) : row
+    })(),
     // A reply target or thread root below the actor's history floor (since_join) is not visible
     // to it: refused like a missing one, so a send never probes hidden history.
     reply_target: visible(replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null)),
