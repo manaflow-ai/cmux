@@ -103,6 +103,32 @@ import Testing
         #expect(players.count == 0, "a closed window keeps its video decoder")
     }
 
+    @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = []
+        h.video.windowsAboveOverride = { above }
+        // A browser over all but a 3% sliver: AppKit still calls the window visible.
+        let browser = CGRect(x: frame.minX - 50, y: frame.minY - 50, width: frame.width * 0.97 + 50, height: frame.height + 100)
+        above = [.init(bounds: browser, owner: "Safari")]
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "one sample rested the video; a window passing over must not")
+        h.video.sampleCoverage()
+        #expect(!h.video.isPlaying, "a window hidden but for a sliver still decodes its video")
+        // Half of it shows again: the video resumes after two samples agree.
+        above = [.init(bounds: CGRect(x: browser.minX, y: browser.minY, width: frame.width / 2 + 50, height: browser.height), owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "the video does not resume once the window shows again")
+        // A translucent window or the Dock over it hides nothing.
+        above = [.init(bounds: browser, alpha: 0.9, owner: "Terminal"), .init(bounds: browser, owner: "Dock")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a translucent window or the Dock rested the video")
+    }
+
     /// A Mac with Apple's moving wallpaper in a light, a dark and a portrait cut, and one downloaded aerial.
     func mac() async throws -> (pictures: URL, aerials: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-moving-wallpapers-\(UUID().uuidString)", isDirectory: true)
