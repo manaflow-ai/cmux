@@ -3,6 +3,7 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+mod agent_runtimes;
 mod auxiliary;
 mod browser_engine;
 mod config;

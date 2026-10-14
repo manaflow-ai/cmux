@@ -364,6 +364,8 @@ pub enum ResourceOperation {
     NotificationClear,
     #[serde(rename = "agent.list")]
     AgentList,
+    #[serde(rename = "agent.runtime.list")]
+    AgentRuntimeList,
     #[serde(rename = "agent.report")]
     AgentReport,
     #[serde(rename = "agent.message.send")]

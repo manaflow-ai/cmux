@@ -158,6 +158,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
 /// Operations the curated `cmux` CLI offers but MCP does not, with the
 /// reason. Unlike [`EXCLUDED`], the parity test lets `cmux` reach these.
 pub(super) const CLI_ONLY: &[(&str, &str)] = &[
+    ("agent.runtime.list", AGENT_RUNTIME_REASON),
     ("history.entries.list", HISTORY_MCP_PENDING_REASON),
     ("history.entries.remove", HISTORY_MCP_PENDING_REASON),
     ("history.site.remove", HISTORY_MCP_PENDING_REASON),
@@ -200,6 +201,8 @@ const HISTORY_VISIT_REASON: &str = "Page visits, their titles, the app's older v
      A2); agents read history, they never add a visit or a step.";
 const HISTORY_OMNIBOX_REASON: &str = "The omnibox's own seed and Remove suggestion: `cmux history` \
      lists history and removes entries by id or site.";
+const AGENT_RUNTIME_REASON: &str = "This user's host processes (RFC #20149): never handed to a \
+     provider's MCP tools; `cmux agents runtimes` shows them to the person.";
 const HISTORY_MCP_PENDING_REASON: &str = "The person's page, command and agent history: MCP \
      clients act as the local user, and the policy for history reads and deletes over MCP is \
      still open (bead cx-ncc.32); `cmux history` offers them meanwhile.";

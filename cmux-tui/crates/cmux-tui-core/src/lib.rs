@@ -96,7 +96,9 @@ pub mod layout;
 pub use cmux_tui_platform::platform;
 #[cfg(unix)]
 use cmux_tui_platform::process_identity;
+pub use cmux_tui_platform::process_inventory;
 pub use cmux_tui_platform::process_resources;
+pub mod runtime_inventory;
 pub mod server;
 pub mod session_state_import;
 pub mod terminal_host;
