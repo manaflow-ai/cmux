@@ -33,7 +33,7 @@ public final class NativePopupHost {
     public init(panel: NSPanel) {
         self.panel = panel
         if let keyed = panel as? NativePopupPanel {
-            keyed.onLostKeys = { [weak self, weak keyed] in
+            keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
@@ -42,7 +42,7 @@ public final class NativePopupHost {
                 // Its own window took the keys without a press (Cmd-Tab into the app, a focus
                 // request): the popup takes them over, as a popup shown with the app active has
                 // them; it never takes them while the app is inactive (ActiveAppKeyPanel).
-                if press == nil, isShown, let parent = keyed.parent, NSApp.keyWindow === parent {
+                if elsewhere, press == nil, isShown, let parent = keyed.parent, NSApp.keyWindow === parent {
                     keyed.makeKey()
                     return
                 }
@@ -154,8 +154,9 @@ public final class NativePopupHost {
 /// when it loses the keys, or, shown without them (the app was not active), when another window
 /// of the app takes them (``ActiveAppKeyPanel``).
 open class NativePopupPanel: ActiveAppKeyPanel {
-    /// Set by the host: the panel lost the keys or another window took them.
-    var onLostKeys: (() -> Void)?
+    /// Set by the host: the panel lost the keys (false), or, shown without them, another window of
+    /// the app took them (true).
+    var onLostKeys: ((_ elsewhere: Bool) -> Void)?
 
     public init(identifier: String) {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
@@ -173,13 +174,13 @@ open class NativePopupPanel: ActiveAppKeyPanel {
         self.identifier = NSUserInterfaceItemIdentifier(identifier)
         setAccessibilityIdentifier(identifier)
         setAccessibilityRole(.popover)
-        onKeyElsewhere = { [weak self] in self?.onLostKeys?() }
+        onKeyElsewhere = { [weak self] in self?.onLostKeys?(true) }
     }
 
     override open var canBecomeMain: Bool { false }
 
     override open func resignKey() {
         super.resignKey()
-        onLostKeys?()
+        onLostKeys?(false)
     }
 }
