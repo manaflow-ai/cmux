@@ -303,6 +303,7 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
   return () => {
     disposed = true;
     disposeReactive?.();
+    for (const queued of pending.values()) clearTimeout(queued.expiry);
     pending.clear();
     stop?.();
     feed.dispose?.();
