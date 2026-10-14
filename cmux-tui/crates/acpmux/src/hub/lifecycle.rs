@@ -47,6 +47,9 @@ impl Hub {
         // model/effort (or a model in its argv or env) and an adopted
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        // The start mode also skips a remote-origin session (the remote
+        // guard settles its mode) and a profile that pins its mode.
+        let mode_eligible = eligible && !remote && !super::start_mode::profile_sets_mode(&profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -239,6 +242,15 @@ impl Hub {
                     }
                     Err(err) => return Err(RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message))),
                 }
+            }
+            // The permission mode a new chat starts in (start_mode.rs): full
+            // access unless the person picked or set otherwise. Soft.
+            let start_mode = if mode_eligible { self.start_mode(&session, defaults.mode.as_deref()).await } else { None };
+            if let Some(mode) = start_mode
+                && let Err(err) = self.set_mode(&session, &mode).await
+            {
+                tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
+                self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
             }
             Ok(())
         }

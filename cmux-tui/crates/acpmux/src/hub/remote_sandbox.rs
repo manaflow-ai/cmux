@@ -518,6 +518,10 @@ impl Hub {
         if !session.meta().remote_origin {
             return Ok((plan, std::borrow::Cow::Borrowed(profile)));
         }
+        // A remote chain never runs without the permission prompt: no switch
+        // to bypassPermissions (its settings disable the mode as well).
+        let mut plan = plan;
+        plan.args.retain(|a| a != crate::claude_stdio::ALLOW_BYPASS_FLAG);
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
         let mut profile = profile.clone();
