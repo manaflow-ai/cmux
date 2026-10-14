@@ -23,7 +23,7 @@ each held drag checks the drop look `debug.sidebar_rows` reports
 (`drop.indicator`: `gap` where the rows or tiles make way, `into` a group
 header): one drop behavior for every section. Exit 1 when any step FAILs.
 """
-import argparse, json, os, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, subprocess, sys, tempfile, time, urllib.parse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
@@ -73,7 +73,9 @@ def doc_icon_url(host):
     tagged app's bundled cmux-tui)."""
     tui = os.path.join(os.path.dirname(CLI), "cmux-tui")
     env = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CMUX_QUIET": "1"}
-    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "sidebar.get"], capture_output=True, text=True, timeout=30, env=env)
+    # Through the app socket an operation names its machine (live14: "required selector is missing" without it).
+    out = subprocess.run([tui, "--app-socket", SOCKET, "--json", "raw", "operation", "sidebar.get", "--params-json", '{"machine":"current"}'],
+                         capture_output=True, text=True, timeout=30, env=env)
     try:
         doc = json.loads(out.stdout)
     except ValueError:
@@ -93,6 +95,18 @@ def doc_icon_url(host):
                 walk(child)
     walk(doc)
     return next((value for value in found if value), None)
+
+
+def github_panes():
+    """(workspace, pane, focused) of each pane of the shown workspaces whose web page is on github.com (debug.surfaces
+    `url`, a browser pane's current address)."""
+    found = []
+    for win in (rpc("debug.surfaces") or {}).get("windows") or []:
+        for pane in win.get("panes") or []:
+            host = urllib.parse.urlparse(str(pane.get("url") or "")).hostname or ""
+            if host == "github.com" or host.endswith(".github.com"):
+                found.append((pane.get("workspace"), pane.get("pane"), bool(pane.get("focused"))))
+    return sorted(found)
 
 
 def wait(predicate, timeout):
@@ -350,12 +364,17 @@ try:
         row = wait(lambda: next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("item") and r.get("in_list")), None), 5)
         record("link item into the list lists as a row", bool(row) and not any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")),
                f"row={row and (row.get('key'), row.get('window_frame'))} items={[(i.get('section'), i.get('ref_kind')) for i in items()]}")
+        # The undo toast (what Cmd-Z runs) lives 6 s: undo the drop at once, before the page loads and the favicon
+        # waits (live14 ran it after them, when the toast had ended). Its redo puts the link back as a list row.
+        undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
+        row = row and wait(lambda: next((r for r in window().get("rows", []) if r.get("key") == row.get("key") and r.get("in_list")), None), 5)
         if row:
             key = row.get("key")
+            before = github_panes()
             rpc("debug.mouse", {"x": center(row["window_frame"])[0], "y": center(row["window_frame"])[1], "action": "click"})
-            opened = wait(lambda: "github.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
+            opened = wait(lambda: [p for p in github_panes() if p[:2] not in [b[:2] for b in before]], 15)
             shot("v2-5-link-opened")
-            record("link row in the list opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
+            record("link row in the list opens its page", bool(opened), f"github.com panes before={before} after={github_panes()}")
             # The open tab teaches the app the page's favicon address; the app stores it on the item (icon_url, read back
             # from the daemon with sidebar.get) and the row draws that icon, not the /favicon.ico fallback.
             # The app keys tab favicons by the page's exact origin (not gist.github.com or another GitHub host).
@@ -368,7 +387,6 @@ try:
             record("link row draws the open tab's favicon", ok,
                    f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('https://github.com')} row icon_address="
                    f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
-            undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:
         record("link item into the list", False, f"link={link} list anchor={anchor and anchor.get('title')} after cmux action run sidebar.item.add ({added[:200]})")
 
@@ -396,6 +414,10 @@ try:
                and member["window_frame"]["x"] > grp_header["window_frame"]["x"],
                f"member={member and (member.get('key'), member.get('kind'), member.get('group'), member.get('window_frame'))} "
                f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
+        # The undo toast lives 6 s: undo the drop at once (live14 ran it after the favicon waits, when the toast had
+        # ended); its redo puts the link back in Grp for the checks below.
+        undo("link onto a Pinned group", lambda: member_link(group_id) is None)
+        member = member and wait(lambda: member_link(group_id), 5)
         if member:
             key = member.get("key")
             tab_icon = wait(lambda: ((rpc("debug.sidebar_rows") or {}).get("open_tab_favicons") or {}).get("https://github.com"), 20)
@@ -406,37 +428,24 @@ try:
             record("link member row draws the open tab's favicon", ok,
                    f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('https://github.com')} row icon_address="
                    f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
-            # Step 5 left github.com open, so "a github.com surface exists" proves nothing: move focus to a workspace
-            # row first, then the click must change the github.com surfaces (a new one, or one newly focused).
-            def github_state():
-                found = []
-                def walk(node):
-                    if isinstance(node, dict):
-                        if "github.com" in json.dumps(node) and "workspace" in node:
-                            found.append((node.get("workspace"), bool(node.get("focused"))))
-                        else:
-                            for value in node.values():
-                                walk(value)
-                    elif isinstance(node, list):
-                        for value in node:
-                            walk(value)
-                walk(rpc("debug.surfaces") or {})
-                return sorted(found)
-            away = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
-                         and not r.get("group")), None)
+            # Step 5 left github.com open, so "a github.com pane exists" proves nothing: show a workspace without a
+            # github.com pane first (not the one step 5 opened the page in), then the click must bring a focused
+            # github.com pane that was not there before (a new pane, or the page's workspace shown again).
+            open_in = {w for w, _, _ in github_panes()}
+            loose = [r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
+                     and not r.get("group")]
+            away = next((r for r in loose if not any(w and w in str(r.get("key")) for w in open_in)), None)
             if away:
                 rpc("debug.mouse", {"x": center(away["window_frame"])[0], "y": center(away["window_frame"])[1], "action": "click"})
-                # The focus has moved once no github.com surface is focused.
-                wait(lambda: not any(f for _, f in github_state()), 5)
-            before = github_state()
+                wait(lambda: not any(f for _, _, f in github_panes()), 5)
+            before = github_panes()
             member = member_link(group_id) or member
             rpc("debug.mouse", {"x": center(member["window_frame"])[0], "y": center(member["window_frame"])[1], "action": "click"})
-            opened = wait(lambda: (lambda now: now if now != before and any(f for _, f in now) else None)(github_state()), 15)
+            opened = wait(lambda: [p for p in github_panes() if p[2] and p not in before], 15)
             shot("v2-5b-link-member-opened")
             record("link member row opens its page", bool(opened),
-                   f"github.com surfaces before={before} after={github_state()}"
-                   + ("" if away else " (no loose workspace row to move the focus to first: before may already hold a focused github.com surface)"))
-            undo("link onto a Pinned group", lambda: member_link(group_id) is None)
+                   f"github.com panes before={before} after={github_panes()}"
+                   + ("" if away else " (no loose workspace row without github.com to show first: before may already hold a focused github.com pane)"))
     else:
         record("link onto a Pinned group lists as its member row", False, f"link source={source} Grp header={grp_header} group_id={group_id}")
 
