@@ -165,6 +165,10 @@ public struct Metrics {
 
     public static var iconSize: CGFloat { MetricTunables.iconSize.value }
     public static var smallIconSize: CGFloat { MetricTunables.smallIconSize.value }
+    /// The height of a row's status glyph and of the count badge beside it
+    /// (Leo 2026-10-13: the badge stood taller than the glyph). Both the
+    /// glyph's owner and the badge size from this one token.
+    public static var statusMarkSize: CGFloat { smallIconSize - space1 }
 }
 
 /// Type scale. Compact uses 12 pt body in chrome (terminal fonts come from
