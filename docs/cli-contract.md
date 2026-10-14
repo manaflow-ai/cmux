@@ -81,6 +81,11 @@ Chief turn, an acpmux event hook): it exits 1 with `origin.forbidden`
 session. This keeps a person's other apps on a shared host out of an agent's
 answers. It is not a sandbox: the OS boundary is still the user, and naming a
 session explicitly (`--socket`, `--session`, `<session>:<id>`) still works.
+`cmux chief new`, `cmux chief edit` and `cmux chief delete` are refused the
+same way for an agent caller (`details.refused` the word), for every field of
+every Chief: only the person writes Chiefs. A Chief changes its own profile
+only with its `profile` tool on its own bound connection. `cmux chief list`
+stays open.
 
 ## Output and exit codes
 
