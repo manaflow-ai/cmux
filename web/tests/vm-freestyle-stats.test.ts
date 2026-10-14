@@ -109,7 +109,7 @@ describe("Freestyle live machine stats", () => {
     const receivedAt = Date.now();
     const { result, resourceCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
     expect(resourceCalls).toHaveLength(0);
-    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
+    expect(result).toEqual({ state: "awake", health: "healthy", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
   test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
@@ -138,6 +138,7 @@ describe("Freestyle live machine stats", () => {
     expect(resourceCalls).toEqual([]);
     expect(result.state).toBe("unknown");
     expect(result.cpuPercent).toBeUndefined();
+    expect(result.health).toBe("unknown");
   });
 
   test("the explicit operator override still enables direct sampling", async () => {
@@ -164,12 +165,12 @@ describe("Freestyle live machine stats", () => {
     { label: "a failed probe", resourceExitCode: 1 },
     { label: "malformed output", resourceOutput: "not json" },
     { label: "invalid gauges", resourceOutput: { cpuPercent: 101 } },
-  ])("$label keeps provisioned capacity without inventing usage", async ({ resourceExitCode, resourceOutput }) => {
+  ])("$label reports an unknown/unresponsive guest while keeping provisioned capacity", async ({ resourceExitCode, resourceOutput }) => {
     const { result, resourceCalls } = await readStats("running", undefined, {
       directBackend: true, resourceExitCode, resourceOutput,
     });
     expect(resourceCalls).toHaveLength(1);
-    expect(result).toMatchObject({ state: "unknown", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
+    expect(result).toMatchObject({ state: "unknown", health: "unresponsive", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
     expect(result.diskUsedMb).toBeUndefined();
