@@ -6,26 +6,26 @@ export type CmuxCommand = SlashCommand & { source: "cmux"; action: "import" | "c
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
     name: "import",
-    description: "",
+    description: "Attach a JSON or text transcript",
     source: "cmux",
     action: "import",
   },
   {
     name: "continue",
-    description: "",
+    description: "Continue in another harness",
     hint: "<harness>",
     source: "cmux",
     action: "continue",
   },
   {
     name: "fork",
-    description: "",
+    description: "Start a side chat from this turn",
     source: "cmux",
     action: "fork",
   },
   {
     name: "btw",
-    description: "",
+    description: "Ask a side question without leaving this chat",
     hint: "<question>",
     source: "cmux",
     action: "btw",

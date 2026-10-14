@@ -1530,7 +1530,11 @@ function SlashMenu({
             /<Highlighted name={match.command.name} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-          {match.command.source && <span className="acpmux-slash-source">{match.command.source}</span>}
+          {match.command.source && match.command.source !== "agent" && (
+            <span className="acpmux-slash-source">
+              {match.command.source === "skill" ? "Skill" : match.command.source === "prompt" ? "Prompt" : "cmux"}
+            </span>
+          )}
           <span className="acpmux-slash-description">{match.command.description}</span>
         </div>
       ))}

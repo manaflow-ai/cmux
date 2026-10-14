@@ -8,7 +8,7 @@ export type SlashCommand = {
   description: string;
   hint?: string;
   /** Where the command came from. Harness commands are the default for old snapshots. */
-  source?: "agent" | "cmux";
+  source?: "agent" | "cmux" | "skill" | "prompt";
 };
 
 /// One menu row: the command and the ranges of its name the query matched.
@@ -21,14 +21,21 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
     return undefined;
   const commands: SlashCommand[] = [];
   for (const entry of update.availableCommands) {
-    const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
+    // ACP calls these commands, while Claude skills and Codex prompts use the
+    // same update in their adapters. Keep one picker and one insertion path.
+    const name = typeof entry?.name === "string" ? entry.name.replace(/^[/\\$]/, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
     commands.push({
       name,
       description: typeof entry.description === "string" ? entry.description : "",
       hint,
-      source: "agent",
+      source:
+        entry?.kind === "skill" || entry?.type === "skill" || entry?.source === "skill"
+          ? "skill"
+          : entry?.kind === "prompt" || entry?.type === "prompt" || entry?.source === "prompt"
+            ? "prompt"
+            : "agent",
     });
   }
   return commands;

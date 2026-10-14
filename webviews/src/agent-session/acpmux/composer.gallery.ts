@@ -667,6 +667,30 @@ export default agentPaneEntry({
           throw new Error("slash command pick did not update prompt");
       },
     },
+    "slash-menu-skills-and-input": {
+      note: "Play: the shared slash picker combines harness commands, skills and prompts; Shift-Enter keeps editing and Enter sends.",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "review", description: "Review the current changes", source: "agent" },
+          { name: "cmux-browser", description: "Use cmux browser controls", source: "skill" },
+          { name: "daily-plan", description: "Plan the next work block", source: "prompt" },
+        ],
+      }),
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']").length === 3);
+        if (!ctx.document.querySelector(".acpmux-slash-source")) throw new Error("slash picker has no source labels");
+        await ctx.press("Escape");
+        await ctx.type("first line");
+        await ctx.press("Shift+Enter");
+        await ctx.type("second line");
+        if (!ctx.find(prompt).textContent?.includes("first line")) throw new Error("Shift-Enter did not keep the draft");
+        await ctx.press("Enter");
+        await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
+      },
+    },
     "search-files-key": {
       note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
       snapshot: chat(finished),
