@@ -12,6 +12,8 @@ public struct AgentsRoot: View {
     @State private var directory: AgentDirectory
     @State private var path: [String] = []
     @State private var creating = false
+    /// A row tapped in the drawer sidebar opens that session.
+    @Environment(\.cnShellRoute) private var shellRoute
 
     public init(connection: HostConnection) {
         self.connection = connection
@@ -40,6 +42,12 @@ public struct AgentsRoot: View {
         }
         .task { await directory.listen() }
         .task(id: connection.generation) { await directory.reload() }
+        // The route is set before this root first appears, so `.task(id:)`
+        // (runs on appear and on each new route) rather than `.onChange`.
+        .task(id: shellRoute?.nonce) {
+            guard let route = shellRoute, route.kind == .agentSession, let id = route.id else { return }
+            if path.last != id { path = [id] }
+        }
         .sheet(isPresented: $creating) {
             NewSessionSheet(directory: directory) { session in
                 creating = false
