@@ -38,19 +38,19 @@ enum WorkspaceGroupClose {
         sidebar.handle(.closeGroup(CmuxNextSidebar.GroupID(group.id.rawValue)))
         guard invocation.origin == .user, !names.isEmpty,
               let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
-        offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), group: group.id.rawValue,
-                  names: names, after: seen, in: window, services)
+        offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), groups: [(group.id.rawValue, names)],
+                  after: seen, in: window, services)
     }
 
     /// The close toast in `window`; its Undo reopens what this close recorded
     /// (`reopen`). Also the bulk closes' toast (`WorkspaceBulkClose`, no group).
-    static func offerUndo(_ id: String, _ message: String, group: String?, names: [String], after seen: Set<String>,
+    static func offerUndo(_ id: String, _ message: String, groups: [(String?, [String])], after seen: Set<String>,
                           in window: NSWindow, _ services: AppServices) {
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, action: .undo()), in: window)
         handle.onAction = { [weak services] in
             guard let services else { return }
             // task-owner: one undo, bounded by `arrivalLimit`
-            Task { @MainActor in await reopen(group: group, names: names, after: seen, services) }
+            Task { @MainActor in for (group, names) in groups { await reopen(group: group, names: names, after: seen, services) } }
         }
     }
 

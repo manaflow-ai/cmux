@@ -34,6 +34,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var time: String?
     /// Expanded rows: a third line (the computer, the pull request).
     public var meta: String?
+    /// Compact rows under a badge style (`SidebarRowBadgeStyle`): the dim time since the last
+    /// change on the right, unless the second line shows the last activity already.
+    public var badgeTime: String?
     /// The status block under the name (classic's): the reported entries
     /// with `agentStatus` on, the log line with `log` on and the progress
     /// label with `progress` on. Nil when none of those is reported, so a
@@ -80,6 +83,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: working,
             status: Self.status(ws.reported, set)
         )
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex

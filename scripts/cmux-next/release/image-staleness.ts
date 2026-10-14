@@ -154,7 +154,15 @@ const resolveToken = (token: string, index: Map<string, Array<{ file: string; va
     for (const file of files) {
       const text = stripComments(reader.read(file) ?? "")
       const alias = text.match(new RegExp(`\\buse\\s+([\\w:]+)::(\\w+)\\s+as\\s+${name}\\s*;`)) ?? text.match(new RegExp(`\\buse\\s+([\\w:]+)::(${name})\\s*;`))
-      if (alias && depth < 4) return resolveToken(`${alias[1]}::${alias[2]}`, index, reader, depth + 1)
+      if (!alias || depth >= 4) continue
+      // A relative path (`use open_url::X`) names a child of this module first.
+      const path = alias[1]!.split("::")
+      if (path[0] === "self") return resolveToken([...segments, ...path.slice(1), alias[2]].join("::"), index, reader, depth + 1)
+      const child = [...segments, ...path]
+      if (path[0] !== "crate" && path[0] !== "super" && moduleFiles(child, reader).some((f) => reader.read(f) !== undefined)) {
+        return resolveToken([...child, alias[2]].join("::"), index, reader, depth + 1)
+      }
+      return resolveToken(`${alias[1]}::${alias[2]}`, index, reader, depth + 1)
     }
   }
   if (distinct(found).length === 1) return found[0]!.value

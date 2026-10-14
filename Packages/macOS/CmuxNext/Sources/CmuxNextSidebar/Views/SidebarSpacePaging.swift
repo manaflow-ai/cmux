@@ -190,7 +190,7 @@ import QuartzCore
         let model = SidebarModel(sections: sections)
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
-        model.workspaceRow = host.model.workspaceRow
+        (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
