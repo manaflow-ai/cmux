@@ -182,11 +182,9 @@ export default componentEntry<Props>({
       note: "A message with three images (a grid), a video with its poster and a PDF row.",
       props: { select: "c-media", media: true },
       play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
         await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
-        // The message's card shows on hover, above its files.
-        await ctx.hover({ selector: ".lg-main .hc-msg.head" });
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg:hover .hc-msg-actions"));
       },
     },
     "attachments-lightbox": {
