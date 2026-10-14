@@ -95,11 +95,11 @@ struct SubtleElevationTests {
         cell.isLifted = true
         let ghost = TabDragGhostPanel(tabImage: nil, tabSize: CGSize(width: 160, height: 28),
                                       grabOffset: CGPoint(x: 20, y: 14), aspect: 1.6, scale: 2)
-        let views: [NSView] = [dock, cell, try #require(ghost.panel.contentView),
+        let views: [NSView] = [dock, try #require(ghost.panel.contentView),
                                CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))]
         // Each view's layer tree, and its subviews' (a layer-backed subview outside a window is
         // not yet a sublayer of its parent's layer).
-        let layers = views.flatMap(Self.layers(of:)) + Self.layers(in: cell.backgroundLayer)
+        let layers = views.flatMap(Self.layers(of:)) + Self.layers(in: cell.layer)
         #expect(layers.contains { $0.shadowOpacity > 0 })
         for layer in layers where layer.shadowOpacity > 0 {
             let color = layer.shadowColor.flatMap { NSColor(cgColor: $0) }?.alphaComponent ?? 1

@@ -23,10 +23,16 @@ const sheets = (dir: string): string[] =>
     return entry.name.endsWith(".css") ? [file] : [];
   });
 
-const css = sheets(source).map((file) => ({
-  file: path.relative(source, file),
-  text: fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
-}));
+// The OptChat inspector is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
+// with no desktop layer, so the scale's tokens are not defined there.
+const STANDALONE = ["optchat-inspector/"];
+
+const css = sheets(source)
+  .filter((file) => !STANDALONE.some((dir) => path.relative(source, file).startsWith(dir)))
+  .map((file) => ({
+    file: path.relative(source, file),
+    text: fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
+  }));
 
 const ELEVATIONS = ["--elevation-1", "--elevation-2"] as const;
 const MAX_BLUR = 8;

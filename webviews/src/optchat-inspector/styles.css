@@ -67,7 +67,7 @@ details > summary { cursor: pointer; }
 .msg { display: grid; grid-template-columns: max-content max-content 1fr; gap: 8px; margin: 6px 0; }
 .kind { color: var(--muted); }
 .term { font: inherit; color: inherit; background: none; border: none; border-radius: 0; padding: 0; border-bottom: 1px dotted currentColor; position: relative; cursor: help; text-align: inherit; }
-.term .tip { display: none; position: absolute; left: 0; top: 1.5em; z-index: 10; width: 300px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; font-weight: normal; box-shadow: var(--elevation-2); }
+.term .tip { display: none; position: absolute; left: 0; top: 1.5em; z-index: 10; width: 300px; background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; font-weight: normal; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
 .term:hover .tip, .term:focus .tip { display: block; }
 .crumbs { margin: 6px 0; }
 .crumbs button { border: none; text-decoration: underline; padding: 0 2px; background: none; }

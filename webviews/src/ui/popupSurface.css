@@ -11,7 +11,9 @@
      hairline is a popup's only edge (popup-one-hairline.test.ts); Increase Contrast sets its color
      (pages/shared/desktop.css). `--ui-popup-drop` is the shadow alone, for a floating bar that
      draws its own border. */
-  --ui-popup-drop: var(--elevation-2);
+  /* The fallback is the same step, for a host that loads this sheet without desktop.css (the
+     gallery shell): an undefined token would drop the whole shadow, rim included. */
+  --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
   --ui-popup-shadow:
     var(--ui-popup-drop),
     inset 0 0 0 0.5px var(--ui-popup-edge, color-mix(in srgb, currentColor 12%, transparent));
