@@ -216,6 +216,7 @@ final class NotificationCenterService {
 
     /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
     func acknowledge(_ tab: TabModel) {
+        note("ack \(tab.id)")
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
@@ -232,8 +233,13 @@ final class NotificationCenterService {
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
+        arrive(notification, located: notification.surface.flatMap { locate(surface: $0, in: store) })
+    }
+
+    /// One arrival on `located` (nil: its tab is not in the store). `visibility` is where the tab
+    /// is for the user now (`visibility(of:)` when nil); tests pass their own.
+    func arrive(_ notification: DaemonNotification, located: LocatedTab?, visibility: TerminalVisibility? = nil) {
         let source = Self.source(notification.source)
-        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
             if let located { acknowledge(located.tab) }
