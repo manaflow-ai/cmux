@@ -308,3 +308,58 @@ async fn a_broken_or_unknown_harness_config_falls_back_to_the_catalog() {
     assert_eq!(harnesses["harnesses"]["claude"]["start"]["modelSource"], "catalog");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn a_claude_model_with_a_context_suffix_starts_on_its_catalog_model() {
+    // Claude Code's settings.json names the 1M-context variant (`sonnet[1m]`): the catalog lists
+    // the model without the suffix.
+    let (dir, calls) =
+        home_with_harness_config("harness-config-1m", None, Some(r#"{"model": "sonnet[1m]"}"#));
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-sonnet-5-5", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(harnesses["harnesses"]["claude"]["start"]["modelSource"], "harness");
+
+    // A full model id with the suffix names its model too.
+    std::fs::write(
+        dir.join("claude-home").join("settings.json"),
+        r#"{"model": "claude-haiku-5-5[1m]"}"#,
+    )
+    .unwrap();
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-haiku-5-5", "medium"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_harness_config_effort_applies_only_with_its_own_model_or_with_none() {
+    // Codex's config.toml pairs an effort with a model the catalog does not list (a retired
+    // one): the chat starts on the catalog default with that model's own effort, not the
+    // effort chosen for the retired model.
+    let (dir, calls) = home_with_harness_config(
+        "harness-config-effort",
+        Some("model = \"gpt-retired-1\"\nmodel_reasoning_effort = \"high\"\n"),
+        None,
+    );
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "medium"));
+    let harnesses = app.call("_acpmux/harnesses", json!({})).await;
+    assert_eq!(
+        harnesses["harnesses"]["codex"]["start"],
+        json!({"model": "gpt-6.1-sol", "modelSource": "catalog", "effort": "medium", "effortSource": "catalog"})
+    );
+
+    // An effort with no model is Codex's effort for whatever model runs.
+    std::fs::write(
+        dir.join("codex-home").join("config.toml"),
+        "model_reasoning_effort = \"high\"\n",
+    )
+    .unwrap();
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-6.1-sol", "high"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
