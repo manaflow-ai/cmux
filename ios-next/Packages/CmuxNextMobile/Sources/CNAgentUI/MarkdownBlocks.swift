@@ -195,7 +195,43 @@ public struct MarkdownPlainText: Sendable {
     private func inline(_ text: String) -> String {
         let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace,
                                                               failurePolicy: .returnPartiallyParsedIfPossible)
-        guard let parsed = try? AttributedString(markdown: text, options: options) else { return text }
+        let squeezed = Self.dropSqueezedFenceLanguage(text)
+        guard let parsed = try? AttributedString(markdown: squeezed, options: options) else { return squeezed }
         return String(parsed.characters)
+    }
+
+    /// Fence info strings common in agent replies.
+    static let fenceLanguages: Set<String> = [
+        "text", "txt", "plaintext", "console", "shell", "sh", "bash", "zsh", "swift", "ts", "tsx", "typescript",
+        "js", "jsx", "javascript", "json", "yaml", "yml", "toml", "xml", "html", "css", "sql", "diff", "patch",
+        "python", "py", "go", "rust", "rs", "ruby", "rb", "java", "kotlin", "c", "cpp", "objc", "md", "markdown",
+    ]
+
+    /// A fence squeezed onto one line (a host preview with newlines folded,
+    /// "```text v1c-out-42 ```") keeps its language word inside the code span.
+    /// Drop it when it is a known language, so a command like `npm test` is
+    /// never mistaken for one.
+    static func dropSqueezedFenceLanguage(_ text: String) -> String {
+        var out = ""
+        var rest = Substring(text)
+        while let open = rest.range(of: "```") {
+            out += rest[..<open.upperBound]
+            rest = rest[open.upperBound...]
+            let word = rest.prefix { $0.isLetter || $0.isNumber || $0 == "+" || $0 == "-" }
+            let after = rest.dropFirst(word.count)
+            if !word.isEmpty, after.first?.isWhitespace == true, fenceLanguages.contains(word.lowercased()),
+               after.contains("```") {
+                rest = after.drop { $0.isWhitespace }
+                // Copy the code span through its closing fence unchanged.
+                if let close = rest.range(of: "```") {
+                    out += rest[..<close.upperBound]
+                    rest = rest[close.upperBound...]
+                }
+            } else if let close = rest.range(of: "```") {
+                out += rest[..<close.upperBound]
+                rest = rest[close.upperBound...]
+            }
+        }
+        return out + rest
     }
 }
