@@ -32,7 +32,7 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-10-r2
+ENV CMUX_IMAGE_EPOCH=2026-10-14-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -230,11 +230,11 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 # ride the same toolchain users get. `bun run devbox:pins:check` (web/)
 # compares these with the npm registry and `--write` rewrites them; a pin is
 # always an exact release, never a range or a tag.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
-ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
-ARG CMUX_IMAGE_PI_VERSION=0.85.1
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.299
+ARG CMUX_IMAGE_CODEX_VERSION=0.162.1
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.19.0
+ARG CMUX_IMAGE_PI_VERSION=1.2.0
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.39.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
