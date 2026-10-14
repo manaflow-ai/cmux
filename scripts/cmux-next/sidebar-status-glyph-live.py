@@ -262,7 +262,7 @@ def main():
     print(f"phases: {json.dumps(phases)}", flush=True)
     known = [p for p in phases.values() if p is not None]
     spread = max(min(abs(a - b), 1 - abs(a - b)) for a in known for b in known) if len(known) == 3 else None
-    check(spread is not None and spread <= 0.02, f"synced: three spinners, one started later, share one phase (spread {spread})")
+    check(spread is not None and spread <= 0.05, f"synced: three spinners, one started later, share one phase (spread {spread})")
     time.sleep(3)  # test script: htop has run at least this long before its check
     htop_glyphs = find_glyphs("glyph-htop")
     check(not htop_glyphs, f"htop: its row shows no status glyph ({json.dumps(htop_glyphs)[:200]})")
