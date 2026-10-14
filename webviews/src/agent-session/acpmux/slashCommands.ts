@@ -25,10 +25,10 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
     return undefined;
   const commands: SlashCommand[] = [];
   for (const entry of update.availableCommands) {
-    // ACP calls these commands, while Claude skills and Codex prompts use the
-    // same update in their adapters. Keep one picker and one insertion path.
-    // codex-acp names a skill `$name` and passes `/$name` through to Codex as a
-    // skill mention, so only a leading `/` is dropped.
+    // Harness commands, skills and prompts share this update, one picker and one
+    // insertion path. acpmux tags a Claude skill with `_meta.kind`; codex-acp names
+    // a skill `$name` and passes `/$name` through to Codex as a skill mention, so
+    // only a leading `/` is dropped.
     const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
     if (!name) continue;
     const hint = typeof entry.input?.hint === "string" && entry.input.hint.trim() ? entry.input.hint.trim() : undefined;
@@ -37,9 +37,9 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
       description: typeof entry.description === "string" ? entry.description : "",
       hint,
       source:
-        name.startsWith("$") || entry?.kind === "skill" || entry?.type === "skill" || entry?.source === "skill"
+        name.startsWith("$") || entry?._meta?.kind === "skill" || entry?.kind === "skill" || entry?.source === "skill"
           ? "skill"
-          : entry?.kind === "prompt" || entry?.type === "prompt" || entry?.source === "prompt"
+          : entry?._meta?.kind === "prompt" || entry?.kind === "prompt" || entry?.source === "prompt"
             ? "prompt"
             : "agent",
     });
