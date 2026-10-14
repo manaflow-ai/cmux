@@ -56,7 +56,8 @@ def write_run(out: Path, *, cold_frames: int, reduce_frames: int = 0, looping: l
     save("reduce_sidebar_collapse", sidebar_trace(eased(260, 0, reduce_frames)))
     save("reduce_sidebar_expand", sidebar_trace(eased(0, 260, reduce_frames)))
     tops = [1000 + 2.5 * i for i in range(360)]
-    save("transcript_follow", {"scroll_top": tops, "frame_ms": [i * REFRESH for i in range(360)], "detached_frames": 3})
+    save("transcript_follow", {"scroll_top": tops, "scroll_height": [top + 600 + (40 if i % 7 else 0) for i, top in enumerate(tops)],
+                               "frame_ms": [i * REFRESH for i in range(360)], "detached_frames": 300})
     drags = []
     for start, end in ((1100, 1400), (1400, 1100)):
         widths = eased(start, end, 90)

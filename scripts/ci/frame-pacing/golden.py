@@ -38,7 +38,7 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "new_tab_warm": {"min_intermediate": 8, "max_step": 0.5, "p95_frames": 2.5, "max_frames": 8},
     "sidebar_collapse": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
     "sidebar_expand": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
-    "transcript_follow": {"min_intermediate": 60, "max_step": 0.2, "p95_frames": 2.5, "max_frames": 12, "max_detached": 0.1},
+    "transcript_follow": {"min_intermediate": 60, "max_step": 0.2, "p95_frames": 2.5, "max_frames": 12, "max_trail": 0.9, "end_trail": 0.2},
     "window_resize": {"min_intermediate": 20, "max_step": 0.25, "p95_frames": 3, "max_frames": 12},
     "reduce_new_tab": {"max_intermediate": 1},
     "reduce_sidebar_collapse": {"max_intermediate": 1},
@@ -173,11 +173,18 @@ class Driver:
         self.save("transcript_follow", result)
 
     def capture(self) -> None:
-        """Window frames around one cold Cmd-T (debug.new_tab frame_strip), for the PR's before/after."""
+        """Window frames around one cold Cmd-T, for before/after proof: `debug.window_record` (the
+        window as composited, one JPEG per display frame; no Screen Recording permission needed)."""
+        folder = self.out / "capture-new-tab"
         self.call("debug.new_tab", {"action": "drop_spare"})
-        strip = self.call("debug.new_tab", {"action": "frame_strip", "key": "t", "duration_ms": 600, "scale": 0.5,
-                                            "dir": str(self.out / "capture-new-tab")}, timeout=15)
-        self.save("capture_new_tab", strip)
+        time.sleep(0.3)
+        started = time.monotonic()
+        record = self.call("debug.window_record", {"dir": str(folder), "seconds": 1.2})
+        time.sleep(0.15)
+        key_ms = (time.monotonic() - started) * 1000
+        self.key("t", ["command"])
+        time.sleep(1.5)
+        self.save("capture_new_tab", {"record": record, "key_ms_after_start": round(key_ms, 1)})
         self.key("w", ["command"])
 
     def run(self) -> None:
@@ -251,16 +258,20 @@ def times_of(samples: list[dict]) -> list[float]:
 
 
 def tab_series(trace: dict) -> tuple[dict, list[dict]]:
-    """The new tab's width per frame (tabs absent from the first frame; 0 before they show),
-    and each neighbor that moved (x per frame)."""
+    """The new tab's width per frame (tabs absent from the first frame and present in the last;
+    0 before they show), and each neighbor that moved (x per frame). A placeholder that shows
+    at full width and then gives way to the real tab (`pending_tab_*`) is gone by the last
+    frame, so it does not count as the new tab growing; it is reported as `placeholders`."""
     samples = trace.get("samples") or []
     if not samples:
         return motion([], []), []
     times = times_of(samples)
     rows = [{tab[0]: tab for tab in sample.get("tabs") or []} for sample in samples]
     initial = set(rows[0])
-    widths = [sum(float(tab[2]) for id_, tab in row.items() if id_ not in initial) for row in rows]
+    added = set(rows[-1]) - initial
+    widths = [sum(float(tab[2]) for id_, tab in row.items() if id_ in added) for row in rows]
     grow = motion(widths, times)
+    grow["placeholders"] = len({id_ for row in rows for id_ in row} - initial - added)
     neighbors = []
     for id_ in sorted(initial & set(rows[-1])):
         xs = [float(row[id_][1]) if id_ in row else float(rows[0][id_][1]) for row in rows]
@@ -367,16 +378,29 @@ def judge_transcript(data: dict, refresh: float) -> dict:
     if not tops or len(tops) != len(times):
         return {"ok": False, "problems": [f"not measured: {data.get('error', 'no per-frame trace')}"]}
     result = motion(tops, times)
-    # Following: the transcript sits at the bottom while it grows (`detached_frames`: gap > 2 px).
-    detached = int(data.get("detached_frames") or 0)
-    result["detached_frames"] = detached
+    # The stream's own `detached_frames` (gap > 2 px) is informational: the follow eases toward
+    # the bottom, so it trails a growing transcript on most frames by design.
+    result["detached_frames"] = int(data.get("detached_frames") or 0)
     # The stream keeps growing for its whole length, so "intermediate" counts the frames the view moved on.
     result["intermediate"] = result["moving_frames"]
     verdict = judge_motion("transcript_follow", result, refresh)
-    limit = THRESHOLDS["transcript_follow"]["max_detached"]
-    if tops and detached > limit * len(tops):
-        verdict["problems"].append(f"left the bottom on {detached} of {len(tops)} frames (> {limit:.0%})")
-        verdict["ok"] = False
+    # Following: how far below the view the newest text gets (scrollHeight - scrollTop over its
+    # least value, the viewport plus the resting inset), in viewports; and where it ends.
+    heights = [float(value) for value in data.get("scroll_height") or []]
+    if len(heights) == len(tops) and tops:
+        below = [height - top for height, top in zip(heights, tops)]
+        viewport = max(1.0, min(below))
+        trail = [(value - min(below)) / viewport for value in below]
+        verdict["trail_max"] = round(max(trail), 3)
+        verdict["trail_end"] = round(trail[-1], 3)
+        limits = THRESHOLDS["transcript_follow"]
+        if verdict["trail_max"] > limits["max_trail"]:
+            verdict["problems"].append(f"the newest text fell {verdict['trail_max']:.0%} of a viewport behind (> {limits['max_trail']:.0%})")
+        if verdict["trail_end"] > limits["end_trail"]:
+            verdict["problems"].append(f"ended {verdict['trail_end']:.0%} of a viewport above the bottom (> {limits['end_trail']:.0%})")
+    else:
+        verdict["problems"].append("not measured: no per-frame scroll_height")
+    verdict["ok"] = not verdict["problems"]
     return verdict
 
 
