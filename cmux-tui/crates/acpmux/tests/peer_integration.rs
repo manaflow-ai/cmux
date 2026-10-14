@@ -584,3 +584,84 @@ async fn every_answer_for_a_peers_prompt_goes_to_the_peer_within_a_hop_limit() {
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
 }
+
+/// A pending prompt that only the person may allow reaches every app that
+/// watches the session, also through a peer: a watcher on A that never
+/// attached B's session gets `_acpmux/permission_pending` with B's decision
+/// nonce and run, so A's app can show it and notify. An allow from a
+/// connection that is not the person, without B's proof, is refused on B
+/// and the prompt stays pending; B's proof counts.
+#[tokio::test]
+async fn peered_watcher_sees_a_pending_prompt_and_only_the_persons_proof_allows_it() {
+    const B_KEY: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    b.person.install_spawn_key(B_KEY).unwrap();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "watchpend").await;
+    let mut cb = plain(b.clone()).await;
+    let s = cb
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far"}}}),
+        )
+        .await
+        .unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    cb.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    // A's watcher: watches everything, attaches nothing, is not the person.
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+
+    // The prompt is raised on B by B's own client.
+    cb.next += 1;
+    let prompt_id = cb.next;
+    cb.tx
+        .send(
+            Message::request(
+                prompt_id,
+                method::SESSION_PROMPT,
+                json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "ask: deploy"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    let pending =
+        watcher.wait(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == remote_id).await;
+    let perm = pending["permissionId"].as_str().expect("the prompt's id").to_owned();
+    let nonce = pending["decisionNonce"].as_str().expect("B's decision nonce").to_owned();
+    let instance = pending["personInstance"].as_str().expect("B's daemon run").to_owned();
+    assert_eq!(pending["peer"], "b", "{pending}");
+    assert_eq!(pending["request"]["toolCall"]["title"], "deploy", "{pending}");
+
+    // Not the person, no proof: refused on B; still pending there.
+    let allow = |meta: Value| {
+        json!({"sessionId": remote_id, "permissionId": perm, "optionId": "yes",
+               "_meta": {"acpmux": meta}})
+    };
+    let e = watcher.call(method::MUX_PERMISSION_RESPOND, allow(json!({}))).await.unwrap_err();
+    assert!(e.contains("approve this on the Mac app"), "{e}");
+    let info = cb.call(method::MUX_INFO, json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(info["pending"][0]["permissionId"], perm.as_str(), "{info}");
+
+    // The person's proof (made by the app that holds B's key) counts.
+    let good =
+        acpmux::hub::person::decision_proof(B_KEY, &instance, &remote_id, &perm, "yes", &nonce)
+            .unwrap();
+    watcher
+        .call(
+            method::MUX_PERMISSION_RESPOND,
+            allow(json!({"decisionNonce": nonce, "personDecision": good})),
+        )
+        .await
+        .unwrap();
+    let decided = cb
+        .wait(method::MUX_EVENT, |p| {
+            p["kind"] == "permission_decision" && p["sessionId"] == remote_id
+        })
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
+}
