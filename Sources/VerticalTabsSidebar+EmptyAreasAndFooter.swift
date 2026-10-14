@@ -38,6 +38,9 @@ enum SidebarFooterButtonMetrics {
     static let mobileIconSize: CGFloat = 12
     static let helpIconSize = accountAndHelpVisualSize
     static let cloudIconSize = accountAndHelpVisualSize
+    /// The cloud glyph is 2.5 pt wider than the 14 pt account and help glyphs,
+    /// so half that keeps the visible gap after Help equal to the one before it.
+    static let cloudLeadingInset: CGFloat = 1.5
     static let hoverOpacity = 0.08
 }
 
@@ -357,6 +360,7 @@ struct SidebarCloudButton: View {
             .safeHelp(title)
             .hintableAccessibilityLabel(title)
             .accessibilityIdentifier("SidebarCloudButton")
+            .padding(.leading, SidebarFooterButtonMetrics.cloudLeadingInset)
         }
     }
 }
