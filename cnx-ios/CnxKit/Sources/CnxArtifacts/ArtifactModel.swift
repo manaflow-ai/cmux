@@ -68,6 +68,22 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
     }
 }
 
+extension TerminalArtifact {
+    /// Lines of code or text a grid tile shows.
+    public static let thumbnailExcerptLines = 12
+
+    /// A grid tile's text excerpt: the first lines, tabs as four spaces, trailing blank
+    /// lines dropped. `nil` when there is nothing to show.
+    public static func thumbnailExcerpt(_ text: String) -> String? {
+        let lines = text.replacingOccurrences(of: "\t", with: "    ")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .prefix(thumbnailExcerptLines)
+            .map(String.init)
+        let kept = Array(lines.reversed().drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }.reversed())
+        return kept.isEmpty ? nil : kept.joined(separator: "\n")
+    }
+}
+
 /// What an artifact preview shows.
 public enum ArtifactContent: Sendable {
     case text(String)

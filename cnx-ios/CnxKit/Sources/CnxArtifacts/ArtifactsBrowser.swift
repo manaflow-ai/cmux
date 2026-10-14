@@ -191,21 +191,13 @@ public struct ArtifactRow: View {
 struct ArtifactTile: View {
     let artifact: TerminalArtifact
     let source: any ArtifactSource
-    @State private var thumbnail: UIImage?
+    @State private var thumbnail: ArtifactThumbnail?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Color.clear
                 .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    if let thumbnail {
-                        Image(uiImage: thumbnail).resizable().scaledToFill()
-                    } else {
-                        Image(systemName: artifact.systemImage)
-                            .font(.system(size: 28))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                .overlay { preview }
                 .background(Color(uiColor: .secondarySystemBackground))
                 .clipShape(.rect(cornerRadius: 16, style: .continuous))
             Text(artifact.name).font(.footnote).lineLimit(2)
@@ -215,10 +207,42 @@ struct ArtifactTile: View {
         }
         .accessibilityElement(children: .combine)
         .task(id: artifact) {
-            guard artifact.kind == .image, thumbnail == nil,
-                  case .image(let data)? = try? await source.load(artifact) else { return }
-            thumbnail = UIImage(data: data)?.preparingThumbnail(of: CGSize(width: 360, height: 360))
+            thumbnail = await ArtifactThumbnailCache.shared.thumbnail(for: artifact, source: source)
         }
+    }
+
+    /// The real thing when it renders (picture or excerpt); the type icon otherwise.
+    @ViewBuilder private var preview: some View {
+        switch thumbnail {
+        case .picture(let image)?:
+            Image(uiImage: image).resizable().scaledToFill()
+                .overlay(alignment: .bottomLeading) { kindBadge }
+        case .excerpt(let text)?:
+            Text(text)
+                .font(.system(size: 8, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(TerminalArtifact.thumbnailExcerptLines)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(10)
+                .dynamicTypeSize(.large)
+                .overlay(alignment: .bottomLeading) { kindBadge }
+                .accessibilityHidden(true)
+        case nil:
+            Image(systemName: artifact.systemImage)
+                .font(.system(size: 28))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// The type glyph in a corner, so a thumbnail still says what it is.
+    private var kindBadge: some View {
+        Image(systemName: artifact.systemImage)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.primary)
+            .frame(width: 24, height: 24)
+            .background(.regularMaterial, in: .circle)
+            .padding(8)
+            .accessibilityHidden(true)
     }
 }
 #endif
