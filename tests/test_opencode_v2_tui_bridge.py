@@ -278,6 +278,28 @@ if (!sessionEnd) {
 if (observed.find((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-b")?.surface_id !== "surface-b") throw new Error("archived session was not ended on its owning TUI");
 if (observed.some((event) => event._opencode_request_id === "perm-wrong")) throw new Error("TUI B accepted a session owned by TUI A");
 
+// A prompt queued during a running turn is admitted mid-turn and promoted
+// after the stop. Both turns publish exactly one Stop; the repeated idle
+// forms, a late failure and a shutdown interruption publish none.
+liveA.setRoute({ type: "session", sessionID: "child-queue" });
+const queueEvents = [
+  ["session.status", { sessionID: "child-queue", status: { type: "busy" } }],
+  ["session.next.prompt.admitted", { sessionID: "child-queue", messageID: "queued-m2" }],
+  ["session.status", { sessionID: "child-queue", status: "idle" }],
+  ["session.idle", { sessionID: "child-queue" }],
+  ["session.error", { sessionID: "child-queue", error: { message: "late failure" } }],
+  ["session.next.prompted", { sessionID: "child-queue", messageID: "queued-m2" }],
+  ["session.execution.succeeded", { sessionID: "child-queue" }],
+  ["session.status", { sessionID: "child-queue", status: { type: "busy" } }],
+  ["session.execution.interrupted", { sessionID: "child-queue", reason: "shutdown" }],
+  ["session.deleted", { sessionID: "child-queue" }],
+];
+for (const [type, data] of queueEvents) liveA.emit({ details: { type, data } });
+await waitForObserved((event) => event.hook_event_name === "SessionEnd" && event.session_id === "opencode-child-queue");
+const queueStops = observed.filter((event) => event.session_id === "opencode-child-queue" && event.hook_event_name === "Stop");
+if (queueStops.length !== 2 || queueStops.some((event) => event.is_error)) throw new Error(`queued prompt turns published ${JSON.stringify(queueStops)}`);
+liveA.setRoute(routeA);
+
 // A bridge that never owns a queued session must release its expiry timer on
 // disposal, rather than retaining the entire TUI context until the TTL elapses.
 const expiryTimers = new Set();

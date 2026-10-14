@@ -280,29 +280,42 @@ await v1Hooks.event({
     properties: { sessionID: "opencode-session-test" }
   }
 });
-// One terminal stop per turn. A new user message starts turn 2; a repeated
-// update for that same message after its stop must not reopen the turn, and a
-// failure after the published idle stop is dropped rather than reclassified.
+// One terminal stop per turn, opened only by a run signal. Turn 2 starts on
+// busy; a repeated user-message update after its stop must not reopen it, and
+// a failure after the published idle stop is dropped, not reclassified.
+// Turn 3 queues prompt 4 while running: the queued prompt's user message and
+// admission arrive mid-turn, yet turn 4 still publishes its own stop.
+const sid = "opencode-session-test";
 const userMessage = (id) => ({
-  event: {
-    type: "message.updated",
-    properties: { info: { id, sessionID: "opencode-session-test", role: "user" } }
-  }
+  event: { type: "message.updated", properties: { info: { id, sessionID: sid, role: "user" } } }
 });
-const idle = { event: { type: "session.idle", properties: { sessionID: "opencode-session-test" } } };
+const busy = { event: { type: "session.status", properties: { sessionID: sid, status: { type: "busy" } } } };
+const idle = { event: { type: "session.idle", properties: { sessionID: sid } } };
 const failure = {
   event: {
     type: "session.error",
-    properties: { sessionID: "opencode-session-test", error: { name: "UnknownError", data: { message: "late failure" } } }
+    properties: { sessionID: sid, error: { name: "UnknownError", data: { message: "late failure" } } }
   }
 };
 await v1Hooks.event(userMessage("msg-turn-2"));
-await v1Hooks.event({ event: { type: "session.status", properties: { sessionID: "opencode-session-test", status: { type: "busy" } } } });
+await v1Hooks.event(busy);
 await v1Hooks.event(idle);
 await v1Hooks.event(userMessage("msg-turn-2"));
-await v1Hooks.event({ event: { type: "session.status", properties: { sessionID: "opencode-session-test", status: { type: "busy" } } } });
 await v1Hooks.event(idle);
 await v1Hooks.event(failure);
+await v1Hooks.event(userMessage("msg-turn-3"));
+await v1Hooks.event(busy);
+await v1Hooks.event(userMessage("msg-turn-4"));
+await v1Hooks.event({ event: { type: "session.next.prompt.admitted", properties: { sessionID: sid, messageID: "msg-turn-4" } } });
+await v1Hooks.event(idle);
+await v1Hooks.event({ event: { type: "session.next.prompted", properties: { sessionID: sid, messageID: "msg-turn-4" } } });
+await v1Hooks.event({ event: { type: "session.execution.succeeded", properties: { sessionID: sid } } });
+// Shutdown keeps the execution for resumption; it is not a completed turn.
+await v1Hooks.event(busy);
+await v1Hooks.event({ event: { type: "session.execution.interrupted", properties: { sessionID: sid, reason: "shutdown" } } });
+// Sentinel: hook processes are spawned in event order, so once session-end
+// has run every earlier stop hook has been spawned too.
+await v1Hooks.event({ event: { type: "session.deleted", properties: { info: { id: sid } } } });
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -320,10 +333,13 @@ await v1Hooks.event(failure);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
+        # Wait for the session-end sentinel and for every hook process to finish
+        # writing, so a late extra stop cannot land after the counts below.
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
+            args_text = fake_args_log.read_text(encoding="utf-8") if fake_args_log.exists() else ""
             stdin_text = fake_stdin_log.read_text(encoding="utf-8") if fake_stdin_log.exists() else ""
-            if stdin_text.count('"hook_event_name":"Stop') >= 2:
+            if "opencode session-end" in args_text and stdin_text.count("\n---\n") >= args_text.count("\n"):
                 break
             time.sleep(0.01)
         args_log = wait_for_log(fake_args_log, "hooks enqueue opencode session-start")
@@ -335,10 +351,10 @@ await v1Hooks.event(failure);
         if args_log.count("hooks enqueue opencode session-start") != 1:
             print(f"FAIL: plugin invoked duplicate session-start hooks, got {args_log!r}")
             return 1
-        if args_log.count("hooks enqueue opencode stop") != 2:
+        if args_log.count("hooks enqueue opencode stop") != 4:
             print(f"FAIL: plugin did not publish exactly one stop per turn, got {args_log!r}")
             return 1
-        if stdin_log.count('"hook_event_name":"Stop"') != 1 or stdin_log.count('"hook_event_name":"StopFailure"') != 1:
+        if stdin_log.count('"hook_event_name":"Stop"') != 3 or stdin_log.count('"hook_event_name":"StopFailure"') != 1:
             print(f"FAIL: plugin did not settle one terminal outcome per turn, got {stdin_log!r}")
             return 1
         if "late failure" in stdin_log:
