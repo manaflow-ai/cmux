@@ -114,6 +114,9 @@ fn open(
     if let Some(created) = created_before(mux, &steps)? {
         return Ok(created);
     }
+    if let Some(created) = frontend_created_before(mux, &steps, workspace)? {
+        return Ok(created);
+    }
     let frontend = mux.control_clients.any_client_supports(FRONTEND_BROWSER_TABS_CAPABILITY);
     let candidates = mux.with_state(|state| right_side(state, workspace));
     let Some(candidates) = candidates else {
@@ -340,6 +343,38 @@ fn created_before(mux: &Arc<Mux>, steps: &StepKeys) -> Result<Option<Value>, Res
     let mut value = resolution["created_path"].clone();
     value["reused"] = json!(false);
     Ok(Some(value))
+}
+
+/// A created frontend tab's value, when this request's frontend create step
+/// already ran and its tab is still placed.
+fn frontend_created_before(
+    mux: &Mux,
+    steps: &StepKeys,
+    workspace: &WorkspacePublicId,
+) -> Result<Option<Value>, ResourceError> {
+    let surface = mux.keyed_frontend_browser_tab(&steps.create).map_err(resource_operation_error)?;
+    let Some(surface) = surface else { return Ok(None) };
+    let Some((tab, browser)) = browser_page(mux, &surface) else { return Ok(None) };
+    let place = mux.with_state(|state| {
+        let pane = state.pane_of(surface.id)?;
+        let pane_id = state.resource_indexes.pane_ids.get(&pane)?.clone();
+        let screen = state
+            .workspaces
+            .iter()
+            .flat_map(|candidate| candidate.screens.iter())
+            .find(|screen| screen.root.pane_ids_vec().contains(&pane))?;
+        Some((pane_id, screen.public_id.clone()))
+    });
+    let Some((pane, screen)) = place else { return Ok(None) };
+    Ok(Some(json!({
+        "kind": "browser",
+        "workspace_id": workspace.as_str(),
+        "screen_id": screen.as_str(),
+        "pane_id": pane.as_str(),
+        "tab_id": tab.as_str(),
+        "browser_id": browser.as_str(),
+        "reused": false,
+    })))
 }
 
 struct Call<'a> {

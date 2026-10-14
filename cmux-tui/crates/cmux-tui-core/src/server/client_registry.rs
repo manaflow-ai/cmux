@@ -870,16 +870,16 @@ impl ClientRegistry {
             .collect()
     }
 
-    /// Whether a connected client declared `capability` (for
-    /// `frontend-browser-tabs-v1`: a frontend that renders browser tabs, the
-    /// cmux app, is attached to this session).
+    /// Whether a connected client that is not a page declared `capability`
+    /// (for `frontend-browser-tabs-v1`: a frontend that renders browser
+    /// tabs, the cmux app, is attached to this session). A page relay or a
+    /// page's WebSocket renders no tabs, so its declaration never counts.
     pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .values()
-            .any(|record| record.capabilities.contains(capability))
+        self.state.lock().unwrap().clients.values().any(|record| {
+            record.origin.role != crate::request_origin::HelloRole::PageRelay
+                && record.origin.page.is_none()
+                && record.capabilities.contains(capability)
+        })
     }
 
     pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
