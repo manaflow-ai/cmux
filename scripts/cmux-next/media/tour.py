@@ -26,7 +26,10 @@ Screenshots cover the main window's rectangle on screen, so child windows
 (browser pages, overlays) are in them; with no window frame they cover the
 main display. Capture runs in the console user's session, as the E2E
 recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
-works when the runner user is not the console user.
+works when the runner user is not the console user. With no screen capture
+route (no Screen Recording grant), the DEV app draws its own main window
+(`debug.window_snapshot`, which needs no grant); child windows the app owns
+are in that image too.
 
 Exit status: 0 when every required step passed, 1 otherwise. The media is
 written either way.
@@ -39,6 +42,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import signal
@@ -60,6 +64,12 @@ FRAME_INTERVAL = 0.5
 # video stops here, so a stuck step cannot fill the runner's disk.
 MAX_FRAMES = 600
 WINDOW_TIMEOUT = 20.0
+# A window snapshot paints each shown page too, so it can take a few seconds.
+SNAPSHOT_TIMEOUT = 20.0
+APP_WINDOW_MODE = "app window (debug.window_snapshot)"
+# Each app-window frame is a main-thread snapshot of the app being recorded:
+# fewer of them keep its motion from stalling on the capture.
+APP_WINDOW_FRAME_INTERVAL = 1.0
 # scripts/release-media/host_agent.py on main looks in the same places.
 HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
                      Path("/Applications/CuaSshScreenCapture.app"))
@@ -134,6 +144,7 @@ class Session:
     screencapture from this process, screencapture through `launchctl
     asuser` (main's E2E recorder; needs passwordless sudo), and an approved
     CuaSshScreenCapture.app (main's scripts/release-media helper backend).
+    With none of them, `app_window` is set: the app snapshots its own window.
     """
 
     def __init__(self) -> None:
@@ -152,6 +163,7 @@ class Session:
         self.capture_mode = "unprobed"
         self.capture_routes = [("direct", self.prefix)] + ([("launchctl asuser", asuser)] if asuser and asuser != self.prefix else [])
         self.helper: Path | None = None
+        self.app_window = False
 
     def run(self, argv: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.prefix + argv, capture_output=True, text=True, timeout=timeout)
@@ -184,7 +196,11 @@ class Session:
             notes.append(f"{helper.name}: wrote no image (not approved for Screen Recording?)")
         if not any(helper.is_dir() for helper in HELPER_CANDIDATES):
             notes.append("no CuaSshScreenCapture.app")
-        self.capture_mode = "none (" + "; ".join(notes) + ")"
+        # The app's own window needs no grant; a build without the debug verb
+        # reports its error on every shot instead.
+        print("no screen capture route (" + "; ".join(notes) + ")", flush=True)
+        self.app_window = True
+        self.capture_mode = APP_WINDOW_MODE
 
     def helper_capture(self, helper: Path, what: list[str], path: Path) -> str | None:
         """One helper capture (`desktop` or `window <id>`) to a PNG; None on success."""
@@ -207,14 +223,18 @@ class Session:
 
 
 class Screen:
-    """Screenshots of a rectangle in global top-left coordinates (screencapture -R)."""
+    """Screenshots of a rectangle in global top-left coordinates (screencapture -R),
+    or of the app's main window through `app` (debug.window_snapshot)."""
 
-    def __init__(self, session: Session, scratch: Path | None = None) -> None:
+    def __init__(self, session: Session, scratch: Path | None = None, app: App | None = None) -> None:
         self.session = session
         self.scratch = scratch or Path(tempfile.gettempdir())
+        self.app = app
         self.rect: tuple[int, int, int, int] | None = None
         self.primary_height: float | None = None
         self.primary_width: float | None = None
+        if app:
+            return
         script = ('ObjC.import("AppKit");'
                   'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
                   'JSON.stringify([f.size.width, f.size.height])')
@@ -229,6 +249,11 @@ class Screen:
         # Without a usable window frame (none, gone, too small, off the
         # display) nothing is captured: the old rect would show what is behind.
         self.rect = None
+        if self.app:
+            # The app draws the window itself, so the frame only says one is shown.
+            if frame and len(frame) == 4 and frame[2] >= 50 and frame[3] >= 50:
+                self.rect = tuple(int(value) for value in frame)
+            return
         if not frame or self.primary_height is None or len(frame) != 4:
             return
         x, y, width, height = frame
@@ -252,6 +277,8 @@ class Screen:
         """
         if not self.rect:
             return "no app window on screen to capture"
+        if self.app:
+            return self.app_window_capture(path, kind)
         if self.session.helper:
             return self.helper_capture(path, kind)
         argv = ["/usr/sbin/screencapture", "-x", "-t", kind, f"-R{','.join(map(str, self.rect))}", str(path)]
@@ -290,8 +317,39 @@ class Screen:
         return (done.stderr or done.stdout).strip() or "sips wrote no image"
 
 
+    def app_window_capture(self, path: Path, kind: str) -> str | None:
+        """The app's main window as it draws it (debug.window_snapshot), as PNG or JPEG."""
+        # The app writes PNG; a JPEG starts in scratch and sips converts it.
+        raw = path if kind == "png" else self.scratch / f"window-{threading.get_ident()}.png"
+        try:
+            raw.unlink(missing_ok=True)
+            result = self.app.request("debug.window_snapshot", {"kind": "main", "path": str(raw)},
+                                      timeout=SNAPSHOT_TIMEOUT)
+        except (OSError, ValueError, TourError) as error:
+            return f"debug.window_snapshot: {error}"
+        if not isinstance(result, dict) or result.get("error"):
+            problem = result.get("error") if isinstance(result, dict) else "no result"
+            raw.unlink(missing_ok=True)
+            return f"debug.window_snapshot: {problem}"
+        if not raw.is_file() or raw.stat().st_size == 0:
+            return "debug.window_snapshot wrote no image"
+        if raw == path:
+            return None
+        done = subprocess.run(["sips", "-s", "format", "jpeg", str(raw), "--out", str(path)],
+                              capture_output=True, text=True)
+        raw.unlink(missing_ok=True)
+        if path.is_file() and path.stat().st_size > 0:
+            return None
+        return (done.stderr or done.stdout).strip() or "sips wrote no image"
+
+
+def frame_interval(session: Session) -> float:
+    """Seconds between video frames for the session's capture route."""
+    return APP_WINDOW_FRAME_INTERVAL if session.capture_mode == APP_WINDOW_MODE else FRAME_INTERVAL
+
+
 class Recorder(threading.Thread):
-    """Frames of the screen rectangle about every FRAME_INTERVAL seconds, tagged with the step."""
+    """Frames of the screen rectangle about every `interval` seconds, tagged with the step."""
 
     def __init__(self, screen: Screen, directory: Path) -> None:
         super().__init__(daemon=True)
@@ -302,6 +360,7 @@ class Recorder(threading.Thread):
         self.error: str | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
+        self.interval = frame_interval(screen.session)
 
     def run(self) -> None:
         while not self.stopping.is_set():
@@ -322,7 +381,7 @@ class Recorder(threading.Thread):
                     self.error = problem
                 else:
                     self.frames.append({"file": f"frames/{path.name}", "step": self.step})
-            self.stopping.wait(max(0.0, FRAME_INTERVAL - (time.monotonic() - started)))
+            self.stopping.wait(max(0.0, self.interval - (time.monotonic() - started)))
 
     def stop(self) -> list[dict[str, Any]]:
         """Stop recording; the frames kept, which nothing appends to afterwards."""
@@ -348,13 +407,10 @@ class App:
         self.session = session
         self.fresh_state = fresh_state
         self.cli_path = app_path / "Contents/Resources/bin/cmux"
-        plist = app_path / "Contents/Info.plist"
-        executable = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleExecutable", str(plist)],
-                                    capture_output=True, text=True, check=True).stdout.strip()
-        self.executable = app_path / "Contents/MacOS" / executable
-        tag = subprocess.run(["/usr/libexec/PlistBuddy", "-c", "Print :LSEnvironment:CMUX_TAG", str(plist)],
-                             capture_output=True, text=True).stdout.strip()
-        self.bundle_tag = clean_tag(tag)
+        with (app_path / "Contents/Info.plist").open("rb") as plist:
+            info = plistlib.load(plist)
+        self.executable = app_path / "Contents/MacOS" / info["CFBundleExecutable"]
+        self.bundle_tag = clean_tag((info.get("LSEnvironment") or {}).get("CMUX_TAG"))
         # sun_path holds 104 bytes, so the socket lives in a short private directory.
         self.socket_path = session.shareable(workdir) / "s.sock"
         self.log_path = workdir / "app.log"
@@ -437,10 +493,14 @@ class App:
         except subprocess.TimeoutExpired as expired:
             return subprocess.CompletedProcess(argv, 124, expired.stdout or "", f"timed out after {timeout:.0f}s")
 
-    def request(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        """One control-socket request with no CLI verb (debug.layers has none)."""
+    def request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 10) -> Any:
+        """One control-socket request with no CLI verb (debug.layers has none).
+
+        Each request has its own connection, so the recorder thread and the
+        steps never share one.
+        """
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-            connection.settimeout(10)
+            connection.settimeout(timeout)
             connection.connect(str(self.socket_path))
             connection.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
             reply = b""
@@ -532,11 +592,11 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
-                                "frame_interval": FRAME_INTERVAL, "console_user": session.user,
+                                "frame_interval": frame_interval(session), "console_user": session.user,
                                 "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     app = App(app_path, session, workdir, fresh_state=fresh_state)
-    screen = Screen(session, session.shareable(workdir / "raw"))
+    screen = Screen(session, session.shareable(workdir / "raw"), app if session.app_window else None)
     recorder = Recorder(screen, frames)
     try:
         try:

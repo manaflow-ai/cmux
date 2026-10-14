@@ -373,6 +373,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cmux_next_reel.py
 
+      - name: Test the cmux NEXT media tour's app window capture
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_tour.py
+
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
