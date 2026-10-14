@@ -176,7 +176,7 @@
   border-radius: 7px;
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 14px;
   font-variant-numeric: tabular-nums;
 }
@@ -209,7 +209,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--agent-muted);
-  font: 16px/20px system-ui;
+  font: var(--text-control)/20px system-ui;
   cursor: pointer;
 }
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
