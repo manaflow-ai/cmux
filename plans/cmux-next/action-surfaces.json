@@ -26055,6 +26055,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-density-comfortable",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.density.comfortable",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Density: Comfortable",
+      "title_key" : "action.sidebar.density.comfortable",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-density-expanded",
       "context_menu" : "offered",
       "context_menus" : [
@@ -31893,7 +31920,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.density.expanded",
+              "id" : "sidebar.density.comfortable",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -31905,14 +31932,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.density.expanded",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 5
+              "order" : 6
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
