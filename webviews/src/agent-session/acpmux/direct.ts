@@ -1482,6 +1482,9 @@ export class AcpmuxDirectClient {
         if (fallbackPromptId) {
           this.optimisticPromptTexts.delete(fallbackPromptId);
           this.promptAccepts.get(fallbackPromptId)?.();
+          // A prompt the pane put in the queue that ran at once (the turn ended meanwhile).
+          if (this.queue.some((entry) => entry.id === fallbackPromptId))
+            this.queue = this.queue.filter((entry) => entry.id !== fallbackPromptId);
         }
         this.subagents.closeBatch();
         // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
@@ -1892,7 +1895,12 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
-    this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+    // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
+    // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
+    const waits = !steer && shown === sessionId && this.turnOpen;
+    if (waits)
+      this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false)];
+    else this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
     const accept = () => {
       this.promptAccepts.delete(promptId);
@@ -1924,7 +1932,8 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
-      if (queued) {
+      if (queued || waits) {
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
         this.optimisticPromptRows.set(promptId, rowId);
         this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
       }
