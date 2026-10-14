@@ -565,6 +565,10 @@ final class ComposeTextView {
 /// height change to the window so the glass view's layer gets the same
 /// render-server springs.
 final class ComposeView: UIView {
+    /// The scale its images draw at: its window view's renderScale (MessagesWindowView.setRenderScale calls
+    /// `rescale`; cx-3cb view-scale), `Fixture.renderScale` before it is in one.
+    /// AppKit's own views (the text view, the glass) follow their window.
+    var renderScale: CGFloat { labRenderScale }
     let textView = ComposeTextView()
     private let buttons = CanvasView()
     let glass = CALayer()
@@ -709,7 +713,7 @@ final class ComposeView: UIView {
         super.init(frame: frame)
         let none: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "hidden": NSNull()]
         for l in [glass, placeholderLayer, waveLayer, chipsLayer, caret, textSnapshot, overlay, veil, rim, tint, plusLayer] {
-            l.actions = none; l.contentsScale = DisplayScale.current
+            l.actions = none; l.contentsScale = renderScale
         }
         buttons.isUserInteractionEnabled = false
         // weak capture, not unowned (crash program: no trap after the view is freed).
@@ -764,7 +768,7 @@ final class ComposeView: UIView {
         tv.layerContentsPlacement = .topLeft
         tv.layer?.masksToBounds = true
         tv.layer?.contentsGravity = .topLeft
-        tv.layer?.contentsScale = DisplayScale.current
+        tv.layer?.contentsScale = renderScale
         // Text services, decided explicitly (README: Text):
         // - continuous spell checking on (Messages underlines misspellings), run by
         //   DeferredSpellChecker off the keystroke frame (SpellCheck.swift);
@@ -808,7 +812,7 @@ final class ComposeView: UIView {
         // drawn when shown, not at every width of a live resize; the placeholder does not depend on
         // the width (both were about a tenth of each resize frame on main, dogfood 2026-10-08).
         if !nativeChrome { renderGlass() }
-        if placeholderScale != DisplayScale.current { renderPlaceholder() }
+        if placeholderScale != renderScale { renderPlaceholder() }
         // A new window width rewraps the draft: the field's height follows at once, as Messages'
         // (the window view lays the rows out on the new field top after this).
         let h = height(for: text, width: bounds.width)
@@ -820,7 +824,7 @@ final class ComposeView: UIView {
 
     /// The display scale changed: draw every image again at the new scale.
     func rescale() {
-        for l in [glass, placeholderLayer, waveLayer, chipsLayer, caret, textSnapshot, overlay, veil, rim] { l.contentsScale = DisplayScale.current }
+        for l in [glass, placeholderLayer, waveLayer, chipsLayer, caret, textSnapshot, overlay, veil, rim] { l.contentsScale = renderScale }
         textView.view.applyScale()
         renderGlass()
         renderPlaceholder()
@@ -858,7 +862,7 @@ final class ComposeView: UIView {
         placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
         waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
         chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
-        strip.update(chips, width: f.width, scale: DisplayScale.current)
+        strip.update(chips, width: f.width, scale: renderScale)
         textSnapshot.frame = textFrame(height: h)
         CATransaction.commit()
         textView.place(textFrame(height: h))
@@ -874,6 +878,7 @@ final class ComposeView: UIView {
     private func renderGlass() {
         let w = ComposeView.fieldWidth(bounds.width)
         let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = renderScale
         fmt.opaque = false
         let h: CGFloat = 31
         glass.contents = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { _ in
@@ -893,6 +898,7 @@ final class ComposeView: UIView {
     /// The glass over a bubble inside the field (catalyst's measured profile).
     private func renderVeil(width w: CGFloat) {
         let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = renderScale
         fmt.opaque = false
         let cap: CGFloat = 20, h = 2 * cap + 1
         let top: [(CGFloat, CGFloat)] = [(0, 0.26), (6, 0.25), (9, 0.2), (13, 0.14), (16, 0.08), (18, 0.06), (20, 0)]
@@ -919,8 +925,9 @@ final class ComposeView: UIView {
     /// The scale the placeholder and the waveform were drawn at (nil: not drawn).
     private var placeholderScale: CGFloat?
     private func renderPlaceholder() {
-        placeholderScale = DisplayScale.current
+        placeholderScale = renderScale
         let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = renderScale
         fmt.opaque = false
         let ph = placeholder
         placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -942,7 +949,7 @@ final class ComposeView: UIView {
     }
 
     private func renderChips() {
-        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: DisplayScale.current)
+        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
     }
 
     /// The attachment whose remove control is at p (window coordinates).
@@ -1062,7 +1069,7 @@ final class ComposeView: UIView {
         guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
-        let scale = tv.window?.backingScaleFactor ?? DisplayScale.current
+        let scale = tv.window?.backingScaleFactor ?? renderScale
         // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,

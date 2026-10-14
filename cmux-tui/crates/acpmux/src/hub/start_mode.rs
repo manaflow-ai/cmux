@@ -2,9 +2,12 @@
 //! in (cx-wx93i; Lawrence 2026-10-14: "by default all chats should be in
 //! skip permission mode, that user can switch back"):
 //!
-//! 1. the person's last mode pick in a chat of this harness profile
-//!    (config.json `defaults.<profile>.mode`, written by `note_mode_pick`
-//!    from the app pane only), when the harness still offers it;
+//! 1. the person's latest mode pick in any chat (config.json
+//!    `lastPermissionMode`: `fullAccess`, `standard` or `ask`, written by
+//!    `note_mode_pick` from the app pane only). One pick for every harness
+//!    and model (Lawrence 2026-10-14: "should just apply to the ones going
+//!    forward, all harnesses/models, should always use the latest user
+//!    selected one"); chats that exist keep their mode;
 //! 2. acpmux config.json `defaultPermissionMode` (acpmux without the app,
 //!    tests), else the cmux setting `agents.defaultPermissionMode` (the
 //!    settings file, `user_settings.rs`): `fullAccess` (the default), `standard` (the
@@ -24,9 +27,8 @@
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
 //!
-//! Only the person widens a mode later (`hub/person.rs`). A pick that only
-//! repeats what the setting gives saves nothing, so a later setting change
-//! still reaches that harness.
+//! Only the person widens a mode later (`hub/person.rs`). A pick is saved
+//! as its level, so it maps onto every harness's own mode ids.
 
 use super::*;
 
@@ -167,36 +169,61 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
     })
 }
 
+/// Modes that ask (or only read) on harnesses the asking table leaves out:
+/// the Codex bridge's `ask` and `read-only`.
+const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
+
+/// The level of mode `mode` on a harness of `family`: a full-access mode,
+/// a mode that asks before each change (`asking`: the merged asking table's
+/// row for the family), or any other (the harness's own).
+fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
+    if FULL_ACCESS_MODES.contains(&mode) {
+        return DefaultMode::FullAccess;
+    }
+    let reviewed = crate::web_modes::ASKING_MODES
+        .iter()
+        .find(|(f, _)| *f == family)
+        .is_some_and(|(_, modes)| modes.contains(&mode));
+    if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
+        DefaultMode::Ask
+    } else {
+        DefaultMode::Standard
+    }
+}
+
+impl DefaultMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::FullAccess => "fullAccess",
+            Self::Standard => "standard",
+            Self::Ask => "ask",
+        }
+    }
+}
+
 impl Hub {
     /// The mode a new chat on `session` starts in (module docs), or `None`
-    /// to keep the harness's own. `saved`: the profile's saved pick.
-    pub(super) async fn start_mode(
-        &self,
-        session: &Session,
-        saved: Option<&str>,
-    ) -> Option<String> {
+    /// to keep the harness's own.
+    pub(super) async fn start_mode(&self, session: &Session) -> Option<String> {
         let meta = session.meta();
         let offered = available(&meta);
         if offered.is_empty() {
             return None;
         }
-        let wanted = match saved.filter(|m| offered.iter().any(|a| a == m)) {
-            Some(m) => Some(m.to_owned()),
-            None => {
-                let configured = self.config.read().await.default_permission_mode.clone();
-                mode_for(
-                    DefaultMode::resolve(configured.as_deref()),
-                    &crate::web_modes::family_of(&meta),
-                    &offered,
-                )
-            }
+        let (picked, configured) = {
+            let cfg = self.config.read().await;
+            (cfg.last_permission_mode.clone(), cfg.default_permission_mode.clone())
         };
-        wanted.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        let level = match picked.as_deref().and_then(DefaultMode::parse) {
+            Some(level) => level,
+            None => DefaultMode::resolve(configured.as_deref()),
+        };
+        mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+            .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
     }
 
     /// `session/set_mode` from a client. From the app pane (`pick`), once
-    /// the harness takes it, the mode is the person's saved pick for the
-    /// profile's next new chat.
+    /// the harness takes it, its level is the start mode of every new chat.
     pub async fn client_set_mode(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -210,16 +237,13 @@ impl Hub {
         Ok(r)
     }
 
-    /// Saves a mode pick on `session` as its harness profile's start mode
-    /// (config.json `defaults.<profile>.mode`). Not for a preset's chat, a
-    /// remote-origin chat, a toggle such as Plan, a profile that pins its
-    /// mode, or a name that is no profile in config.json (a folder
-    /// profile's chat: its file decides). A pick equal to what the setting
-    /// gives removes the saved mode instead, so the setting decides again.
+    /// Saves the level of a mode pick on `session` as the start mode of
+    /// every new chat (config.json `lastPermissionMode`). Not for a preset's
+    /// chat, a remote-origin chat, a toggle such as Plan, or a profile that
+    /// pins its mode.
     pub(super) async fn note_mode_pick(&self, session: &Session, mode: &str) {
         let meta = session.meta();
         if meta.preset.is_some()
-            || meta.harness.is_empty()
             || meta.remote_origin
             || mode.is_empty()
             || mode.len() > MAX_MODE
@@ -227,36 +251,18 @@ impl Hub {
         {
             return;
         }
-        let offered = available(&meta);
-        let configured = self.config.read().await.default_permission_mode.clone();
-        let from_setting = mode_for(
-            DefaultMode::resolve(configured.as_deref()),
-            &crate::web_modes::family_of(&meta),
-            &offered,
-        );
+        let family = crate::web_modes::family_of(&meta);
+        let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
         let mut cfg = self.config.write().await;
-        let Some(profile) = cfg.harnesses.get(&meta.harness) else { return };
-        if profile_sets_mode(profile) {
+        if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;
         }
-        let keep = (from_setting.as_deref() != Some(mode)).then(|| mode.to_owned());
-        let before = cfg.defaults.get(&meta.harness).and_then(|d| d.mode.clone());
-        if before == keep {
+        if cfg.last_permission_mode.as_deref() == Some(level) {
             return;
         }
-        match keep {
-            Some(m) => cfg.defaults.entry(meta.harness.clone()).or_default().mode = Some(m),
-            None => {
-                if let Some(entry) = cfg.defaults.get_mut(&meta.harness) {
-                    entry.mode = None;
-                    if entry.is_empty() {
-                        cfg.defaults.remove(&meta.harness);
-                    }
-                }
-            }
-        }
+        cfg.last_permission_mode = Some(level.to_owned());
         if let Err(e) = cfg.save() {
-            tracing::warn!(harness = %meta.harness, "mode pick not saved to config.json: {e}");
+            tracing::warn!("mode pick not saved to config.json: {e}");
         }
     }
 }
