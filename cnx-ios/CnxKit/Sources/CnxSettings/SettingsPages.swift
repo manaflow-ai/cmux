@@ -383,6 +383,7 @@ struct TransportPage: View {
     let relayAvailable: Bool?
     #if DEBUG
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnly = false
+    @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
     #endif
 
     var body: some View {
@@ -427,12 +428,16 @@ struct TransportPage: View {
                 }
                 .disabled(relayAvailable == false)
                 .accessibilityIdentifier("settings.transport.relayOnly")
+                Toggle(isOn: $browserVideoOnChannel) {
+                    SettingsLabel("Browser video on channel", symbol: "film")
+                }
+                .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
             } header: {
                 Text("Developer")
             } footer: {
                 Text(relayAvailable == false
                      ? "Relay unavailable."
-                     : "Always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once.")
+                     : "Relay only: always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once. Browser video on channel: streamed browser tabs skip the WebRTC video track. Applies at the next connection.")
             }
             #endif
         }

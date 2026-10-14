@@ -1,4 +1,5 @@
 import class CnxModel.ConnectTimeline
+import enum CnxModel.DeveloperOptions
 import CnxTransport
 import Foundation
 import Observation
@@ -142,6 +143,7 @@ public final class LinkController {
                 return
             }
             endpoint.relayOnly = machine.relayOnly
+            endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken

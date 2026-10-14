@@ -98,6 +98,10 @@ public final class StreamedBrowserModel: BrowserTabState {
         public var width: Int32 = 0
         public var height: Int32 = 0
         public var frames: UInt64 = 0
+        /// How the frames travel: "track" (WebRTC video track) or "channel".
+        public var carrier = "channel"
+        public var trackDropped: UInt64 = 0
+        public var trackRecovered: UInt64 = 0
     }
 
     /// `open` opens the `browser` service on the current link.
@@ -240,9 +244,14 @@ public final class StreamedBrowserModel: BrowserTabState {
         meter.width = shown.width
         meter.height = shown.height
         meter.frames = self.meter.frames + 1
+        if let stats = connection?.stats() {
+            meter.carrier = stats.videoTrack ? "track" : "channel"
+            meter.trackDropped = stats.trackFramesDropped
+            meter.trackRecovered = stats.trackPacketsRecovered
+        }
         self.meter = meter
         if meter.frames % 30 == 1 {
-            log.info("browser \(self.tab, privacy: .public): \(meter.fps) fps \(meter.kbps) kbps latency \(meter.latencyMillis ?? -1, format: .fixed(precision: 1)) ms decode \(meter.decodeMillis, format: .fixed(precision: 1)) ms \(meter.width)x\(meter.height)")
+            log.info("browser \(self.tab, privacy: .public): \(meter.fps) fps \(meter.kbps) kbps latency \(meter.latencyMillis ?? -1, format: .fixed(precision: 1)) ms decode \(meter.decodeMillis, format: .fixed(precision: 1)) ms \(meter.width)x\(meter.height) via \(meter.carrier, privacy: .public) dropped \(meter.trackDropped) recovered \(meter.trackRecovered)")
         }
     }
 

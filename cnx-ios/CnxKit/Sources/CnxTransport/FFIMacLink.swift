@@ -16,7 +16,7 @@ public struct FFIMacLinkDialer: MacLinkDialer {
                 deviceId: endpoint.deviceID,
                 macDeviceId: endpoint.macDeviceID,
                 transport: transport.ffi,
-                options: ConnectOptions(relayOnly: endpoint.relayOnly),
+                options: ConnectOptions(relayOnly: endpoint.relayOnly, noVideoLane: endpoint.browserVideoOnChannel),
                 observer: observer
             )
             return FFIMacLink(handle: handle, transport: transport, observer: observer)
@@ -140,6 +140,9 @@ final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
         stats.framesLost = raw.framesLost
         stats.clockOffsetMicros = raw.clockOffsetUs
         stats.clockRTTMicros = raw.clockRttUs
+        stats.videoTrack = raw.videoTrack
+        stats.trackFramesDropped = raw.trackFramesDropped
+        stats.trackPacketsRecovered = raw.trackPacketsRecovered
         return stats
     }
 }

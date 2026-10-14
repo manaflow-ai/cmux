@@ -36,6 +36,13 @@ public struct BrowserStreamStats: Sendable, Equatable {
     public var framesLost: UInt64 = 0
     public var clockOffsetMicros: Int64?
     public var clockRTTMicros: UInt32?
+    /// The newest frame came on the link's WebRTC video track (RTP), not the
+    /// reliable `browser` channel (verify/browser-video-track.md).
+    public var videoTrack = false
+    /// Track frames skipped to a keyframe after an unrecoverable loss.
+    public var trackFramesDropped: UInt64 = 0
+    /// Track packets a NACK brought back.
+    public var trackPacketsRecovered: UInt64 = 0
 
     public init() {}
 }

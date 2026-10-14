@@ -88,13 +88,18 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate distant network": no direct path. WebRTC uses only
     /// TURN (path `turn`), WireGuard only the service's relay (path `relay`).
     public var relayOnly: Bool
+    /// Debug baseline: do not offer the media lane, so browser video rides
+    /// its reliable channel even over WebRTC (verify/browser-video-track.md).
+    public var browserVideoOnChannel: Bool
 
-    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false) {
+    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false,
+                browserVideoOnChannel: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
         self.relayOnly = relayOnly
+        self.browserVideoOnChannel = browserVideoOnChannel
     }
 }
 

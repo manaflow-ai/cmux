@@ -1904,19 +1904,39 @@ public struct BrowserStats: Equatable, Hashable {
      */
     public var clockOffsetUs: Int64?
     public var clockRttUs: UInt32?
+    /**
+     * The last frame came on the link's WebRTC video track (not the channel).
+     */
+    public var videoTrack: Bool
+    /**
+     * Track frames: skipped to a keyframe after an unrecoverable loss, and
+     * packets a NACK brought back.
+     */
+    public var trackFramesDropped: UInt64
+    public var trackPacketsRecovered: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(frames: UInt64, keyframes: UInt64, bytes: UInt64, framesLost: UInt64, 
         /**
          * `host = viewer + offset`, and the best probe's round trip.
-         */clockOffsetUs: Int64?, clockRttUs: UInt32?) {
+         */clockOffsetUs: Int64?, clockRttUs: UInt32?, 
+        /**
+         * The last frame came on the link's WebRTC video track (not the channel).
+         */videoTrack: Bool, 
+        /**
+         * Track frames: skipped to a keyframe after an unrecoverable loss, and
+         * packets a NACK brought back.
+         */trackFramesDropped: UInt64, trackPacketsRecovered: UInt64) {
         self.frames = frames
         self.keyframes = keyframes
         self.bytes = bytes
         self.framesLost = framesLost
         self.clockOffsetUs = clockOffsetUs
         self.clockRttUs = clockRttUs
+        self.videoTrack = videoTrack
+        self.trackFramesDropped = trackFramesDropped
+        self.trackPacketsRecovered = trackPacketsRecovered
     }
 
     
@@ -1940,7 +1960,10 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
                 bytes: FfiConverterUInt64.read(from: &buf), 
                 framesLost: FfiConverterUInt64.read(from: &buf), 
                 clockOffsetUs: FfiConverterOptionInt64.read(from: &buf), 
-                clockRttUs: FfiConverterOptionUInt32.read(from: &buf)
+                clockRttUs: FfiConverterOptionUInt32.read(from: &buf), 
+                videoTrack: FfiConverterBool.read(from: &buf), 
+                trackFramesDropped: FfiConverterUInt64.read(from: &buf), 
+                trackPacketsRecovered: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -1951,6 +1974,9 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.framesLost, into: &buf)
         FfiConverterOptionInt64.write(value.clockOffsetUs, into: &buf)
         FfiConverterOptionUInt32.write(value.clockRttUs, into: &buf)
+        FfiConverterBool.write(value.videoTrack, into: &buf)
+        FfiConverterUInt64.write(value.trackFramesDropped, into: &buf)
+        FfiConverterUInt64.write(value.trackPacketsRecovered, into: &buf)
     }
 }
 
@@ -1982,6 +2008,11 @@ public struct ConnectOptions: Equatable, Hashable {
      * backend relay frames (path `Relay`).
      */
     public var relayOnly: Bool
+    /**
+     * Debug: do not offer the media lane, so browser video rides its
+     * reliable channel even on WebRTC (the comparison baseline).
+     */
+    public var noVideoLane: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1991,8 +2022,13 @@ public struct ConnectOptions: Equatable, Hashable {
          * uses ICE transport policy `relay` with the service's TURN servers
          * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
          * backend relay frames (path `Relay`).
-         */relayOnly: Bool = false) {
+         */relayOnly: Bool = false, 
+        /**
+         * Debug: do not offer the media lane, so browser video rides its
+         * reliable channel even on WebRTC (the comparison baseline).
+         */noVideoLane: Bool = false) {
         self.relayOnly = relayOnly
+        self.noVideoLane = noVideoLane
     }
 
     
@@ -2011,12 +2047,14 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConnectOptions {
         return
             try ConnectOptions(
-                relayOnly: FfiConverterBool.read(from: &buf)
+                relayOnly: FfiConverterBool.read(from: &buf), 
+                noVideoLane: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
+        FfiConverterBool.write(value.noVideoLane, into: &buf)
     }
 }
 
