@@ -21,10 +21,16 @@ struct AgentPaneTabOpenGestureTests {
     private final class Rig {
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         var opened: [AgentPaneOpenTab] = []
+        var typedAhead: [String] = []
 
         init(newTab: Bool = false) {
             if newTab { model.becomeNewTab(AgentPaneNewTab(kind: .terminal)) }
             model.onOpenTab = { [weak self] in self?.opened.append($0) }
+            model.onTypeAhead = { [weak self] in self?.typedAhead.append($0) }
+        }
+
+        func typeAhead(_ text: String) async -> [String: Any] {
+            await model.respond(to: AgentPaneRequest(body: ["method": "tab.typeAhead", "params": ["text": text]]))
         }
 
         func open(_ params: [String: Any], gesture: Bool = false) async -> [String: Any] {
@@ -77,6 +83,41 @@ struct AgentPaneTabOpenGestureTests {
         #expect(await rig.open(["kind": "browser", "text": "example.com"])["ok"] as? Bool == true)
         #expect(rig.opened.count == 3, "\(rig.opened)")
         #expect(rig.model.transport.gestures.isAvailable, "an open that runs nothing used the person's gesture")
+    }
+
+    /// `run: false` types its text at the new terminal's prompt as raw keys (no bracketed paste), so a
+    /// newline, a carriage return or Ctrl-O in it runs the line all the same. Text with a control
+    /// character other than DEL (the type-ahead's erase) is a run: it needs the person's gesture.
+    @Test func typedTextWithAControlKeyRunsOnlyOnThePersonsGesture() async {
+        let rig = Rig()
+        for text in ["echo hi\n", "echo hi\r", "\u{0f}", "id\u{1b}", "id\u{85}"] {
+            let refused = await rig.open(["kind": "terminal", "text": text, "run": false])
+            #expect(Self.errorCode(refused) == "transport.gesture_required", "run: false typed \(text.debugDescription) without a gesture: \(refused)")
+        }
+        #expect(rig.opened.isEmpty, "a terminal typed a control key without the person's gesture: \(rig.opened)")
+
+        #expect(await rig.open(["kind": "terminal", "text": "echo hi\n", "run": false], gesture: true)["ok"] as? Bool == true)
+        #expect(rig.opened == [AgentPaneOpenTab(kind: .terminal, text: "echo hi\n", run: false)])
+        #expect(!rig.model.transport.gestures.isAvailable, "one gesture typed control keys twice")
+
+        // Printable text and DEL only type: still no gesture needed.
+        #expect(await rig.open(["kind": "terminal", "text": "echo hi \u{7f}é", "run": false])["ok"] as? Bool == true)
+        #expect(rig.opened.count == 2, "\(rig.opened)")
+    }
+
+    /// `tab.typeAhead` text reaches the terminal the page turns into as the same raw keys: a control
+    /// key in it needs the person's gesture too, and the text never reaches the terminal without one.
+    @Test func typeAheadWithAControlKeyNeedsThePersonsGesture() async {
+        let rig = Rig(newTab: true)
+        let refused = await rig.typeAhead("id\r")
+        #expect(Self.errorCode(refused) == "transport.gesture_required", "tab.typeAhead typed a Return without a gesture: \(refused)")
+        #expect(await rig.typeAhead("\u{0f}")["ok"] as? Bool != true)
+        #expect(rig.typedAhead.isEmpty, "type-ahead with a control key reached the terminal: \(rig.typedAhead)")
+
+        #expect(await rig.typeAhead("ls -la\u{7f}")["ok"] as? Bool == true, "printable type-ahead was refused")
+        rig.model.transport.gestures.record()
+        #expect(await rig.typeAhead("id\r")["ok"] as? Bool == true)
+        #expect(rig.typedAhead == ["ls -la\u{7f}", "id\r"], "\(rig.typedAhead)")
     }
 
     /// A Return key as process `source` sent it (the HID system's events carry source pid 0).
