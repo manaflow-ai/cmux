@@ -440,6 +440,7 @@ impl Mux {
         mux.respawn_lost_terminals_at_start();
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        crate::state::project_watch::start(&mux);
         Ok(mux)
     }
 

@@ -4196,9 +4196,11 @@ function AcpmuxPane() {
     [],
   );
   const [directProjects, setDirectProjects] = useState<{ cwd: string; label: string }[]>([]);
+  const onNewTab = Boolean(newTab);
   useEffect(() => {
-    // Start Agent's folder picker lists them too (cx-hkat).
-    if (!freshChat || newTab) return;
+    // Start Agent's folder picker lists them too (cx-hkat), and so does the New Tab page: the
+    // daemon's project list, where the user's renames and removals win (cx-m0p7).
+    if (!freshChat && !onNewTab) return;
     let active = true;
     void loadNewTabProjects()
       .then((projects) => {
@@ -4208,7 +4210,8 @@ function AcpmuxPane() {
     return () => {
       active = false;
     };
-  }, [freshChat, newTab, loadNewTabProjects]);
+    // A prewarmed spare page asks again when Cmd-T adopts it: before that its model is not wired.
+  }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
   const newTabProjects = useMemo(() => {
