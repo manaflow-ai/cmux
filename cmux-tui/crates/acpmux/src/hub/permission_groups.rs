@@ -10,6 +10,9 @@ pub const PERMISSION_GROUP_OPERATIONS: [&str; 3] = [
     method::MUX_PERMISSION_CHAT_REVOKE,
 ];
 const WINDOW: Duration = Duration::from_millis(100);
+/// The most a group's timer waits past WINDOW for requests still on their
+/// way (`AskInFlight`); one later than that forms a group of its own.
+const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
 const MAX_GROUPS: usize = 64;
 
@@ -243,16 +246,21 @@ impl Hub {
             tokio::time::sleep_until(deadline.into()).await;
             // A request the agent sent with this group's first may still be
             // on its way here: it joins before the group is shown. Each one
-            // lands within its own request task (no wait on a person).
-            loop {
-                let landed = session.asks_landed.notified();
-                tokio::pin!(landed);
-                landed.as_mut().enable();
-                if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
-                    break;
+            // lands within its own request task (no wait on a person); the
+            // bound keeps a request task that is stuck (a re-adopted host
+            // that stopped reading) from holding the group back.
+            let _ = tokio::time::timeout(LANDING_BOUND, async {
+                loop {
+                    let landed = session.asks_landed.notified();
+                    tokio::pin!(landed);
+                    landed.as_mut().enable();
+                    if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
+                        break;
+                    }
+                    landed.await;
                 }
-                landed.await;
-            }
+            })
+            .await;
             let mut state = session.permissions.lock().unwrap();
             if let Some(g) = state.groups.iter_mut().find(|g| g.id == id && g.state == "collecting")
             {
