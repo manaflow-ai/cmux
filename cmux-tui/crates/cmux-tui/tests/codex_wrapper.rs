@@ -85,14 +85,31 @@ impl Launch {
     }
 }
 
+/// Applies the `-c` overrides exactly as Codex does (codex-rs/utils/cli
+/// `parse_overrides` plus codex-rs/config `apply_toml_override`): the key is
+/// everything before the first `=` and is split on EVERY `.`, ignoring TOML
+/// quoting, and each override replaces the value at its path. Parsing the
+/// overrides as a TOML document instead would honor quoted keys that Codex
+/// splits, hiding settings Codex never applies.
 fn settings(argv: &[String]) -> toml::Value {
-    let text = argv
-        .windows(2)
-        .filter(|pair| pair[0] == "-c")
-        .map(|pair| pair[1].as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    toml::from_str(&text).unwrap()
+    let mut root = toml::Value::Table(toml::Table::new());
+    for pair in argv.windows(2).filter(|pair| pair[0] == "-c") {
+        let (path, raw) = pair[1].split_once('=').unwrap();
+        let value = toml::from_str::<toml::Table>(&format!("_x_ = {}", raw.trim()))
+            .unwrap_or_else(|error| panic!("Codex cannot parse override {:?}: {error}", pair[1]))
+            .remove("_x_")
+            .unwrap();
+        let segments: Vec<&str> = path.trim().split('.').collect();
+        let (last, parents) = segments.split_last().unwrap();
+        let mut current = &mut root;
+        for segment in parents {
+            let table = current.as_table_mut().unwrap();
+            current =
+                table.entry(*segment).or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        }
+        current.as_table_mut().unwrap().insert((*last).to_owned(), value);
+    }
+    root
 }
 
 fn hook_command(config: &toml::Value, event: &str) -> String {

@@ -1870,6 +1870,44 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(customEntries.compactMap { $0["command"] as? String }, [userCustomCommand])
     }
 
+    func testCodexHookTrustKeysUseTheDefaultCodexHomeVerbatim() throws {
+        // Codex canonicalizes an explicit CODEX_HOME for its hook trust keys
+        // but uses $HOME/.codex verbatim. Keying by the resolved path leaves
+        // every cmux hook untrusted when the home is reached through a symlink.
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-trust-\(UUID().uuidString)", isDirectory: true)
+        let realHome = root.appendingPathComponent("real-home", isDirectory: true)
+        let linkedHome = root.appendingPathComponent("linked-home", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: realHome.appendingPathComponent(".codex", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createSymbolicLink(at: linkedHome, withDestinationURL: realHome)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: [
+                "HOME": linkedHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 10
+        )
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let config = try String(
+            contentsOf: realHome.appendingPathComponent(".codex/config.toml"),
+            encoding: .utf8
+        )
+        let codexKeyPrefix = "[hooks.state.\"\(linkedHome.path)/.codex/hooks.json:stop:"
+        XCTAssertTrue(config.contains(codexKeyPrefix), config)
+        XCTAssertFalse(config.contains(realHome.resolvingSymlinksInPath().path + "/.codex/hooks.json"), config)
+    }
+
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
