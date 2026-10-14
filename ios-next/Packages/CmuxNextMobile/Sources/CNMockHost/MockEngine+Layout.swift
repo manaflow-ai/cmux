@@ -76,6 +76,13 @@ extension MockEngine {
 
     /// `CMUX_NEXT_MOCK_CREATE_FAIL=browser|terminal|all`: refuse that create
     /// with `unsupported`, as a host mirroring the Mac's tabs did.
+    /// `CMUX_NEXT_MOCK_CLOSE_FAIL=browser|terminal|all`: refuse that close.
+    func refuseCloseIfRequested(_ kind: String) throws {
+        let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_CLOSE_FAIL"] ?? ""
+        guard raw == kind || raw == "all" else { return }
+        throw RPCError(code: .unsupported, message: "This Mac kept the tab open")
+    }
+
     func refuseCreateIfRequested(_ kind: String) throws {
         let raw = ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_CREATE_FAIL"] ?? ""
         guard raw == kind || raw == "all" else { return }

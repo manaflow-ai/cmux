@@ -250,6 +250,7 @@ actor MockEngine {
             try mutateTerminal(p.terminalId) { $0.info.cols = p.cols; $0.info.rows = p.rows }
             return Self.empty
         case .termClose:
+            try refuseCloseIfRequested("terminal")
             try closeTerminal(try decode(params, TerminalRef.self).terminalId)
             return Self.empty
         case .termRename:
@@ -268,6 +269,7 @@ actor MockEngine {
             releaseStream(try decode(params, StreamRef.self).streamId)
             return Self.empty
         case .browserClose:
+            try refuseCloseIfRequested("browser")
             try closeTab(try decode(params, BrowserTabRef.self).tabId)
             return Self.empty
         case .browserActivate:

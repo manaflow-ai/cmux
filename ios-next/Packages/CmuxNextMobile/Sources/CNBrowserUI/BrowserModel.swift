@@ -5,6 +5,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import Observation
+import SwiftUI
 import UIKit
 import os
 
@@ -398,22 +399,18 @@ final class BrowserModel {
         }
     }
 
-    /// Removes the tab at once and closes it in Chrome. If the host refuses,
-    /// the tab comes back and the error is shown.
-    func close(_ tabId: String) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let tab = tabs[index]
-        let wasActive = activeTabId == tabId
-        removeLocally(tabId)
-        Task {
-            do {
-                guard let client = connection.client else { throw HostClientError.notConnected }
-                try await client.closeTab(tabId)
-            } catch {
-                if !tabs.contains(where: { $0.id == tabId }) { tabs.insert(tab, at: min(index, tabs.count)) }
-                if wasActive { select(tabId) }
-                notice = "Couldn't close \(tab.title.isEmpty ? tab.displayHost : tab.title): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
-            }
+    /// Closes on the host first; the tab leaves the list only once the host
+    /// confirmed (inside `animation`). Refused: false, the tab stays, notice.
+    func closeConfirmed(_ tabId: String, animation: Animation? = nil) async -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return true }
+        do {
+            guard let client = connection.client else { throw HostClientError.notConnected }
+            try await client.closeTab(tabId)
+            withAnimation(animation) { removeLocally(tabId) }
+            return true
+        } catch {
+            notice = "Couldn't close \(tab.title.isEmpty ? tab.displayHost : tab.title): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            return false
         }
     }
 

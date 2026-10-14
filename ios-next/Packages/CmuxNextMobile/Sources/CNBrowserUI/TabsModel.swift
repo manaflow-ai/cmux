@@ -3,6 +3,7 @@ import CNCore
 import CNTransport
 import Foundation
 import Observation
+import SwiftUI
 import UIKit
 
 /// One card in the tab grid: a browser tab or a terminal on the Mac.
@@ -263,30 +264,46 @@ final class TabsModel {
         }
     }
 
-    func close(_ key: String) {
+    /// Closes a card's tab on the host first; the card leaves the grid (and
+    /// the grid reflows, inside `animation`) only once the host confirmed.
+    /// Refused: the card stays, a notice says why, and the result is false.
+    func closeConfirmed(_ key: String, animation: Animation? = nil) async -> Bool {
         if let id = TabItem.terminalId(fromKey: key) {
-            let wasActive = activeTerminalKey == key
-            let index = items.firstIndex { $0.id == key } ?? 0
-            terminals.removeAll { $0.id == id }
-            terminalThumbnails[key] = nil
-            syncOrder()
-            if wasActive {
-                activeTerminalKey = nil
-                let rest = items
-                if !rest.isEmpty { select(rest[min(index, rest.count - 1)].id) }
+            do {
+                try await connection.requireClient().closeTerminal(id)
+            } catch {
+                notice = "Couldn't close the terminal: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+                return false
             }
-            Task {
-                do { try await connection.requireClient().closeTerminal(id) } catch {
-                    notice = "Couldn't close the terminal: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
-                    if let list = try? await connection.client?.listTerminals() { terminals = list; syncOrder() }
-                }
-            }
-        } else {
-            let wasActive = activeKey == key
-            browser.close(key)
+            withAnimation(animation) { removeTerminalLocally(key, id: id) }
+            return true
+        }
+        let wasActive = activeKey == key
+        guard await browser.closeConfirmed(key, animation: animation) else { return false }
+        withAnimation(animation) {
             syncOrder()
             if wasActive, activeTerminalKey == nil, browser.activeTabId == nil, let first = items.first { select(first.id) }
         }
+        return true
+    }
+
+    private func removeTerminalLocally(_ key: String, id: String) {
+        let wasActive = activeTerminalKey == key
+        let index = items.firstIndex { $0.id == key } ?? 0
+        terminals.removeAll { $0.id == id }
+        terminalThumbnails[key] = nil
+        syncOrder()
+        if wasActive {
+            activeTerminalKey = nil
+            let rest = items
+            if !rest.isEmpty { select(rest[min(index, rest.count - 1)].id) }
+        }
+    }
+
+    /// Fire-and-forget close (menus, Close All): the card stays until the
+    /// host confirms.
+    func close(_ key: String, animation: Animation? = nil) {
+        Task { _ = await closeConfirmed(key, animation: animation) }
     }
 
     /// New browser tab (start page); `onCreated` gets its key as soon as it exists.
