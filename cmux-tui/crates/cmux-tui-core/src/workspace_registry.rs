@@ -4449,20 +4449,6 @@ fn commit_workspace_registry_in_transaction(
         current.checked_add(1).ok_or_else(|| anyhow::anyhow!("workspace revision exhausted"))?;
     let sqlite_revision =
         i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
-    for workspace in workspaces {
-        let was_tombstoned = transaction
-            .query_row(
-                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-                [&workspace.key],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?;
-        anyhow::ensure!(
-            was_tombstoned != Some(1),
-            "tombstoned workspace key cannot be reused: {}",
-            workspace.key
-        );
-    }
 
     // Terminals are session-owned. Their workspace_key records their latest
     // canonical placement but is intentionally allowed to outlive that
@@ -4497,6 +4483,22 @@ fn commit_workspace_registry_in_transaction(
             })?
             .collect::<Result<HashMap<_, _>, _>>()?
     };
+    // A key with a live row is not tombstoned: only the keys new to the
+    // live set need the check (one query each, not one per workspace).
+    for workspace in workspaces.iter().filter(|workspace| !stored.contains_key(&workspace.key)) {
+        let was_tombstoned = transaction
+            .query_row(
+                "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
+                [&workspace.key],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        anyhow::ensure!(
+            was_tombstoned != Some(1),
+            "tombstoned workspace key cannot be reused: {}",
+            workspace.key
+        );
+    }
     for (workspace_key, (_, _, _, stored_position)) in &stored {
         match desired.get(workspace_key.as_str()) {
             None => {

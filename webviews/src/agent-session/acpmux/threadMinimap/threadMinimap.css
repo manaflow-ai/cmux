@@ -73,7 +73,7 @@
   background: var(--acpmux-minimap-fill);
   box-shadow:
     inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 12.6%, var(--acpmux-minimap-base)),
-    0 4px 14px color-mix(in srgb, var(--agent-shadow, rgb(0 0 0 / 20%)) 45%, transparent);
+    var(--elevation-2);
   color: var(--agent-text);
   -webkit-font-smoothing: antialiased;
   cursor: default;

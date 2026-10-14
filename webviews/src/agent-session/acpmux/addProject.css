@@ -6,7 +6,7 @@
      transparent, so the composer under the dialog showed through its search field (cx-ax9os). */
   background: var(--surface-popup);
   color: var(--agent-text);
-  box-shadow: 0 12px 36px var(--agent-shadow, #0004);
+  box-shadow: var(--elevation-2);
   overflow: hidden;
 }
 .acpmux-add-project {
