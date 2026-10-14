@@ -30,6 +30,7 @@ public final class DiffViewerState {
 /// SPEC 12.1: the Changes file list (GitHub mobile style).
 public struct DiffChangesScreen: View {
     @State private var state: DiffViewerState
+    @State private var listWidth: CGFloat = 400
 
     public init(changeSet: DiffChangeSet) {
         _state = State(initialValue: DiffViewerState(changeSet: changeSet))
@@ -55,6 +56,7 @@ public struct DiffChangesScreen: View {
             }
         }
         .listStyle(.plain)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { listWidth = $0 }
         .navigationTitle(state.changeSet.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -64,7 +66,7 @@ public struct DiffChangesScreen: View {
                     Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files")").font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state) }
+            ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state, allowsSplit: DiffLayout.allowsSplit(width: listWidth)) }
         }
     }
 
@@ -203,13 +205,22 @@ struct ViewedToggle: View {
 
 struct DiffOptionsMenu: View {
     @Bindable var state: DiffViewerState
+    /// Split is offered only where two columns fit (700 pt or more).
+    var allowsSplit: Bool
+
+    init(state: DiffViewerState, allowsSplit: Bool = false) {
+        self.state = state
+        self.allowsSplit = allowsSplit
+    }
 
     var body: some View {
         Menu {
-            Picker("Layout", selection: $state.layout) {
-                ForEach(DiffViewerState.Layout.allCases, id: \.self) { Text($0.rawValue) }
+            if allowsSplit {
+                Picker("Layout", selection: $state.layout) {
+                    ForEach(DiffViewerState.Layout.allCases, id: \.self) { Text($0.rawValue) }
+                }
+                .pickerStyle(.inline)
             }
-            .pickerStyle(.inline)
             Toggle("Wrap lines", systemImage: "text.word.spacing", isOn: $state.wrapLines)
             Toggle("Hide whitespace", systemImage: "space", isOn: $state.hideWhitespace)
             Toggle("Show viewed files", systemImage: "checkmark.circle", isOn: $state.showViewed)

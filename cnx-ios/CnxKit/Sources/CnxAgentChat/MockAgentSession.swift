@@ -19,6 +19,7 @@ public final class MockAgentSession: AgentSessionSource {
     private var questionWaiter: CheckedContinuation<AgentQuestionAnswer?, Never>?
     private var pendingPermissionID: String?
     private var pendingQuestionID: String?
+    private var richTurnUsed = false
     private var queued: [(id: String, text: String, attachments: [AgentAttachment])] = []
     private var currentModel = "opus-5.5"
     private var effort = "medium"
@@ -176,7 +177,9 @@ public final class MockAgentSession: AgentSessionSource {
         emit(.turnStarted(turnId: turnID, at: Date()))
         checkpointLog.append(AgentCheckpoint(id: "cp-\(turnID)", title: text, turnID: turnID, createdAt: Date(),
                                              branch: summary.branch, head: "9f2c1ab", files: 5))
-        let rich = richFirstTurn && turnCount == 1
+        // The first prompt the person sends gets the rich turn, even after a waiting turn.
+        let rich = richFirstTurn && !richTurnUsed
+        richTurnUsed = richTurnUsed || rich
         running = Task { [weak self] in
             guard let self else { return }
             do {
@@ -211,7 +214,7 @@ public final class MockAgentSession: AgentSessionSource {
         let asksQuestion = summary.harness == "claude"
         if asksQuestion {
             emit(.update(.agentMessageChunk(text: MockScript.beforeQuestion, messageId: "m-waiting")))
-            let question = MockScript.question(session: summary.id)
+            let question = MockScript.question(session: summary.id, id: "q-waiting")
             pendingQuestionID = question.id
             emit(.question(question))
         } else {
