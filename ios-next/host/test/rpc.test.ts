@@ -125,3 +125,20 @@ describe("pre-open buffer limits", () => {
     expect(host.closeReason).toMatch(/before the link opened/);
   });
 });
+
+describe("liveness log", () => {
+  it("logs every heartbeat ping with the link label and every 6th plain ping", async () => {
+    const logs: string[] = [];
+    const server = new RpcServer(() => ({ hostId: "h1", hostName: "mac", os: "macOS", version: "0", capabilities: [] }), (m) => logs.push(m));
+    const [phone, host] = createOpenLoopbackPair();
+    host.label = "s_abc";
+    server.attach(host);
+    const client = new HostClient(phone);
+    await client.hello();
+    for (let i = 1; i <= 3; i++) await client.request("host.ping", { heartbeat: i, tag: "s_abc" });
+    for (let i = 0; i < 7; i++) await client.request("host.ping");
+    expect(logs.filter((l) => l.includes("heartbeat"))).toEqual(["[s_abc] heartbeat seq=1 client=" + logs.find((l) => l.includes("heartbeat seq=1"))!.split("client=")[1], expect.stringContaining("seq=2"), expect.stringContaining("seq=3")]);
+    expect(logs.some((l) => l.startsWith("[s_abc] client "))).toBe(true);
+    expect(logs.filter((l) => l.includes("alive:")).length).toBe(1); // pings 4..10: 7th overall is the first plain one at count%6==1
+  });
+});

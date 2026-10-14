@@ -21,6 +21,8 @@ export interface LinkEvents {
 
 export interface Link {
   readonly state: LinkState;
+  /** Transport session label for logs (the signaling sessionId for WebRTC). */
+  label?: string;
   /** Human readable transport description, e.g. "webrtc relay/udp". */
   describe(): string;
   send(lane: Lane, data: Uint8Array | string): void;
@@ -43,6 +45,7 @@ export function toBytes(data: Uint8Array | string): Uint8Array {
  * sendChunk and call receiveChunk; the base class owns the LaneCodec.
  */
 export abstract class ChunkLink extends EventEmitter implements Link {
+  label?: string;
   private _state: LinkState = "connecting";
   /**
    * Messages that arrived before this side reached "open". Data channels open

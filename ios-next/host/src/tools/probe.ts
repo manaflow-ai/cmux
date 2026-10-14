@@ -294,6 +294,7 @@ async function main(): Promise<void> {
     let termOut = "";
     client.onStream(streamId, (p) => (termOut += new TextDecoder().decode(p)));
     let pings = 0;
+    let hb = 0;
     let misses = 0;
     let missedTotal = 0;
     let worst = 0;
@@ -305,8 +306,11 @@ async function main(): Promise<void> {
       if (closedReason) throw new Error(`soak: link closed after ${elapsed}s: ${closedReason}`);
       // Same liveness rule as the app: three unanswered pings in a row.
       const s = performance.now();
+      hb += 1;
       try {
-        await client.request("host.ping", {}, 8000);
+        // Heartbeat both logs can correlate: this session id + seq.
+        await client.request("host.ping", { heartbeat: hb, tag: sessionId }, 8000);
+        log(`soak heartbeat session=${sessionId} seq=${hb} at=${new Date().toISOString()}`);
         misses = 0;
       } catch (err) {
         misses++;

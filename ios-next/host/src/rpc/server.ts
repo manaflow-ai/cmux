@@ -30,6 +30,8 @@ let sessionCounter = 0;
 export class ClientSession {
   readonly id = `c${++sessionCounter}`;
   helloed = false;
+  /** host.ping count (liveness log). */
+  pings = 0;
   client: { name?: string; version?: string; platform?: string } = {};
   readonly streams = new Map<number, StreamSink>();
 
@@ -95,7 +97,17 @@ export class RpcServer extends EventEmitter<RpcServerEvents> {
   ) {
     super();
     this.register("host.hello", (p, s) => this.hello(p, s));
-    this.register("host.ping", () => ({ at: Date.now() }));
+    // Liveness trail in the host log, correlatable with the client's own log:
+    // a ping carrying {heartbeat} (probe soak) is logged every time; plain
+    // pings (the app, every 10 s) every 6th, so a dropped link cannot hide
+    // behind a terminal replay.
+    this.register("host.ping", (p, s) => {
+      s.pings += 1;
+      const tag = s.peer.link.label ? `[${s.peer.link.label}] ` : "";
+      if (typeof p.heartbeat === "number") this.log(`${tag}heartbeat seq=${p.heartbeat} client=${s.id}${typeof p.tag === "string" ? ` tag=${p.tag.slice(0, 64)}` : ""}`);
+      else if (s.pings % 6 === 1) this.log(`${tag}alive: ${s.pings} pings from ${s.id}`);
+      return { at: Date.now() };
+    });
   }
 
   register(method: string, handler: MethodHandler): void {
@@ -139,7 +151,7 @@ export class RpcServer extends EventEmitter<RpcServerEvents> {
       this.sessions.delete(session);
       this.emit("sessionClosed", session);
     });
-    this.log(`client ${session.id} attached over ${link.describe()}`);
+    this.log(`${link.label ? `[${link.label}] ` : ""}client ${session.id} attached over ${link.describe()}`);
     this.emit("session", session);
     return session;
   }

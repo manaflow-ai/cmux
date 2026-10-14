@@ -168,6 +168,7 @@ export class HostAgent {
         peer.link.on("state", (state) => {
           if (state === "open") {
             log(`[${sessionId}] link open${peer.relayOnly ? " [relay only]" : ""} ${describePair(peer.selectedPair())} (initial)`);
+            peer.link.label = sessionId;
             this.opts.core.attach(peer.link);
             this.watchPath(sessionId, entry, peer);
           } else if (state === "closed") {
