@@ -17,7 +17,7 @@ public import Foundation
 /// gets roots of its own under its key.
 ///
 /// It lives in CmuxNextCompat because every CmuxNext target already depends
-/// on it. The Rust mirror is cmux-tui `cmux_agent_pane_policy::build_identity`;
+/// on it (it can move to its own target later; hq-6d 2026-10-14). The Rust mirror is cmux-tui `cmux_agent_pane_policy::build_identity`;
 /// both follow
 /// `schemas/build-identity/vectors.json`.
 public nonisolated struct BuildIdentity: Sendable, Equatable {
