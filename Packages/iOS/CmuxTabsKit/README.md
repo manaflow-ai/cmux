@@ -53,11 +53,14 @@ transport or models.
 - **Notices.** Set `notice` on your data source (for example when
   `createTab` returns nil) and the kit shows it as a glass toast at the top;
   a refused New Tab never opens another tab instead.
-- **Swipe to close.** Swipe a card left to close it, as in Safari: horizontal
-  drags only, 1:1 to the left (rubber band to the right), closes past 72% of
-  the card's width or on a left fling faster than 225 pt/s, else springs back;
-  the close goes through your `close(_:)`, and the grid reflows once it
-  returns true (false: the card springs back and your `notice` shows).
+- **Swipe to close.** Swipe a card left to close it, as in Safari (measured
+  on an iPhone 17 Pro Max): horizontal drags only; the card lifts (scale 1.09)
+  while dragged, follows the finger 1:1 to the left and resists to the right
+  (always springs back, 0.66 / 0.86, settling to scale 1 with 0.57 / 0.94);
+  it closes past 72% of the card's width or on a left fling faster than
+  225 pt/s, keeps going left at the finger's speed, and the close goes through
+  your `close(_:)`; the grid reflows once it returns true (false: the card
+  springs back and your `notice` shows). When one tab is left, it opens.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
