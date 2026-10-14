@@ -30,9 +30,16 @@ pub struct Peer {
 
 /// Serve one incoming channel to completion.
 pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingChannel) {
-    let IncomingChannel { service, args, channel } = incoming;
+    let IncomingChannel { service, args, lane, channel } = incoming;
     let (sender, receiver) = channel.split();
-    tracing::info!(service, channel = sender.id(), peer = peer.device_id, "channel opened");
+    tracing::info!(
+        service,
+        channel = sender.id(),
+        ?lane,
+        own_stream = sender.on_input_stream(),
+        peer = peer.device_id,
+        "channel opened"
+    );
     let result = match service.as_str() {
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,

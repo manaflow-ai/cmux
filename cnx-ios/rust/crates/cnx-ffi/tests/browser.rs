@@ -63,6 +63,10 @@ async fn stream_over(transport: Transport) {
         file_roots: Vec::new(),
         acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
         browser: cnx_hostd::browser::BrowserConfig::new(Some(fake_rb_host::launcher(launches)), 2),
+        chief_socket: None,
+        agent_tab_host: None,
+        uploads_dir: sockets.path().join("uploads"),
+        upload_max_bytes: 1024 * 1024,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();

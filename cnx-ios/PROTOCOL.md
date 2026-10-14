@@ -162,11 +162,13 @@ is bound to the two devices of its first admitted signal.
 
 ## Link (inside either transport)
 
-A link is one reliable ordered byte stream (WebRTC: data channel `cnx-link`,
-ordered, reliable; WireGuard: one smoltcp TCP stream to `overlayIP:7420`).
+A link is one reliable ordered byte stream, the main stream (WebRTC: data
+channel `cnx-link`, ordered, reliable; WireGuard: one smoltcp TCP stream to
+`overlayIP:7420`), plus the input lane when both sides support it (below).
 Frames: `u32 BE length | u32 BE channel | u8 type | payload`, where `length`
 counts the channel, type and payload bytes (5 + payload length). A payload is
-at most 256 KiB; larger writes are split into several `data` frames.
+at most 256 KiB. Since the input lane, writers split data into frames of at
+most 16 KiB (readers still accept 256 KiB from older peers).
 
 | type | meaning |
 | --- | --- |
@@ -185,6 +187,44 @@ pings every 15 s and closes the link (`keepalive timed out`) only when
 nothing at all, not a pong and no other frame, arrived for 20 s after a
 ping. (Before, a ping queued behind megabytes of data on a slow relay and a
 healthy link closed during a 10 MiB transfer.)
+
+### Lanes (added with the input lane; backward compatible)
+
+All channels used to share the main stream in FIFO order, so a keystroke,
+a ^C or a resize could wait behind megabytes of terminal output
+(head-of-line blocking). Borrowed from WebRTC, which gives each data
+channel its own SCTP stream:
+
+- **Negotiation.** The phone's first signal (`webrtc-offer`, `wg-init`)
+  and the Mac's answer (`webrtc-answer`, `wg-resp`) carry
+  `lanes: ["input"]` when that side supports the input lane. The lane is
+  used only when both list it. Older peers send no `lanes` and ignore the
+  field; the backend forwards payloads unchanged.
+- **The input lane's stream.** WebRTC: a second ordered, reliable data
+  channel `cnx-input` (its own SCTP stream, so a lost bulk packet does not
+  hold input back at the receiver). The phone creates it with `cnx-link`;
+  it carries frames only once both sides agreed. WireGuard: a second TCP
+  stream to the same `overlayIP:7420`, opened by the phone right after the
+  main one (the Mac takes the second accepted connection as the lane, for
+  10 s). Its own smoltcp socket buffers keep input out of the main
+  stream's 256 KiB send buffer and its 512 KiB stream queue; one TCP byte
+  stream cannot reorder bytes already in its buffer, so priority inside the
+  smoltcp write path would not help. The input lane carries the same frame
+  format; a channel lives on one stream for its whole life.
+- **Opening on the lane.** An `open` payload may add `"lane":"input"`.
+  The opener sends it on the input lane when the link has one, else on the
+  main stream. The peer replies on the stream the `open` arrived on, at
+  input priority. Older Macs ignore the field (the channel works, without
+  priority).
+- **Scheduling on each stream.** A writer sends control frames (ping, pong,
+  refusals) first, then input-lane frames, then bulk data round robin
+  across channels, one 16 KiB frame per turn. A channel may queue 256 KiB
+  before its sender waits, so a flood cannot build a long backlog in front
+  of the link.
+- **Use.** The app sends terminal keystrokes (`send`) on a `daemon` channel
+  opened on the input lane. `resize-surface` stays on the attach channel,
+  because the daemon gives geometry authority to the attaching client.
+  Output, attach streams, `acpmux` and `file` stay bulk.
 
 Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
 (default deny; anything else is refused with `close {code:"unknown_service"}`):

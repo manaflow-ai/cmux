@@ -243,7 +243,7 @@ public final class LinkController {
 }
 
 /// One winner for ``LinkController/race(timeout:clock:_:)``.
-private final class RaceOnce: @unchecked Sendable {
+final class RaceOnce: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
     func claim() -> Bool {

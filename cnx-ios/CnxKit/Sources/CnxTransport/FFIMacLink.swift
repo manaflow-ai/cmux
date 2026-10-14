@@ -58,6 +58,15 @@ final class FFIMacLink: TimedMacLink, @unchecked Sendable {
         }
     }
 
+    func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
+        do {
+            return FFIChannel(handle: try await handle.openInputChannel(service: service, argsJson: json))
+        } catch let error as CnxError {
+            throw error.linkError
+        }
+    }
+
     var timings: [(String, Double)] {
         handle.timings().map { ($0.name, $0.millis) }
     }

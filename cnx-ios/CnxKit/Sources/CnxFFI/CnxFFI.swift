@@ -1287,6 +1287,11 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func close() 
     
+    /**
+     * Whether the link has its own input-lane stream now.
+     */
+    func hasInputLane()  -> Bool
+    
     func isClosed()  -> Bool
     
     /**
@@ -1301,6 +1306,14 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * arrives as the first `recv`: `Closed { code: "unknown_service" … }`.
      */
     func openChannel(service: String, argsJson: String) async throws  -> ChannelHandle
+    
+    /**
+     * `open_channel` on the input lane (PROTOCOL.md "Lanes"): for terminal
+     * keystrokes, resizes and their replies, which then never wait behind
+     * bulk output. With a Mac that has no input lane the channel rides the
+     * main stream at input priority.
+     */
+    func openInputChannel(service: String, argsJson: String) async throws  -> ChannelHandle
     
     func path()  -> LinkPath
     
@@ -1386,6 +1399,17 @@ open func close()  {try! rustCall() {
 }
 }
     
+    /**
+     * Whether the link has its own input-lane stream now.
+     */
+open func hasInputLane() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_has_input_lane(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
 open func isClosed() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cnx_ffi_fn_method_linkhandle_is_closed(
@@ -1425,6 +1449,29 @@ open func openChannel(service: String, argsJson: String)async throws  -> Channel
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_cnx_ffi_fn_method_linkhandle_open_channel(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(service),FfiConverterString.lower(argsJson)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cnx_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeChannelHandle_lift,
+            errorHandler: FfiConverterTypeCnxError_lift
+        )
+}
+    
+    /**
+     * `open_channel` on the input lane (PROTOCOL.md "Lanes"): for terminal
+     * keystrokes, resizes and their replies, which then never wait behind
+     * bulk output. With a Mac that has no input lane the channel rides the
+     * main stream at input priority.
+     */
+open func openInputChannel(service: String, argsJson: String)async throws  -> ChannelHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_method_linkhandle_open_input_channel(
                     self.uniffiCloneHandle(),
                     FfiConverterString.lower(service),FfiConverterString.lower(argsJson)
                 )
@@ -2779,6 +2826,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_linkhandle_close() != 65297) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_has_input_lane() != 24284) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_is_closed() != 33391) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2786,6 +2836,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_open_channel() != 8899) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_open_input_channel() != 45546) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_path() != 28494) {

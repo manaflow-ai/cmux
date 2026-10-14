@@ -29,6 +29,7 @@ struct Args {
     transports: Vec<TransportKind>,
     relay_only: bool,
     no_turn: bool,
+    no_input_lane: bool,
     exclude_cgnat: bool,
     bytes: usize,
     daemon: bool,
@@ -43,6 +44,7 @@ fn parse() -> Result<Args> {
     let (mut relay_only, mut exclude_cgnat, mut daemon, mut no_turn) = (false, false, false, false);
     let mut stock_ice_waits = false;
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
+    let mut no_input_lane = false;
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -60,6 +62,7 @@ fn parse() -> Result<Args> {
             "--relay-only" | "--force-relay" => relay_only = true,
             "--exclude-cgnat" => exclude_cgnat = true,
             "--no-turn" => no_turn = true,
+            "--no-input-lane" => no_input_lane = true,
             "--daemon" => daemon = true,
             "--stock-ice-waits" => stock_ice_waits = true,
             other => bail!("unknown argument {other}"),
@@ -78,6 +81,7 @@ fn parse() -> Result<Args> {
         transports,
         relay_only,
         no_turn,
+        no_input_lane,
         exclude_cgnat,
         bytes,
         daemon,
@@ -122,6 +126,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
         relay_only: args.relay_only,
+        input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,
         ..DialOptions::default()

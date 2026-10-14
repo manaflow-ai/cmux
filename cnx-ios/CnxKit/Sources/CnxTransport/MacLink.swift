@@ -33,8 +33,18 @@ public protocol MacLink: AnyObject, Sendable {
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
+    /// Opens a channel on the input lane (PROTOCOL.md "Lanes"): terminal
+    /// keystrokes and their replies, which then never wait behind bulk
+    /// output. A link without one opens an ordinary channel.
+    func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel
     func ping() async throws -> UInt32
     func close() async
+}
+
+extension MacLink {
+    public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
+        try await openChannel(service: service, args: args)
+    }
 }
 
 /// One multiplexed channel inside a link.

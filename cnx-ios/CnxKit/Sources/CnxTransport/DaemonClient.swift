@@ -53,6 +53,14 @@ public actor DaemonClient {
         }
     }
 
+    /// Closes the channel (the Mac drops its daemon connection) and fails
+    /// every request still waiting.
+    public func close() async {
+        readTask?.cancel()
+        await channel.close(code: "eof", reason: "")
+        finish(LinkError(code: "closed", message: "daemon channel closed"))
+    }
+
     /// Sends a `cmux.protocol/2` request (`machine` and `session` default to
     /// `current`, as the Mac app's `ResourceRequestEnvelope`) and returns the
     /// raw response line (`ok`, `result` or `error`).

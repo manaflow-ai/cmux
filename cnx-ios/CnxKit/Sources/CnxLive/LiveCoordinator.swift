@@ -653,11 +653,16 @@ public final class LiveCoordinator {
         guard let surface = workspaces.tree?.surfaces[tabID] else { return nil }
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
-        let session = DaemonTerminalSession(surface: surface, programName: program) { [weak self] in
+        let session = DaemonTerminalSession(surface: surface, programName: program, open: { [weak self] in
             guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
-        }
+        }, openInput: { [weak self] in
+            // Keystrokes ride the link's input lane (PROTOCOL.md "Lanes").
+            guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            let channel = try await link.openInputChannel(service: "daemon", args: [:])
+            return DaemonClient(channel: channel)
+        })
         session.macName = link.target?.name
         terminals.removeAll { $0.session == nil }
         terminals.append(WeakTerminal(session: session))

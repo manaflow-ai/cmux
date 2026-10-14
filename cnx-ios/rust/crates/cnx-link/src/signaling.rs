@@ -38,9 +38,21 @@ pub struct MacPresence {
 #[serde(tag = "kind")]
 pub enum SignalPayload {
     #[serde(rename = "webrtc-offer")]
-    WebrtcOffer { sdp: String },
+    WebrtcOffer {
+        sdp: String,
+        /// Link lanes this side supports beyond the main stream (PROTOCOL.md
+        /// "Lanes"); absent from older peers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
     #[serde(rename = "webrtc-answer")]
-    WebrtcAnswer { sdp: String },
+    WebrtcAnswer {
+        sdp: String,
+        /// Link lanes this side supports beyond the main stream (PROTOCOL.md
+        /// "Lanes"); absent from older peers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
+    },
     #[serde(rename = "webrtc-ice")]
     WebrtcIce {
         candidate: String,
@@ -56,6 +68,10 @@ pub enum SignalPayload {
         endpoints: Vec<String>,
         #[serde(rename = "overlayIP")]
         overlay_ip: String,
+        /// Link lanes this side supports beyond the main stream (PROTOCOL.md
+        /// "Lanes"); absent from older peers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -64,6 +80,10 @@ pub enum SignalPayload {
         endpoints: Vec<String>,
         #[serde(rename = "overlayIP")]
         overlay_ip: String,
+        /// Link lanes this side supports beyond the main stream (PROTOCOL.md
+        /// "Lanes"); absent from older peers.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lanes: Vec<String>,
     },
     #[serde(rename = "bye")]
     Bye {
