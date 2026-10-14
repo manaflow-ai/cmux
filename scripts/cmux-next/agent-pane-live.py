@@ -386,6 +386,125 @@ try:
         report["subagents"] = {"spawned": text.count("subagent_spawned"), "children": len(children)}
         wire_dump("subagents")
         raise SystemExit(0 if children else 1)
+    if STAGE == "subagent-panes":
+        # cx-1933q: a turn that starts two subagents opens two agent panes right of the chat (stacked),
+        # focus stays in the chat; the summary card lists both with live status, stays after a click
+        # outside it, and a click on a row focuses that subagent's pane. Shots for the crops page.
+        def shot(name):
+            # The app's own window (nx-remote's window capture), not the desktop.
+            path = os.path.join(OUT, f"sp-{name}.png")
+            capture = os.environ.get("NX_CAPTURE")
+            r = subprocess.run(["bash", capture, "shot", "--pid", str(app.pid), "--out", path] if capture else ["true"],
+                               capture_output=True, text=True, timeout=60)
+            say("shot", name, os.path.exists(path), r.returncode, r.stderr[-200:])
+        def trust():
+            # A new folder asks whether the harness may edit and run code there (the pane's trust ask).
+            r = pane("click", pane=PANE, text="Trust")
+            say("sp trust", json.dumps(r)[:200])
+        def topo():
+            snap_ = rpc("snapshot.get")
+            return snap_.get("topology") or snap_
+        def conversation_panes():
+            found = []
+            for ws in topo().get("workspaces", []):
+                for screen in ws.get("screens", []):
+                    for p in screen.get("panes", []):
+                        if any(t.get("kind") == "conversation" for t in p.get("tabs", [])):
+                            found.append(p["id"])
+            return found
+        def card(pane_id=None):
+            s_ = pane("chat_state", pane=pane_id or PANE)
+            return (s_ or {}).get("summaryCard") if isinstance(s_, dict) else None
+        harness = os.environ.get("CMUX_LIVE_HARNESS", "claude")
+        made = pane("new_chat", pane=PANE, harness=harness)
+        say("sp new_chat", json.dumps(made))
+        # The chat's own pane, by id from here on: subagent panes on the same session come next to it.
+        PANE = (made or {}).get("pane") or PANE
+        time.sleep(5)
+        trust()
+        if os.environ.get("CMUX_LIVE_MODEL"):
+            say("sp set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
+            time.sleep(2)
+        before = conversation_panes()
+        say("SP panes before", before)
+        shot("before")
+        say("sp send", json.dumps(pane("send_prompt", pane=PANE, text=(
+            "Start two subagents in parallel with your Task tool (subagent_type general-purpose). The first "
+            "runs `sleep 40; echo alpha` in Bash and reports the output; the second runs `sleep 40; echo beta` "
+            "and reports it. Wait for both, then reply with one line combining their answers."))))
+        time.sleep(4)
+        trust()
+        # The daemon's focus over time while the subagent panes open (the chat should keep it).
+        timeline, last = [], None
+        deadline = time.time() + 240
+        while time.time() < deadline:
+            focus_now = (topo().get("focus") or {}).get("pane")
+            count = len(conversation_panes())
+            if (focus_now, count) != last:
+                last = (focus_now, count)
+                timeline.append((round(time.time(), 2), focus_now, count))
+                say("SP focus timeline", timeline[-1])
+            if count >= len(before) + 2 and len(timeline) and time.time() > timeline[-1][0] + 8:
+                break
+            time.sleep(0.3)
+        report["focus_timeline"] = timeline
+        opened = len(conversation_panes()) >= len(before) + 2 or None
+        panes_now = conversation_panes()
+        say("SP panes after spawn", panes_now, "opened two:", bool(opened))
+        snap_after = rpc("snapshot.get")
+        with open(os.path.join(OUT, "sp-snapshot.json"), "w") as f:
+            json.dump(snap_after, f)
+        st_parent = pane("chat_state", pane=PANE)
+        focus_after = (topo().get("focus") or {}).get("pane")
+        say("SP focus after spawn:", focus_after, "chat pane:", PANE, "kept:", focus_after == PANE,
+            "card:", json.dumps((st_parent or {}).get("summaryCard")))
+        report["focus_kept"] = focus_after == PANE
+        children = [p for p in panes_now if p not in before]
+        for child in children:
+            cs = pane("chat_state", pane=child)
+            say("SP child", child, "subagentOf:", (cs or {}).get("subagentOf"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
+        live = wait(lambda: (lambda c: c if c and len(c.get("agents", [])) >= 2 else None)(card()), 60, 1)
+        say("SP card lists:", json.dumps(live))
+        shot("spawned")
+        # A click outside the card (the transcript) leaves it.
+        say("SP click outside", json.dumps(pane("click", pane=PANE, selector=".acpmux-scroll"))[:300])
+        time.sleep(1)
+        kept = card()
+        say("SP card after outside click:", json.dumps(kept))
+        shot("outside-click")
+        # A click on the first row focuses that subagent's pane.
+        name = (live or {}).get("agents", [{}])[0].get("name") if live else None
+        target = None
+        if name:
+            target = pane("click", pane=PANE, selector=".acpmux-summary-agent")
+            say("SP click row", name, json.dumps(target)[:300])
+            time.sleep(2)
+        snap_click = rpc("snapshot.get")
+        with open(os.path.join(OUT, "sp-snapshot-after-row.json"), "w") as f:
+            json.dump(snap_click, f)
+        focus_row = (topo().get("focus") or {}).get("pane")
+        focused_child = focus_row if focus_row in children else None
+        # The other row focuses the other pane: each row shows its own subagent's pane.
+        r2 = None
+        try:
+            r2 = rpc("debug.agent_pane", {"action": "click", "pane": PANE, "text": (live or {}).get("agents", [{}, {}])[1].get("name")}, timeout=40)
+        except Exception as error:  # noqa: BLE001 - a proof script logs and goes on
+            say("SP second row click failed", error)
+        time.sleep(2)
+        focus_row2 = (topo().get("focus") or {}).get("pane")
+        say("SP second row", json.dumps(r2)[:200], "focus:", focus_row2, "first:", focus_row, "distinct:", focus_row2 != focus_row and focus_row2 in children)
+        report["rows_focus_distinct"] = focus_row2 != focus_row and focus_row2 in children
+        if focused_child:
+            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentOf"))
+        say("SP focused child after row click:", focused_child)
+        shot("row-click")
+        done = wait(lambda: (lambda c: c if c and c.get("agents") and all(a.get("status") == "done" for a in c["agents"]) else None)(card()), 240, 2)
+        say("SP card at end:", json.dumps(done or card()))
+        shot("done")
+        report["subagent_panes"] = {"opened": len(children), "card": live, "kept_after_outside_click": bool(kept),
+                                    "focused_child": focused_child, "done": bool(done)}
+        say("SP REPORT", json.dumps(report["subagent_panes"]))
+        raise SystemExit(0 if len(children) >= 2 and kept and live and report["focus_kept"] and focused_child else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))

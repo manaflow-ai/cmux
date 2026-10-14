@@ -9,12 +9,13 @@ enum TabMirror {
     typealias Locate = @MainActor (String) -> (pane: PaneID, daemon: DaemonService)?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.tab-mirror")
 
-    /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not.
-    static func reaches(_ key: String, in locate: @escaping Locate) async -> Bool {
-        if locate(key) != nil { return true }
+    /// Whether `locate` finds tab `key` within 10 s (at once when it already does); logs when not. With `pane`, only in a pane that passes it.
+    static func reaches(_ key: String, in locate: @escaping Locate, pane ok: @escaping @MainActor (PaneID) -> Bool = { _ in true }) async -> Bool {
+        let found: Locate = { locate($0).flatMap { ok($0.pane) ? $0 : nil } }
+        if found(key) != nil { return true }
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let reached = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitFor(key, locate: locate) }
+            group.addTask { await waitFor(key, locate: found) }
             group.addTask {
                 // wakeup-allow: one-shot ten-second daemon mirror deadline
                 try? await Task.sleep(for: .seconds(10))

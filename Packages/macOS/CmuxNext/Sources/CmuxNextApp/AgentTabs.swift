@@ -169,6 +169,7 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
+    var subagentPanes: [String: AgentSubagentPanes] = [:] // each session's subagent panes, shared by its tabs
     /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
     /// the page built when its tab shows again.
     var wakeStates: [String: AgentPaneWakeState] = [:]
