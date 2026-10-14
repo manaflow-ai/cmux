@@ -80,8 +80,8 @@ async fn claude_setup() -> (Arc<Hub>, TestClient) {
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    // The client is the person at the app (`hub/person.rs`): Ultracode and
-    // Fast mode are theirs to switch, never a script's.
+    // The client is the person at the app (`hub/person.rs`): Fast mode and the
+    // `ultracode` option are theirs to switch (the app's pane rides `effort`).
     hub.person.install_spawn_key(PERSON_KEY).unwrap();
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);

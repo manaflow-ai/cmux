@@ -837,7 +837,8 @@ export default agentPaneEntry({
             name: "Reasoning",
             category: "thought_level",
             currentValue: "default",
-            options: ["default", "low", "medium", "high", "xhigh", "max"].map((value) => ({ value })),
+            // An older acpmux still lists Ultrathink, a prompt keyword: the menu drops it.
+            options: ["default", "low", "medium", "high", "xhigh", "max", "ultrathink"].map((value) => ({ value })),
           },
           CLAUDE_ULTRACODE_OFF,
         ],

@@ -227,6 +227,8 @@ export function ComposerPickers({
   );
   const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
+  // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
+  // mode switch the app would confirm with a sheet.
   const ultracodeOption = summary?.configOptions?.find((option) => option.id === "ultracode");
   const ultracode: SpeedSection | undefined =
     ultracodeOption && efforts.some((choice) => choice.id === "xhigh")
@@ -238,7 +240,7 @@ export function ComposerPickers({
           ],
           current: ultracodeOption.currentValue,
           on: "on",
-          onPick: (value) => onEffort(ultracodeOption.id, value),
+          onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
   const fastOption = snapshot.summary?.configOptions?.find(
@@ -1189,6 +1191,8 @@ const LEVEL_KEYS: Record<string, StringKey> = {
   xhigh: "effort.level.xhigh",
   max: "effort.level.max",
   ultra: "effort.level.ultra",
+  // A new chat that starts on Ultracode (its saved pick); never a level row (reasoningChoices).
+  ultracode: "effort.level.ultracode",
 };
 /// The plain levels a catalog row can list (`PickerModel.efforts`).
 const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
