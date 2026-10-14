@@ -265,8 +265,11 @@ public final class ActionRegistry {
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        let facts = invocation.target == nil ? [] : targetContext?(invocation) ?? []
-        return isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)).union(facts))
+        let base = (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation))
+        // Asked only when the target is explicit and the run lacks a required fact.
+        guard invocation.target != nil, let required = descriptor(for: id)?.requires, !base.isSuperset(of: required),
+              let facts = targetContext?(invocation) else { return isAvailable(id, in: base) }
+        return isAvailable(id, in: base.union(facts))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {

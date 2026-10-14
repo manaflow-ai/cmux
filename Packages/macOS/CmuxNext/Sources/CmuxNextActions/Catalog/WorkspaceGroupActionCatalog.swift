@@ -135,7 +135,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group close-others",
                 destructive: true
             ),
-            // A new group (same name, icon and color) of a duplicate of each member.
+            // A new group with the same name, of a duplicate of each member.
             ActionDescriptor(
                 id: "workspaceGroup.duplicate",
                 title: String(localized: "action.workspaceGroup.duplicate", defaultValue: "Duplicate Workspace Group", bundle: .module),

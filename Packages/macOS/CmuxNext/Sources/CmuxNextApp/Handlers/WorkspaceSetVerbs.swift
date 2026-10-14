@@ -19,26 +19,34 @@ enum WorkspaceSetVerbs {
         })
         registry.bind("workspaceGroup.duplicate", run: { try duplicateGroup($0, context) })
         registry.bind("sidebar.section.newWorkspace", run: { try newWorkspace(inSection: $0, context) })
+        // A pure lookup (no refusal): the pane a pane or tab target names, if it shows an agent chat.
         registry.targetContext = { invocation in
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  context.services.agentTabs.existingView(key) != nil else { return [] }
+            guard let target = invocation.target else { return [] }
+            let services = context.services
+            let pane: PaneController? = switch target.kind {
+            case .pane: services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == target.id } }.first
+            case .tab: services.locateTab(target.id).flatMap { services.paneController(for: $0.1) }
+            default: nil
+            }
+            guard let key = pane?.currentTabKey, services.agentTabs.existingView(key) != nil else { return [] }
             return .agentPaneFocused
         }
     }
 
     /// A duplicate of each member (layout, directories, pages), then one new
-    /// group of the copies with the group's name.
+    /// group of the copies with the group's name (a new group's color, no icon).
     private static func duplicateGroup(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let group = try context.group(invocation)
         let members = try WorkspaceGroupHandlers.members(invocation, context)
         guard !members.isEmpty else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
-        let bridge = try context.sidebar(), name = group.name
+        let bridge = try WorkspaceVerbHandlers.sidebar(showing: members[0], context), name = group.name
         let copies = Copies(expected: members.count)
+        let finish: @MainActor @Sendable (String?) -> Void = { id in
+            guard let ids = copies.add(id), !ids.isEmpty else { return }
+            bridge.groupFlow.newGroup(of: ids.map { SidebarWorkspaceID($0) }, name: name, byUser: false)
+        }
         for workspace in members {
-            try WorkspaceStructureHandlers.duplicate(context, workspace, browsers: true) { id in
-                guard let ids = copies.add(id), !ids.isEmpty else { return }
-                bridge.groupFlow.newGroup(of: ids.map { SidebarWorkspaceID($0) }, name: name, byUser: false)
-            }
+            do { try WorkspaceStructureHandlers.duplicate(context, workspace, browsers: true, done: finish) } catch { finish(nil) }
         }
     }
 
@@ -52,10 +60,10 @@ enum WorkspaceSetVerbs {
         case .workspaces:
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil))
         case .items:
-            let origin = invocation.origin, sectionID = section.id, services = context.services
+            let origin = invocation.origin, sectionID = section.id, services = context.services, end = section.items.count
             try WorkspaceVerbHandlers.create(context, invocation, anchorFree: .bottom(anchor: nil)) { id, _ in
                 do {
-                    try PinCommands(context: AppActionContext(services: services)).dropWorkspaces([id], on: sectionID, at: Int.max, origin: origin)
+                    try PinCommands(context: AppActionContext(services: services)).dropWorkspaces([id], on: sectionID, at: end, origin: origin)
                 } catch {
                     services.registry.refuse(RefusalStrings.describe(error))
                 }

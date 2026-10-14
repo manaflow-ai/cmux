@@ -41,7 +41,7 @@ enum WorkspaceBulkClose {
         case "sidebar.section.closeWorkspaces":
             closing = try sectionWorkspaces(invocation, context)
         case "workspaceGroup.closeOthers":
-            closing = try otherGroups(invocation, context).flatMap(\.workspaces).map(\.id.rawValue)
+            closing = try otherGroups(invocation, context).1.flatMap(\.workspaces).map(\.id.rawValue)
         case "workspace.closeOthersInGroup":
             let workspace = try context.workspace(invocation).model
             guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
@@ -77,15 +77,20 @@ enum WorkspaceBulkClose {
         let services = context.services
         let names = members.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
+        var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
-            // Each group closes as Close All Workspaces in Group does (an unpinned group goes).
-            let sidebar = try context.sidebar()
-            for group in try otherGroups(invocation, context) { sidebar.handle(.closeGroup(group.id)) }
+            // Each group closes as Close All Workspaces in Group does (an unpinned group goes);
+            // Undo reopens each group's workspaces, then its record.
+            let (sidebar, others) = try otherGroups(invocation, context)
+            groups = others.map { group in
+                (group.id.rawValue, group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
+            }
+            for group in others { sidebar.handle(.closeGroup(group.id)) }
         } else {
             close(members)
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
-        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), group: nil, names: names, after: seen, in: window, services)
+        WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
@@ -106,14 +111,19 @@ enum WorkspaceBulkClose {
         }
     }
 
-    /// The other groups of the window that shows the target group.
-    static func otherGroups(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [SidebarGroup] {
+    /// The window sidebar that lists the target group, and that window's other groups.
+    static func otherGroups(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> (SidebarBridge, [SidebarGroup]) {
         let group = try context.group(invocation)
-        let sidebar = try context.sidebar()
-        return sidebar.model.sections.flatMap(\.nodes).compactMap { node in
-            if case .group(let other) = node, other.id.rawValue != group.id.rawValue { return other }
+        guard let first = try WorkspaceGroupHandlers.members(invocation, context).first else {
+            throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
+        }
+        let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first, context)
+        let groups = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
+            if case .group(let listed) = node { return listed }
             return nil
         }
+        guard groups.contains(where: { $0.id.rawValue == group.id.rawValue }) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }
 
     /// The one close path for each workspace, on the daemon that owns it.
