@@ -168,13 +168,19 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
 export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
   const trimmed = path.replace(/\/+$/, "") || "/";
   const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
-  return { id: `link:${trimmed}`, kind: "link", name: folder ? `${name}/` : name, mimeType: "", size: 0, path: trimmed };
+  return {
+    id: `link:${trimmed}`,
+    kind: "link",
+    name: folder ? `${name}/` : name,
+    mimeType: "",
+    size: 0,
+    path: trimmed,
+  };
 }
 
 /// `file://` and the path, each segment percent-encoded.
 function fileUri(path: string): string {
   return `file://${path.split("/").map(encodeURIComponent).join("/")}`;
-}
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */
