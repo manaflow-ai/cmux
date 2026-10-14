@@ -557,7 +557,19 @@ impl Hub {
         // now for an unsandboxed agent): its permissions are cancelled too,
         // never answered from the log or shown again.
         let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
-        for (id, m, params, _) in work.requests {
+        // Every request that starts its own task is counted before the
+        // answers below are sent, so no group of them is shown while one
+        // still waits for its spawn (`AskInFlight`).
+        let asks: Vec<_> = work
+            .requests
+            .iter()
+            .map(|(id, m, _, _)| {
+                (m == method::SESSION_REQUEST_PERMISSION
+                    && !work.permissions.contains_key(&id.to_string()))
+                .then(|| super::permission_groups::AskInFlight::new(session))
+            })
+            .collect();
+        for ((id, m, params, _), ask) in work.requests.into_iter().zip(asks) {
             if m == method::SESSION_REQUEST_PERMISSION
                 && let Some((permission_id, request, decided)) =
                     work.permissions.get(&id.to_string()).cloned()
@@ -580,9 +592,9 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(
-                async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await },
-            );
+            tokio::spawn(async move {
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+            });
         }
     }
 

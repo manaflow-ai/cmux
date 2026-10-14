@@ -622,6 +622,13 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
+        // `workspace-open-url-v1`: a web link on the workspace's right side;
+        // with no workspace, the home workspace.
+        ["open-url"] => workspace_open_url(selectors, flags),
+        [selector, "open-url"] => {
+            selectors.insert("workspace", "ws", selector)?;
+            workspace_open_url(selectors, flags)
+        }
         [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
@@ -641,6 +648,22 @@ fn parse_workspace(
         }
         _ => usage("workspace action"),
     }
+}
+
+fn workspace_open_url(
+    selectors: &mut Selectors,
+    flags: &mut Flags,
+) -> Result<CommandPlan, UsageError> {
+    let url = flags.required("url")?;
+    if url.is_empty() {
+        return Err(UsageError::new("--url cannot be empty"));
+    }
+    request(
+        ResourceOperation::WorkspaceOpenUrl,
+        selectors,
+        flags,
+        map_with("url", Value::String(url)),
+    )
 }
 
 fn parse_pane(
@@ -1388,6 +1411,8 @@ fn parse_agent(
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
             terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
+            // Read before the journal event redacts it; it travels beside the event (memory only).
+            let live_prompt = cmux_tui_core::agent_hook_live_prompt(&native_event, &native);
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -1405,17 +1430,16 @@ fn parse_agent(
                     "encoded agent hook payload cannot exceed 1048576 bytes",
                 ));
             }
-            request(
-                ResourceOperation::SessionJournalAppend,
-                &selectors,
-                flags,
-                map_with(
-                    "event",
-                    serde_json::to_value(ingress).map_err(|error| {
-                        UsageError::new(format!("encode agent hook request: {error}"))
-                    })?,
-                ),
-            )
+            let mut fields = map_with(
+                "event",
+                serde_json::to_value(ingress).map_err(|error| {
+                    UsageError::new(format!("encode agent hook request: {error}"))
+                })?,
+            );
+            if let Some(prompt) = live_prompt {
+                fields.insert("live_prompt".into(), Value::String(prompt));
+            }
+            request(ResourceOperation::SessionJournalAppend, &selectors, flags, fields)
         }
         ["report"] => {
             let terminal = flags.required("terminal")?;
