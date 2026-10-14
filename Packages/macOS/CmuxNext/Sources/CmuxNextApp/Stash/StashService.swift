@@ -8,7 +8,7 @@ import Foundation
 /// Stashed page (`StashPageSource`) and closes tabs into stashes for the
 /// Stash actions. The page's model is the one list every surface reads.
 final class StashService: StashPageSource {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     let model = StashPageModel()
 
     init(services: AppServices) {
@@ -21,7 +21,7 @@ final class StashService: StashPageSource {
 
     /// This Mac's daemon's state client, when it keeps stashes.
     private func state() throws -> StateResourceClient {
-        guard serves(services.daemon), let connection = services.daemon.connection else {
+        guard let services, serves(services.daemon), let connection = services.daemon.connection else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         return connection.state
@@ -34,7 +34,7 @@ final class StashService: StashPageSource {
 
     /// Closes browser tabs `tabs` (or the unpinned pages of `workspace`) into one stash.
     func stash(tabs: [ResourceID], workspace: ResourceID?) {
-        services.registry.track(Task { @MainActor in
+        services?.registry.track(Task { @MainActor in
             do {
                 let state = try self.state()
                 if let workspace {
@@ -73,11 +73,8 @@ final class StashService: StashPageSource {
 
     /// Imported pages reopen in the app's browser engine (`browser.defaultEngine`, WebKit without Chromium).
     func importGroups(_ groups: [OneTabExport.Group]) async throws {
-        let engine: String
-        switch services.cache.browserTabs.resolve(requested: nil) {
-        case .open(let choice): engine = choice.engine.rawValue
-        case .refuse: engine = BrowserEngineTag.webkit.rawValue
-        }
+        var engine = BrowserEngineTag.webkit.rawValue
+        if case .open(let choice)? = services?.cache.browserTabs.resolve(requested: nil) { engine = choice.engine.rawValue }
         let wire = groups.map { group in
             StateResourceClient.StashImportGroup(name: nil, pages: group.tabs.map { .init(url: $0.url, title: $0.title) })
         }
