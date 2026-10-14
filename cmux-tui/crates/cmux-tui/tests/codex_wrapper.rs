@@ -372,6 +372,63 @@ fn codex_typed_in_a_terminal_reports_to_that_terminal_after_startup_files_reorde
     }
 }
 
+/// Runs `command` from a shell whose own argv looks like Codex's shared
+/// app-server daemon (`codex app-server --listen unix:// --managed-daemon`),
+/// with `env` as the environment that daemon inherited.
+fn run_under_codex_daemon(command: &str, env: &[(&str, &std::ffi::OsStr)], daemon: bool) {
+    let mut process = Command::new("/bin/sh");
+    process.arg("-c").arg(format!("{command}; :")).env_clear();
+    if daemon {
+        process.args(["app-server", "--listen", "unix://", "--managed-daemon"]);
+    }
+    for (name, value) in env {
+        process.env(name, value);
+    }
+    let mut child = process.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    writeln!(child.stdin.take().unwrap(), "{{\"session_id\":\"s1\",\"hook_event_name\":\"Stop\"}}")
+        .unwrap();
+    assert!(child.wait_with_output().unwrap().status.success());
+}
+
+/// The shared daemon keeps the environment of the shell that started it. An
+/// installed hook it runs must not post to that shell's terminal: the event
+/// may come from any Codex session, in another terminal or outside cmux. The
+/// wrapper's hooks name their own terminal and still route.
+#[test]
+fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_inherited() {
+    let launch = Launch::new();
+    let helper = std::ffi::OsString::from(env!("CARGO_BIN_EXE_cmux-tui-hook"));
+    let inherited: [(&str, &std::ffi::OsStr); 3] = [
+        ("CMUX_TUI_HOOK", &helper),
+        ("CMUX_TUI_SOCKET", launch.socket.as_os_str()),
+        ("CMUX_TUI_TERMINAL_ID", std::ffi::OsStr::new(TERMINAL_ONE)),
+    ];
+    let installed = "\"$CMUX_TUI_HOOK\" codex Stop";
+
+    run_under_codex_daemon(installed, &inherited, false);
+    let received = launch.event();
+    assert_eq!(received["payload"]["native_event"], "Stop", "the control run must post");
+
+    run_under_codex_daemon(installed, &inherited, true);
+    assert_eq!(
+        launch.listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "a hook in Codex's daemon posted to the terminal that started the daemon"
+    );
+
+    let argv = launch.argv(launch.command().env("CMUX_TUI_TERMINAL_ID", TERMINAL_TWO));
+    run_under_codex_daemon(&hook_command(&settings(&argv), "Stop"), &inherited, true);
+    let received = launch.event();
+    assert!(
+        received["subjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|subject| subject["kind"] == "terminal" && subject["id"] == TERMINAL_TWO),
+        "{received}"
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn codex_wrapper_resolves_the_attached_tmux_terminal_when_launch_environment_is_missing() {
