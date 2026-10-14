@@ -39,7 +39,14 @@ export function BillingScreen({ search }: { search: BillingScreenSearch }) {
       ) : null}
       {welcome && data.personal ? <PlanWelcome plan={welcome} /> : null}
       {data.personal ? (
-        <PersonalBilling data={data.personal} />
+        <>
+          <PersonalBilling data={data.personal} />
+          {data.team ? (
+            <div className="mt-6 border-t border-border pt-6">
+              <TeamBillingPanel view={data.team} showHeading />
+            </div>
+          ) : null}
+        </>
       ) : data.team ? (
         <TeamBillingPanel view={data.team} welcome={search.welcome === "team"} />
       ) : null}
@@ -126,7 +133,6 @@ const BILLING_BANNERS = [
   "team_admin_required",
   "team_not_found",
   "authorization_unavailable",
-  "personal_team_not_upgradable_to_team",
 ] as const;
 
 function billingBanner(value: string | undefined): (typeof BILLING_BANNERS)[number] | null {

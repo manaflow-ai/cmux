@@ -9,6 +9,7 @@ import { applySubscriptionUpdate } from "./purchase";
 import { stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
 import { billingPlanIdFromMetadata } from "./teamResolution";
+import { personalTeamForUser, type TeamBillingAccessUser } from "./teamBillingAccess";
 import { planItem } from "./subscriptionItems";
 
 /**
@@ -132,10 +133,17 @@ async function reconcileTeamUnlocked(
   dependencies: TeamSeatReconcileDependencies,
 ): Promise<Reconciled> {
   const stack = dependencies.stack ?? defaultTeamStackApp();
-  const team = await withStackDeadline(() => stack.getTeam(stackTeamId));
+  const team = await withStackDeadline(async () => {
+    const realTeam = await stack.getTeam(stackTeamId);
+    if (realTeam) return realTeam;
+    const user = await stack.getUser(stackTeamId);
+    return user
+      ? personalTeamForUser(user as unknown as TeamBillingAccessUser)
+      : null;
+  });
   if (!team) return { kind: "skipped", outcome: { memberCount: null, stripeQuantity: null, error: null } };
   const [members, subscription] = await Promise.all([
-    withStackDeadline(() => team.listUsers()),
+    withStackDeadline(() => team.listUsers?.() ?? Promise.resolve([])),
     (dependencies.activeSubscription ?? activeTeamSubscriptionRow)(stackTeamId),
   ]);
   const memberCount = members.length;

@@ -124,6 +124,19 @@ describe("identity snapshot store", () => {
     expect(read?.user).toEqual(user);
   });
 
+  test("a created team keeps its Team plan requirement through the snapshot", async () => {
+    const { db } = fakeDb();
+    const flagged: AuthedUser = {
+      ...user,
+      teams: [...user.teams, { id: "created-team", displayName: "Side", billingPlanId: null, billingSeats: null, teamPlanRequired: true }],
+      teamIds: [...user.teamIds, "created-team"],
+    };
+    await writeIdentitySnapshot(flagged, { completeTeamList: true }, db);
+    const read = await readIdentitySnapshot(flagged.id, 60_000, db);
+    expect(read?.user).toEqual(flagged);
+    expect(read?.user.teams.find((team) => team.id === "created-team")?.teamPlanRequired).toBe(true);
+  });
+
   test("deleting removes the row", async () => {
     const { db, state } = fakeDb([storedRow(new Date())]);
     await deleteIdentitySnapshot(user.id, db);

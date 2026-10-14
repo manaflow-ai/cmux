@@ -214,8 +214,10 @@ final class MachineCreateCoordinator {
             guard let self else { return }
             let completion = CloudMachineCreateCompletion(
                 succeeded: result.succeeded, wasCancelled: result.wasCancelled, output: result.output,
-                failureOutput: Self.displayableFailureOutput(result.output),
-                machineID: result.machineId, workspaceID: result.workspaceId
+                failureOutput: Self.displayableFailureOutput(result.output, refusalCode: result.refusalCode),
+                machineID: result.machineId, workspaceID: result.workspaceId,
+                refusalCode: result.refusalCode,
+                refusalTeamID: result.refusalTeamID
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
@@ -302,7 +304,9 @@ final class MachineCreateCoordinator {
         guard let request = requests[operation.id] else { return nil }
         return MachineCreateOperation(
             id: operation.id, request: request, startedAt: operation.startedAt,
-            createdMachineID: operation.createdMachineID, phase: operation.phase
+            createdMachineID: operation.createdMachineID, phase: operation.phase,
+            refusalCode: operation.refusalCode,
+            refusalTeamID: operation.refusalTeamID
         )
     }
 
@@ -324,13 +328,21 @@ final class MachineCreateCoordinator {
     nonisolated static func createdMachineID(fromOutput output: String) -> String? { outputParser.machineID(in: output) }
 
     /// Redacts at the app boundary before any failure reaches domain state or UI.
-    nonisolated static func displayableFailureOutput(_ output: String) -> String {
+    nonisolated static func displayableFailureOutput(_ output: String, refusalCode: String? = nil) -> String {
         let generic = String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
         let stripped = outputParser.failureText(in: output)
-        guard !stripped.isEmpty else { return generic }
+        let teamMessage = refusalCode == CloudPlanRefusal.requiresTeamPlanCode
+            ? CloudPlanRefusal.teamPlanMessage
+            : nil
+        guard !stripped.isEmpty else { return teamMessage ?? generic }
         let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(stripped.prefix(4000)))
-        guard safe == CloudVMActionLauncher.hiddenOutputPlaceholder else { return safe.isEmpty ? generic : safe }
-        guard let reason = CloudVMActionLauncher.firstSafeLine(of: stripped) else { return safe }
-        return "\(reason)\n\(safe)"
+        let visible = safe == CloudVMActionLauncher.hiddenOutputPlaceholder
+            ? (CloudVMActionLauncher.firstSafeLine(of: stripped).map { "\($0)\n\(safe)" } ?? safe)
+            : (safe.isEmpty ? generic : safe)
+        guard let teamMessage else { return visible }
+        // The CLI's Team action contains a billing URL, so the redactor hides
+        // the whole sentence. Keep the actionable explanation while retaining
+        // the safe technical placeholder/details below it.
+        return visible.hasPrefix(teamMessage) ? visible : "\(teamMessage)\n\n\(visible)"
     }
 }

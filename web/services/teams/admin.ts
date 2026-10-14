@@ -1,4 +1,5 @@
 import { hasActiveTeamSubscriptionForTeam } from "../billing/pro";
+import { markTeamPlanRequired } from "../billing/teamResolution";
 import type { TeamAccess } from "./access";
 import { TeamApiError, TeamServiceUnavailableError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
@@ -28,8 +29,9 @@ export async function grantTeamAdmin(
 export type CreateTeamDependencies = { readonly stack?: TeamStackApp };
 
 /**
- * Create a team owned by `userId`, grant them admin, and select it. A team
- * whose admin grant failed is deleted again rather than left unmanageable.
+ * Create a team for `userId`, flag it as needing its own plan for Cloud
+ * machines, add them as its admin, and select it. A team whose flag, join, or
+ * admin grant failed is deleted again rather than left unmanageable.
  */
 export async function createTeamForUser(
   userId: string,
@@ -37,8 +39,13 @@ export async function createTeamForUser(
   dependencies: CreateTeamDependencies = {},
 ): Promise<{ id: string; displayName: string }> {
   const stack = dependencies.stack ?? defaultTeamStackApp();
-  const team = await withStackDeadline(() => stack.createTeam({ displayName, creatorUserId: userId }));
+  // The creator joins only after the flag is written. A member of an
+  // unflagged created team could run machines on their personal plan, even
+  // briefly or if the cleanup below fails; a memberless leftover team is inert.
+  const team = await withStackDeadline(() => stack.createTeam({ displayName }));
   try {
+    await withStackDeadline(() => markTeamPlanRequired(team));
+    await withStackDeadline(() => team.addUser(userId));
     await withStackDeadline(() => grantTeamAdmin(stack, userId, team));
   } catch (error) {
     await withStackDeadline(() => team.delete()).catch(() => {

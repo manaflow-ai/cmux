@@ -44,13 +44,18 @@ struct MachineCreateCoordinatorTests {
             }
         }
 
-        func complete(status: Int32, output: String, workspaceID: UUID? = nil, machineID: String? = nil) {
+        func complete(
+            status: Int32, output: String, workspaceID: UUID? = nil, machineID: String? = nil,
+            refusalCode: String? = nil, refusalTeamID: String? = nil
+        ) {
             let completion = completions.removeFirst()
             completion(CloudVMActionLauncher.Completion(
                 terminationStatus: status,
                 output: output,
                 workspaceId: workspaceID,
-                machineId: machineID
+                machineId: machineID,
+                refusalCode: refusalCode,
+                refusalTeamID: refusalTeamID
             ))
         }
     }
@@ -367,6 +372,40 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.count == 2, "retry success remains visible when no workspace was selected")
     }
 
+    @Test("A refused create's code reaches the row's actions, and a retry clears it")
+    func refusalCodeReachesTheFailedRow() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.complete(
+            status: 1, output: "Only 0 of your 20 vCPUs are free.\n(HTTP 402: vm_resource_pool_exceeded)\n",
+            refusalCode: "vm_resource_pool_exceeded"
+        )
+        #expect(coordinator.operation(id: id)?.refusalCode == "vm_resource_pool_exceeded")
+        #expect(coordinator.operation(id: id)?.hitResourcePool == true)
+        #expect(coordinator.retry(id))
+        #expect(coordinator.operation(id: id)?.refusalCode == nil)
+        // The text names a code, but only the completion's own code counts.
+        launches.complete(status: 1, output: "Refused.\n(HTTP 402: vm_resource_pool_exceeded)\n")
+        #expect(coordinator.operation(id: id)?.refusalCode == nil)
+        #expect(coordinator.operation(id: id)?.hitResourcePool == false)
+    }
+
+    @Test("A Team-plan refusal keeps its billing team through the app coordinator")
+    func refusalTeamIDReachesFailedRow() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.complete(
+            status: 1,
+            output: "This team needs Team.\n(HTTP 402: vm_requires_team_plan)\n",
+            refusalCode: "vm_requires_team_plan",
+            refusalTeamID: "team-trollol"
+        )
+        #expect(coordinator.operation(id: id)?.requiresTeamPlan == true)
+        #expect(coordinator.operation(id: id)?.refusalTeamID == "team-trollol")
+    }
+
     @Test func emptyFailureOutputGetsAGenericMessage() {
         let (coordinator, launches, _, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
@@ -502,6 +541,17 @@ struct MachineCreateCoordinatorTests {
         #expect(stored == CloudVMActionLauncher.hiddenOutputPlaceholder)
         #expect(stored?.contains("token") == false)
         #expect(notices.notices.first?.body.contains("abc123") == false)
+    }
+
+    @Test func teamPlanFailureKeepsItsExplanationWhenBillingURLIsRedacted() {
+        let output = "Error: This team needs the cmux Team plan. Upgrade at https://cmux.com/dashboard/billing?team=team-trollol, or switch teams.\n"
+        let shown = MachineCreateCoordinator.displayableFailureOutput(
+            output,
+            refusalCode: CloudPlanRefusal.requiresTeamPlanCode
+        )
+        #expect(shown.contains(CloudPlanRefusal.teamPlanMessage))
+        #expect(shown.contains(CloudVMActionLauncher.hiddenOutputPlaceholder))
+        #expect(shown.contains("team-trollol") == false)
     }
 
     @Test func headlineSkipsTheCreatedLineAndTheErrorPrefix() {

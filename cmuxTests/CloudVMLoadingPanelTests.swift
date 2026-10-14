@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxCloud
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -39,5 +40,23 @@ struct CloudVMLoadingPanelTests {
             return
         }
         #expect(message == "The Cloud VM service is unavailable")
+    }
+
+    @Test func teamPlanFailureKeepsScopedUpgradeMetadataAndExplanation() {
+        let panel = CloudVMLoadingPanel(workspaceId: UUID())
+        panel.showFailure(
+            "Error: billing action https://cmux.com/dashboard/billing?team=team-trollol",
+            refusalCode: CloudPlanRefusal.requiresTeamPlanCode,
+            refusalTeamID: "team-trollol"
+        )
+
+        #expect(panel.teamPlanUpgradeID == "team-trollol")
+        guard case .failed(let message, _) = panel.phase else {
+            Issue.record("Team refusal must be a failed phase")
+            return
+        }
+        #expect(message == CloudPlanRefusal.teamPlanMessage)
+        panel.resetLoading()
+        #expect(panel.teamPlanUpgradeID == nil)
     }
 }

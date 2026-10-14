@@ -22,10 +22,23 @@ let authJson = {
 let authJsonError: Error | null = null;
 const getUser = mock(async () => currentUser);
 const getTeam = mock(async (id: string) => ({ id }));
+const createdTeamCalls: string[] = [];
+const updateCreatedTeam = mock(async (_data: { clientReadOnlyMetadata?: unknown }) => {
+  createdTeamCalls.push("flag");
+});
+const deleteCreatedTeam = mock(async () => {});
+const addCreatedTeamUser = mock(async (_userId: string) => {
+  createdTeamCalls.push("join");
+});
+const grantPermission = mock(async (_team: { id: string }, _permissionId: string) => {});
 const createTeam = mock(async ({ displayName, creatorUserId }: { displayName: string; creatorUserId?: string }) => ({
   id: "team-created",
   displayName,
   creatorUserId,
+  clientReadOnlyMetadata: null,
+  update: updateCreatedTeam,
+  addUser: addCreatedTeamUser,
+  delete: deleteCreatedTeam,
 }));
 const updateUser = mock(async (_data: unknown) => {});
 const getAuthJson = mock(async () => {
@@ -109,6 +122,11 @@ beforeEach(() => {
   getUser.mockClear();
   getTeam.mockClear();
   createTeam.mockClear();
+  updateCreatedTeam.mockClear();
+  deleteCreatedTeam.mockClear();
+  addCreatedTeamUser.mockClear();
+  createdTeamCalls.length = 0;
+  grantPermission.mockClear();
   updateUser.mockClear();
   getAuthJson.mockClear();
   signOut.mockClear();
@@ -765,10 +783,13 @@ describe("hosted Subrouter account routes", () => {
       team: { id: "team-created", name: "Shared Cloud" },
       selectedTeamId: "team-created",
     });
-    expect(createTeam).toHaveBeenCalledWith({
-      displayName: "Shared Cloud",
-      creatorUserId: "user-1",
-    });
+    // The team is created empty and flagged as needing its own plan for Cloud
+    // machines before the creator joins as its admin.
+    expect(createTeam).toHaveBeenCalledWith({ displayName: "Shared Cloud" });
+    expect(updateCreatedTeam).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxTeamPlanRequired: true } });
+    expect(addCreatedTeamUser).toHaveBeenCalledWith("user-1");
+    expect(createdTeamCalls).toEqual(["flag", "join"]);
+    expect(grantPermission).toHaveBeenCalledWith(expect.objectContaining({ id: "team-created" }), "team_admin");
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-created" });
 
     const invalid = await teamsRoute.POST(
@@ -778,6 +799,24 @@ describe("hosted Subrouter account routes", () => {
       }),
     );
     expect(invalid.status).toBe(400);
+  });
+
+  test("deletes a created team whose plan flag cannot be written", async () => {
+    updateCreatedTeam.mockImplementation(async () => {
+      throw new Error("metadata write failed");
+    });
+    await expect(teamsRoute.POST(
+      request("/api/subrouter/teams", {
+        method: "POST",
+        body: JSON.stringify({ displayName: "Shared Cloud" }),
+      }),
+    )).rejects.toThrow();
+    expect(deleteCreatedTeam).toHaveBeenCalledTimes(1);
+    expect(addCreatedTeamUser).not.toHaveBeenCalled();
+    expect(updateUser).not.toHaveBeenCalledWith({ selectedTeamId: "team-created" });
+    updateCreatedTeam.mockImplementation(async () => {
+      createdTeamCalls.push("flag");
+    });
   });
 
   test("persists a selected member team in Stack Auth", async () => {
@@ -838,6 +877,7 @@ function stackUser() {
       ];
     },
     update: updateUser,
+    grantPermission,
   };
 }
 

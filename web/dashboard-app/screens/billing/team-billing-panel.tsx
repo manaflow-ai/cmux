@@ -1,5 +1,6 @@
 "use client";
 
+import { Link } from "@tanstack/react-router";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
@@ -11,19 +12,20 @@ import { PlanPicker } from "./plan-picker";
 export { teamCheckoutHref, teamPortalHref } from "./checkout-links";
 
 /**
- * The billing panel for one real team (`/dashboard/teams/$teamId/billing`):
- * notices, seats, then the plan picker. Renders nothing for the personal
- * entry; Plan & billing shows Pro and Max there.
+ * The billing panel for one team (`/dashboard/teams/$teamId/billing`), or for
+ * the one-seat personal Team scope on Plan & billing: notices, seats, then
+ * the plan picker.
  */
 export function TeamBillingPanel({
   view,
   welcome = false,
+  showHeading = false,
 }: {
   view: TeamBillingViewJson;
   welcome?: boolean;
+  showHeading?: boolean;
 }) {
   const t = useTranslations("dashboard.billing");
-  if (view.status === "personal") return null;
   if (view.status !== "ready") {
     return (
       <section className="border border-border p-3">
@@ -35,6 +37,16 @@ export function TeamBillingPanel({
   }
   return (
     <div className="space-y-3">
+      {showHeading ? (
+        <h2 className="text-sm font-medium">
+          {view.personal ? t("teamList.personal") : view.team.displayName ?? t("team.fallbackName")}
+        </h2>
+      ) : null}
+      {view.personal ? (
+        <Link to="/dashboard/teams/new" className="text-xs text-muted underline">
+          {t("team.createCta")}
+        </Link>
+      ) : null}
       {welcome ? <Notice>{t("teamPanel.welcome")}</Notice> : null}
       {view.paymentPastDue && view.canManageBilling ? (
         <Notice>
@@ -87,4 +99,3 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

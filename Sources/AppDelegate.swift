@@ -9272,7 +9272,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
-                    loadingPanel.showFailure(completion.output)
+                    loadingPanel.showFailure(
+                        completion.output,
+                        refusalCode: completion.refusalCode,
+                        refusalTeamID: completion.refusalTeamID
+                    )
                 }
                 onCompletion?(completion)
             }

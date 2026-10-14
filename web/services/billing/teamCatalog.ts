@@ -7,6 +7,8 @@ import {
 } from "../subrouter/routeHelpers";
 import {
   teamBillingRoleOrMember,
+  personalTeamPlanIdFromMetadata,
+  personalTeamSeatsFromMetadata,
   type TeamBillingAccessUser,
   type TeamBillingRole,
 } from "./teamBillingAccess";
@@ -25,7 +27,8 @@ type LoadStackUser = (userId: string) => Promise<TeamBillingAccessUser | null>;
 
 /**
  * The subrouter team catalog plus plan, seats and billing role per team. The
- * personal entry is always the user's own admin scope with the personal plan.
+ * personal entry is the user's own admin scope; its optional Team plan is
+ * stored separately from the personal Pro/Max metadata.
  * Roles come from Stack `team_admin`; if Stack cannot answer, a team reads as
  * "member" so a read-only listing never fails and never over-grants. Every
  * mutation re-authorizes through resolveTeamBillingAccess.
@@ -41,7 +44,13 @@ export async function billingCatalogTeams(
     : new Set<string>();
   return teams.map((team): BillingCatalogTeam => {
     if (team.personal) {
-      return { ...team, planId: user.userBillingPlanId, seats: null, role: "admin", canManageBilling: true };
+      return {
+        ...team,
+        planId: personalTeamPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? user.userBillingPlanId,
+        seats: personalTeamSeatsFromMetadata(user.clientReadOnlyMetadata),
+        role: "admin",
+        canManageBilling: true,
+      };
     }
     const authed = user.teams.find((candidate) => candidate.id === team.teamId);
     const role: TeamBillingRole = adminTeamIds.has(team.teamId) ? "admin" : "member";

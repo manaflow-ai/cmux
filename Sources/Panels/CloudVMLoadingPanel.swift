@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxCloud
 import Foundation
 
 @MainActor
@@ -15,6 +16,8 @@ final class CloudVMLoadingPanel: Panel {
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
     @Published var phase: Phase = .loading(headline: nil)
+    private(set) var refusalCode: String? = nil
+    private(set) var refusalTeamID: String? = nil
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
@@ -38,14 +41,26 @@ final class CloudVMLoadingPanel: Panel {
     func unfocus() {}
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
 
-    func showFailure(_ message: String) {
+    func showFailure(_ message: String, refusalCode: String? = nil, refusalTeamID: String? = nil) {
+        self.refusalCode = refusalCode
+        self.refusalTeamID = refusalTeamID
         let trimmed = Self.presentableFailureMessage(from: message)
         let elapsedSeconds = max(0, Int(Date().timeIntervalSince(startedAt).rounded(.down)))
-        phase = .failed(trimmed.isEmpty
-            ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
-            : trimmed,
+        let display = refusalCode == CloudPlanRefusal.requiresTeamPlanCode
+            ? CloudPlanRefusal.teamPlanMessage
+            : (trimmed.isEmpty
+                ? String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
+                : trimmed)
+        phase = .failed(display,
             elapsedSeconds: elapsedSeconds
         )
+    }
+
+    var teamPlanUpgradeID: String? {
+        guard refusalCode == CloudPlanRefusal.requiresTeamPlanCode,
+              let refusalTeamID,
+              AuthEnvironment.teamBillingURL(teamID: refusalTeamID) != nil else { return nil }
+        return refusalTeamID
     }
 
     var hasFailed: Bool {
@@ -61,6 +76,8 @@ final class CloudVMLoadingPanel: Panel {
     func resetLoading() {
         startedAt = Date()
         phase = .loading(headline: nil)
+        refusalCode = nil
+        refusalTeamID = nil
     }
 
     private static func presentableFailureMessage(from rawMessage: String) -> String {

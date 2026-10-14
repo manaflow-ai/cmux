@@ -63,6 +63,7 @@ import {
   type PurchaseMagicLinkDeliveryStore,
 } from "./emailVerificationDelivery";
 import { planItem } from "./subscriptionItems";
+import { personalTeamForUser, type TeamBillingAccessUser } from "./teamBillingAccess";
 
 export { canonicalizeEmailForMatching } from "./emailMatching";
 
@@ -2302,11 +2303,18 @@ async function loadStackTeam(
     throw new Error("Stack Auth server SDK cannot load teams");
   }
   const team = await app.getTeam(stackTeamId);
-  if (!team) throw new Error(`Stack team not found for Stripe purchase: ${stackTeamId}`);
-  if (typeof team.update !== "function") {
-    throw new Error("Stack Auth server SDK cannot update team metadata");
+  if (team) {
+    if (typeof team.update !== "function") {
+      throw new Error("Stack Auth server SDK cannot update team metadata");
+    }
+    return team as StackBillingTeam;
   }
-  return team as StackBillingTeam;
+  // The dashboard's personal Team uses the Stack user id as its stable scope,
+  // but Stack has no corresponding Team resource. Keep its Team metadata in
+  // dedicated user keys while reusing the normal completion path.
+  const user = await app.getUser(stackTeamId);
+  if (user) return personalTeamForUser(user as TeamBillingAccessUser) as StackBillingTeam;
+  throw new Error(`Stack team not found for Stripe purchase: ${stackTeamId}`);
 }
 
 async function removeUserFromTestflightOnLapse(

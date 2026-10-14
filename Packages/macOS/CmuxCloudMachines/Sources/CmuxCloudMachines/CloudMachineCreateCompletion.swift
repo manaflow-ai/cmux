@@ -8,6 +8,8 @@ public struct CloudMachineCreateCompletion: Sendable {
     let failureOutput: String
     let machineID: String?
     let workspaceID: UUID?
+    let refusalCode: String?
+    let refusalTeamID: String?
 
     /// Captures the authoritative receipt and safe presentation of a process result.
     ///
@@ -18,12 +20,22 @@ public struct CloudMachineCreateCompletion: Sendable {
     ///   - failureOutput: Already redacted and localized error text for presentation.
     ///   - machineID: Authoritative machine receipt, if present.
     ///   - workspaceID: Local workspace receipt, if opening succeeded.
-    public init(succeeded: Bool, wasCancelled: Bool, output: String, failureOutput: String, machineID: String?, workspaceID: UUID?) {
+    ///   - refusalCode: The server's refusal code, read by the launcher from
+    ///     the error itself, never from display text; nil when there is none.
+    ///   - refusalTeamID: The team named by a Team-plan refusal, kept apart
+    ///     from display text so billing opens for the original team.
+    public init(
+        succeeded: Bool, wasCancelled: Bool, output: String, failureOutput: String,
+        machineID: String?, workspaceID: UUID?, refusalCode: String? = nil,
+        refusalTeamID: String? = nil
+    ) {
         self.succeeded = succeeded
         self.wasCancelled = wasCancelled
         self.output = output
         self.failureOutput = failureOutput
         self.machineID = machineID
         self.workspaceID = workspaceID
+        self.refusalCode = refusalCode
+        self.refusalTeamID = refusalTeamID
     }
 }

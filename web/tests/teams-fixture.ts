@@ -60,6 +60,7 @@ export class FakeStack {
   teamGoneOnListUsers = false;
   failAddUser: unknown = null;
   failGrant = false;
+  failMetadataUpdate = false;
   hangGetTeam = false;
   accessToken: string | null = "caller-access-token";
   private nextInvitation = 1;
@@ -161,8 +162,10 @@ export class FakeStack {
       },
       update: async (update) => {
         this.calls.push(`updateTeam:${teamId}:${JSON.stringify(update)}`);
+        if (update.clientReadOnlyMetadata !== undefined && this.failMetadataUpdate) throw new Error("metadata write failed");
         if (update.displayName !== undefined) data.displayName = update.displayName;
         if (update.profileImageUrl !== undefined) data.profileImageUrl = update.profileImageUrl;
+        if (update.clientReadOnlyMetadata !== undefined) data.metadata = update.clientReadOnlyMetadata;
       },
       delete: async () => {
         this.calls.push(`deleteTeam:${teamId}`);

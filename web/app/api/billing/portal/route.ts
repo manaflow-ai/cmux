@@ -142,7 +142,7 @@ function teamBillingRedirect(
   billing: TeamBillingAccessError | "nosub",
 ): NextResponse {
   const url = new URL("/dashboard/billing", requestOrigin(request));
-  if (billing !== "personal_team_not_upgradable_to_team") url.searchParams.set("team", teamId);
+  url.searchParams.set("team", teamId);
   url.searchParams.set("billing", billing);
   return NextResponse.redirect(url, 302);
 }

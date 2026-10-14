@@ -74,6 +74,7 @@ function authedUserFromSnapshotRow(
     displayName: team.displayName ?? null,
     billingPlanId: team.billingPlanId ?? null,
     billingSeats: team.billingSeats ?? null,
+    ...(team.teamPlanRequired === true ? { teamPlanRequired: true } : {}),
   }));
   return {
     id: row.userId,
@@ -109,6 +110,7 @@ export async function writeIdentitySnapshot(
     displayName: team.displayName,
     billingPlanId: team.billingPlanId,
     billingSeats: team.billingSeats,
+    ...(team.teamPlanRequired === true ? { teamPlanRequired: true } : {}),
   }));
   try {
     await (db ?? cloudDb())

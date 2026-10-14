@@ -23,6 +23,7 @@ import {
 } from "../../../../services/subrouter/routeHelpers";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { reportError } from "../../../../services/observability/report";
+import { createTeamForUser } from "../../../../services/teams/admin";
 import { getStackServerApp } from "../../../lib/stack";
 import {
   billingCatalogTeams,
@@ -59,13 +60,9 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({ error: "invalid_team_name" }, 400);
       }
 
-      const team = await getStackServerApp().createTeam({
-        displayName,
-        creatorUserId: user.id,
-      });
-      const stackUser = await getStackServerApp().getUser(user.id);
-      if (!stackUser) return unauthorized();
-      await stackUser.update({ selectedTeamId: team.id });
+      // The shared path flags the team as needing its own plan for Cloud
+      // machines before the creator joins, grants admin, and selects it.
+      const team = await createTeamForUser(user.id, displayName);
       return jsonResponse({
         team: { id: team.id, name: team.displayName },
         selectedTeamId: team.id,

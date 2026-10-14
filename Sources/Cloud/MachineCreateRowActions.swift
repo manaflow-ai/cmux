@@ -10,6 +10,7 @@ struct MachineCreateRowActions {
     let retry: @MainActor (UUID) -> Void
     let cancel: @MainActor (UUID) -> Void
     let dismiss: @MainActor (UUID) -> Void
+    let upgrade: @MainActor (UUID) -> Void
     let showFailure: @MainActor (UUID) -> Void
     let copyFailure: @MainActor (UUID) -> Void
 
@@ -18,6 +19,7 @@ struct MachineCreateRowActions {
         retry: { _ in },
         cancel: { _ in },
         dismiss: { _ in },
+        upgrade: { _ in },
         showFailure: { _ in },
         copyFailure: { _ in }
     )
@@ -33,6 +35,18 @@ struct MachineCreateRowActions {
             },
             dismiss: { [weak coordinator] id in
                 coordinator?.dismiss(id)
+            },
+            upgrade: { [weak coordinator] id in
+                guard let operation = coordinator?.operation(id: id) else { return }
+                if operation.requiresTeamPlan {
+                    // A Team refusal must stay scoped to the team named by the
+                    // server. Never turn missing or malformed metadata into a
+                    // personal Pro checkout.
+                    guard let teamID = operation.teamPlanUpgradeID else { return }
+                    ProUpgradePresenter.presentTeamBilling(teamID: teamID)
+                } else {
+                    ProUpgradePresenter.present(source: .createFailedAtLimit)
+                }
             },
             showFailure: { [weak coordinator] id in
                 guard let operation = coordinator?.operation(id: id), let output = operation.failureOutput else { return }
@@ -54,6 +68,13 @@ struct MachineCreateRowActions {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = operation.statusLabel
+        let teamUpgradeID = operation.teamPlanUpgradeID
+        if teamUpgradeID != nil {
+            alert.addButton(withTitle: String(
+                localized: "machines.pending.upgradeTeam",
+                defaultValue: "Upgrade to Team"
+            ))
+        }
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         let lead = operation.createdMachineID != nil && !operation.request.isBaseSetup
             ? String(localized: "machines.notification.createdOpenFailed.body", defaultValue: "Open it from the Machines list.")
@@ -69,10 +90,14 @@ struct MachineCreateRowActions {
         )
         content.apply(to: alert, presentingWindow: window)
         CloudErrorCopy.install(in: alert, text: "\(alert.messageText)\n\(content.flattenedText)")
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn, let teamUpgradeID else { return }
+            ProUpgradePresenter.presentTeamBilling(teamID: teamUpgradeID)
+        }
         if let window {
-            alert.beginSheetModal(for: window, completionHandler: nil)
+            alert.beginSheetModal(for: window, completionHandler: handleResponse)
         } else {
-            _ = alert.runModal()
+            handleResponse(alert.runModal())
         }
     }
 }

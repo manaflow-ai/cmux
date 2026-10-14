@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import type { AuthedUser } from "../services/vms/auth";
 import { billingCatalogTeams } from "../services/billing/teamCatalog";
-import { resolveTeamBillingAccess } from "../services/billing/teamBillingAccess";
+import { personalTeamForUser, resolveTeamBillingAccess } from "../services/billing/teamBillingAccess";
+import { syncTeamPlanMetadata } from "../services/billing/pro";
 import { selectedBillingTeamId } from "../services/billing/teamBillingView";
 import { parseTeamCatalog } from "../dashboard-app/shell/dashboard-team-scope";
 import { fixtureStackUser, fixtureTeam } from "./helpers/billing-team-fixtures";
@@ -38,15 +39,29 @@ describe("resolveTeamBillingAccess", () => {
     });
   });
 
-  test("requireAdmin refuses members; non-members and the personal id are refused before any permission call", async () => {
+  test("requireAdmin refuses members; non-members are refused and the personal id is admin", async () => {
     expect(await resolveTeamBillingAccess(user, "team-a", { requireAdmin: true })).toEqual({ ok: false, error: "team_admin_required" });
     user.hasPermission.mockClear();
     expect(await resolveTeamBillingAccess(user, "team-z", { requireAdmin: true })).toEqual({ ok: false, error: "team_not_found" });
-    expect(await resolveTeamBillingAccess(user, "user-1", { requireAdmin: false })).toEqual({
-      ok: false,
-      error: "personal_team_not_upgradable_to_team",
+    expect(await resolveTeamBillingAccess(user, "user-1", { requireAdmin: true })).toMatchObject({
+      ok: true,
+      role: "admin",
+      canManageBilling: true,
+      team: { id: "user-1" },
     });
     expect(user.hasPermission).not.toHaveBeenCalled();
+  });
+
+  test("personal Team metadata is isolated from the personal Pro metadata", async () => {
+    const personal = fixtureStackUser({ id: "user-1", metadata: { cmuxPlan: "pro" } });
+    const team = personalTeamForUser(personal);
+    await syncTeamPlanMetadata(team, true, 1);
+
+    expect(personal.update).toHaveBeenCalledWith({
+      clientReadOnlyMetadata: { cmuxPlan: "pro", cmuxTeamPlan: "team", cmuxTeamSeats: 1 },
+    });
+    expect(team.clientReadOnlyMetadata).toEqual({ cmuxPlan: "team", cmuxSeats: 1 });
+    expect(personal.clientReadOnlyMetadata).toEqual({ cmuxPlan: "pro" });
   });
 });
 

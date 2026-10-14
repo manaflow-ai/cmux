@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSettings
 import AppKit
 import Bonsplit
 import Foundation
@@ -83,6 +84,21 @@ enum ProUpgradePresenter {
     @MainActor
     static func presentBillingPortal() {
         NSWorkspace.shared.open(AuthEnvironment.billingPortalURL)
+    }
+
+    /// Opens the billing page for the team that the server refused to run.
+    /// The URL is built from the trusted app origin and the refusal's validated
+    /// team id, so switching the selected team cannot redirect the upgrade.
+    @MainActor
+    static func presentTeamBilling(teamID: String) {
+        guard let url = AuthEnvironment.teamBillingURL(teamID: teamID) else { return }
+        PostHogAnalytics.shared.capture(intentEvent, properties: [
+            "source": ProUpgradeSource.createFailedAtTeamPlan.rawValue,
+            "client": "mac",
+            "channel": BuildFlavor.current.rawValue,
+            "plan": "team",
+        ])
+        NSWorkspace.shared.open(url)
     }
 
     @MainActor

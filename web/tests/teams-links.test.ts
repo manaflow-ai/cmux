@@ -99,7 +99,9 @@ describe("invite link redemption", () => {
   });
 
   test("a full link refuses new users but still resolves for members", async () => {
-    const { token, deps } = await setup({ maxUses: 1 });
+    const { token, stack, deps } = await setup({ maxUses: 1 });
+    // A Team-plan team has no roster cap, so only the link's use count refuses.
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "team" };
     await redeemTeamInviteLink(OUTSIDER_ID, token, deps);
     expect(await code(redeemTeamInviteLink(SECOND_OUTSIDER, token, deps))).toBe("410:link_invalid");
     expect(await code(previewTeamInviteLink(SECOND_OUTSIDER, token, deps))).toBe("410:link_invalid");

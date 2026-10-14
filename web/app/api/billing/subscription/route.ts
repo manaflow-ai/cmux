@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     return billingRedirect(request, action === "cancel" ? "cancelled" : "resumed", teamId);
   } catch (error) {
     if (error instanceof TeamBillingRefusal) {
-      return billingRedirect(request, error.code, error.code === "personal_team_not_upgradable_to_team" ? null : error.teamId);
+      return billingRedirect(request, error.code, error.teamId);
     }
     captureBillingError(error, {
       route: "/api/billing/subscription",

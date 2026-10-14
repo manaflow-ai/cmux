@@ -107,3 +107,44 @@ function compareBillingTeamId(left: string, right: string): number {
   if (left > right) return 1;
   return 0;
 }
+
+/**
+ * Team metadata flag (`cmuxTeamPlanRequired`) that cmux writes on every team
+ * a person creates after sign-up. A flagged team gets Cloud machines only
+ * from its own plan: it never borrows the creator's or a member's personal
+ * Go, Pro, or Max plan, so creating teams cannot multiply a personal
+ * allowance. The team Stack creates at sign-up, and teams created before the
+ * flag existed, carry no flag and keep using the member's personal plan.
+ */
+export const TEAM_PLAN_REQUIRED_METADATA_KEY = "cmuxTeamPlanRequired";
+
+export function teamPlanRequiredFromMetadata(metadata: unknown): boolean {
+  if (!metadata || typeof metadata !== "object") return false;
+  return (metadata as Record<string, unknown>)[TEAM_PLAN_REQUIRED_METADATA_KEY] === true;
+}
+
+type TeamMetadataJson =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly TeamMetadataJson[]
+  | { readonly [key: string]: TeamMetadataJson };
+
+/**
+ * Flag a team cmux just created so its Cloud machines need its own plan.
+ * Existing read-only metadata is kept; the flag is never cleared, so a team
+ * whose Team plan lapses stops getting machines instead of falling back.
+ */
+export async function markTeamPlanRequired(team: {
+  readonly clientReadOnlyMetadata?: unknown;
+  update(options: { clientReadOnlyMetadata: TeamMetadataJson }): Promise<unknown>;
+}): Promise<void> {
+  const raw = team.clientReadOnlyMetadata;
+  const metadata = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? { ...(raw as Record<string, TeamMetadataJson>) }
+    : {};
+  await team.update({
+    clientReadOnlyMetadata: { ...metadata, [TEAM_PLAN_REQUIRED_METADATA_KEY]: true },
+  });
+}

@@ -139,7 +139,7 @@ describe("dashboard.account.billing", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.selectedTeamId).toBe("user-pro");
-    expect(body.team).toBeNull();
+    expect(body.team).toMatchObject({ status: "ready", personal: true, team: { id: "user-pro" }, role: "admin", canManageBilling: true });
     expect(body.personal.planStatus).toEqual({ isPro: true, planId: "pro", billingManagement: "stripe", billingSource: "stripe", manageUrl: null });
     expect(body.personal.subscription).toEqual({
       plan: "pro",
@@ -249,8 +249,7 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$200");
     expect(html).toContain("per month");
-    // Personal accounts cannot buy Team here; teams upgrade on their own Billing tab.
-    expect(html).not.toContain("plan=team");
+    expect(html).toContain("plan=team");
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
   });
@@ -262,7 +261,7 @@ describe("dashboard billing screen", () => {
     expect(html).not.toContain("billed yearly");
     expect(html).not.toContain("$24");
     expect(html).toContain("plan=pro&amp;cmux_external_browser=1&amp;interval=month");
-    expect(html).not.toContain("plan=team");
+    expect(html).toContain("plan=team");
   });
 
   test("renders active Stripe Pro with cancel and portal actions", async () => {
@@ -535,7 +534,7 @@ describe("dashboard billing screen", () => {
 
     expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
     expect(html).toContain("Upgrade to Pro");
-    expect(html).not.toContain('data-plan="team"');
+    expect(html).toContain('data-plan="team"');
   });
 
   test("renders Stack metadata-only Pro as Free", async () => {
