@@ -23,6 +23,7 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   palette: null,
   borders: null,
   motion: null,
+  composerStrip: null,
 };
 
 const motionVariables = {
@@ -47,6 +48,10 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
   if (theme.borders === "none") root.dataset.borders = "none";
   else delete root.dataset.borders;
+  // The app's composer strip choice (strip/stripVariant.ts reads it); absent leaves the page's own.
+  if (typeof theme.composerStrip === "string" && /^[a-z]+$/.test(theme.composerStrip))
+    root.dataset.composerStrip = theme.composerStrip;
+  else delete root.dataset.composerStrip;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

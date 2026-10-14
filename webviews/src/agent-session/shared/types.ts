@@ -50,6 +50,10 @@ export type AgentSessionTheme = {
   /// `hoverOut` is how fast a hover fill clears (0 by default, as in Edge). `move` is the native
   /// `move` spring's timed equivalent (MotionSpring), 0 when movement is instant.
   motion?: { hover: number; hoverOut?: number; focus: number; fadeIn: number; fadeOut: number; move?: number };
+  /// The composer strip variant the app's Debug Settings chose (`agentPane.composerStrip`: `off`,
+  /// `flat`, `tab`, `gooey` or `tray`), as `data-composer-strip` on the root, which wins over the
+  /// page's `composer-strip` experiment arm. Absent clears it.
+  composerStrip?: string;
 };
 
 export type AppContext = {

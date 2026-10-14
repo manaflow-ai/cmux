@@ -62,8 +62,9 @@ public final class AgentPaneView: NSView {
     let pageEvents: AgentPageProvider?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
-    /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
-    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
+    /// Re-pushes the theme when ui.animationSpeed, Reduce Motion or the composer strip tunable
+    /// changes, so the page's `--agent-motion-*` fades and its strip follow them
+    /// (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
@@ -220,7 +221,8 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ Motion.speed }) {
+            // The composer strip's Debug Settings choice rides the theme too, so it switches live.
+            for await _ in ObservationStream({ (Motion.speed, AgentPaneTunables.composerStrip.value) }) {
                 guard let self else { return }
                 self.applyTheme()
             }

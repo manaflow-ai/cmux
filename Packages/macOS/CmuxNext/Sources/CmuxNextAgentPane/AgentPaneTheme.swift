@@ -14,7 +14,8 @@ import Foundation
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
     static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.policy,
-                       surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
+                       surface: SurfaceKind = .agentPane,
+                       composerStrip: AgentPaneComposerStrip = AgentPaneTunables.composerStrip.value) -> [String: any Sendable] {
         let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
@@ -58,6 +59,9 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
+            // The composer strip's look (Debug Settings `agentPane.composerStrip`), as the root's
+            // `data-composer-strip`, which wins over the page's own experiment arm.
+            "composerStrip": composerStrip.rawValue,
         ]
     }
 
