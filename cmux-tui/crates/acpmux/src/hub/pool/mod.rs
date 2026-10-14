@@ -63,6 +63,9 @@ const RSS_TICK: Duration = Duration::from_secs(60);
 const CLAIM_WAIT: Duration = Duration::from_secs(15);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
+/// Most a claimed entry's host may take to answer before the entry counts
+/// as wedged; a healthy host answers in milliseconds.
+const CLAIM_PROBE: Duration = Duration::from_secs(3);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -506,7 +509,10 @@ impl Hub {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(mut p) => {
-                    if !p.child.is_alive().await {
+                    // A dead or wedged host is ended; the session starts on
+                    // a fresh host (`spawn_hosted_child`).
+                    if !p.child.is_alive().await || !p.child.answers_within(CLAIM_PROBE).await {
+                        tracing::warn!(harness = %spec.key.harness, "a pooled agent host did not answer; it ends and the session starts on a fresh host");
                         self.pool_discard(vec![p]);
                         return None;
                     }
