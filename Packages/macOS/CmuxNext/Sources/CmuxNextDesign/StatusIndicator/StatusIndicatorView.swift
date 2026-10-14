@@ -81,7 +81,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
         needsDisplay = true
-        // The host may name the state beside the mark in the static look.
+        // The static look can show or hide the mark; the host lays out again.
         superview?.needsLayout = true
     }
 

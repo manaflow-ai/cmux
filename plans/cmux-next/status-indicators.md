@@ -65,8 +65,8 @@ ring; busy the style's still glyph (an open arc for `arc` and `dot`, the native 
 frame); known progress keeps the ring. A tab's needs-input, done and failed badge draws the same marks in place
 of its colored dot. Every indicator's tooltip and VoiceOver label is the state's short name
 (`StatusIndicatorState.shortLabel`: Working, Loading, Paused, Waiting, Needs permission, Question, Sign-in
-needed, Error, Done); in the static look a sidebar workspace row also shows it, in the second line's font and
-color, left of its mark (`WorkspaceRowView+StatusLabel`). Tabs have no room for it: VoiceOver names the state.
+needed, Error, Done). No surface shows it as visible text: the sidebar is being redone (Lawrence 2026-10-13),
+so the static look only swaps glyphs in the same slot and size.
 
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
 `status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and

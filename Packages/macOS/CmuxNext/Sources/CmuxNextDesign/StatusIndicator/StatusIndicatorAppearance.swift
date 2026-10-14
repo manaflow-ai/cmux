@@ -51,7 +51,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
 
     /// The static look (cx-sya4n): the setting says static, or Reduce Motion
     /// is on. Nothing animates, each state draws its own shape whatever the
-    /// icon set, and a sidebar row names the state beside its mark.
+    /// icon set, in the same slot and size.
     public var isStatic: Bool { settings.animation == .static || reduceMotion }
 
     /// The style for a report that asked for `hint`: the Debug Settings

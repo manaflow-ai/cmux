@@ -1,8 +1,7 @@
 import Foundation
 
 /// A state's name in a word or two (cx-sya4n): the indicator's tooltip and
-/// VoiceOver label everywhere, and the text beside a sidebar row's mark in
-/// the static look (`StatusIndicatorConfig.isStatic`).
+/// VoiceOver label everywhere (sidebar rows, tabs, chrome), in every look.
 nonisolated extension StatusIndicatorState {
     /// Nil for idle.
     public var shortLabel: String? {

@@ -8,10 +8,10 @@ import Foundation
 import Testing
 
 /// Leo 2026-10-13 (cx-sya4n): "What if they were just colors or symbols or some text."
-/// `appearance.statusIndicator.animation: "static"` (Settings > Appearance > Status indicators)
+/// `appearance.statusIndicator.animation: "static"` (Settings > Appearance > Loading Indicator > Status Indicators)
 /// stills every status indicator, draws each state as its own shape (never color alone), and
-/// names the state: the indicator's tooltip and VoiceOver label everywhere, and a short label
-/// beside the mark on a sidebar workspace row.
+/// names the state in the indicator's tooltip and VoiceOver label. The sidebar only swaps glyphs
+/// (Lawrence is redoing it, 2026-10-13): no visible label text.
 @MainActor @Suite(.serialized) struct StaticStatusIndicatorTests {
     static let states: [(name: String, state: StatusIndicatorState)] = [
         ("working", .working(progress: nil)), ("busy", .busy(progress: nil)), ("paused", .paused(progress: nil)),
@@ -97,11 +97,7 @@ import Testing
             let label = mark.themedToolTip ?? ""
             #expect(!label.isEmpty, "\(name): the mark has no tooltip")
             labels[name] = label
-            let shown = row.subviews.contains { view in
-                guard let field = view as? NSTextField, field !== row.subtitle, !field.isHidden, field.frame.width > 0 else { return false }
-                return field.stringValue == label
-            }
-            #expect(shown, "\(name): the row does not show its label \"\(label)\"")
+            #expect(mark.accessibilityLabel() == label, "\(name): VoiceOver does not read \"\(label)\"")
         }
         #expect(Set(glyphs.values).count == Self.states.count, "two states share a mark: \(glyphs)")
         #expect(Set(labels.values).count == Self.states.count, "two states share a label: \(labels)")
