@@ -10,8 +10,9 @@ import CoreGraphics
 /// - Release closes when the card is at least 72% of its width to the left,
 ///   or when the finger leaves leftward faster than 225 pt/s; otherwise the
 ///   card springs back (response 0.56, damping 0.92).
-/// - Closing: the card flies off to the left and fades within about two
-///   frames, then the grid reflows with the close button's reflow spring.
+/// - Closing: the card flies off to the left and fades within 2-3 frames,
+///   then the grid reflows with the close button's reflow spring (once the
+///   host confirmed the close; a refused close brings the card back).
 struct CardSwipe: Equatable, Sendable {
     static let commitFraction: CGFloat = 0.72
     static let flingVelocity: CGFloat = 225
@@ -19,7 +20,10 @@ struct CardSwipe: Equatable, Sendable {
     static let rubberDimension: CGFloat = 120
     static let rubberConstant: CGFloat = 0.55
     static let snapBack = ZoomSpring(response: 0.56, damping: 0.92)
-    static let flyOffDuration = 0.12
+    /// Safari's fly-off: the card is gone in 2-3 frames, then the reflow.
+    static let flyOffDuration = 0.04
+    /// Reduce Motion: no movement after release, a crossfade instead.
+    static let reduceMotionFade = 0.18
 
     /// The card's offset for a finger translation.
     static func offset(translation dx: CGFloat) -> CGFloat {

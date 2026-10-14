@@ -25,6 +25,7 @@ struct TabCard: View {
     /// The zoom draws this card's snapshot and close button; its title row
     /// stays here and fades in with the others.
     var snapshotHidden = false
+    var onOpen: () -> Void = {}
     var onClose: () -> Void
 
     private let style = BrowserStyle.shared
@@ -65,8 +66,14 @@ struct TabCard: View {
             .opacity(titleOpacity)
         }
         .frame(width: width, alignment: .top)
-        .accessibilityElement(children: .combine)
+        // One element per card, framed to the card and its title row: the
+        // scaled page inside reported an unlabeled image framed at the full
+        // page size.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(startPage ? "Start Page" : item.title), tab")
         .accessibilityAddTraits(.isButton)
+        .accessibilityAction(named: "Open") { onOpen() }
+        .accessibilityAction(named: "Close") { onClose() }
     }
 }
 
@@ -167,7 +174,8 @@ struct TabOverview: View {
     @Binding var position: ScrollPosition
     var leadingItem: AnyView?
     var onSelect: (String) -> Void
-    var onClose: (String) -> Void
+    /// Closes the card's tab on the host; false when refused (it stays).
+    var onClose: (String) async -> Bool
     var onNewTab: () -> Void
     /// Set when the grid also holds terminals: (+) offers both.
     var onNewTerminal: (() -> Void)?
@@ -198,16 +206,18 @@ struct TabOverview: View {
                                 startPage: tabs.showsStartPage(tab.id), tabs: tabs.browser.tabs, pageSize: layout.size,
                                 safeTop: layout.safeTop, width: r.width, height: r.height, radius: layout.cardRadius, showsClose: true,
                                 closeOpacity: chrome.closeOpacity, titleOpacity: chrome.titleOpacity,
-                                titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId, onClose: { onClose(tab.id) })
+                                titleOffset: chrome.titleOffset, snapshotHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                                onClose: { Task { _ = await onClose(tab.id) } })
                             .contentShape(.rect)
                             .onTapGesture { onSelect(tab.id) }
                             // Swipe left to close (CardSwipe).
                             .gesture(CardSwipeGesture { phase in
+                                let rm = UIAccessibility.isReduceMotionEnabled
                                 switch phase {
                                 case .changed(let dx): swipes.track(tab.id, translation: dx)
                                 case .ended(_, let v):
-                                    swipes.release(tab.id, velocity: v, card: r, motion: BrowserStyle.shared.motion) { onClose(tab.id) }
-                                case .cancelled: swipes.cancel(tab.id, motion: BrowserStyle.shared.motion)
+                                    swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm) { await onClose(tab.id) }
+                                case .cancelled: swipes.cancel(tab.id, reduceMotion: rm)
                                 }
                             })
                             .opacity(swipes.opacity(tab.id))

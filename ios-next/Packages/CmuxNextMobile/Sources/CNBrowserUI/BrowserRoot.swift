@@ -222,6 +222,8 @@ struct BrowserScreen: View {
         ZStack(alignment: .topLeading) {
             pageLayer
                 .frame(width: size.width, height: size.height)
+                // Covered by the grid: out of the accessibility tree.
+                .accessibilityHidden(overviewVisible)
 
             if chrome.editing {
                 editingBackground
@@ -240,7 +242,7 @@ struct BrowserScreen: View {
                             scrollOffset: $overviewScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
-                            onClose: { id in withAnimation(motion.resolve(motion.reflow)) { tabs.close(id) } },
+                            onClose: { id in await tabs.closeConfirmed(id, animation: motion.resolve(motion.reflow)) },
                             onNewTab: newTabFromOverview,
                             onNewTerminal: tabs.includesTerminals ? { newTerminalFromOverview() } : nil,
                             onDone: { closeOverview(selecting: tabs.activeKey) },
@@ -322,6 +324,7 @@ struct BrowserScreen: View {
                            onHistory: model.goToHistory,
                            onHistoryMenu: { model.refreshHistory() })
                 .opacity(1 - overviewShown)
+                .accessibilityHidden(overviewVisible)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
                 .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
@@ -473,7 +476,7 @@ struct BrowserScreen: View {
             // The card's close button (drawn here because this layer covers
             // the card); tappable on the settled grid.
             Button {
-                withAnimation(motion.resolve(motion.reflow)) { tabs.close(key) }
+                tabs.close(key, animation: motion.resolve(motion.reflow))
             } label: {
                 CardCloseGlyph().padding(4).contentShape(.rect)
             }
@@ -1012,7 +1015,7 @@ struct BrowserScreen: View {
 
     private func closeAll() {
         let ids = tabs.items.map(\.id)
-        withAnimation(motion.resolve(motion.reflow)) { for id in ids { tabs.close(id) } }
+        for id in ids { tabs.close(id, animation: motion.resolve(motion.reflow)) }
         newTabFromOverview()
     }
 
