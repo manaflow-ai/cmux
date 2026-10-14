@@ -6,7 +6,12 @@ import UIKit
 
 /// A navigation value that opens the Chief conversation.
 public struct ChiefRoute: Hashable, Sendable {
-    public init() {}
+    /// Home's compose button: the keyboard rises once the push settles.
+    public var focusesComposer: Bool
+
+    public init(focusesComposer: Bool = false) {
+        self.focusesComposer = focusesComposer
+    }
 }
 
 /// The Chief conversation: CmuxConversation's Messages-style
@@ -18,15 +23,17 @@ public struct ChiefRoute: Hashable, Sendable {
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
+    let focusesComposer: Bool
     @Environment(\.dismiss) private var dismiss
 
-    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil) {
+    public init(session: ChiefSession = .shared, compose: ChiefComposer? = nil, focusesComposer: Bool = false) {
         self.session = session
         self.compose = compose
+        self.focusesComposer = focusesComposer
     }
 
     public var body: some View {
-        ChiefConversationController(session: session, compose: compose, back: { dismiss() })
+        ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, back: { dismiss() })
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
@@ -51,11 +58,13 @@ extension ConversationPresentationOptions {
 struct ChiefConversationController: UIViewControllerRepresentable {
     let session: ChiefSession
     let compose: ChiefComposer?
+    let focusesComposer: Bool
     let back: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: .chief)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
+        container.focusesComposerOnAppear = focusesComposer
         configure(conversation)
         #if DEBUG
         ChiefDemoHook.shared.controller = conversation
@@ -263,11 +272,29 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     /// How far the finger has moved when the content pop asks to begin.
     static let contentPopSlop: CGFloat = 30
 
+    /// Home's compose pushed this screen: focus the composer once the push
+    /// has settled, in the same turn as `viewDidAppear` (no delay).
+    var focusesComposerOnAppear = false
+
+    /// The package's composer field, found by its accessibility marker
+    /// (CmuxConversation has no public focus call). A later package that
+    /// renames it opens without the keyboard, never wrongly.
+    private func focusComposer() {
+        let field = conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" }
+        field?.becomeFirstResponder()
+    }
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
         ChiefAlerts.shared.conversationVisible = true
+        session.markSeen()
         showOutboxIfWaiting()
+        if focusesComposerOnAppear {
+            focusesComposerOnAppear = false
+            // Not under the waiting-outbox alert.
+            if presentedViewController == nil { focusComposer() }
+        }
         #if DEBUG
         ChiefDemoHook.shared.container = self
         #endif
@@ -308,6 +335,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 private extension UIView {
     func allGestureRecognizersInSubtree() -> [UIGestureRecognizer] {
         (gestureRecognizers ?? []) + subviews.flatMap { $0.allGestureRecognizersInSubtree() }
+    }
+
+    func firstSubview(where match: (UIView) -> Bool) -> UIView? {
+        for view in subviews {
+            if match(view) { return view }
+            if let found = view.firstSubview(where: match) { return found }
+        }
+        return nil
     }
 
     func subviewsOfType<T: UIView>(_ type: T.Type) -> [T] {

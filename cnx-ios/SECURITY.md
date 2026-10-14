@@ -259,11 +259,24 @@ no `auth` before it (`echo` included) is refused at once. The design is in
 | Mutates or destroys objects the session does not own? | It can only ask the person to approve this link's own device id (stamped by the backend, never taken from the arguments), or, with `unpair` and a signature by the approved identity key, ask the app to forget that same device. |
 | Reads local state the remote should not see? | It answers only a fresh 32-byte challenge and the Mac's own device id. The paired list stays in the app (a 0600 file per signed-in user). |
 
+- **Prompt limits.** A token holder can bring any number of fresh key pairs,
+  so the deny list (keyed on the key) alone does not stop it re-asking. hostd
+  runs one `auth` at a time per link (`busy`), lets at most 32 channels wait
+  behind it (`busy`), and asks at most 3 new identity keys per device id and
+  6 in all per 10 minutes. After the person refuses a key, that device id
+  asks nothing for 10 minutes whatever key it brings (`rate_limited`). hostd
+  asks nothing until the app sent its approved list, so an approved phone is
+  never asked again after a hostd restart.
+- **Prompt content.** `pair_request` carries `registered_at_ms` (PROTOCOL.md
+  "Pairing"): when the backend first saw that device id. The phone sets the
+  `name` it shows, so a spoofed "Aziz's iPhone" from a device registered
+  minutes ago is visible as new.
 - **Rule 6 (tests):** `pairing::tests` and the pairing cases in
   `tests/host.rs` (a token alone reaches no service, a forged signature asks
   nobody, approval opens the link, a new approval key asks again, unpair
-  reaches the app, a refused key is closed `denied`, and channels opened
-  behind `auth` wait for it).
+  reaches the app, a refused key is closed `denied`, channels opened
+  behind `auth` wait for it, one `auth` per link, a refusal silences new keys
+  from that device id, and nothing is asked before the app's list arrives).
 
 ## Decisions for the person
 

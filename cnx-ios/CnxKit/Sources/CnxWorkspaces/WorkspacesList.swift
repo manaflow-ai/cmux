@@ -27,6 +27,10 @@ public struct WorkspacesList: View {
     var accountEmail: String?
     /// Links a Mac (live only): a Mac whose list the phone does not have.
     var reconnect: ((String) -> Void)?
+    /// Moves the link to a Mac (live only; nothing when it is already the
+    /// link's Mac). Called whenever the list is filtered to an online Mac or
+    /// one of its workspaces opens (`MacScope.macToLink`).
+    var linking: MacLinking?
     /// Pull to refresh (live only).
     var refresh: (() async -> Void)?
     /// Moves to another team (the empty state offers the team where a Mac is).
@@ -58,7 +62,8 @@ public struct WorkspacesList: View {
     @State private var scrollProxy: ScrollViewProxy?
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
-                reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
+                reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
+                refresh: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
                 open: @escaping (Workspace) -> Void) {
@@ -66,6 +71,7 @@ public struct WorkspacesList: View {
         self.creator = creator
         self.accountEmail = accountEmail
         self.reconnect = reconnect
+        self.linking = linking
         self.refresh = refresh
         self.switchTeam = switchTeam
         self.openAccount = openAccount
@@ -81,6 +87,12 @@ public struct WorkspacesList: View {
     }
 
     private func mac(_ id: String) -> MacDevice? { macs.first { $0.id == id } }
+
+    /// Tags for the team's Macs that share a name, so every place that
+    /// names a Mac says which one ("Aziz's MacBook Pro (3F2A)").
+    private var sameNames: MacNameDisambiguation { MacNameDisambiguation(macs) }
+
+    private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
     private var inbox: WorkspaceInbox {
         WorkspaceInbox(scope: scope, macs: macs, workspaces: store.workspaces, query: query,
@@ -108,10 +120,15 @@ public struct WorkspacesList: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if macs.count > 1 { filterMenu }
-                    NewWorkspaceButton(creator: creator, target: target, showsMacPicker: scope == .all) { start, directory in
+                    NewWorkspaceButton(creator: creator, target: target, showsMacPicker: scope == .all, sameNames: sameNames) { start, directory in
                         create(start, directory: directory, on: target?.id)
                     }
                 }
+            }
+            // The chosen Mac is the linked Mac: on a choice, on launch with a
+            // remembered choice, and when the chosen Mac comes online.
+            .onChange(of: scope.macToLink(in: macs), initial: true) { _, id in
+                if let id { linking?.link(id) }
             }
             .task(id: isRefreshing) {
                 // Say "Updating…" only when a refresh is slow, not on every one.
@@ -140,7 +157,7 @@ public struct WorkspacesList: View {
     /// refresh, "2 need you", or with several Macs how many are online.
     private var subtitle: String {
         if let mac = scopedMac {
-            return "\(mac.name) · " + RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
+            return "\(displayName(mac)) · " + RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
         if showsUpdating && isRefreshing { return "Updating…" }
         let waiting = inbox.needsYouCount
@@ -154,7 +171,7 @@ public struct WorkspacesList: View {
     }
 
     private var unavailableTitle: String {
-        unavailable.flatMap { mac($0.macID) }.map { "\($0.name) is offline" } ?? "Mac is offline"
+        unavailable.flatMap { mac($0.macID) }.map { "\(displayName($0)) is offline" } ?? "Mac is offline"
     }
 
     private func unavailableMessage(_ ws: Workspace) -> String {
@@ -166,8 +183,9 @@ public struct WorkspacesList: View {
         guard let team = store.activeTeam, value != scope else { return }
         theme.haptics.selection()
         withAnimation(theme.motion.smooth.animation) { filter.select(value, in: team.id) }
-        // Live: the phone links one Mac at a time; showing another links it.
-        if let id = value.macID, mac(id)?.isOnline == true, listState(id) == .notConnected {
+        // Live: the phone links one Mac at a time; showing another links it
+        // (the scope's onChange). A failed Mac is dialed again on a choice.
+        if let id = value.macID, mac(id)?.isOnline == true, case .failed = listState(id) {
             reconnect?(id)
         }
     }
@@ -195,6 +213,8 @@ public struct WorkspacesList: View {
             store.noteOpened(tabID: tab.id, in: ws.id)
         }
         store.markSeen(ws.id)
+        // Its tabs come from its Mac: opening a workspace links that Mac.
+        if let id = MacScope.macToLink(opening: ws, in: macs) { linking?.link(id) }
         open(ws)
     }
 
@@ -300,7 +320,7 @@ public struct WorkspacesList: View {
 
     private func row(_ ws: Workspace, _ inbox: WorkspaceInbox) -> some View {
         let status = inbox.status(ws)
-        let macName = mac(ws.macID)?.name
+        let macName = mac(ws.macID).map(displayName)
         let canManage = status != .offline && creator.canManage(ws)
         return Button {
             openWorkspace(ws, status: status)
@@ -396,7 +416,7 @@ public struct WorkspacesList: View {
                     withAnimation(theme.motion.smooth.animation) { creator.close(ws) }
                 }
             } message: { ws in
-                Text("Its tabs close on \(mac(ws.macID)?.name ?? "the Mac").")
+                Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
             }
     }
 
@@ -408,7 +428,7 @@ public struct WorkspacesList: View {
     /// The row menu: the Mac and branch as its header, the workspace's tabs
     /// (jump straight to one), then Rename and Close.
     @ViewBuilder private func menu(_ ws: Workspace, status: WorkspaceStatus, canManage: Bool) -> some View {
-        let macName = mac(ws.macID)?.name ?? "Unknown Mac"
+        let macName = mac(ws.macID).map(displayName) ?? "Unknown Mac"
         Section(menuHeader(ws, macName: macName, offline: status == .offline)) {
             if status == .offline {
                 if scope == .all {
@@ -478,7 +498,7 @@ public struct WorkspacesList: View {
             HStack(spacing: 6) {
                 Image(systemName: fold.reason == .offline ? "moon.zzz" : "bolt.horizontal.circle")
                     .accessibilityHidden(true)
-                Text("\(fold.mac.name) · \(detail)")
+                Text("\(displayName(fold.mac)) · \(detail)")
                     .lineLimit(3)
                 Spacer(minLength: 8)
                 if fold.reason != .offline {
@@ -535,47 +555,12 @@ public struct WorkspacesList: View {
         if !query.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: query)
         } else if let mac = scopedMac {
-            if !mac.isOnline {
-                EmptyState(
-                    symbol: "moon.zzz",
-                    title: "\(mac.name) is offline",
-                    message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
-                )
-                .accessibilityIdentifier("workspaces.empty.offline")
-            } else if case .failed(let reason) = listState(mac.id) {
-                EmptyState(
-                    symbol: "bolt.horizontal.circle",
-                    title: "Can't connect to \(mac.name)",
-                    message: "\(mac.name) is online, but this iPhone can't reach it: \(reason).",
-                    primaryTitle: reconnect == nil ? nil : "Retry",
-                    primary: reconnect.map { reconnect in { reconnect(mac.id) } }
-                )
-                .accessibilityIdentifier("workspaces.failed")
-            } else if listState(mac.id) == .notConnected {
-                EmptyState(
-                    symbol: "link",
-                    title: "\(mac.name) isn't connected",
-                    message: "This iPhone shows one Mac's workspaces at a time.",
-                    primaryTitle: reconnect == nil ? nil : "Connect",
-                    primary: reconnect.map { reconnect in { reconnect(mac.id) } }
-                )
-                .accessibilityIdentifier("workspaces.empty.not-connected")
-            } else {
-                let canCreate = target != nil
-                EmptyState(
-                    symbol: "macwindow",
-                    title: "No workspaces on \(mac.name)",
-                    message: canCreate ? "New workspaces open right away." : "\(mac.name) can't take new workspaces from this iPhone yet.",
-                    primaryTitle: canCreate ? "New Workspace" : nil,
-                    primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
-                )
-                .accessibilityIdentifier("workspaces.empty.mac")
-            }
+            scopedEmptyState(mac)
         } else if let target {
             EmptyState(
                 symbol: "macwindow",
                 title: "No workspaces yet",
-                message: "New workspaces open right away on \(target.name).",
+                message: "New workspaces open right away on \(displayName(target)).",
                 primaryTitle: "New Workspace",
                 primary: { create(.terminal, directory: nil, on: target.id) }
             )
@@ -587,6 +572,66 @@ public struct WorkspacesList: View {
                 message: "Wake a Mac or open cmux on it to see its workspaces."
             )
             .accessibilityIdentifier("workspaces.empty.asleep")
+        }
+    }
+
+    /// Filtered to an online Mac with no rows (`MacEmptyState`). Never
+    /// "can't take new workspaces" while the phone is still linking it.
+    @ViewBuilder private func scopedEmptyState(_ mac: MacDevice) -> some View {
+        let canCreate = target != nil
+        switch MacEmptyState.resolve(isOnline: mac.isOnline, list: listState(mac.id), connection: store.macConnection[mac.id],
+                                     tracksLive: store.tracksMacData, reach: linking?.reach(mac.id) ?? .none, canCreate: canCreate) {
+        case .offline:
+            EmptyState(
+                symbol: "moon.zzz",
+                title: "\(displayName(mac)) is offline",
+                message: "\(RelativeStamp().presence(isOnline: false, lastSeenAt: mac.lastSeenAt)). Open cmux on it to see its workspaces."
+            )
+            .accessibilityIdentifier("workspaces.empty.offline")
+        case .failed(let reason):
+            EmptyState(
+                symbol: "bolt.horizontal.circle",
+                title: "Can't connect to \(displayName(mac))",
+                message: "\(displayName(mac)) is online, but this iPhone can't reach it: \(reason).",
+                primaryTitle: reconnect == nil ? nil : "Retry",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.failed")
+        case .notConnected:
+            EmptyState(
+                symbol: "link",
+                title: "\(displayName(mac)) isn't connected",
+                message: "This iPhone shows one Mac's workspaces at a time.",
+                primaryTitle: reconnect == nil ? nil : "Connect",
+                primary: reconnect.map { reconnect in { reconnect(mac.id) } }
+            )
+            .accessibilityIdentifier("workspaces.empty.not-connected")
+        case .othersMac:
+            EmptyState(
+                symbol: "person.crop.circle.badge.questionmark",
+                title: "\(displayName(mac)) belongs to a teammate",
+                message: "Only the iPhones of the person who signed in on \(displayName(mac)) can connect to it. Its workspaces show here, but this iPhone can't open them."
+            )
+            .accessibilityIdentifier("workspaces.empty.others-mac")
+        case .connecting:
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Connecting to \(displayName(mac))…")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("workspaces.empty.connecting")
+        case .empty(let canCreate):
+            EmptyState(
+                symbol: "macwindow",
+                title: "No workspaces on \(displayName(mac))",
+                message: canCreate ? "New workspaces open right away." : "\(displayName(mac)) can't take new workspaces from this iPhone yet.",
+                primaryTitle: canCreate ? "New Workspace" : nil,
+                primary: canCreate ? { create(.terminal, directory: nil, on: mac.id) } : nil
+            )
+            .accessibilityIdentifier("workspaces.empty.mac")
         }
     }
 
@@ -615,7 +660,7 @@ public struct WorkspacesList: View {
             Label("Filter", systemImage: scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
         }
         .accessibilityIdentifier("workspaces.filter")
-        .accessibilityValue(scopedMac?.name ?? "All Macs")
+        .accessibilityValue(scopedMac.map(displayName) ?? "All Macs")
     }
 
     /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
@@ -627,7 +672,7 @@ public struct WorkspacesList: View {
     private func macDetail(_ mac: MacDevice) -> String {
         let presence = RelativeStamp().presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         let status = store.macStatusLine(mac, presence: presence).text
-        return [status, store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
+        return [status, sameNames.detail(for: mac.id), store.macLinkStatus[mac.id]].compactMap(\.self).joined(separator: " · ")
     }
 
     private func retry() {
@@ -820,7 +865,8 @@ struct WorkspaceRow: View {
     }
 }
 
-/// Line 2 of a row: "**Claude is waiting** · Refactor transport layer",
+/// Line 2 of a row: "**Claude is asking permission** · Refactor transport layer"
+/// (or "has a question"; "is waiting" for a terminal agent),
 /// "Codex is working · Fix pricing page" (shimmering), "**Done** · Claude:
 /// Audit runner labels", else the branch or directory.
 struct StatusLine: View {
@@ -852,7 +898,7 @@ struct StatusLine: View {
     private var tab: WorkspaceTab? { workspace.agentTab(for: status) }
     private var agentName: String? { tab?.agentName }
     private var task: String? { tab?.task }
-    private var waiting: String { agentName.map { "\($0) is waiting" } ?? "Needs you" }
+    private var waiting: String { tab?.waitingPhrase ?? "Needs you" }
     private var working: String { agentName.map { "\($0) is working" } ?? "Working" }
 
     private func emphasis(_ word: String) -> Text {
@@ -873,7 +919,7 @@ struct StatusLine: View {
     static func words(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> [String] {
         let tab = workspace.agentTab(for: status)
         switch status {
-        case .needsYou: return [tab.map { "\($0.agentName) is waiting" } ?? "Needs you", tab?.task].compactMap(\.self)
+        case .needsYou: return [tab?.waitingPhrase ?? "Needs you", tab?.task].compactMap(\.self)
         case .working: return [tab.map { "\($0.agentName) is working" } ?? "Working", tab?.task].compactMap(\.self)
         case .done: return ["Done", tab.map { "\($0.agentName)" }, tab?.task].compactMap(\.self)
         case .creating: return ["Creating"]
@@ -1062,7 +1108,11 @@ struct NewWorkspaceButton: View {
     /// The Mac picker is offered only under All Macs; with one Mac
     /// filtered, the filter menu is where the Mac changes.
     let showsMacPicker: Bool
+    /// The team's same-name Macs, tagged as the filter menu tags them.
+    let sameNames: MacNameDisambiguation
     let create: (NewWorkspaceStart, String?) -> Void
+
+    private func displayName(_ mac: MacDevice) -> String { sameNames.displayName(mac) }
 
     var body: some View {
         Menu {
@@ -1074,7 +1124,7 @@ struct NewWorkspaceButton: View {
         }
         .disabled(target == nil)
         .accessibilityIdentifier("workspaces.new")
-        .accessibilityHint(target.map { "Creates a workspace on \($0.name)" } ?? "")
+        .accessibilityHint(target.map { "Creates a workspace on \(displayName($0))" } ?? "")
     }
 
     @ViewBuilder private var menu: some View {
@@ -1082,7 +1132,7 @@ struct NewWorkspaceButton: View {
             let options = creator.options(on: mac.id)
             let macs = creator.availableMacs
             if macs.count > 1 || !showsMacPicker {
-                Section("On \(mac.name)") { starts(options) }
+                Section("On \(displayName(mac))") { starts(options) }
             } else {
                 Section { starts(options) }
             }
@@ -1106,7 +1156,7 @@ struct NewWorkspaceButton: View {
             if showsMacPicker && macs.count > 1 {
                 Section {
                     Picker(selection: Binding(get: { mac.id }, set: { creator.prefer(macID: $0) })) {
-                        ForEach(macs) { Text($0.name).tag($0.id) }
+                        ForEach(macs) { Text(displayName($0)).tag($0.id) }
                     } label: {
                         Label("Mac", systemImage: "desktopcomputer")
                     }

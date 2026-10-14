@@ -15,16 +15,29 @@
 //! - `{action: "unpair"}` with a valid signature by an approved key tells the
 //!   app to forget that device (the phone's sign-out).
 //!
+//! - Limits (review M4, a stolen token must not wear the person down with
+//!   prompts): one `auth` at a time per link (another is refused `busy`); at
+//!   most [`MAX_WAITERS`] channels wait behind it; new keys ask at most
+//!   [`KEYS_PER_DEVICE`] times per device id and [`PROMPTS_PER_ACCOUNT`] times
+//!   in all per [`PROMPT_WINDOW`]; after the person refuses a key, that device
+//!   id asks nothing for [`DENY_COOLDOWN`] whatever key it brings. A request
+//!   over a limit is refused `rate_limited`.
+//! - hostd asks nothing until the app sent its first `devices` list (a paired
+//!   phone right after a hostd restart is never asked again), waiting at most
+//!   [`TRUST_WAIT`] for it.
+//!
 //! The device id is the link's authenticated sender (backend-stamped), never
 //! an argument. Unsupervised hostd (tests, `run-host.sh`) runs without
 //! pairing, as before.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cnx_link::ChannelEvent;
 use cnx_link::link::{ChannelReceiver, ChannelSender};
+use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -36,6 +49,60 @@ pub const APPROVAL_WAIT: Duration = Duration::from_secs(120);
 /// How long hostd waits for the phone's signature.
 const SIGNATURE_WAIT: Duration = Duration::from_secs(30);
 const DOMAIN: &str = "cnx-link-auth-v1";
+/// How long a request waits for the app's first `devices` list.
+pub const TRUST_WAIT: Duration = Duration::from_secs(10);
+/// How many channels may wait behind a link's running `auth`.
+pub const MAX_WAITERS: usize = 32;
+/// After the person refuses a key, how long that device id asks nothing.
+pub const DENY_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+/// The window the prompt counts below cover.
+pub const PROMPT_WINDOW: Duration = Duration::from_secs(10 * 60);
+/// New identity keys one device id may ask about per window.
+pub const KEYS_PER_DEVICE: usize = 3;
+/// New identity keys all phones together may ask about per window.
+pub const PROMPTS_PER_ACCOUNT: usize = 6;
+/// How long the registration date lookup may hold a prompt back.
+const REGISTRATION_WAIT: Duration = Duration::from_secs(3);
+
+/// Looks up when a phone device id first registered with the service
+/// (epoch milliseconds), for the pairing prompt. `None`: unknown.
+pub type RegistrationLookup = Arc<dyn Fn(String) -> BoxFuture<'static, Option<i64>> + Send + Sync>;
+
+/// Epoch milliseconds of an RFC 3339 UTC time as the service writes it
+/// (`2026-10-14T07:12:09.681Z`, fraction optional, `Z` or `+00:00`).
+pub fn epoch_millis(text: &str) -> Option<i64> {
+    let text = text.strip_suffix('Z').or_else(|| text.strip_suffix("+00:00"))?;
+    let (date, time) = text.split_once('T')?;
+    let mut date = date.split('-').map(|p| p.parse::<i64>().ok());
+    let (year, month, day) = (date.next()??, date.next()??, date.next()??);
+    let (clock, fraction) = time.split_once('.').unwrap_or((time, ""));
+    let mut clock = clock.split(':').map(|p| p.parse::<i64>().ok());
+    let (hour, minute, second) = (clock.next()??, clock.next()??, clock.next()??);
+    if date.next().is_some()
+        || clock.next().is_some()
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+    {
+        return None;
+    }
+    let millis = if fraction.is_empty() {
+        0
+    } else {
+        if !fraction.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        format!("{fraction:0<3}")[..3].parse::<i64>().ok()?
+    };
+    // Days from 1970-01-01 (Howard Hinnant's days_from_civil).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis)
+}
 
 /// One device the Mac approved.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -101,6 +168,99 @@ pub struct Pairing {
     pub trust: watch::Receiver<Option<DeviceTrust>>,
     /// Where events for the app go (stdout when supervised).
     pub emit: Arc<dyn Fn(Event) + Send + Sync>,
+    /// The prompt limits, shared by every link of this hostd.
+    pub limiter: Arc<Mutex<PromptLimiter>>,
+    /// The phone's registration date for the prompt (`None`: not looked up).
+    pub registration: Option<RegistrationLookup>,
+}
+
+impl Pairing {
+    pub fn new(
+        mac_device_id: String,
+        trust: watch::Receiver<Option<DeviceTrust>>,
+        emit: Arc<dyn Fn(Event) + Send + Sync>,
+    ) -> Self {
+        Self { mac_device_id, trust, emit, limiter: Arc::default(), registration: None }
+    }
+}
+
+/// What one device id asked recently.
+#[derive(Debug, Default)]
+struct DeviceAsks {
+    /// New identity keys asked about, with when (pruned to [`PROMPT_WINDOW`]).
+    recent: Vec<(String, Instant)>,
+    /// Every identity key this hostd asked about for the device.
+    asked: HashSet<String>,
+    /// Refusals already counted.
+    denials: HashSet<String>,
+    denied_at: Option<Instant>,
+}
+
+/// Rate limits for pairing prompts (review M4).
+#[derive(Debug, Default)]
+pub struct PromptLimiter {
+    devices: HashMap<String, DeviceAsks>,
+    /// Every new-key prompt of this hostd in the window.
+    recent: VecDeque<Instant>,
+}
+
+impl PromptLimiter {
+    /// Whether hostd may ask about `identity_key` for `id` now; records the
+    /// ask when it may. `Err` carries how long until it may.
+    pub fn admit(
+        &mut self,
+        id: &str,
+        identity_key: &str,
+        trust: &DeviceTrust,
+        now: Instant,
+    ) -> Result<(), Duration> {
+        let asks = self.devices.entry(id.to_owned()).or_default();
+        // A refusal of a key this hostd asked about (seen even when that
+        // request's channel was gone before the person answered).
+        for denied in trust.denied.iter().filter(|d| d.id == id) {
+            if asks.asked.contains(&denied.identity_key) && asks.denials.insert(denied.identity_key.clone()) {
+                asks.denied_at = Some(now);
+            }
+        }
+        if let Some(at) = asks.denied_at {
+            let until = at + DENY_COOLDOWN;
+            if now < until {
+                return Err(until - now);
+            }
+        }
+        asks.recent.retain(|(_, at)| now.duration_since(*at) < PROMPT_WINDOW);
+        if asks.recent.iter().any(|(key, _)| key == identity_key) {
+            // The same key again (say after nobody answered): no new key.
+            return Ok(());
+        }
+        if asks.recent.len() >= KEYS_PER_DEVICE {
+            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(asks.recent[0].1)));
+        }
+        while self.recent.front().is_some_and(|at| now.duration_since(*at) >= PROMPT_WINDOW) {
+            self.recent.pop_front();
+        }
+        if self.recent.len() >= PROMPTS_PER_ACCOUNT {
+            let oldest = *self.recent.front().expect("non-empty");
+            return Err(PROMPT_WINDOW.saturating_sub(now.duration_since(oldest)));
+        }
+        self.recent.push_back(now);
+        asks.recent.push((identity_key.to_owned(), now));
+        asks.asked.insert(identity_key.to_owned());
+        Ok(())
+    }
+
+    /// The person refused `identity_key` for `id`.
+    pub fn denied(&mut self, id: &str, identity_key: &str, now: Instant) {
+        let asks = self.devices.entry(id.to_owned()).or_default();
+        if asks.asked.contains(identity_key) && asks.denials.insert(identity_key.to_owned()) {
+            asks.denied_at = Some(now);
+        }
+    }
+}
+
+fn wait_text(wait: Duration) -> String {
+    let minutes = wait.as_secs().div_ceil(60).max(1);
+    if minutes == 1 { "1 minute".into() } else { format!("{minutes} minutes") }
 }
 
 impl std::fmt::Debug for Pairing {
@@ -124,12 +284,23 @@ enum AuthState {
 #[derive(Debug)]
 pub struct LinkAuth {
     state: watch::Sender<AuthState>,
+    waiters: std::sync::atomic::AtomicUsize,
 }
 
 impl Default for LinkAuth {
     fn default() -> Self {
-        Self { state: watch::channel(AuthState::Idle).0 }
+        Self { state: watch::channel(AuthState::Idle).0, waiters: std::sync::atomic::AtomicUsize::new(0) }
     }
+}
+
+/// Whether a channel may be served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gate {
+    Paired,
+    /// Not paired: refused `unpaired`.
+    Unpaired,
+    /// Too many channels already wait behind `auth`: refused `busy`.
+    Busy,
 }
 
 impl LinkAuth {
@@ -150,6 +321,25 @@ impl LinkAuth {
         });
     }
 
+    /// [`LinkAuth::begin`] unless an `auth` is already running on the link:
+    /// a link has one `auth` at a time (the extra one is refused `busy`).
+    pub fn try_begin(&self) -> bool {
+        let mut started = false;
+        self.state.send_if_modified(|state| match *state {
+            AuthState::Running(_) => false,
+            AuthState::Paired => {
+                started = true;
+                false
+            }
+            AuthState::Idle => {
+                started = true;
+                *state = AuthState::Running(1);
+                true
+            }
+        });
+        started
+    }
+
     /// An `auth` channel finished; `paired` when it proved approved keys.
     /// Waiters are refused only when no other `auth` on the link is still running.
     pub fn end(&self, paired: bool) {
@@ -164,20 +354,41 @@ impl LinkAuth {
 
     /// Whether the link is paired, waiting while an `auth` opened before this
     /// channel is still running (at most the signature and approval waits).
+    /// At most [`MAX_WAITERS`] channels wait; one more is [`Gate::Busy`].
+    pub async fn gate(&self) -> Gate {
+        use std::sync::atomic::Ordering;
+        match *self.state.borrow() {
+            AuthState::Paired => return Gate::Paired,
+            AuthState::Idle => return Gate::Unpaired,
+            AuthState::Running(_) => {}
+        }
+        if self.waiters.fetch_add(1, Ordering::SeqCst) >= MAX_WAITERS {
+            self.waiters.fetch_sub(1, Ordering::SeqCst);
+            return Gate::Busy;
+        }
+        let paired = self.paired().await;
+        self.waiters.fetch_sub(1, Ordering::SeqCst);
+        if paired { Gate::Paired } else { Gate::Unpaired }
+    }
+
+    /// Whether the link is paired, waiting while an `auth` is running.
     pub async fn paired(&self) -> bool {
         let mut state = self.state.subscribe();
-        let wait = tokio::time::timeout(SIGNATURE_WAIT + APPROVAL_WAIT + Duration::from_secs(5), async {
-            loop {
-                match *state.borrow_and_update() {
-                    AuthState::Paired => return true,
-                    AuthState::Idle => return false,
-                    AuthState::Running(_) => {}
+        let wait = tokio::time::timeout(
+            SIGNATURE_WAIT + TRUST_WAIT + APPROVAL_WAIT + Duration::from_secs(5),
+            async {
+                loop {
+                    match *state.borrow_and_update() {
+                        AuthState::Paired => return true,
+                        AuthState::Idle => return false,
+                        AuthState::Running(_) => {}
+                    }
+                    if state.changed().await.is_err() {
+                        return false;
+                    }
                 }
-                if state.changed().await.is_err() {
-                    return false;
-                }
-            }
-        });
+            },
+        );
         wait.await.unwrap_or(false)
     }
 }
@@ -303,26 +514,55 @@ async fn authenticate(
         send(sender, json!({"ok": true})).await;
         return Ok(());
     }
-    let standing = |t: &Option<DeviceTrust>| {
-        t.as_ref().map_or(Standing::Unknown, |t| t.standing(phone, identity_key, approval_key))
-    };
+    // Decide nothing before the app said which phones it approved: a paired
+    // phone right after a hostd restart must not be asked again.
+    let loaded =
+        tokio::time::timeout(TRUST_WAIT, async { trust.wait_for(Option::is_some).await.map(|_| ()) }).await;
+    match loaded {
+        Ok(Ok(_)) => {}
+        Ok(Err(_)) => return Err(("unavailable", "the app is gone".into())),
+        Err(_) => return Err(("unavailable", "the Mac app has not loaded its paired iPhones yet".into())),
+    }
     let mut asked = false;
     let result = tokio::time::timeout(APPROVAL_WAIT, async {
         loop {
-            match standing(&trust.borrow_and_update()) {
+            let current = trust.borrow_and_update().clone().unwrap_or_default();
+            match current.standing(phone, identity_key, approval_key) {
                 Standing::Trusted => return Ok(()),
                 Standing::Denied => {
+                    if asked {
+                        pairing.limiter.lock().expect("limiter").denied(phone, identity_key, Instant::now());
+                    }
                     return Err(("denied", "the Mac did not allow this iPhone".into()));
                 }
-                _ => {}
+                Standing::Unknown => {}
             }
             if !asked {
+                let admitted = pairing.limiter.lock().expect("limiter").admit(
+                    phone,
+                    identity_key,
+                    &current,
+                    Instant::now(),
+                );
+                if let Err(wait) = admitted {
+                    return Err((
+                        "rate_limited",
+                        format!("the Mac asked about this iPhone recently; try again in {}", wait_text(wait)),
+                    ));
+                }
                 asked = true;
+                let registered_at_ms = match &pairing.registration {
+                    Some(lookup) => {
+                        tokio::time::timeout(REGISTRATION_WAIT, lookup(phone.to_owned())).await.ok().flatten()
+                    }
+                    None => None,
+                };
                 (pairing.emit)(Event::PairRequest {
                     phone_device_id: phone.to_owned(),
                     name: name.clone(),
                     identity_key: identity_key.to_owned(),
                     approval_key: approval_key.to_owned(),
+                    registered_at_ms,
                 });
                 send(sender, json!({"pending": true})).await;
             }
@@ -387,6 +627,86 @@ mod tests {
         other.begin();
         other.end(false);
         assert!(!other.paired().await);
+    }
+
+    fn denied(id: &str, key: &str) -> DeviceTrust {
+        DeviceTrust {
+            devices: vec![],
+            denied: vec![DeniedDevice { id: id.into(), identity_key: key.into() }],
+        }
+    }
+
+    #[test]
+    fn registration_dates_become_epoch_millis() {
+        assert_eq!(epoch_millis("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(epoch_millis("2026-10-14T07:12:09.681Z"), Some(1_791_961_929_681));
+        assert_eq!(epoch_millis("2000-02-29T12:00:00.5+00:00"), Some(951_825_600_500));
+        assert_eq!(epoch_millis("2026-10-14 07:12:09Z"), None);
+        assert_eq!(epoch_millis("2026-10-14T07:12:09+02:00"), None);
+    }
+
+    #[test]
+    fn new_keys_ask_a_bounded_number_of_times() {
+        let mut limiter = PromptLimiter::default();
+        let none = DeviceTrust::default();
+        let t0 = Instant::now();
+        for key in ["k1", "k2", "k3"] {
+            assert!(limiter.admit("p", key, &none, t0).is_ok());
+        }
+        // The same key again is no new key; a fourth key waits for the window.
+        assert!(limiter.admit("p", "k1", &none, t0).is_ok());
+        let wait = limiter.admit("p", "k4", &none, t0).unwrap_err();
+        assert_eq!(wait, PROMPT_WINDOW);
+        assert!(limiter.admit("p", "k4", &none, t0 + PROMPT_WINDOW).is_ok());
+        // All phones together: at most PROMPTS_PER_ACCOUNT new keys per window.
+        let mut limiter = PromptLimiter::default();
+        for n in 0..PROMPTS_PER_ACCOUNT {
+            assert!(limiter.admit(&format!("p{n}"), "k", &none, t0).is_ok());
+        }
+        assert!(limiter.admit("other", "k", &none, t0).is_err());
+    }
+
+    #[test]
+    fn a_refusal_silences_that_device_whatever_key() {
+        let mut limiter = PromptLimiter::default();
+        let none = DeviceTrust::default();
+        let t0 = Instant::now();
+        assert!(limiter.admit("p", "k1", &none, t0).is_ok());
+        limiter.denied("p", "k1", t0);
+        assert_eq!(limiter.admit("p", "k2", &none, t0).unwrap_err(), DENY_COOLDOWN);
+        // Another phone is not affected; this one asks again after the cooldown.
+        assert!(limiter.admit("q", "k2", &none, t0).is_ok());
+        assert!(limiter.admit("p", "k2", &none, t0 + DENY_COOLDOWN).is_ok());
+        // A refusal seen only in the app's list (the request's channel was gone).
+        let mut limiter = PromptLimiter::default();
+        assert!(limiter.admit("p", "k1", &none, t0).is_ok());
+        assert!(limiter.admit("p", "k2", &denied("p", "k1"), t0).is_err());
+        // A refusal of a key this hostd never asked about (an older run) starts nothing.
+        let mut limiter = PromptLimiter::default();
+        assert!(limiter.admit("p", "k2", &denied("p", "k0"), t0).is_ok());
+    }
+
+    #[tokio::test]
+    async fn only_so_many_channels_wait_behind_auth() {
+        let link = std::sync::Arc::new(LinkAuth::default());
+        assert_eq!(link.gate().await, Gate::Unpaired);
+        assert!(link.try_begin());
+        assert!(!link.try_begin(), "one auth at a time");
+        let waiters: Vec<_> = (0..MAX_WAITERS)
+            .map(|_| {
+                let link = std::sync::Arc::clone(&link);
+                tokio::spawn(async move { link.gate().await })
+            })
+            .collect();
+        while link.waiters.load(std::sync::atomic::Ordering::SeqCst) < MAX_WAITERS {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(link.gate().await, Gate::Busy);
+        link.end(true);
+        for waiter in waiters {
+            assert_eq!(waiter.await.unwrap(), Gate::Paired);
+        }
+        assert!(link.try_begin(), "a paired link may unpair");
     }
 
     #[test]

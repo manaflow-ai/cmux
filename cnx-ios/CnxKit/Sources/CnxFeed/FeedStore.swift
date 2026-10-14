@@ -47,6 +47,10 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var error: String?
     /// Bumps with each inline answer, so a late refusal never reverts a newer answer.
     public var attempt = 0
+    /// An answer on its way that is not decided yet ("Waiting for Face ID…"):
+    /// the card shows it instead of its buttons, and never claims "Allowed"
+    /// before the signed answer went out (review m10).
+    public var pending: String?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -327,17 +331,35 @@ public final class FeedStore {
         }
     }
 
+    /// Shown on a permission card while its Allow waits for Face ID and the Mac.
+    public static let waitingForFaceID = "Waiting for Face ID…"
+
     public func respond(_ id: String, option: ACPPermissionOption) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
+            guard item.pending == nil else { return }
             let attempt = item.attempt + 1
             mutate(id) { $0.error = nil; $0.attempt = attempt }
-            applyRespond(id, option: option)
+            // An Allow is signed after Face ID: it says "Allowed" only once it went
+            // out. A Deny needs no Face ID and shows at once.
+            if option.isAllow {
+                mutate(id) { $0.pending = Self.waitingForFaceID }
+            } else {
+                applyRespond(id, option: option)
+            }
             Task {
                 do {
                     try await actions.respond(item, request: request, option: option)
+                    guard option.isAllow else { return }
+                    mutate(id) {
+                        guard $0.attempt == attempt else { return }
+                        $0.pending = nil
+                        $0.resolution = "Allowed: \(option.name)"
+                        $0.isRead = true
+                    }
                 } catch {
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
+                        $0.pending = nil
                         $0.resolution = nil
                         $0.error = actions.message(for: error)
                     }

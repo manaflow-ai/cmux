@@ -109,7 +109,16 @@ pub enum Event {
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
     /// A phone proved keys the Mac has not approved: ask the user.
-    PairRequest { phone_device_id: String, name: String, identity_key: String, approval_key: String },
+    /// `registered_at_ms` (epoch milliseconds, absent when unknown) is when
+    /// that phone device id first registered with the service, for the prompt.
+    PairRequest {
+        phone_device_id: String,
+        name: String,
+        identity_key: String,
+        approval_key: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        registered_at_ms: Option<i64>,
+    },
     /// A paired phone signed out and asks the Mac to forget it.
     Unpaired { phone_device_id: String },
     /// A phone opened browser tab `tab`: start the app's browser host on
@@ -252,6 +261,18 @@ mod tests {
             r#"{"type":"phone_up","session_id":"s","phone_device_id":"p","transport":"wireguard","path":"relay"}"#
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
+        let request = |registered_at_ms| Event::PairRequest {
+            phone_device_id: "p".into(),
+            name: "n".into(),
+            identity_key: "04".into(),
+            approval_key: "04".into(),
+            registered_at_ms,
+        };
+        assert_eq!(
+            serde_json::to_string(&request(Some(1_791_961_929_681))).unwrap(),
+            r#"{"type":"pair_request","phone_device_id":"p","name":"n","identity_key":"04","approval_key":"04","registered_at_ms":1791961929681}"#
+        );
+        assert!(!serde_json::to_string(&request(None)).unwrap().contains("registered_at_ms"));
         assert_eq!(serde_json::to_string(&Event::Removed).unwrap(), r#"{"type":"removed"}"#);
         assert_eq!(
             serde_json::to_string(&Event::NeedBrowser {

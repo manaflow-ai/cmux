@@ -133,7 +133,9 @@ struct ChiefWire {
             guard let pid = p["id"] as? String else { return nil }
             let name = p["display_name"] as? String ?? pid
             let isMe = pid == identity.meID
-            let initials = isMe ? "" : String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+            // Chief is drawn with its avatar text everywhere (the header too).
+            let initials = isMe ? "" : pid == identity.chiefID ? identity.avatar
+                : String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
             return ConversationParticipant(id: pid, name: isMe ? "You" : name, initials: initials, colorHex: "#636366", isMe: isMe)
         }
         return ConversationInfo(

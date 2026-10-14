@@ -180,10 +180,12 @@ impl HostConfig {
                 env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".acpmux")),
             ),
         };
-        let pairing = supplied.as_ref().map(|supplied| crate::pairing::Pairing {
-            mac_device_id: device_id.clone(),
-            trust: supplied.devices.clone(),
-            emit: std::sync::Arc::new(|event| crate::control::emit(&event)),
+        let pairing = supplied.as_ref().map(|supplied| {
+            crate::pairing::Pairing::new(
+                device_id.clone(),
+                supplied.devices.clone(),
+                std::sync::Arc::new(|event| crate::control::emit(&event)),
+            )
         });
         let max_tabs = env("CNX_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CNX_RB_HOST")) {

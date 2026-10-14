@@ -579,42 +579,15 @@ struct DemoDriver {
 
     private func chiefParity() async {
         let hook = ChiefDemoHook.shared
-        let open: (HomeConversationRoute) -> Void = { route in
-            switch route {
-            case .chief: shell.homePath.append(ChiefRoute())
-            case let .agent(destination): shell.homePath.append(destination)
-            }
-        }
-        let composer = ChiefComposer(store: shell.store, open: open)
         shell.tab = .home
         mark("home")
         await pause(2.5)
-        mark("compose agent")
-        composer.present()
-        await pause(1.4)
-        hook.composeLab("to claude")
-        await pause(1.2)
-        hook.composeLab("pick 0")
-        await pause(0.8)
-        hook.composeLab("body run the cnx-link tests")
-        await pause(1.0)
-        mark("compose agent send")
-        hook.composeLab("send")
-        await pause(4.0)
-        mark("agent back")
-        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
-        await pause(2.0)
+        // Home's compose opens Chief with the keyboard up (SPEC 1.4).
         mark("compose chief")
-        composer.present()
-        await pause(1.4)
-        hook.composeLab("to chief")
-        await pause(1.0)
-        hook.composeLab("pick 0")
-        await pause(0.8)
-        hook.composeLab("body what's the status?")
-        await pause(1.0)
+        shell.homePath.append(ChiefRoute(focusesComposer: true))
+        await pause(2.0)
         mark("compose chief send")
-        hook.composeLab("send")
+        hook.lab("send what's the status?")
         await pause(7.0)
         // The send-time drawer is swiped with real touches (verify/imsg-parity.sh).
         mark("photo")

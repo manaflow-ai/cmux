@@ -39,17 +39,28 @@ public final class AcpmuxHub {
         public var phoneID: String
         /// The Mac's cnx device id.
         public var macDevice: String
-        /// Signs `message` after Face ID; `reason` is what the system sheet says.
-        public var sign: @Sendable (_ message: Data, _ reason: String) async throws -> Data
+        /// Asks for Face ID (`reason` is what the system sheet says) and returns
+        /// the signer it unlocked. The payload, and so its expiry, is made only
+        /// after Face ID returns, so a slow answer never expires on the way.
+        public var authorize: @Sendable (_ reason: String) async throws -> Signer
         public var now: @Sendable () -> Date
 
+        /// Signs one message with the unlocked approval key.
+        public typealias Signer = @Sendable (_ message: Data) throws -> Data
+
         public init(phoneID: String, macDevice: String, now: @escaping @Sendable () -> Date = { Date() },
-                    sign: @escaping @Sendable (_ message: Data, _ reason: String) async throws -> Data) {
+                    authorize: @escaping @Sendable (_ reason: String) async throws -> Signer) {
             self.phoneID = phoneID
             self.macDevice = macDevice
-            self.sign = sign
+            self.authorize = authorize
             self.now = now
         }
+    }
+
+    /// The Mac's acpmux predates phone approvals (its prompts carry no
+    /// `decisionNonce`): a paired phone's Allow cannot count there.
+    public struct ApproverUnsupported: Error, Equatable {
+        public init() {}
     }
 
     /// The user closed Face ID and the passcode: nothing was sent.
@@ -185,24 +196,30 @@ public final class AcpmuxHub {
     func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?) async throws -> JSONValue? {
         guard let approver else { return nil }
         let info = try await request("_acpmux/info", .object(["sessionId": .string(sessionID)]))
-        guard let pending = info["pending"]?.arrayValue?.first(where: { $0["permissionId"]?.stringValue == permissionID }),
-              let nonce = pending["decisionNonce"]?.stringValue,
-              let instance = pending["personInstance"]?.stringValue ?? personInstance else { return nil }
+        guard let pending = info["pending"]?.arrayValue?.first(where: { $0["permissionId"]?.stringValue == permissionID }) else {
+            return nil
+        }
         let options = pending["request"]?["options"]?.arrayValue ?? []
         let kind = options.first { $0["optionId"]?.stringValue == optionID }?["kind"]?.stringValue ?? ""
         if kind.hasPrefix("reject") { return nil }
+        // A prompt with no nonce comes from an acpmux before phone approvals: an unsigned
+        // Allow would only be refused with advice that does not apply to a paired phone.
+        guard let nonce = pending["decisionNonce"]?.stringValue,
+              let instance = pending["personInstance"]?.stringValue ?? personInstance else { throw ApproverUnsupported() }
+        let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
+        let reason = answers != nil ? "Send your answer to the agent" : (title.isEmpty ? "Allow the agent's request" : "Allow “\(title.prefix(80))”")
+        let sign: Approver.Signer
+        do {
+            sign = try await approver.authorize(reason)
+        } catch PhoneKeys.Failure.cancelled {
+            throw ApprovalCancelled()
+        }
+        // The expiry starts once Face ID returned.
         let payload = ApprovalPayload(
             instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
             expiresAt: Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime), answers: answers)
-        let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
-        let reason = answers != nil ? "Send your answer to the agent" : (title.isEmpty ? "Allow the agent's request" : "Allow “\(title.prefix(80))”")
-        do {
-            let signature = try await approver.sign(payload.message, reason)
-            return payload.meta(signature: signature)
-        } catch PhoneKeys.Failure.cancelled {
-            throw ApprovalCancelled()
-        }
+        return payload.meta(signature: try sign(payload.message))
     }
 
     /// Declines a question (its reject option). A phone may always decline,
@@ -493,6 +510,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
         if error is AcpmuxHub.ApprovalCancelled { return "Not approved: Face ID was cancelled." }
+        if error is AcpmuxHub.ApproverUnsupported {
+            return "Not approved: update cmux on the Mac to approve from this iPhone, or approve on the Mac."
+        }
+        if let failure = error as? PhoneKeys.Failure { return "Not approved: \(failure.message)" }
         if let error = error as? AcpmuxConnection.RPCError {
             switch error.reason {
             case "permission.person_required":
