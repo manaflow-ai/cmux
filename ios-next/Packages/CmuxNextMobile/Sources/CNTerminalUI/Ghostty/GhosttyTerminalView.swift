@@ -141,7 +141,11 @@ final class GhosttyTerminalView: UIView {
             if Thread.isMainThread {
                 MainActor.assumeIsolated { box.deliver?(data) }
             } else {
-                Task { @MainActor in box.deliver?(data) }
+                // FIFO onto the main queue (Task hops are not ordered).
+                let sendable = Retained(box)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { (sendable.object as? InputBox)?.deliver?(data) }
+                }
             }
         }
         surface = ghostty_surface_new(app.app, &config)
@@ -464,6 +468,7 @@ final class GhosttyTerminalView: UIView {
     @discardableResult
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
+        TerminalMemory.trace("input: becomeFirstResponder -> \(became)")
         if became { onFocusChange?(true) }
         return became
     }
@@ -471,6 +476,7 @@ final class GhosttyTerminalView: UIView {
     @discardableResult
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
+        TerminalMemory.trace("input: resignFirstResponder -> \(resigned)")
         if resigned {
             onFocusChange?(false)
             input.sticky.reset()
@@ -503,6 +509,7 @@ final class GhosttyTerminalView: UIView {
     override var keyCommands: [UIKeyCommand]? { navigationKeyCommands() }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        TerminalMemory.trace("input: pressesBegan \(presses.compactMap { $0.key.map { "\($0.keyCode.rawValue):\($0.characters.debugDescription)" } })")
         let unhandled = beginPresses(presses)
         keyBarView?.modifiers = input.sticky
         if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
@@ -577,11 +584,18 @@ struct TerminalTextReader {
 /// DEBUG `CMUX_NEXT_TERMINAL_MEMORY=1`: logs live Ghostty surfaces to stderr.
 @MainActor
 struct TerminalMemory {
-    static func trace(_ line: String) {
+    static let tracing: Bool = {
         #if DEBUG
-        guard ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_MEMORY"] == "1" else { return }
-        FileHandle.standardError.write(Data((line + "\n").utf8))
+        ProcessInfo.processInfo.environment["CMUX_NEXT_TERMINAL_MEMORY"] == "1"
+        #else
+        false
         #endif
+    }()
+
+    /// The line is only built when tracing is on.
+    static func trace(_ line: @autoclosure () -> String) {
+        guard tracing else { return }
+        FileHandle.standardError.write(Data((line() + "\n").utf8))
     }
 
     static func log() {

@@ -39,6 +39,11 @@ struct TerminalInputRouter: Sendable {
         // Unmodified Backspace stays with the text system, which repeats it
         // and lets an input method take it; `deleteBackward` sends the key.
         if usage == TerminalHIDUsage.backspace, mods.isEmpty { return .system }
+        // Unmodified Return goes through the text system too (insertText "\n"
+        // becomes the Enter key): printable keys before it are still in the
+        // text system's queue, so sending Return here would overtake them.
+        if usage == TerminalHIDUsage.enter || usage == TerminalHIDUsage.keypadEnter, mods.isEmpty, sticky.control == .off,
+           sticky.alternate == .off { return .system }
         guard special || mods.contains(.control) || mods.contains(.alternate) else { return .system }
         let event = keyEvent(usage: usage, mods: mods, characters: characters, unmodified: unmodified, special: special)
         return .handled([.key(event)])

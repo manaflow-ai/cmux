@@ -19,6 +19,7 @@ extension GhosttyTerminalView: UITextInput {
     var hasText: Bool { true }
 
     func insertText(_ text: String) {
+        TerminalMemory.trace("input: insertText \(text.debugDescription)")
         withTextChange { perform(input.insertText(text)) }
     }
 
