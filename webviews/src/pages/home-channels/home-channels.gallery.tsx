@@ -411,7 +411,13 @@ export default componentEntry<Props>({
     "new-message": {
       note: "The list header's compose button opens #/new/message: pick people and Chiefs, name it to make a channel.",
       props: { select: "c-chief" },
-      checks: { longFrameFailMs: openFrame },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "A picked person moves to the top of the picker, so the rows above their old place move down.",
+        },
+      },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list-header .hc-icon-button"));
         await ctx.click({ selector: ".lg-list-header .hc-icon-button" });
@@ -451,6 +457,28 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+        // Every harness shows checked (the owner's default means every harness).
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+      },
+    },
+    "new-chief-defaults": {
+      note: "Create with the grant left as it is: the sheet names no tools or harnesses, so the owner applies its defaults.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Create adds the new Chief's direct message to the list and opens it; the rows below move down.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Docs Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.click({ selector: ".lg-form-actions .primary" });
+        await ctx.waitFor(() => {
+          const sent = ctx.document.documentElement.dataset.mockChiefCreate ?? "";
+          return sent.includes("display_name") && !sent.includes("tools") && !sent.includes("harnesses");
+        });
       },
     },
     "edit-chief": {
@@ -472,7 +500,8 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.find({ role: "button", name: "Add people" }));
         await ctx.click({ role: "button", name: "Add people" });
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row"));
+        // Everyone the sample Home knows is in #release already: the picker says so.
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-none"));
       },
     },
     "archive-chief": {
@@ -542,6 +571,13 @@ export default componentEntry<Props>({
     "narrow-run-card": {
       note: "A narrow run card (380 px page): Worked for and Open on the first line, the step count and cost under it.",
       props: { width: 380, pane: "conversation", select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
+      },
+    },
+    "narrow-run-card-480": {
+      note: "A run card on a 480 px page: the step count and cost move under Worked for as one line, never starting with a separator.",
+      props: { width: 480, pane: "conversation", select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-metas"));
       },
