@@ -146,16 +146,17 @@ enum ControlTopologyMapper {
                                           selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> Bool {
         // Index loops, not zip: a debug build does not specialize zip and paid
         // generic metadata lookups per element on every publish.
-        for screenIndex in info.screens.indices where screenIndex < slots.count {
-            let panes = info.screens[screenIndex].panes, paneSlots = slots[screenIndex]
-            guard panes.count == paneSlots.count else { return false }
-            for paneIndex in panes.indices {
-                let pane = panes[paneIndex], slot = paneSlots[paneIndex]
-                guard pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
+        for screenIndex in info.screens.indices {
+            guard let screen = info.screens[checked: screenIndex], let paneSlots = slots[checked: screenIndex],
+                  screen.panes.count == paneSlots.count else { return false }
+            for paneIndex in paneSlots.indices {
+                guard let pane = screen.panes[checked: paneIndex], let slot = paneSlots[checked: paneIndex],
+                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
                 guard !slot.pageTabs.isEmpty else { continue }
                 guard pane.tabs.count == slot.pageTabs.count else { return false }
                 for tabIndex in slot.pageTabs.indices {
-                    if let model = slot.pageTabs[tabIndex], let title = pages.title(model), title != pane.tabs[tabIndex].title { return false }
+                    guard let model = slot.pageTabs[checked: tabIndex] ?? nil, let title = pages.title(model) else { continue }
+                    if title != pane.tabs[checked: tabIndex]?.title { return false }
                 }
             }
         }
