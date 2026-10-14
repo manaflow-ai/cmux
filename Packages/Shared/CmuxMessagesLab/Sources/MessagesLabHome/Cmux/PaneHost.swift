@@ -56,6 +56,8 @@ final class HostView: NSView {
     let threadHost = LayerHostView()
     /// The window view's thread layer view whose layer `threadHost` holds (PaneHost+ThreadLayer.swift).
     weak var liftedThread: UIView?
+    /// The window view the thread layer was last searched in.
+    var threadLayerSearch: ObjectIdentifier?
     /// `--scroll-trace` uses a scroll view that takes the probe's posted
     /// events (README: responsive scrolling).
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
@@ -350,7 +352,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
-    /// Esc with the key focus on the transcript clears its text selection (Host.swift installEscape).
+    /// Keys with the focus on the transcript: Esc clears its selection (Host.swift installEscape), other keys go to the field.
     private var selectionEscape: Any?
     /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
     private var pickerLift: NSView?
@@ -359,8 +361,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var menuHighlight: MenuHighlight?
     /// The menu input that chose my tapback, until HomeStore commits it (PaneTapback.swift).
     var tapbackChoice: TapbackChoice?
-    /// The overlay scroller is hidden for an open thread or reply view (afterEngine).
-    private var scrollerHiddenForThread = false
     /// The receipt row drawn ahead for my newest message: its id and step (PaneHost+Receipt.swift).
     var receiptAhead: (ID, Int)?
     /// Press and hold on a message (MessagesLab 7f1a811).
@@ -557,20 +557,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // A text selection or a selected bubble follows the rows (as NativeScroll does on a scroll).
         if selection.showsHighlight { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
-        // The overlay scroller sits above the thread view's blur; real Messages blurs it
-        // with the transcript, so it hides while a thread or reply view is open (Host.swift).
-        // cmux: hidden once its fade ends, so a scroll or hover in the open view (SequenceScroller
-        // sets its own alpha) cannot show it again; shown again before the close's fade in.
-        let threadOpen = store?.state.ui.openThread != nil
-        if let sc = host.scrollView.verticalScroller, scrollerHiddenForThread != threadOpen {
-            scrollerHiddenForThread = threadOpen
-            if !threadOpen { sc.isHidden = false }
-            NSAnimationContext.runAnimationGroup({ ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 },
-                                                 completionHandler: { [weak self, weak sc] in
-                guard self?.scrollerHiddenForThread == true else { return }
-                sc?.isHidden = true
-            })
-        }
+        // Host.swift fades the overlay scroller out while a thread or reply view is open (there it
+        // sits above the thread view's blur). cmux: the scroll view, scroller included, is under
+        // `threadHost` (PaneHost+ThreadLayer.swift), so the thread backdrop blurs and darkens it with
+        // the transcript, as real Messages does; its alpha stays SequenceScroller's own.
         prefetchNextReceipt()
         scheduleWake()
     }
@@ -646,25 +636,48 @@ final class ChatController: NSObject, NSTextViewDelegate {
         return true
     }
 
-    /// Host.swift's Esc monitor, for the selection (and cmux's stop): the field handles its own Esc (escape()),
-    /// and an open thread or reply view has PaneThread's. cmux: only while the key focus is in
-    /// this pane and the pane shows (a terminal, the sidebar or the palette keep their Esc). An
-    /// open context menu's Esc is in the menu's window, so the menu keeps it (MenuHighlight).
+    /// Host.swift's Esc monitor, for the selection (and cmux's stop), and cmux's key routing from the
+    /// transcript to the field (`routeTranscriptKey`). Only while the key focus is in this pane and
+    /// the pane shows (a terminal, the sidebar or the palette keep their keys). An open context
+    /// menu's keys are in the menu's window, so the menu keeps them (MenuHighlight).
     private func installSelectionEscape() {
         guard selectionEscape == nil else { return }
         selectionEscape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
-            guard e.keyCode == 53, let self, self.picker == nil, e.window != nil, e.window === self.host.window,
-                  !self.host.isHiddenOrHasHiddenAncestor,
-                  let focus = self.window?.firstResponder as? NSView, focus.isDescendant(of: self.host),
-                  focus !== self.demo?.compose.textView.view else { return e }
-            if self.clearSelectionOnEscape() { return nil }
-            // cmux: a click on a bubble moves the focus to the transcript (focusTranscript); Esc
-            // there still stops a working Chief, as it does in the field. An open thread or reply
-            // view keeps its own Esc (PaneThread).
-            guard self.isWorking, self.store?.state.ui.openThread == nil else { return e }
-            self.onStop?()
+            guard let self, e.window != nil, e.window === self.host.window, !self.host.isHiddenOrHasHiddenAncestor else { return e }
+            return self.routeTranscriptKey(e)
+        }
+    }
+
+    /// A key down with the key focus in this pane but not in the field (the transcript after a click
+    /// on a bubble, a drag or a double-click). Esc clears the selection (Host.swift), else stops a
+    /// working Chief (cmux; an open thread or reply view keeps PaneThread's Esc). A key the field
+    /// takes (`goesToField`) moves the focus to the field and goes on there: Messages sends typing
+    /// after a click on a bubble to the field, and AppKit then dispatches this same event to the
+    /// field (its text, Return's send, Paste's menu item and the input method's marked text all
+    /// see it as the field's own). Returns nil when the event was used here.
+    func routeTranscriptKey(_ e: NSEvent) -> NSEvent? {
+        guard picker == nil, let focus = window?.firstResponder as? NSView, focus.isDescendant(of: host),
+              let field = demo?.compose.textView.view, focus !== field else { return e }
+        if e.keyCode == 53 {
+            if clearSelectionOnEscape() { return nil }
+            guard isWorking, store?.state.ui.openThread == nil else { return e }
+            onStop?()
             return nil
         }
+        guard focus === host.scrollView.document, Self.goesToField(e) else { return e }
+        focusCompose()
+        return e
+    }
+
+    /// The keys the field takes while the transcript has the focus: anything without Command or
+    /// Control that is not a navigation or function key (text, Return, Delete, Option characters,
+    /// the input method's keys), and Paste (Command-V). The transcript keeps Copy and the other
+    /// Command keys, Tab, and the arrows, page and Home/End keys (they scroll it).
+    static func goesToField(_ e: NSEvent) -> Bool {
+        let mods = e.modifierFlags.intersection([.command, .control, .option, .shift])
+        if mods.contains(.command) { return mods == [.command] && e.charactersIgnoringModifiers?.lowercased() == "v" }
+        if mods.contains(.control) || e.modifierFlags.contains(.function) { return false }
+        return e.keyCode != 48 && e.keyCode != 53  // Tab, Esc
     }
 
     // MARK: Drops
@@ -734,7 +747,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if clickedContent(hit, at: p) { selection.deselectBubble(); return }
             // Real Messages (click references, Host.swift clicked): a click on a bubble selects its
             // message (the bubble brightens or darkens) and takes the focus from the field (typing
-            // still goes to the field: TranscriptDocumentView.keyDown).
+            // still goes to the field: routeTranscriptKey).
             selection.selectBubble(hit.key, outgoing: hit.row.outgoing)
             focusTranscript()
             return

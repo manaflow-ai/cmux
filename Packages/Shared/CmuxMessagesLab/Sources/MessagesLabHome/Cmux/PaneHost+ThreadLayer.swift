@@ -21,20 +21,37 @@ extension HostView {
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// The window view's thread layer view, by its stored property's name (`threadLayer`, private to
-    /// WindowView.swift; read by reflection, no vendored edit). Nil if upstream renames or removes it.
+    /// WindowView.swift; read by reflection, no vendored edit). If upstream renames it: a fault is
+    /// logged and the view is found by its place and shape instead (`threadLayerByPlace`).
     static func threadLayerView(of demo: MessagesWindowView) -> UIView? {
-        Mirror(reflecting: demo).children.first { $0.label == "threadLayer" }?.value as? UIView
+        if let v = Mirror(reflecting: demo).children.first(where: { $0.label == "threadLayer" })?.value as? UIView { return v }
+        log.fault("Home: MessagesWindowView has no threadLayer property; finding the thread layer by its place")
+        return threadLayerByPlace(of: demo)
+    }
+
+    /// The fallback: WindowView's init adds clip, threadLayer, header, compose, ...; the thread layer
+    /// is the subview after `clip` whose one child (`threadDim`) holds ThreadBackdrop's root (its
+    /// blur and tint layers) and no subviews. Nil when nothing there has that shape.
+    static func threadLayerByPlace(of demo: MessagesWindowView) -> UIView? {
+        guard let i = demo.subviews.firstIndex(where: { $0 === demo.clip }), demo.subviews.indices.contains(i + 1) else { return nil }
+        let v = demo.subviews[i + 1]
+        guard v !== demo.header, v !== demo.compose, v !== demo.morphView, v.subviews.count == 1,
+              let dim = v.subviews.first, dim.subviews.isEmpty,
+              let root = dim.layer.sublayers?.first, !(root.sublayers ?? []).isEmpty else { return nil }
+        return v
     }
 
     /// Moves the window view's thread layer into `threadHost` (install, and every layout pass when
-    /// something moved it back). Logs a fault, and stops a DEBUG build, when the layer is not found:
-    /// the header would stay sharp under an open thread (the 84ae154 baseline's gap).
+    /// something moved it back). Logs a fault when the layer is not found and leaves the tree as it
+    /// is (the header then stays sharp under an open thread, the 84ae154 baseline's gap); no crash.
     func liftThreadLayer(_ demo: MessagesWindowView) {
         if liftedThread == nil || liftedThread?.superview !== demo {
+            // One search (and one fault) per window view, not one per layout pass.
+            guard threadLayerSearch != ObjectIdentifier(demo) else { return }
+            threadLayerSearch = ObjectIdentifier(demo)
             liftedThread = Self.threadLayerView(of: demo)
             if liftedThread == nil {
-                Self.log.fault("Home: the window view has no threadLayer; the header is not blurred under a thread")
-                assertionFailure("MessagesWindowView.threadLayer not found (PaneHost+ThreadLayer.swift)")
+                Self.log.fault("Home: no thread layer found; the header is not blurred under a thread")
                 return
             }
         }
