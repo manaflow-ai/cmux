@@ -41,6 +41,9 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     providerMetadata: { networkIpv4: "10.0.0.5", networkIpv6: "fd00::5" },
     ownerTeamId: "team-1",
     coderouterPoolId: null,
+    agentUpdates: null,
+    networkPolicyStatus: null,
+    networkPolicy: null,
     ...overrides,
   };
 }

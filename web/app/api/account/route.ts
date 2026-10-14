@@ -86,7 +86,7 @@ import {
 import { authorizeCronRequest } from "../../../services/cronAuth";
 import { reportError } from "../../../services/observability/report";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
-import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
+import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY, type CloudVmRow } from "../../../services/vms/repository";
 import {
   destroyVm,
   listUserVms,
@@ -2015,26 +2015,37 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
       eq(vaultCliAuthRequests.userId, userId),
     );
     return {
-      // Hard-deleted personal rows: tombstone them in the machines list at the
-      // deletion clock (the rows are gone, so there is nothing to re-read).
-      deletes: personalVmRows.flatMap((vm) => vm.providerVmId
-        ? [{ teamId: vmSyncTeamId(vm), op: { kind: "delete", id: vm.providerVmId, sourceUpdatedAtMs: now.getTime() } satisfies VmSyncOp }]
-        : []),
-      // Shared-team rows keep living with a rewritten creator: re-read and republish.
+      deletedRows: personalVmRows,
+      deletedAtMs: now.getTime(),
       rewrittenIds: sharedTeamVmRows.map((vm) => vm.id),
     };
   });
   publishAccountDeletionVmSync(vmSync);
 }
 
+/** Best-effort machines-list publication after the deletion commits; a
+ * failure here must never fail the account deletion. */
 function publishAccountDeletionVmSync(vmSync: {
-  readonly deletes: readonly { readonly teamId: string; readonly op: VmSyncOp }[];
+  readonly deletedRows: readonly Pick<CloudVmRow, "providerVmId" | "ownerTeamId" | "billingTeamId" | "userId">[];
+  readonly deletedAtMs: number;
   readonly rewrittenIds: readonly string[];
 }): void {
-  const byTeam = new Map<string, VmSyncOp[]>();
-  for (const { teamId, op } of vmSync.deletes) byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
-  for (const [teamId, ops] of byTeam) void publishVmOps(teamId, ops);
-  void publishVmRowsById(vmSync.rewrittenIds);
+  try {
+    // Hard-deleted personal rows: tombstone them at the deletion clock (the
+    // rows are gone, so there is nothing to re-read).
+    const byTeam = new Map<string, VmSyncOp[]>();
+    for (const vm of vmSync.deletedRows) {
+      if (!vm.providerVmId) continue;
+      const teamId = vmSyncTeamId(vm);
+      const op: VmSyncOp = { kind: "delete", id: vm.providerVmId, sourceUpdatedAtMs: vmSync.deletedAtMs };
+      byTeam.set(teamId, [...(byTeam.get(teamId) ?? []), op]);
+    }
+    for (const [teamId, ops] of byTeam) void publishVmOps(teamId, ops);
+    // Shared-team rows keep living with a rewritten creator: re-read and republish.
+    void publishVmRowsById(vmSync.rewrittenIds);
+  } catch (error) {
+    console.error("[account] machines list publication skipped after deletion", error);
+  }
 }
 
 function observedDestroyCleanupFromMetadata(
