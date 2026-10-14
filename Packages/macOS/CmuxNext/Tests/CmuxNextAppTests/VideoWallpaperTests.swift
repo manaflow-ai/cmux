@@ -129,6 +129,26 @@ import Testing
         #expect(h.video.isPlaying, "a translucent window or the Dock rested the video")
     }
 
+    @Test func turningAnimationsOffHoldsTheVideoAtOnce() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        let speed = DesignSettings.shared.animationSpeed
+        defer {
+            DesignSettings.shared.animationSpeed = speed
+            h.close()
+        }
+        // The system's Reduce Motion stays pinned off; only ui.animationSpeed changes.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        h.video.reduceMotionOverride = nil
+        DesignSettings.shared.animationSpeed = .fast
+        #expect(h.video.isPlaying)
+        DesignSettings.shared.animationSpeed = .off
+        #expect(!h.video.isPlaying, "the video loops on after animations were turned off")
+        DesignSettings.shared.animationSpeed = .normal
+        #expect(h.video.isPlaying, "the video stays still after animations were turned back on")
+    }
+
     /// A Mac with Apple's moving wallpaper in a light, a dark and a portrait cut, and one downloaded aerial.
     func mac() async throws -> (pictures: URL, aerials: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-moving-wallpapers-\(UUID().uuidString)", isDirectory: true)
