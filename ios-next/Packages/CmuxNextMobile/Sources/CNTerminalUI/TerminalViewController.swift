@@ -495,6 +495,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
 
     /// Shows the keyboard for typing into the terminal (user action only).
     func focusInput() {
+        guard model.status != .ended else { return }
         if model.composerMode { setComposerMode(false) }
         terminalView.becomeFirstResponder()
     }
@@ -571,6 +572,13 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             requestComposerFocus(false)
             terminalView.becomeFirstResponder()
         }
+        relayoutAccessories(animated: true)
+    }
+
+    /// The terminal ended on the Mac: drop the keyboard and the input rows.
+    func statusChanged() {
+        guard model.status == .ended else { return }
+        endInputFocus()
         relayoutAccessories(animated: true)
     }
 
@@ -718,8 +726,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     @discardableResult
     private func placeAccessories() -> Bool {
         var changed = false
-        let showBar = inputFocused && !GhosttyTerminalView.hardwareKeyboardAttached
-        let showComposer = model.composerMode
+        // An ended terminal takes no input: no key bar, composer or keyboard.
+        let ended = model.status == .ended
+        let showBar = !ended && inputFocused && !GhosttyTerminalView.hardwareKeyboardAttached
+        let showComposer = !ended && model.composerMode
         if keyBar.isHidden == showBar { keyBar.isHidden = !showBar; changed = true }
         if let host = composerHost, host.view.isHidden == showComposer { host.view.isHidden = !showComposer; changed = true }
         if changed { model.accessoryRevision += 1 }

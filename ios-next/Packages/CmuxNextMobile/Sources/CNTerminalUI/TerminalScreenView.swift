@@ -31,7 +31,9 @@ final class TerminalScreenModel {
     }
 
     var terminal: Terminal?
-    var status: Status = .attaching
+    var status: Status = .attaching {
+        didSet { if status != oldValue { controller?.statusChanged() } }
+    }
     var grid = ""
     /// The renderer has drawn the host's output at least once (hosts keep
     /// the card image over it until then, so it never shows blank).
