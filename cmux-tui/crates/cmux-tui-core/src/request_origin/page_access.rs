@@ -319,6 +319,8 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
+        // Page home-channels opens a clicked web link on the person's gesture.
+        | Op::WorkspaceOpenUrl
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList

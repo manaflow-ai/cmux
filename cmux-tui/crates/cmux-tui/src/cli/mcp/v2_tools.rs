@@ -652,6 +652,7 @@ fn summary(wire: &str, target: &str) -> String {
         "run" => format!("Run a command in a new terminal of the {target}"),
         "create terminal" => "Open a terminal tab in a pane".into(),
         "create browser" => "Open a browser tab in a pane".into(),
+        "open url" => "Open a web link on a workspace's right side, reusing its browser tab".into(),
         "split" => "Split a pane and open a new one beside it".into(),
         "swap" => "Swap two panes".into(),
         "zoom" => "Zoom or unzoom a pane".into(),
