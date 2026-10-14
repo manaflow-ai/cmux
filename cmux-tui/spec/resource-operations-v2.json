@@ -28981,7 +28981,7 @@
               ]
             },
             "default": "user",
-            "description": "Who chose the name. An automatic name never replaces a user name; a user rename pins the name (workspace-name-source-v1)."
+            "description": "Who chose the name. An automatic name never replaces a user name; a user rename pins the name (workspace-name-source-v1). A refused automatic rename is operation.failed with extra.reason_code name_pinned (over a user name) or name_empty (an empty name)."
           },
           "expected_generation": {
             "required": false,

@@ -134,14 +134,12 @@ impl NameUpdate {
             return Err(ResourceError::revision_conflict(expected, current.revision).into());
         }
         if self.source == NameSource::Auto {
-            anyhow::ensure!(
-                name.is_some_and(|value| !value.trim().is_empty()),
-                "automatic names cannot clear a title"
-            );
-            anyhow::ensure!(
-                current.unnamed || current.source == NameSource::Auto,
-                "an explicit user name cannot be replaced by an automatic title"
-            );
+            if !name.is_some_and(|value| !value.trim().is_empty()) {
+                return Err(name_refusal(operation, resource, NAME_EMPTY).into());
+            }
+            if !(current.unnamed || current.source == NameSource::Auto) {
+                return Err(name_refusal(operation, resource, NAME_PINNED).into());
+            }
         }
         Ok(())
     }
@@ -200,6 +198,27 @@ impl NameUpdate {
         workspace.name_source = self.source;
         Ok(())
     }
+}
+
+/// `reason_code` of an automatic rename over an explicit user name.
+pub(crate) const NAME_PINNED: &str = "name_pinned";
+/// `reason_code` of an automatic rename to an empty name.
+pub(crate) const NAME_EMPTY: &str = "name_empty";
+
+/// The typed refusal of an automatic rename: `operation.failed` whose extra
+/// names the resource and the `reason_code`.
+pub(crate) fn name_refusal(
+    operation: &str,
+    mut resource: Value,
+    reason_code: &str,
+) -> ResourceError {
+    let reason = if reason_code == NAME_PINNED {
+        "an explicit user name cannot be replaced by an automatic title"
+    } else {
+        "automatic names cannot clear a title"
+    };
+    resource["reason_code"] = json!(reason_code);
+    ResourceError::operation_failed(operation, reason, resource)
 }
 
 /// A decimal `expected_name_revision`, as the wire carries it.
