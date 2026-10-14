@@ -1403,6 +1403,11 @@
       "route": "tree snapshot + frontend clipboard"
     },
     {
+      "variant": "PinWorkspace",
+      "classification": "direct",
+      "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)"
+    },
+    {
       "variant": "CloseWorkspace",
       "classification": "composite",
       "route": "workspace ownership: close-workspace or machine-provider delete_workspace"
