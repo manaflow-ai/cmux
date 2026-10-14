@@ -115,29 +115,38 @@ fn list_layout() -> ArrangementLayout {
     ArrangementLayout::List
 }
 
-/// A string revision on the wire ("12"); a number reads too.
-mod decimal {
-    use serde::{Deserialize, Deserializer, Serializer};
+/// Whether a section stays visible (`fixed`: in the fixed stack at the top,
+/// or at the bottom for the bottom region) or scrolls with the main list
+/// (`flow`). DESIGN.md "Scrolling model".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scroll {
+    Fixed,
+    Flow,
+}
 
-    pub fn serialize<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&value.to_string())
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Either {
-            Text(String),
-            Number(u64),
-        }
-        match Either::deserialize(deserializer)? {
-            Either::Text(text) => text.parse().map_err(serde::de::Error::custom),
-            Either::Number(number) => Ok(number),
+impl Scroll {
+    /// The default of a section of `kind` in `region`: built-in and Pinned
+    /// sections are fixed, machine sections flow, custom and app sections
+    /// are fixed in the top and bottom regions and flow in the middle.
+    pub fn default_for(kind: &SectionKind, region: &Region) -> Scroll {
+        match kind {
+            SectionKind::Machine { .. } => Scroll::Flow,
+            SectionKind::Pinned | SectionKind::Builtin => Scroll::Fixed,
+            SectionKind::Custom | SectionKind::App { .. } => match region {
+                Region::Top | Region::Bottom => Scroll::Fixed,
+                Region::Middle | Region::Other(_) => Scroll::Flow,
+            },
         }
     }
 }
 
+/// A section. `scroll` is always on the wire; a stored row or a client
+/// that does not send it gets [`Scroll::default_for`] its kind and region.
+/// `max_rows`: the section grows with its content up to this many rows (or
+/// tile lines), then scrolls inside itself; absent grows without limit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "SectionWire")]
 pub struct Section {
     pub id: SectionId,
     pub kind: SectionKind,
@@ -155,6 +164,7 @@ pub struct Section {
     pub columns: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_rows: Option<i64>,
+    pub scroll: Scroll,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub room: Option<String>,
     #[serde(default)]
@@ -165,12 +175,66 @@ pub struct Section {
     pub extra: Map<String, Value>,
 }
 
+/// [`Section`] as it reads: `scroll` may be absent.
+#[derive(Deserialize)]
+struct SectionWire {
+    id: SectionId,
+    kind: SectionKind,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default = "yes")]
+    shows_title: bool,
+    #[serde(default = "middle")]
+    region: Region,
+    #[serde(default = "list_look")]
+    look: Look,
+    #[serde(default = "list_layout")]
+    arrangement: ArrangementLayout,
+    #[serde(default)]
+    columns: Option<i64>,
+    #[serde(default)]
+    max_rows: Option<i64>,
+    #[serde(default)]
+    scroll: Option<Scroll>,
+    #[serde(default)]
+    room: Option<String>,
+    #[serde(default)]
+    order: String,
+    #[serde(default)]
+    keeps_closed: bool,
+    #[serde(default)]
+    extra: Map<String, Value>,
+}
+
+impl From<SectionWire> for Section {
+    fn from(wire: SectionWire) -> Self {
+        let scroll = wire.scroll.unwrap_or_else(|| Scroll::default_for(&wire.kind, &wire.region));
+        Section {
+            id: wire.id,
+            kind: wire.kind,
+            title: wire.title,
+            shows_title: wire.shows_title,
+            region: wire.region,
+            look: wire.look,
+            arrangement: wire.arrangement,
+            columns: wire.columns,
+            max_rows: wire.max_rows,
+            scroll,
+            room: wire.room,
+            order: wire.order,
+            keeps_closed: wire.keeps_closed,
+            extra: wire.extra,
+        }
+    }
+}
+
 impl Section {
     /// A section of `kind` with the contract's defaults: Pinned and custom
     /// sections keep closed items, Pinned shows no title.
     pub fn new(id: &str, kind: SectionKind, region: Region) -> Self {
         let keeps_closed = kind.keeps_closed_by_default();
         let shows_title = !matches!(kind, SectionKind::Pinned);
+        let scroll = Scroll::default_for(&kind, &region);
         Section {
             id: id.into(),
             kind,
@@ -181,6 +245,7 @@ impl Section {
             arrangement: ArrangementLayout::List,
             columns: None,
             max_rows: None,
+            scroll,
             room: None,
             order: String::new(),
             keeps_closed,
@@ -241,6 +306,9 @@ pub enum Body {
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// The site's favicon, drawn as the row icon.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon_url: Option<String>,
     },
     Tab {
         #[serde(rename = "ref")]
@@ -327,106 +395,24 @@ impl Item {
     pub fn label(&self) -> Option<&str> {
         self.extra.get("label").and_then(Value::as_str)
     }
+
+    /// Move an old `extra.icon_url` (written by clients before the url body
+    /// had `icon_url`) into the body. Returns whether the item changed.
+    pub fn lift_icon_url(&mut self) -> bool {
+        lift_icon_url(&mut self.body, &mut self.extra)
+    }
 }
 
-/// The document. `sections` are in display order (region, then order key);
-/// `items` in section order, then parent, then order key.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Doc {
-    #[serde(with = "decimal")]
-    pub revision: u64,
-    #[serde(default)]
-    pub sections: Vec<Section>,
-    #[serde(default)]
-    pub items: Vec<Item>,
-}
-
-impl Doc {
-    pub fn section(&self, id: &str) -> Option<&Section> {
-        self.sections.iter().find(|section| section.id == id)
+/// [`Item::lift_icon_url`] on a body and its `extra`.
+pub fn lift_icon_url(body: &mut Body, extra: &mut Map<String, Value>) -> bool {
+    let Body::Url { icon_url, .. } = body else { return false };
+    let Some(old) = extra.remove("icon_url") else { return false };
+    if icon_url.is_none()
+        && let Some(text) = old.as_str().filter(|text| !text.is_empty())
+    {
+        *icon_url = Some(text.to_string());
     }
-
-    pub fn item(&self, id: &str) -> Option<&Item> {
-        self.items.iter().find(|item| item.id == id)
-    }
-
-    pub fn item_mut(&mut self, id: &str) -> Option<&mut Item> {
-        self.items.iter_mut().find(|item| item.id == id)
-    }
-
-    /// The item that places `reference`.
-    pub fn workspace_item(&self, reference: &WorkspaceRef) -> Option<&Item> {
-        self.items
-            .iter()
-            .find(|item| item.body.workspace().is_some_and(|placed| placed.same(reference)))
-    }
-
-    /// The children of `parent` (or the top-level items of `section`), in
-    /// order.
-    pub fn children(&self, section: &str, parent: Option<&str>) -> Vec<&Item> {
-        let mut children: Vec<&Item> = self
-            .items
-            .iter()
-            .filter(|item| item.section == section && item.parent.as_deref() == parent)
-            .collect();
-        children.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.id.cmp(&b.id)));
-        children
-    }
-
-    /// The machine a group or workspace item belongs to: a workspace's
-    /// session, a group's first child's session (None for an empty group or
-    /// another body).
-    pub fn item_machine(&self, item: &Item) -> Option<String> {
-        match &item.body {
-            Body::Workspace { reference } => Some(reference.session_id.clone()),
-            Body::Group { .. } => self
-                .items
-                .iter()
-                .filter(|child| child.parent.as_deref() == Some(item.id.as_str()))
-                .find_map(|child| child.body.workspace().map(|r| r.session_id.clone())),
-            _ => None,
-        }
-    }
-
-    pub fn machine_section(&self, session_id: &str) -> Option<&Section> {
-        self.sections.iter().find(|section| section.kind.machine() == Some(session_id))
-    }
-
-    /// Sort sections and items into display order.
-    pub fn normalize(&mut self) {
-        self.sections.sort_by(|a, b| {
-            a.region_rank()
-                .cmp(&b.region_rank())
-                .then_with(|| a.order.cmp(&b.order))
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        let rank: std::collections::HashMap<&str, usize> =
-            self.sections.iter().enumerate().map(|(i, s)| (s.id.as_str(), i)).collect();
-        let parent_order: std::collections::HashMap<String, String> = self
-            .items
-            .iter()
-            .filter(|item| item.body.is_group())
-            .map(|item| (item.id.clone(), item.order.clone()))
-            .collect();
-        // Display order: section, then the top-level key of the item (its
-        // own, or its group's), then children after their group.
-        self.items.sort_by_cached_key(|item| {
-            let top = match &item.parent {
-                Some(parent) => parent_order.get(parent).cloned().unwrap_or_default(),
-                None => item.order.clone(),
-            };
-            let group = item.parent.clone().unwrap_or_else(|| item.id.clone());
-            let depth = usize::from(item.parent.is_some());
-            (
-                rank.get(item.section.as_str()).copied().unwrap_or(usize::MAX),
-                top,
-                group,
-                depth,
-                item.order.clone(),
-                item.id.clone(),
-            )
-        });
-    }
+    true
 }
 
 /// Where a moved or added item lands: in `section`, under `parent` (a
@@ -523,6 +509,8 @@ pub struct SectionPatch {
     pub room: Patch<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keeps_closed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll: Option<Scroll>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.
@@ -537,6 +525,9 @@ pub struct ItemPatch {
     /// A url item's title.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub title: Patch<String>,
+    /// A url item's favicon.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub icon_url: Patch<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
