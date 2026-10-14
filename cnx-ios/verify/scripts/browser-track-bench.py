@@ -94,16 +94,13 @@ class Bench:
 
     # ---- Mac side ----------------------------------------------------------------
     def mac_env(self, mac, drop_permille):
-        """CNX_VIDEO_DROP_PERMILLE in the rig app's LSEnvironment (the app passes its
-        environment to cnx-hostd); re-signs the rig copy when it changes."""
-        cur = pb(mac.info, "Print :LSEnvironment:CNX_VIDEO_DROP_PERMILLE", check=False)
+        """CNX_VIDEO_DROP_PERMILLE in the rig app's launch environment (the app passes
+        its environment to cnx-hostd). Not in Info.plist: a changed bundle is a new ad
+        hoc identity, whose Keychain reads then wait on a prompt and hostd never starts."""
         want = str(drop_permille)
-        if (cur or "0") == want:
+        if mac.launch_env.get("CNX_VIDEO_DROP_PERMILLE", "0") == want:
             return False
-        pb(mac.info, "Delete :LSEnvironment:CNX_VIDEO_DROP_PERMILLE", check=False)
-        pb(mac.info, f"Add :LSEnvironment:CNX_VIDEO_DROP_PERMILLE string {want}")
-        subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime",
-                        mac.app], check=True, capture_output=True)
+        mac.launch_env["CNX_VIDEO_DROP_PERMILLE"] = want
         return True
 
     def hostd_env(self, mac):
