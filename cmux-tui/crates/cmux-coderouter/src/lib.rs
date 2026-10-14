@@ -86,14 +86,16 @@ pub struct StaticInstallSecretStore {
 /// creation. Each instance creates one OS-CSPRNG secret and reuses it.
 pub struct RandomInstallSecretStore {
     install_id: String,
-    secret: Vec<u8>,
+    secret: Secret<Vec<u8>>,
 }
 impl RandomInstallSecretStore {
     /// Create one install identity with a fresh 32-byte secret.
     pub fn new(install_id: impl Into<String>) -> anyhow::Result<Self> {
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret)?;
-        Ok(Self { install_id: install_id.into(), secret: secret.to_vec() })
+        let kept = Secret::new(secret.to_vec());
+        secret.zeroize();
+        Ok(Self { install_id: install_id.into(), secret: kept })
     }
 }
 impl InstallSecretStore for RandomInstallSecretStore {
@@ -101,7 +103,7 @@ impl InstallSecretStore for RandomInstallSecretStore {
         &self.install_id
     }
     fn load(&self) -> anyhow::Result<Secret<Vec<u8>>> {
-        Ok(Secret::new(self.secret.clone()))
+        Ok(Secret::new(self.secret.expose().clone()))
     }
 }
 impl StaticInstallSecretStore {
@@ -121,6 +123,10 @@ impl InstallSecretStore for StaticInstallSecretStore {
         Ok(Secret::new(self.secret.clone()))
     }
 }
+
+/// `errSecItemNotFound` (Security framework): the Keychain item does not exist yet.
+#[cfg(target_os = "macos")]
+const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
 
 /// Production Keychain store. The item is addressed by service and install id;
 /// the router never persists the returned bytes.
@@ -142,16 +148,22 @@ impl InstallSecretStore for KeychainInstallSecretStore {
         let keychain = security_framework::os::macos::keychain::SecKeychain::default()?;
         match keychain.find_generic_password("com.cmuxterm.coderouter", &self.install_id) {
             Ok((password, _item)) => Ok(Secret::new(password.to_owned())),
-            Err(_) => {
+            // Only a missing item is created: any other error (a locked or
+            // unreadable keychain) must not rotate the install secret.
+            Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => {
                 let mut secret = [0u8; 32];
                 getrandom::fill(&mut secret)?;
-                keychain.set_generic_password(
+                let set = keychain.set_generic_password(
                     "com.cmuxterm.coderouter",
                     &self.install_id,
                     &secret,
-                )?;
-                Ok(Secret::new(secret.to_vec()))
+                );
+                let kept = Secret::new(secret.to_vec());
+                secret.zeroize();
+                set?;
+                Ok(kept)
             }
+            Err(e) => Err(e.into()),
         }
     }
     #[cfg(not(target_os = "macos"))]
@@ -552,9 +564,10 @@ fn macos_install_secret_store() -> anyhow::Result<(Arc<dyn InstallSecretStore>, 
     match loaded {
         Ok(()) => Ok((Arc::new(keychain), INSTALL_SECRET_KEYCHAIN)),
         Err(e) => {
-            // The error text only; the secret itself never reaches a log.
-            tracing::warn!(
-                "the Keychain install secret is unavailable ({e:#}); this router run uses a random in-memory secret"
+            // stderr (the router installs no log subscriber); the error text
+            // only, the secret itself never reaches a log.
+            eprintln!(
+                "cmux-coderouter: warning: the Keychain install secret is unavailable ({e:#}); this router run uses a random in-memory secret"
             );
             Ok((Arc::new(RandomInstallSecretStore::new("default")?), INSTALL_SECRET_EPHEMERAL))
         }
@@ -701,11 +714,11 @@ async fn admin_connection(
             }
         };
         let response = match request {
-            AdminRequest::Mint { key_id, scope } => {
-                let mut guard = keys.write().await;
-                let key = guard.mint(key_id, scope)?;
-                serde_json::json!({"key": key.expose()})
-            }
+            // A mint error (no install secret) is answered, not a closed socket.
+            AdminRequest::Mint { key_id, scope } => match keys.write().await.mint(key_id, scope) {
+                Ok(key) => serde_json::json!({"key": key.expose()}),
+                Err(error) => serde_json::json!({"error": error.to_string()}),
+            },
             AdminRequest::List => serde_json::json!({"keys": keys.read().await.list()}),
             AdminRequest::Revoke { key_id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&key_id)})
@@ -728,8 +741,10 @@ async fn admin_connection(
             }
             AdminRequest::MintKey { scope } => {
                 let id = format!("s{}", uuid::Uuid::new_v4().simple());
-                let key = keys.write().await.mint(id.clone(), scope)?;
-                serde_json::json!({"id": id, "key": key.expose()})
+                match keys.write().await.mint(id.clone(), scope) {
+                    Ok(key) => serde_json::json!({"id": id, "key": key.expose()}),
+                    Err(error) => serde_json::json!({"error": error.to_string()}),
+                }
             }
             AdminRequest::RevokeKey { id } => {
                 serde_json::json!({"revoked": keys.write().await.revoke(&id)})

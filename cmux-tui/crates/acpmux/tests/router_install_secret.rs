@@ -15,15 +15,27 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 fn scratch() -> PathBuf {
-    // Short: the socket path must stay under the macOS limit.
+    use std::os::unix::fs::DirBuilderExt;
+    // Short: the socket path must stay under the macOS limit. A new, owner-only
+    // folder: an existing path (a stale run, or another user's link) fails.
     let dir = std::env::temp_dir().join(format!("amx-rsec-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
     dir
 }
 
+/// Ends the router if the test fails before `stop`.
+struct Router(Option<Child>);
+impl Drop for Router {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// `acpmux router serve` on `home` (no owner FIFO: it runs until `shutdown`).
-fn start_router(home: &Path, stderr: &Path) -> Child {
+fn start_router(home: &Path, stderr: &Path) -> Router {
     let _ = std::fs::remove_file(home.join("router").join("router.sock"));
     let child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
         .args(["router", "serve"])
@@ -36,12 +48,13 @@ fn start_router(home: &Path, stderr: &Path) -> Child {
         .stderr(std::fs::OpenOptions::new().create(true).append(true).open(stderr).unwrap())
         .spawn()
         .unwrap();
+    let router = Router(Some(child));
     let deadline = Instant::now() + Duration::from_secs(20);
     while UnixStream::connect(home.join("router").join("router.sock")).is_err() {
         assert!(Instant::now() < deadline, "the router never opened its admin socket");
         std::thread::sleep(Duration::from_millis(50));
     }
-    child
+    router
 }
 
 /// One admin request; the reply line as JSON.
@@ -69,10 +82,11 @@ fn relay_status(port: u64, key: &str) -> u16 {
     reply.split_whitespace().nth(1).and_then(|code| code.parse().ok()).unwrap_or(0)
 }
 
-fn stop(home: &Path, mut router: Child) {
+fn stop(home: &Path, mut router: Router) {
     assert_eq!(ask(home, json!({"op": "shutdown"}))["stopping"], json!(true));
+    let mut child = router.0.take().unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while router.try_wait().unwrap().is_none() {
+    while child.try_wait().unwrap().is_none() {
         assert!(Instant::now() < deadline, "the router did not stop");
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -110,13 +124,23 @@ fn with_no_keychain_keys_work_for_one_router_run_and_the_status_says_ephemeral()
     assert_eq!(relay_status(port, &format!("{key}x")), 401);
     stop(&home, router);
 
-    // A new run has a new secret: the old key is unknown there.
+    // Keys never outlive a router run (with any store): the old key is
+    // unknown to the next run.
     let router = start_router(&home, &log);
     let status = ask(&home, json!({"op": "status"}));
     assert_eq!(status["install_secret"], "ephemeral", "{status}");
     let port = status["port"].as_u64().unwrap();
     assert_eq!(relay_status(port, &key), 401, "a key outlived its router run");
     stop(&home, router);
+
+    // The fallback is visible: one warning line on stderr per run (macOS; on
+    // Linux the random secret is the only kind, with no fallback to report).
+    let warnings = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .filter(|l| l.contains("this router run uses a random in-memory secret"))
+        .count();
+    assert_eq!(warnings, if cfg!(target_os = "macos") { 2 } else { 0 }, "router stderr: {log:?}");
 
     // The secret part of the key reached no file under the home and no log.
     let secret = key.rsplit('_').next().unwrap().to_owned();
