@@ -98,7 +98,11 @@ fn parse(args: &[String]) -> Result<Request, String> {
         };
         let list = |text: String| -> Value {
             Value::Array(
-                text.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| json!(s)).collect(),
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| json!(s))
+                    .collect(),
             )
         };
         match flag {
@@ -107,7 +111,8 @@ fn parse(args: &[String]) -> Result<Request, String> {
             "--name" => {
                 request.fields.insert("display_name".into(), json!(value()?));
             }
-            "--role" | "--personality" | "--instructions" | "--harness" | "--model" | "--effort" => {
+            "--role" | "--personality" | "--instructions" | "--harness" | "--model"
+            | "--effort" => {
                 let key = flag.trim_start_matches("--").to_owned();
                 request.fields.insert(key, json!(value()?));
             }
@@ -227,7 +232,10 @@ enum Failure {
     /// The daemon has no Chief registry (an older build).
     Unsupported,
     /// An earlier write of the command committed, a later one failed.
-    Partial { done: String, error: LinkError },
+    Partial {
+        done: String,
+        error: LinkError,
+    },
 }
 
 impl From<LinkError> for Failure {
@@ -264,10 +272,12 @@ fn execute(link: &mut Link, request: &Request, output: OutputMode) -> Result<(),
             return Err(Failure::Usage(t.needs_name.into()));
         }
         let key = super::link::new_message_id();
-        let created = link.call("chief.profile.create", Value::Object(request.fields.clone()), Some(&key))?;
+        let created =
+            link.call("chief.profile.create", Value::Object(request.fields.clone()), Some(&key))?;
         created.get("value").cloned().unwrap_or(Value::Null)
     } else {
-        let wanted = request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_chief.into()))?;
+        let wanted =
+            request.chief.as_deref().ok_or_else(|| Failure::Usage(t.needs_chief.into()))?;
         let found = resolve(&records, wanted).map_err(Failure::Usage)?;
         let id = text_of(&found, "id").to_owned();
         if request.word == "delete" {
@@ -336,7 +346,8 @@ fn fill(record: &Value, template: &str) -> String {
 
 /// `id  name  role  [default]`, tab-separated.
 fn line(record: &Value, t: &Text) -> String {
-    let mut parts = vec![text_of(record, "id"), text_of(record, "display_name"), text_of(record, "role")];
+    let mut parts =
+        vec![text_of(record, "id"), text_of(record, "display_name"), text_of(record, "role")];
     if record.get("is_default").and_then(Value::as_bool) == Some(true) {
         parts.push(t.default_mark);
     }
@@ -353,7 +364,8 @@ fn resolve(records: &[Value], wanted: &str) -> Result<Value, String> {
     if let Some(record) = records.iter().find(|r| text_of(r, "id") == wanted) {
         return Ok(record.clone());
     }
-    let named: Vec<&Value> = records.iter().filter(|r| text_of(r, "display_name") == wanted).collect();
+    let named: Vec<&Value> =
+        records.iter().filter(|r| text_of(r, "display_name") == wanted).collect();
     match named.as_slice() {
         [one] => Ok((*one).clone()),
         [] => Err(t.no_such.replace("{chief}", wanted)),

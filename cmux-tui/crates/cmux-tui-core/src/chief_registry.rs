@@ -193,10 +193,11 @@ impl ChiefStore {
             Some(Ok(SCHEMA_VERSION)) => {}
             Some(_) => anyhow::bail!("chief registry has an unknown schema version"),
         }
-        let has_default: bool = transaction
-            .query_row("SELECT EXISTS(SELECT 1 FROM chief WHERE id = ?1)", [DEFAULT_CHIEF], |r| {
-                r.get(0)
-            })?;
+        let has_default: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM chief WHERE id = ?1)",
+            [DEFAULT_CHIEF],
+            |r| r.get(0),
+        )?;
         if !has_default {
             let now = now_text();
             let record = ChiefRecord {
@@ -365,8 +366,7 @@ pub(crate) fn update(
                 "INSERT OR IGNORE INTO avatar (sha256, media_type, data) VALUES (?1, ?2, ?3)",
                 params![sha256, media_type, bytes],
             )?;
-            record.avatar =
-                Some(AvatarRef { sha256, media_type, bytes: bytes.len() as u64 });
+            record.avatar = Some(AvatarRef { sha256, media_type, bytes: bytes.len() as u64 });
         }
         Some(AvatarChange::Clear) => record.avatar = None,
         None => {}
@@ -432,7 +432,9 @@ pub(crate) fn validate_fields(fields: &Map<String, Value>) -> Option<Refusal> {
             let known = allowed.is_none_or(|allowed| allowed.contains(&item));
             let shaped = !item.is_empty()
                 && item.len() <= 64
-                && item.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
+                && item
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
             if !known || !shaped {
                 return Some(Refusal::Invalid(name, format!("unknown name {item:?}")));
             }
@@ -455,7 +457,10 @@ pub(crate) fn validate_fields(fields: &Map<String, Value>) -> Option<Refusal> {
 /// bytes that are that type.
 pub(crate) fn validate_avatar(media_type: &str, bytes: &[u8]) -> Option<Refusal> {
     if !AVATAR_TYPES.contains(&media_type) {
-        return Some(Refusal::Invalid("media_type", "must be image/png, image/jpeg, image/gif or image/webp".into()));
+        return Some(Refusal::Invalid(
+            "media_type",
+            "must be image/png, image/jpeg, image/gif or image/webp".into(),
+        ));
     }
     if bytes.is_empty() || bytes.len() > MAX_AVATAR_BYTES {
         return Some(Refusal::Invalid("data", format!("must be 1 to {MAX_AVATAR_BYTES} bytes")));

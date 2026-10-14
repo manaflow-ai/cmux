@@ -21,7 +21,9 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 
-use super::{ClientTransport, MessageWriter, Mux, ResourceError, ResourceOperation, send_resource_response};
+use super::{
+    ClientTransport, MessageWriter, Mux, ResourceError, ResourceOperation, send_resource_response,
+};
 use crate::chief_registry::{self, AvatarChange, ChiefStore, Refusal};
 use crate::conversation_store::LOCAL_USER;
 use crate::resource_router::ParsedResourceRequest;
@@ -68,8 +70,12 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
         let caller = caller(mux, client, store)?;
         match operation {
             Op::ChiefProfileList => {
-                let chiefs: Vec<Value> =
-                    store.list().map_err(|e| internal(operation, &e))?.iter().map(chief_registry::wire).collect();
+                let chiefs: Vec<Value> = store
+                    .list()
+                    .map_err(|e| internal(operation, &e))?
+                    .iter()
+                    .map(chief_registry::wire)
+                    .collect();
                 Ok(json!({"chiefs": chiefs}))
             }
             Op::ChiefProfileGet => {
@@ -104,11 +110,16 @@ fn mutate(
     let fields = &request.fields;
     let key = request.envelope.idempotency_key.clone().unwrap_or_default();
     if key.is_empty() {
-        return Err(ResourceError::validation_invalid(Some("idempotency_key"), "a mutation needs an idempotency key"));
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "a mutation needs an idempotency key",
+        ));
     }
     let profile: Map<String, Value> = fields
         .iter()
-        .filter(|(k, _)| !matches!(k.as_str(), "chief" | "expected_rev" | "media_type" | "data" | "clear"))
+        .filter(|(k, _)| {
+            !matches!(k.as_str(), "chief" | "expected_rev" | "media_type" | "data" | "clear")
+        })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     if let Some(refusal) = chief_registry::validate_fields(&profile) {
@@ -131,8 +142,12 @@ fn mutate(
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
             Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
-            Op::ChiefProfileUpdate => chief_registry::update(tx, &chief, expected_rev, &profile, None),
-            Op::ChiefProfileAvatarSet => chief_registry::update(tx, &chief, expected_rev, &Map::new(), avatar),
+            Op::ChiefProfileUpdate => {
+                chief_registry::update(tx, &chief, expected_rev, &profile, None)
+            }
+            Op::ChiefProfileAvatarSet => {
+                chief_registry::update(tx, &chief, expected_rev, &Map::new(), avatar)
+            }
             _ => chief_registry::delete(tx, &chief, expected_rev),
         })
         .map_err(|e| internal(operation, &e))?;
@@ -187,22 +202,28 @@ fn self_edit_allowed(
     }
 }
 
-fn avatar_change(operation: Op, fields: &Map<String, Value>) -> Result<AvatarChange, ResourceError> {
+fn avatar_change(
+    operation: Op,
+    fields: &Map<String, Value>,
+) -> Result<AvatarChange, ResourceError> {
     let clear = fields.get("clear").and_then(Value::as_bool).unwrap_or(false);
     let data = fields.get("data").and_then(Value::as_str);
     match (clear, data) {
         (true, None) => Ok(AvatarChange::Clear),
         (false, Some(data)) => {
-            let bytes = STANDARD
-                .decode(data)
-                .map_err(|_| ResourceError::validation_invalid(Some("data"), "data must be base64"))?;
+            let bytes = STANDARD.decode(data).map_err(|_| {
+                ResourceError::validation_invalid(Some("data"), "data must be base64")
+            })?;
             let media_type = fields.get("media_type").and_then(Value::as_str).unwrap_or("");
             if let Some(refusal) = chief_registry::validate_avatar(media_type, &bytes) {
                 return Err(refused(operation, &refusal));
             }
             Ok(AvatarChange::Set { media_type: media_type.to_owned(), bytes })
         }
-        _ => Err(ResourceError::validation_invalid(Some("data"), "give data and media_type, or clear: true")),
+        _ => Err(ResourceError::validation_invalid(
+            Some("data"),
+            "give data and media_type, or clear: true",
+        )),
     }
 }
 
@@ -223,7 +244,9 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
     }
     let bound = mux.bound_conversation_participant(client).ok().flatten();
     match bound {
-        Some(id) if id == principal && store.get(&id).ok().flatten().is_some() => Ok(Caller::Chief(id)),
+        Some(id) if id == principal && store.get(&id).ok().flatten().is_some() => {
+            Ok(Caller::Chief(id))
+        }
         _ => Err(forbidden()),
     }
 }
@@ -247,7 +270,9 @@ fn chief_field(fields: &Map<String, Value>) -> &str {
 
 fn refused(operation: Op, refusal: &Refusal) -> ResourceError {
     match refusal {
-        Refusal::Invalid(field, why) => ResourceError::validation_invalid(Some(field), format!("{field} {why}")),
+        Refusal::Invalid(field, why) => {
+            ResourceError::validation_invalid(Some(field), format!("{field} {why}"))
+        }
         Refusal::RevMismatch(rev) => ResourceError::operation_failed(
             operation.wire_name(),
             refusal.reason(),
@@ -258,5 +283,9 @@ fn refused(operation: Op, refusal: &Refusal) -> ResourceError {
 }
 
 fn internal(operation: Op, error: &anyhow::Error) -> ResourceError {
-    ResourceError::operation_failed(operation.wire_name(), "internal", json!({"message": format!("{error:#}")}))
+    ResourceError::operation_failed(
+        operation.wire_name(),
+        "internal",
+        json!({"message": format!("{error:#}")}),
+    )
 }
