@@ -10,10 +10,7 @@ final class FileExplorerState: ObservableObject {
     private let defaults: UserDefaults
 
     @Published var isVisible: Bool {
-        didSet {
-            persistVisibility()
-            if isVisible, !oldValue { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
-        }
+        didSet { persistVisibility() }
     }
     /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
     /// person. Persisted as visible, so a narrow window neither changes the
@@ -59,9 +56,15 @@ final class FileExplorerState: ObservableObject {
     @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
 
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
+    /// Explicit sets come from people and their tools (tab bar, palette, CLI);
+    /// restore and preference changes go through `refreshModeAvailability`.
     var mode: RightSidebarMode {
         get { storedMode }
-        set { setMode(newValue) }
+        set {
+            let previous = storedMode
+            setMode(newValue)
+            if isVisible, storedMode != previous { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
+        }
     }
 
     var customSidebarName: String? {
@@ -111,8 +114,11 @@ final class FileExplorerState: ObservableObject {
         setVisible(!isVisible)
     }
 
+    /// The person's show/hide (toggle, shortcut, menu). Narrow-window
+    /// auto-collapse sets `isVisible` directly and is not counted as use.
     func setVisible(_ nextValue: Bool) {
         guard isVisible != nextValue else { return }
+        if nextValue { ProductAnalytics.app.featureUsed(storedMode.productFeature) }
 
         // Suppress both SwiftUI transactions and AppKit/Core Animation implicit layout changes.
         NSAnimationContext.beginGrouping()
@@ -144,7 +150,6 @@ final class FileExplorerState: ObservableObject {
         }
         storedMode = nextMode
         defaults.set(nextMode.rawValue, forKey: Self.modeKey)
-        if isVisible { ProductAnalytics.app.featureUsed(nextMode.productFeature) }
     }
 
     private static func availableMode(

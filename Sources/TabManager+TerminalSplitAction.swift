@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxPanes
+import CmuxProductAnalytics
 import Foundation
 
 /// Preserves asynchronous acceptance through the shared terminal split action.
@@ -49,6 +50,7 @@ extension TabManager {
         )
         if let panel = outcome.panel {
             workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
+            ProductAnalytics.app.featureUsed(.split)
         } else if case .noSpace = outcome {
             // Shortcut, menu, palette and Ghostty split actions all land here:
             // a split with no room for another pane beeps instead of doing

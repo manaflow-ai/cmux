@@ -14,11 +14,13 @@ final class TestClock: Sendable {
 
 @Suite("Product analytics pipeline")
 struct ProductAnalyticsPipelineTests {
-    struct Harness {
+    /// A class so the suite it created is removed when the test drops it.
+    final class Harness {
         let sink: RecordingProductAnalyticsSink
         let clock: TestClock
         let defaults: UserDefaults
         let analytics: ProductAnalytics
+        private let ownedSuiteName: String?
 
         init(
             enabled: Bool = true,
@@ -26,7 +28,9 @@ struct ProductAnalyticsPipelineTests {
             version: String = "0.66.0",
             defaults: UserDefaults? = nil
         ) {
-            let defaults = defaults ?? UserDefaults(suiteName: "product-analytics-\(UUID().uuidString)")!
+            let suiteName = defaults == nil ? "product-analytics-\(UUID().uuidString)" : nil
+            let defaults = defaults ?? UserDefaults(suiteName: suiteName)!
+            ownedSuiteName = suiteName
             let sink = RecordingProductAnalyticsSink()
             let clock = TestClock()
             self.defaults = defaults
@@ -40,6 +44,10 @@ struct ProductAnalyticsPipelineTests {
                 isPreexistingInstall: preexisting,
                 now: { clock.now }
             )
+        }
+
+        deinit {
+            if let ownedSuiteName { defaults.removePersistentDomain(forName: ownedSuiteName) }
         }
 
         func milestones() -> [String] {
@@ -90,6 +98,8 @@ struct ProductAnalyticsPipelineTests {
         let relaunch = Harness(defaults: fresh.defaults)
         await relaunch.analytics.drain()
         #expect(relaunch.milestones().isEmpty)
+
+        withExtendedLifetime(fresh) {}
 
         let existing = Harness(preexisting: true)
         existing.analytics.featureUsed(.split)
@@ -150,6 +160,29 @@ struct ProductAnalyticsPipelineTests {
         #expect(harness.sink.eventNames.last == "cmux_plan_deactivated")
     }
 
+    @Test("a click attributes one activation, and only for the account that clicked")
+    func attributionIsPerAccountAndSingleUse() async {
+        let harness = Harness()
+        harness.analytics.identify(userID: "user-a", teamID: nil)
+        harness.analytics.notePlan(accountID: "user-a", isPaid: false)
+        harness.analytics.track(.upgradeEntrypointOpened(source: "mac_sidebar_badge", plan: "pro", destination: .pricingPage))
+        // Switching to an already-paid account is not an activation from A's click.
+        harness.analytics.signedOut()
+        harness.analytics.identify(userID: "user-b", teamID: nil)
+        harness.analytics.notePlan(accountID: "user-b", isPaid: true)
+        await harness.analytics.drain()
+        #expect(!harness.sink.eventNames.contains("cmux_plan_activated"))
+
+        harness.analytics.signedOut()
+        harness.analytics.identify(userID: "user-a", teamID: nil)
+        harness.analytics.notePlan(accountID: "user-a", isPaid: true)
+        harness.analytics.notePlan(accountID: "user-a", isPaid: false)
+        harness.analytics.notePlan(accountID: "user-a", isPaid: true)
+        await harness.analytics.drain()
+        let activations = harness.sink.events.filter { $0.name == "cmux_plan_activated" }
+        #expect(activations.map { $0.properties["upgrade_source"] } == [.string("mac_sidebar_badge"), .string("none")])
+    }
+
     @Test("an existing subscriber seen for the first time is not an activation")
     func existingSubscriber() async {
         let harness = Harness()
@@ -191,12 +224,15 @@ struct ProductAnalyticsPipelineTests {
         let harness = Harness()
         harness.analytics.noteAgentHook(source: "claude", sessionID: "secret-session", phase: .sessionStart)
         harness.analytics.noteAgentHook(source: "claude", sessionID: "secret-session", phase: .activity)
+        // A session first seen mid-flight (it outlived a relaunch) is neither
+        // started nor ended again.
         harness.analytics.noteAgentHook(source: "codex", sessionID: "other", phase: .activity)
+        harness.analytics.noteAgentHook(source: "codex", sessionID: "other", phase: .sessionEnd)
         harness.analytics.noteAgentHook(source: "claude", sessionID: "secret-session", phase: .sessionEnd)
         harness.analytics.noteAgentHook(source: "claude", sessionID: "secret-session", phase: .sessionEnd)
         await harness.analytics.drain()
         let names = harness.sink.eventNames
-        #expect(names.filter { $0 == "cmux_agent_session_started" }.count == 2)
+        #expect(names.filter { $0 == "cmux_agent_session_started" }.count == 1)
         #expect(names.filter { $0 == "cmux_agent_session_ended" }.count == 1)
         #expect(harness.milestones().contains("first_agent_session"))
         for event in harness.sink.events {
@@ -265,5 +301,6 @@ struct ProductAnalyticsPipelineTests {
         #expect(upgraded.sink.events.first { $0.name == "cmux_app_updated" }?.properties["direction"] == .string("upgrade"))
         #expect(downgraded.sink.events.first { $0.name == "cmux_app_updated" }?.properties["direction"] == .string("downgrade"))
         #expect(!first.sink.eventNames.contains("cmux_app_updated"))
+        withExtendedLifetime(first) {}
     }
 }

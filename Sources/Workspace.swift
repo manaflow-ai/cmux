@@ -9211,7 +9211,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         allowTextBoxFocusDefault: Bool = true,
         inheritStartupWork: Bool = true
     ) -> TerminalPanel? {
-        let panel = newTerminalSplitOutcome(
+        return newTerminalSplitOutcome(
             from: panelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -9226,10 +9226,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
             inheritStartupWork: inheritStartupWork
         ).panel
-        if panel != nil {
-            ProductAnalytics.app.featureUsed(.split)
-        }
-        return panel
     }
 
     /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``
@@ -15165,6 +15161,8 @@ extension Workspace: BonsplitDelegate {
             scheduleTerminalGeometryReconcile()
             return
         }
+        // A split from the tab bar UI (drag to an edge, split button) is a user split.
+        ProductAnalytics.app.featureUsed(.split)
         // If the new pane already has a tab, this split moved an existing tab (drag-to-split).
         //
         // In the "drag the only tab to split edge" case, bonsplit inserts a placeholder "Empty"

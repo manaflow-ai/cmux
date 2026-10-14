@@ -33,7 +33,7 @@ saved insights in the same PR.
 | Identity owner | `PostHogIdentityObserver` (manaflow-ai/cmux#20565) identifies on sign-in or restore and resets on sign-out. Product analytics does not call `identify` itself. |
 | Anonymous to signed in | The first `identify` from an anonymous state sends `$anon_distinct_id`, which merges pre-sign-in activity (first launch, first split, upgrade clicks) into the account. |
 | Sign-out | `cmux_signed_out` is captured when sign-out starts, before the reset, so it joins the account. |
-| `$groups.stack_team` | The selected team, for team-level rollups, set by product analytics. It matches the server's billing events. |
+| `$groups.stack_team` | Not set by the Mac yet. A PostHog group lasts until `reset()`, so it belongs with the identity observer that owns reset (suggested on #20565). Server billing events already carry it. |
 
 Feature flags evaluate against the same distinct id, so a signed-in user's
 rollout bucket follows their account across devices.
@@ -113,8 +113,8 @@ client events add what the user saw: failures, latency, and the path taken.
 | Event | Fires when | Properties |
 | --- | --- | --- |
 | `cmux_activation_milestone_reached` | First time per install | `milestone` (`first_launch`, `first_workspace`, `first_split`, `first_browser_pane`, `first_agent_session`, `first_sign_in`, `first_upgrade_click`, `first_cloud_enable`, `first_cloud_machine`, `first_cloud_workspace`, `first_paid_plan`), `is_new_install`, `days_since_install` |
-| `cmux_agent_session_started` | The first hook seen for an agent session this launch | `agent` (`claude_code`, `codex`, `opencode`, `gemini`, `cursor`, `pi`, `other`) |
-| `cmux_agent_session_ended` | That session's SessionEnd hook | `agent` |
+| `cmux_agent_session_started` | An agent's SessionStart hook. A session that outlived a relaunch is not started again. | `agent` (`claude_code`, `codex`, `opencode`, `gemini`, `cursor`, `pi`, `other`) |
+| `cmux_agent_session_ended` | The SessionEnd hook of a session counted as started | `agent` |
 | `cmux_feature_used` | First use per UTC day | `feature` (`command_palette`, `files_explorer`, `find`, `vault`, `feed`, `dock`, `cloud_sidebar`, `custom_sidebar`, `devices`, `cmux_ssh`, `browser_pane`, `split`) |
 | `cmux_app_updated` | A launch runs a different version than the previous one | `direction` (`upgrade`, `downgrade`), `from_version`, `to_version` |
 | `cmux_daily_active` | Existing: once per UTC day | existing properties plus the shared properties above |

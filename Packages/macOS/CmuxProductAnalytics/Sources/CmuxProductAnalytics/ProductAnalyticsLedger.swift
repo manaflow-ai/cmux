@@ -24,6 +24,7 @@ public struct ProductAnalyticsLedger: @unchecked Sendable {
         static let lastVersion = "cmux.analytics.lastVersion"
         static let lastUpgradeSource = "cmux.analytics.lastUpgradeSource"
         static let lastUpgradeAt = "cmux.analytics.lastUpgradeAt"
+        static let lastUpgradeAccount = "cmux.analytics.lastUpgradeAccount"
         static let lastPlanAccount = "cmux.analytics.lastPlanAccount"
         static let lastPlanPaid = "cmux.analytics.lastPlanPaid"
     }
@@ -59,31 +60,45 @@ public struct ProductAnalyticsLedger: @unchecked Sendable {
         return true
     }
 
-    /// Records `version` and returns the previous launch's version.
+    /// Records `version` and returns the previous launch's version. Writes
+    /// only on a change: every defaults write notifies app-wide observers.
     func swapLastVersion(_ version: String) -> String? {
         let previous = defaults.string(forKey: Key.lastVersion)
-        defaults.set(version, forKey: Key.lastVersion)
+        if previous != version { defaults.set(version, forKey: Key.lastVersion) }
         return previous
     }
 
-    func recordUpgradeClick(source: String, at date: Date) {
+    /// Records an upgrade click. `account` is the signed-in account, or nil
+    /// when signed out (the click may then lead to any account's checkout).
+    func recordUpgradeClick(source: String, account: String?, at date: Date) {
         defaults.set(source, forKey: Key.lastUpgradeSource)
         defaults.set(date, forKey: Key.lastUpgradeAt)
+        defaults.set(account, forKey: Key.lastUpgradeAccount)
     }
 
-    var lastUpgradeClick: (source: String, at: Date)? {
+    /// The last unattributed click that may apply to `account`.
+    func upgradeClick(for account: String) -> (source: String, at: Date)? {
         guard let source = defaults.string(forKey: Key.lastUpgradeSource),
               let date = defaults.object(forKey: Key.lastUpgradeAt) as? Date else { return nil }
+        if let clickAccount = defaults.string(forKey: Key.lastUpgradeAccount), clickAccount != account { return nil }
         return (source, date)
     }
 
+    /// Forgets the click once a plan activation used it.
+    func clearUpgradeClick() {
+        defaults.removeObject(forKey: Key.lastUpgradeSource)
+        defaults.removeObject(forKey: Key.lastUpgradeAt)
+        defaults.removeObject(forKey: Key.lastUpgradeAccount)
+    }
+
     /// Records the plan for `account` and returns what was known for that
-    /// account before, or nil when it was a different or no account.
+    /// account before, or nil when it was a different or no account. Writes
+    /// only on a change.
     func swapPlan(account: String, isPaid: Bool) -> Bool? {
         let previousAccount = defaults.string(forKey: Key.lastPlanAccount)
         let previous = previousAccount == account ? defaults.object(forKey: Key.lastPlanPaid) as? Bool : nil
-        defaults.set(account, forKey: Key.lastPlanAccount)
-        defaults.set(isPaid, forKey: Key.lastPlanPaid)
+        if previousAccount != account { defaults.set(account, forKey: Key.lastPlanAccount) }
+        if previous != isPaid { defaults.set(isPaid, forKey: Key.lastPlanPaid) }
         return previous
     }
 }

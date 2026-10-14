@@ -13,7 +13,7 @@ struct PostHogProductAnalyticsSink: ProductAnalyticsSink {
 
     /// The PostHog person (identify on sign-in, reset on sign-out) has one
     /// owner, the sign-in identity observer, which uses the same Stack user
-    /// id. Product analytics only adds the team group and context.
+    /// id. Product analytics only adds context.
     func identify(userId: String?, alias: String?, properties: [String: AnalyticsValue]) {}
 
     func setSuperProperties(_ properties: [String: AnalyticsValue]) {
@@ -22,9 +22,10 @@ struct PostHogProductAnalyticsSink: ProductAnalyticsSink {
 
     func flush() async {}
 
-    func group(type: String, key: String) {
-        analytics.group(type: type, key: key)
-    }
+    /// PostHog keeps a group until `reset()`, which the identity observer
+    /// owns, so the team group is left to it as well: grouping here would
+    /// outlive sign-out and attribute later events to the old team.
+    func group(type: String, key: String) {}
 
     static func plain(_ properties: [String: AnalyticsValue]) -> [String: Any] {
         properties.mapValues { $0.jsonObject }

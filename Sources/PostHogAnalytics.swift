@@ -136,16 +136,6 @@ final class PostHogAnalytics: @unchecked Sendable {
         }
     }
 
-    /// Associates later events with a group (`stack_team`).
-    func group(type: String, key: String) {
-        dispatchAsyncOnWorkQueue { [weak self] in
-            guard let self else { return }
-            self.startIfNeededOnWorkQueue()
-            guard self.didStart else { return }
-            self.contextCalls.group(type, key)
-        }
-    }
-
     /// Capture one product event with the app version properties attached.
     /// No-op when telemetry is disabled or the SDK never started. Used by the
     /// Cloud VM request telemetry (`VMClientTelemetry`).

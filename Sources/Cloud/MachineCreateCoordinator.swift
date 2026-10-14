@@ -61,6 +61,9 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var accessDidEndObserver: NSObjectProtocol?
     @ObservationIgnored private let analytics: ProductAnalytics
     @ObservationIgnored private let now: () -> Date
+    /// Operations whose machine creation was already reported; a retry of
+    /// one only reopens the machine and is not another create.
+    @ObservationIgnored private var reportedCreatedOperationIDs: Set<UUID> = []
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -301,6 +304,7 @@ final class MachineCreateCoordinator {
         let seconds = now().timeIntervalSince(finished.operation.startedAt)
         switch finished.outcome {
         case .created, .createdButOpenFailed:
+            guard reportedCreatedOperationIDs.insert(finished.operation.id).inserted else { return }
             analytics.noteMachineCreateFinished(succeeded: true, errorCode: nil, seconds: seconds)
         case .failed:
             analytics.noteMachineCreateFinished(

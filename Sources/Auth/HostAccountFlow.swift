@@ -205,6 +205,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut()
         billingPlanState = .unknown
+        restoreAnalyticsIfStillSignedIn()
     }
 
     /// Set for the whole switch so sign-in gates show its progress instead of
@@ -251,6 +252,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
+        restoreAnalyticsIfStillSignedIn()
     }
 
     func refreshCurrentUser() async {

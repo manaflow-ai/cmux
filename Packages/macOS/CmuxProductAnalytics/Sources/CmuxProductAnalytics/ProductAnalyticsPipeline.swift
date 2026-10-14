@@ -15,7 +15,10 @@ actor ProductAnalyticsPipeline {
     private let isPreexistingInstall: Bool
     private let now: @Sendable () -> Date
     private var shownThisLaunch: Set<String> = []
-    private var agentSessions: [String: AgentKind] = [:]
+    /// Sessions seen this launch, with whether their start was counted.
+    private var agentSessions: [String: (agent: AgentKind, counted: Bool)] = [:]
+    /// Session ids in first-seen order, for oldest-first eviction.
+    private var agentSessionOrder: [String] = []
     private var identifiedUserID: String?
     private var groupedTeamID: String?
     private var consecutiveCreateFailures = 0
@@ -87,7 +90,7 @@ actor ProductAnalyticsPipeline {
     private func followUp(after event: ProductAnalyticsEvent) {
         switch event {
         case let .upgradeEntrypointOpened(source, _, _):
-            ledger.recordUpgradeClick(source: source, at: now())
+            ledger.recordUpgradeClick(source: source, account: identifiedUserID, at: now())
             reach(.firstUpgradeClick)
         case .signInSucceeded:
             reach(.firstSignIn)
@@ -180,12 +183,14 @@ actor ProductAnalyticsPipeline {
         apply(.plan(isPaid ? .paid : .free))
         let previous = ledger.swapPlan(account: accountID, isPaid: isPaid)
         if isPaid, previous != true {
-            let click = ledger.lastUpgradeClick.flatMap { click -> (source: String, at: Date)? in
+            let click = ledger.upgradeClick(for: accountID).flatMap { click -> (source: String, at: Date)? in
                 now().timeIntervalSince(click.at) <= Self.upgradeAttributionWindow ? click : nil
             }
             // A first sighting of a paid account is an activation only right
             // after an upgrade click; otherwise it is an existing subscriber.
             guard previous == false || click != nil else { return }
+            // One click attributes one activation.
+            if click != nil { ledger.clearUpgradeClick() }
             track(.planActivated(
                 upgradeSource: click?.source,
                 sinceUpgradeClick: click.map { DurationBucket(seconds: now().timeIntervalSince($0.at)) }
@@ -201,16 +206,24 @@ actor ProductAnalyticsPipeline {
         guard !sessionID.isEmpty else { return }
         switch phase {
         case .sessionEnd:
-            guard let agent = agentSessions.removeValue(forKey: sessionID) else { return }
-            track(.agentSessionEnded(agent: agent))
+            guard let session = agentSessions.removeValue(forKey: sessionID) else { return }
+            agentSessionOrder.removeAll { $0 == sessionID }
+            // Ends pair with counted starts, so started minus ended stays meaningful.
+            if session.counted { track(.agentSessionEnded(agent: session.agent)) }
         case .sessionStart, .activity:
             guard agentSessions[sessionID] == nil else { return }
-            if agentSessions.count >= Self.maximumTrackedAgentSessions {
-                agentSessions.removeAll()
+            if agentSessionOrder.count >= Self.maximumTrackedAgentSessions {
+                agentSessions.removeValue(forKey: agentSessionOrder.removeFirst())
             }
             let agent = AgentKind(hookSource: source)
-            agentSessions[sessionID] = agent
-            track(.agentSessionStarted(agent: agent))
+            agentSessions[sessionID] = (agent, phase == .sessionStart)
+            agentSessionOrder.append(sessionID)
+            // Only a SessionStart is a new session. Activity from a session the
+            // app first sees mid-flight (it outlived a relaunch) is tracked so
+            // its end counts, but it is not started again.
+            if phase == .sessionStart {
+                track(.agentSessionStarted(agent: agent))
+            }
         }
     }
 

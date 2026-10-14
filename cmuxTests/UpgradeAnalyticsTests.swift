@@ -27,9 +27,15 @@ private final class RecordingSink: ProductAnalyticsSink {
 }
 
 private enum TestAnalytics {
+    /// One reused suite, cleared per emitter: these tests never read the
+    /// ledger back, and a fixed name leaves no plist per run.
+    static let suiteName = "UpgradeAnalyticsTests.ledger"
+    static let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+
     static func make(enabled: Bool = true) -> (ProductAnalytics, RecordingSink) {
     let sink = RecordingSink()
-    let defaults = UserDefaults(suiteName: "UpgradeAnalyticsTests.\(UUID().uuidString)")!
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
     let analytics = ProductAnalytics(
         isEnabled: enabled,
         sink: sink,
@@ -83,7 +89,8 @@ struct UpgradeAnalyticsTests {
                 // What the real `.upgrade` step does, minus opening pricing.
                 ProUpgradePresenter.present(source: .cloudWelcome, analytics: analytics, open: { _ in })
             },
-            analytics: analytics
+            analytics: analytics,
+            now: { TestAnalytics.fixedNow }
         )
         defer { controller.dismiss() }
         controller.present(over: nil, trigger: trigger)
@@ -127,7 +134,8 @@ struct UpgradeAnalyticsTests {
                 defaults: defaults,
                 nextStep: { step },
                 performNextStep: { _, _ in },
-                analytics: analytics
+                analytics: analytics,
+                now: { TestAnalytics.fixedNow }
             )
             controller.present(over: nil, trigger: .newCloudMachine)
             switch act {
@@ -162,7 +170,8 @@ struct UpgradeAnalyticsTests {
             defaults: defaults,
             nextStep: { .upgrade },
             performNextStep: { _, _ in },
-            analytics: analytics
+            analytics: analytics,
+            now: { TestAnalytics.fixedNow }
         )
         controller.present(over: nil, trigger: .launchAnnouncement)
         controller.handleNotNow()
@@ -203,5 +212,33 @@ struct AccountAnalyticsStateTests {
         #expect(repeated.isEmpty)
         #expect(AccountAnalyticsState.reason(.unknown) == .network)
         #expect(AccountAnalyticsState.reason(nil) == nil)
+    }
+}
+
+@MainActor
+@Suite("Machine create analytics", .serialized)
+struct MachineCreateAnalyticsTests {
+    @Test("a refused create reports its plan limit, and the retry that succeeds reports one create")
+    func refusalThenRetry() async throws {
+        let (analytics, sink) = TestAnalytics.make()
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: NotificationCenter(),
+            analytics: analytics
+        )
+        coordinator.start(MachineCreateCoordinatorTests.newMachineRequest(), launch: launches.launch)
+        let id = try #require(coordinator.operations.first?.id)
+        launches.complete(status: 1, output: "Error: limit", refusalCode: "vm_active_limit_exceeded")
+        #expect(coordinator.retry(id))
+        launches.complete(status: 0, output: "OK machine=m1", machineID: "m1")
+        await analytics.drain()
+
+        let failed = sink.named("cmux_cloud_machine_create_failed")
+        #expect(failed.count == 1)
+        #expect(failed.first?["error_code"] == .string("vm_active_limit_exceeded"))
+        #expect(failed.first?["error_class"] == .string("plan_limit"))
+        #expect(sink.named("cmux_cloud_plan_limit_hit").compactMap { $0["limit"] } == [AnalyticsValue.string("active_machines")])
+        #expect(sink.named("cmux_cloud_machine_create_succeeded").count == 1)
     }
 }

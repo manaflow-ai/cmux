@@ -24,6 +24,14 @@ extension HostAccountFlow {
         }
     }
 
+    /// `cmux_signed_out` is captured before a sign-out runs so it joins the
+    /// account. If the account is still signed in afterwards (a failed or
+    /// no-op sign-out), later events get the signed-in context back.
+    func restoreAnalyticsIfStillSignedIn() {
+        guard let userID = coordinator.currentUser?.id else { return }
+        analytics.identify(userID: userID, teamID: confirmedTeamID)
+    }
+
     func noteSignInStarted() {
         analyticsState.signInStarted()
         analytics.track(.signInStarted)
