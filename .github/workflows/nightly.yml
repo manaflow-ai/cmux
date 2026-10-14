@@ -3750,6 +3750,11 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_probe != 'true' && needs.publish-nightly.result == 'success' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
     continue-on-error: true
     environment: release-next
+    # A nightly_next_continue_only run has its own workflow group: one old-feed
+    # writer at a time across runs.
+    concurrency:
+      group: nightly-next-legacy-identity
+      cancel-in-progress: false
     permissions:
       contents: write
       issues: write
