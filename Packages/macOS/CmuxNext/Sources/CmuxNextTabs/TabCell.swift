@@ -252,7 +252,7 @@ final class TabCell {
             statusGlyphLayer?.colors = indicatorColors
             iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
             // The theme's separator tone, stronger than a pane hairline so a 1 pt line reads between tabs.
-            separatorLayer.backgroundColor = Borders.color(Palette.separator.withAlphaComponent(TabTunables.separatorOpacity.value)).cgColor
+            separatorLayer.backgroundColor = Borders.color(Palette.separator.withAlphaComponent(metrics.separatorOpacity)).cgColor
         }
         applyCloseColors()
         applyBadgeColor()

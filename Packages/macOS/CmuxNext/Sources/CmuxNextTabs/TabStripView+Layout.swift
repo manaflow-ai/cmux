@@ -108,7 +108,8 @@ extension TabStripView {
     /// row: the selected, hovered and dragged tabs hide the separators on
     /// both sides, and the last tab's separator is the line before +. A drop
     /// gap counts as the dragged tab. Members collapsed into a group chip are
-    /// out of the row and draw none; a chip is a neutral neighbor.
+    /// out of the row and draw none; a chip is a neutral neighbor. None
+    /// while `tabs.separators` is off.
     func updateSeparators() {
         let row = result.slots.filter { !$0.isCollapsed }
         func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
@@ -118,7 +119,7 @@ extension TabStripView {
             hovered: index(of: hoveredID),
             dragged: index(of: drag?.id) ?? index(of: Self.placeholderID)
         )
-        let shown = Set(visible.map { row[$0].id })
+        let shown = metrics.showsSeparators ? Set(visible.map { row[$0].id }) : []
         for slot in result.slots {
             cells[slot.id]?.showsSeparator = shown.contains(slot.id)
         }

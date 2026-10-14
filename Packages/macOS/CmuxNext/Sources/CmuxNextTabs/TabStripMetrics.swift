@@ -70,8 +70,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Between the name and the collapsed member count.
     public var groupChipCountSpacing: CGFloat
     public var groupUnderlineHeight: CGFloat
-    /// Height of the 1 pt separator between tabs.
+    /// Whether a line separates tabs (`tabs.separators`), its height and its strength.
+    public var showsSeparators: Bool
     public var separatorHeight: CGFloat
+    public var separatorOpacity: CGFloat
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
@@ -134,7 +136,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
         groupChipCountSpacing = Metrics.space2
         groupUnderlineHeight = TabTunables.groupUnderlineHeight.value
+        showsSeparators = TabTunables.separators.value
         separatorHeight = TabTunables.separatorHeight.value
+        separatorOpacity = TabTunables.separatorOpacity.value
     }
 
     /// A tab's slot width that fits a title `titleWidth` wide: icon, title
