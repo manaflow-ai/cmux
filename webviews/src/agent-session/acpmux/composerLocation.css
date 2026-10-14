@@ -1,9 +1,11 @@
 /* The location strip (ComposerContext.tsx, hq#1957 composer location strip): folder · computer on
-   the left, the branch on the right, in a tab on the composer card's top edge. The card holds one
-   controls row; the strip is not a second row inside it. The strip's fill and edge are the card's,
-   so the two read as one surface: its sides and top draw the card's hairline, its bottom edge is
-   the card's top edge, and its top corners take a small radius. It is inset from the card's sides
-   by the card's corner radius, so it stands on the card's straight edge. It has one fixed height,
+   the left, the branch on the right, in a tab over the composer card's top edge. The card holds one
+   controls row; the strip is not a second row inside it. The strip's fill is the card's, but it
+   stands a few px apart (--acpmux-strip-gap) inside its own closed hairline, the card's edge, so it
+   reads as a tab of its own, not merged into the card (Leo 10-14: the top bump merged into the
+   composer too much). The card keeps its whole rim. The strip's top corners take a small radius,
+   its bottom ones a smaller one. It is inset from the card's sides by the card's corner radius, so
+   it stands over the card's straight edge. It has one fixed height,
    with a project or without, while the host's name loads and after, so nothing under it moves.
    Queued prompts stack above it (.acpmux-composer-queue), never over it. A control is a plain text
    button (no bezel, no fill, no weight change); hover and an open menu lay the bar's own wash under
@@ -15,16 +17,13 @@
   align-items: stretch;
   min-width: 0;
   height: var(--acpmux-strip-height);
-  margin: 0 var(--acpmux-strip-inset, 18px);
+  margin: 0 var(--acpmux-strip-inset, 18px) var(--acpmux-strip-gap, 3px);
   box-sizing: border-box;
-  border-radius: 10px 10px 0 0;
-  /* The card's solid surface (composerStates.css), so the strip and the card are one fill. */
+  border-radius: 10px 10px 5px 5px;
+  /* The card's solid surface (composerStates.css): the same material as the card. */
   background: var(--acpmux-composer-surface);
   --acpmux-strip-edge: var(--acpmux-composer-edge);
-  box-shadow:
-    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
-    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-strip-edge);
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
@@ -356,8 +355,8 @@
   .acpmux-composer-bar { gap: 6px; padding-inline: 8px; }
   .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
-/* The composer is one material surface; the location strip on its top edge shares its fill and
-   edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
+/* The composer is one material surface; the location strip over its top edge shares its fill and
+   edge (.acpmux-composer-strip), a tab a few px apart, not a second box of another material. Its only edge is
    the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
    clear under appearance.borders = none, focused or not. Focus is quiet (composerStates.css). Its
    shadow is the composer's (composerStates.css): --elevation-1 in a light theme, none in a dark one. */
@@ -405,42 +404,21 @@
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
 
-/* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
-   layer that leaves out the stretch the strip stands on, so the strip and the card read as one
-   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
-.nt-composer:has(.acpmux-composer-strip) .nt-box {
-  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
-}
-.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
-.nt-composer:has(.acpmux-composer-strip) .nt-box::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: var(--acpmux-card-ring);
-  pointer-events: none;
-  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--acpmux-strip-inset, 18px) - 1px) 2px no-repeat;
-  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
-  mask-composite: exclude;
-}
-
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
 .acpmux-composer-strip .acpmux-location-readonly { height: 22px; }
-/* Queued prompts (ComposerQueue.tsx) stack right above the strip at its insets, so the queue, the
-   strip and the card read as one tab over the card; the strip's top corners square off under the
-   queue and its top hairline gives way to the queue's sides. */
+/* Queued prompts (ComposerQueue.tsx) stack right above the strip at its insets, so the queue and the
+   strip read as one tab over the card; the strip's top corners square off under the queue and its
+   top hairline gives way to the queue's sides. The tab keeps its gap and bottom hairline. */
 .acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-queue {
   margin: 0 var(--acpmux-strip-inset, 18px);
 }
 .acpmux-composer:has(> .acpmux-composer-queue) > .acpmux-composer-strip {
-  border-radius: 0;
+  border-radius: 0 0 5px 5px;
   box-shadow:
     inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
-    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge),
+    inset 0 calc(-1 * var(--cmux-hairline, .5px)) 0 var(--acpmux-strip-edge);
 }
 
 /* The folder popover (FolderPopover.tsx): a search field over the folders, then New Worktree, Add
