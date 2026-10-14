@@ -21,7 +21,7 @@ pub(super) async fn handle(
     }
     // A side question runs a turn, under the rules of the connection that asks.
     let opts = crate::hub::PromptOptions {
-        control: super::super::remote_guard::control_of(conn.origin, params),
+        control: super::super::remote_guard::control_of(conn.origin, conn.auth, params),
         trust_gate: super::super::trust_gate::gated(conn.origin, params),
         ..Default::default()
     };

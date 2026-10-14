@@ -132,6 +132,11 @@ final class CEFTabContentView: NSView {
         tab?.pageThemeDidChange()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        tab?.deviceEmulationViewDidResize()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let tab else { return }

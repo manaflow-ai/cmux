@@ -847,6 +847,13 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        {
+            let mut applied =
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if super::start_defaults::is_effort_id(config_id) {
+                applied.effort = value.as_str().map(str::to_owned);
+            }
+        }
         Ok(r)
     }
 
@@ -881,6 +888,7 @@ impl Hub {
             self.save_meta(session);
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            super::start_defaults::model_applied(session, model_id);
             return Ok(json!({}));
         }
         // Prefer the config option named "model" when the agent exposes one.
@@ -903,11 +911,25 @@ impl Hub {
                 crate::model_catalog::resolve(option, model_id)
                     .map_err(RpcError::invalid_params)?,
             );
-            return self.set_config(session, "model", value).await;
+            let r = self.set_config(session, "model", value).await?;
+            super::start_defaults::model_applied(session, model_id);
+            return Ok(r);
         }
         let r =
             self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
+        super::start_defaults::model_applied(session, model_id);
+        // The harness runs this model now, also when its reply lists no models.
+        let reported = match session.meta.lock().unwrap().models.as_mut() {
+            Some(Value::Object(models)) => {
+                models.insert("currentModelId".into(), json!(model_id));
+                true
+            }
+            _ => false,
+        };
+        if reported {
+            self.save_meta(session);
+        }
         Ok(r)
     }
 
