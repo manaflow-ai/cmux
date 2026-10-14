@@ -134,9 +134,12 @@ pub(crate) fn short_text(s: &str, max: usize) -> String {
     }
 }
 
+/// The person's text of a prompt: its text blocks, without the hidden context acpmux added
+/// (`prompt_context.rs`).
 pub(crate) fn prompt_text(blocks: &[Value]) -> String {
     blocks
         .iter()
+        .filter(|b| !crate::prompt_context::is_context(b))
         .filter_map(|b| b.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
         .join("\n")

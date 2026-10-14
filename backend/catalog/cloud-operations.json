@@ -5256,6 +5256,106 @@
         }
       }
     },
+    "TeamAiUsageLine": {
+      "kind": "object",
+      "fields": {
+        "billed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "included_usd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "per_seat": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "seats": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "spent_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "period_start": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "period_end": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "stop_applies": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "stopped": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      }
+    },
     "TeamAuditEntry": {
       "kind": "object",
       "fields": {
@@ -52046,6 +52146,13 @@
               }
             }
           },
+          "team_usage": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAiUsageLine"
+            }
+          },
           "next_cursor": {
             "required": false,
             "type": {
@@ -52085,7 +52192,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend.",
+      "docs": "Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -52133,6 +52240,9 @@
             "items": {
               "$ref": "#/$defs/TeamAiLimitMember"
             }
+          },
+          "team_usage": {
+            "$ref": "#/$defs/TeamAiUsageLine"
           },
           "next_cursor": {
             "anyOf": [
@@ -52217,6 +52327,88 @@
               "limit_usd",
               "source",
               "spent_usd"
+            ],
+            "additionalProperties": true
+          },
+          "TeamAiUsageLine": {
+            "type": "object",
+            "properties": {
+              "billed": {
+                "type": "boolean"
+              },
+              "included_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "per_seat": {
+                "type": "boolean"
+              },
+              "seats": {
+                "type": "integer"
+              },
+              "spent_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "period_start": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "period_end": {
+                "type": "integer"
+              },
+              "stop_applies": {
+                "type": "boolean"
+              },
+              "stopped": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "billed",
+              "included_usd",
+              "per_seat",
+              "seats",
+              "spent_usd",
+              "period_start",
+              "period_end",
+              "stop_applies",
+              "stopped"
             ],
             "additionalProperties": true
           }

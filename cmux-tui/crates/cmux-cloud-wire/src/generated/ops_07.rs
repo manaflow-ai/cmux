@@ -579,7 +579,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend.
+    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
     TeamAiLimitGetOp {
         name: "team.ai_limit.get",
         class: Read,
@@ -608,6 +608,8 @@ pub struct TeamAiLimitGetResult {
     pub me: TeamAiLimitMember,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub members: Option<Vec<TeamAiLimitMember>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_usage: Option<TeamAiUsageLine>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub next_cursor: Option<Option<String>>,
 }
