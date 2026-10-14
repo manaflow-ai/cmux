@@ -723,6 +723,48 @@ export class ProviderMachineRecreateRequiredError extends ProviderError {
  * service the command would have checked is known, so routes name the machine
  * as unresponsive and give a restart action, never a generic outage.
  */
+/**
+ * The machine is in a state the operation cannot run in (still starting,
+ * pausing, or not running). Routes answer 409 vm_state_conflict with a
+ * wait-and-retry action, never a generic outage.
+ */
+export class ProviderStateConflictError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderStateConflictError";
+  }
+}
+
+/** How a provider's 409 answer reads: no room for the machine, a machine-state conflict, or an unresponsive guest. */
+export type ProviderConflictKind = "capacity" | "state" | "unresponsive";
+
+/**
+ * Classifies a provider failure that is a 409 refusal. The first error in the
+ * cause chain that carries an HTTP status decides; it must be 409. Freestyle
+ * answers capacity as `CONFLICT` "no manager has enough capacity" or
+ * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, and a
+ * machine in the wrong state (still starting, not running) as `CONFLICT`.
+ * Every other status, and a 409 that never reached the provider, is null.
+ */
+export function providerConflictKind(err: unknown): ProviderConflictKind | null {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderStateConflictError) return "state";
+    if (typeof current !== "object") return null;
+    const record = current as { status?: unknown; code?: unknown; message?: unknown; body?: { code?: unknown; message?: unknown }; cause?: unknown };
+    if (typeof record.status === "number") {
+      if (record.status !== 409) return null;
+      const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
+      const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
+      if (code === "PLACEMENT_REJECTED" || /\bcapacity\b/i.test(message)) return "capacity";
+      if (code === "VM_NON_RESPONSIVE") return "unresponsive";
+      return "state";
+    }
+    current = record.cause;
+  }
+  return null;
+}
+
 export class ProviderGuestUnresponsiveError extends ProviderError {
   constructor(provider: ProviderId, message: string, cause?: unknown) {
     super(provider, message, cause);

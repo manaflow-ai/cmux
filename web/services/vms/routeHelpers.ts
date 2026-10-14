@@ -67,6 +67,8 @@ import {
   vmCreateCleanupPendingCopy,
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
+  vmProviderCapacityCopy,
+  vmStateConflictCopy,
   vmProviderTimeoutCopy,
   vmRouteDeadlineCopy,
   vmGuestUnresponsiveCopy,
@@ -81,7 +83,7 @@ import {
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
 import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
-import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError } from "./drivers/types";
+import { ProviderArtifactUnavailableError, ProviderGuestUnresponsiveError, ProviderMachineRecreateRequiredError, ProviderNetworkFullError, ProviderReadDeadlineError, ProviderTlsRuleLimitError, providerConflictKind } from "./drivers/types";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
@@ -959,7 +961,14 @@ export const vmWorkflowErrorResponders = {
     if (guestInstall) {
       return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
     }
-    return vmProviderOperationErrorResponse(error);
+    // A provider 409 is a refusal with a reason, not an outage: no room for
+    // the machine, an unresponsive guest, or a machine in the wrong state.
+    switch (providerConflictKind(error.cause)) {
+      case "capacity": return vmProviderCapacityResponse(error, context.locale);
+      case "unresponsive": return vmGuestUnresponsiveResponse(error, context.locale);
+      case "state": return vmStateConflictResponse(error, context.locale);
+      default: return vmProviderOperationErrorResponse(error);
+    }
   },
   VmAccountDeletionInProgressError: (error) =>
     vmErrorResponse({
@@ -1383,6 +1392,54 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
  * same stuck guest, so the answer is non-retryable with a pause and resume
  * action that restarts it. Provider diagnostics stay in server traces.
  */
+/**
+ * The provider has no room for the machine right now (Freestyle 409
+ * capacity / placement refusal). Nothing was created or changed, and the
+ * same request can succeed once capacity frees up: a retryable 503 with
+ * Retry-After. Not a per-request operator fault; its rate is alerted.
+ */
+async function vmProviderCapacityResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmProviderCapacityCopy(locale);
+  return vmErrorResponse({
+    error: "vm_provider_capacity",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_capacity" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/**
+ * The machine is in a state the operation cannot run in: still starting or
+ * pausing, or not running. The caller's request is valid; it needs the
+ * machine to settle (or be resumed) first: a 409 with that action.
+ */
+async function vmStateConflictResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmStateConflictCopy(locale);
+  return vmErrorResponse({
+    error: "vm_state_conflict",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, providerCode: "provider_state_conflict" },
+    diagnostics: { provider: error.provider },
+  });
+}
+
+/** Seconds a client waits before retrying a capacity refusal. */
+const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;
+
 async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmGuestUnresponsiveCopy(locale);
   return vmErrorResponse({
@@ -1581,9 +1638,14 @@ function providerCauseSummary(cause: unknown): { code?: string; message?: string
     const record = current as {
       body?: { code?: unknown; message?: unknown };
       cause?: unknown;
+      code?: unknown;
       message?: unknown;
+      status?: unknown;
     };
-    const code = typeof record.body?.code === "string" ? record.body.code.trim() : "";
+    // An HTTP error from the provider SDK carries its code on itself
+    // (FreestyleApiError), not under `body`.
+    const directCode = typeof record.status === "number" && typeof record.code === "string" ? record.code.trim() : "";
+    const code = typeof record.body?.code === "string" ? record.body.code.trim() : directCode;
     const bodyMessage = typeof record.body?.message === "string" ? record.body.message.trim() : "";
     const message = typeof record.message === "string" ? record.message.trim() : "";
     const summaryMessage = bodyMessage || message;

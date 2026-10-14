@@ -10,6 +10,7 @@ import { hasProviderGuestUnresponsiveCause, isProviderHangCause } from "./driver
 import { VmOperationDeadlineError, type VmWorkflowError } from "./errors";
 import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { scrubErrorForLog } from "../observability/report";
+import { forceFlushTraces, withPrioritySpan, type MaybeAttributes } from "../telemetry";
 import { currentVmRequestContext } from "./requestContext";
 
 /**
@@ -239,6 +240,28 @@ export function logContinuationResult(label: string, outcome: string, detail: Re
   const line = JSON.stringify({ route: label, outcome, ...detail });
   if (outcome === "completed" || outcome === "superseded") console.info("[vm-route-deadline] continuation", line);
   else console.error("[vm-route-deadline] continuation", line);
+  recordContinuationSpan(label, outcome, detail);
+}
+
+/**
+ * The continuation's result as its own (priority-sampled) span, so outcomes
+ * and stops at maxDuration are queryable: the route's request span has
+ * already ended when a continuation finishes, and console lines are not
+ * shipped to the trace store. Flushed past the response, inside after().
+ */
+function recordContinuationSpan(label: string, outcome: string, detail: Record<string, unknown>): void {
+  const attributes: MaybeAttributes = {
+    "cmux.vm.continuation.route": label,
+    "cmux.vm.continuation.outcome": outcome,
+  };
+  for (const [key, value] of Object.entries(detail)) {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      attributes[`cmux.vm.continuation.${key}`] = value;
+    }
+  }
+  void withPrioritySpan("cmux-vm", "cmux.vm.continuation", attributes, () => undefined)
+    .then(() => forceFlushTraces())
+    .catch(() => undefined);
 }
 
 /** The failure's name and message, credential-scrubbed (no stacks, no provider bodies). */
