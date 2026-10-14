@@ -1,4 +1,4 @@
-import CmuxNextActions
+import CmuxNextDaemon
 
 /// `debug.sidebar_filter {text, window?}`: sets the filter text (no UI writes it), to test reorder while filtering.
 @MainActor
