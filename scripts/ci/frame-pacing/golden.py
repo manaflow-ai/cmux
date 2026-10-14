@@ -385,11 +385,13 @@ def judge_resize(data: dict, refresh: float) -> dict:
     drags = data.get("drags") or []
     results, problems, lag_runs = [], [], []
     for trace in drags:
-        samples = [sample for sample in trace.get("samples") or [] if sample.get("window")]
+        # The pane content's width: its tab strip spans it.
+        samples = [sample for sample in trace.get("samples") or [] if sample.get("window") and sample.get("strip")]
         times = times_of(samples)
-        content = motion([float(sample["window"][2]) for sample in samples], times)
+        widths = [max(float(width) for width in sample["strip"]) for sample in samples]
+        content = motion(widths, times)
         window = motion([float(sample["window"][0]) for sample in samples], times)
-        offsets = [float(sample["window"][0]) - float(sample["window"][2]) for sample in samples]
+        offsets = [float(sample["window"][0]) - width for sample, width in zip(samples, widths)]
         rest = offsets[0] if offsets else 0.0
         run = longest = 0
         for offset in offsets:

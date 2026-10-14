@@ -16,11 +16,14 @@ public struct TabStripDebug {
     /// The pointer moves to `point`, as a mouse move does.
     public static func pointerMoved(in strip: TabStripView, to point: CGPoint) { strip.updateHover(at: point, moved: true) }
 
-    /// Each tab cell's frame in the tab row and its opacity, by x (`debug.motion` `trace_start`).
-    public static func tabFrames(in strip: TabStripView) -> [(id: String, frame: CGRect, opacity: Float)] {
-        strip.cells.map { (id: $0.key.rawValue, frame: $0.value.frame, opacity: $0.value.layer.opacity) }.sorted { $0.frame.minX < $1.frame.minX }
-    }
-
     /// The image the strip's hover card shows now (nil: placeholder).
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
+
+    /// `debug.motion` `trace_*` (a `MotionFrameTrace` sampler): each tab cell of a strip as
+    /// `[id, x, width, opacity]` in the tab row, and the strip's width; nil for another view.
+    public static func motionSample(_ view: NSView) -> [String: [Any]]? {
+        guard let strip = view as? TabStripView else { return nil }
+        return ["tabs": strip.cells.map { [$0.key.rawValue, Double($0.value.frame.minX), Double($0.value.frame.width), Double($0.value.layer.opacity)] as [Any] },
+                "strip": [Double(strip.bounds.width)]]
+    }
 }

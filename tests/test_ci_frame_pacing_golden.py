@@ -61,7 +61,7 @@ def write_run(out: Path, *, cold_frames: int, reduce_frames: int = 0, looping: l
     for start, end in ((1100, 1400), (1400, 1100)):
         widths = eased(start, end, 90)
         drags.append({"refresh_ms": REFRESH, "samples": [
-            {"t": i * REFRESH, "window": [w, 720, w - 300, 640]} for i, w in enumerate(widths)]})
+            {"t": i * REFRESH, "window": [w, 720], "strip": [w - 300]} for i, w in enumerate(widths)]})
     save("window_resize", {"drags": drags})
 
 

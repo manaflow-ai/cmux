@@ -21,7 +21,6 @@ on:
       - .github/workflows/cmux-next-motion-golden.yml
       - .github/workflows/cmux-next-frame-pacing.yml
       - scripts/ci/frame-pacing/**
-      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugTraceFrames.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugMotion.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabPage+Open.swift

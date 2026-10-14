@@ -31,3 +31,12 @@ extension SidebarRegionView {
         return nil
     }
 }
+
+extension SidebarContainerView {
+    /// `debug.motion` `trace_*` (a `MotionFrameTrace` sampler): the sidebar's animated width and
+    /// its presented one; nil for another view.
+    public static func motionSample(_ view: NSView) -> [String: [Any]]? {
+        guard let sidebar = view as? SidebarContainerView else { return nil }
+        return ["sidebar": [Double(sidebar.frame.width), Double(sidebar.layer?.presentation()?.bounds.width ?? sidebar.frame.width)]]
+    }
+}
