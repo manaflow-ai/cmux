@@ -18,7 +18,8 @@ import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
 type Catalog = typeof import("./generated/strings.json");
 /** A plural string's text per CLDR category is `key#<category>` in the table (gen-strings.mjs). */
 type PluralBase<Key> = Key extends `${infer Base}#${string}` ? Base : Key;
-type CatalogKey = PluralBase<keyof Catalog["en"]>;
+/** A catalog string's key; a plural string's is its base, without `#<category>`. */
+export type CatalogKey = PluralBase<keyof Catalog["en"]>;
 /** A pane string's key (the new tab screen's keys are newtab/strings.ts's, under `newTab.`). */
 export type StringKey = Exclude<CatalogKey, `newTab.${string}`>;
 type Table = Partial<Record<CatalogKey, string>>;
