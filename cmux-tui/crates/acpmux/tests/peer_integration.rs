@@ -608,11 +608,17 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
         .unwrap();
     let mut ca = client(a.clone()).await;
     let refused = ca
-        .call("_acpmux/bookmark_set", json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}))
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+        )
         .await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");
     let set = ca
-        .call("_acpmux/bookmark_set", json!({"sessionId": remote_id, "seq": prompt_seq, "bookmarked": true}))
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": prompt_seq, "bookmarked": true}),
+        )
         .await
         .unwrap();
     assert_eq!(set["peer"], "b", "{set}");

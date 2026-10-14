@@ -71,16 +71,10 @@ async fn a_bookmark_marks_only_a_prompt_and_survives_a_daemon_restart() {
     // Only the chat's own prompts can be marked.
     let not_a_prompt =
         c.request(SET, json!({"sessionId": id, "seq": reply, "bookmarked": true})).await;
-    assert!(
-        not_a_prompt.as_ref().is_err_and(|e| e.contains("not a prompt")),
-        "{not_a_prompt:?}"
-    );
+    assert!(not_a_prompt.as_ref().is_err_and(|e| e.contains("not a prompt")), "{not_a_prompt:?}");
     let past_the_end =
         c.request(SET, json!({"sessionId": id, "seq": 1_000_000, "bookmarked": true})).await;
-    assert!(
-        past_the_end.as_ref().is_err_and(|e| e.contains("not a prompt")),
-        "{past_the_end:?}"
-    );
+    assert!(past_the_end.as_ref().is_err_and(|e| e.contains("not a prompt")), "{past_the_end:?}");
     let no_flag = c.request(SET, json!({"sessionId": id, "seq": prompts[0]})).await;
     assert!(no_flag.is_err(), "{no_flag:?}");
 
