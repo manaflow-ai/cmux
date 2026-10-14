@@ -397,8 +397,13 @@ try:
     b.socket = B_SOCKET
     # B's key session must not exist yet: else B would adopt another untagged
     # DEV build's daemon (and its terminals), and the cleanup would stop it.
-    if b.owner():
-        say(f"step 2: an owner daemon already serves {B_SESSION}; B cannot run here")
+    # Absent only when the session's socket refuses the connection
+    # (server.unavailable); any other answer may be a real untagged DEV daemon.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
+    probe = subprocess.run([b.cli, "--json", "--session", B_SESSION, "daemon", "status"], env=env,
+                           capture_output=True, text=True, timeout=30)
+    if probe.returncode != 3 or "server.unavailable" not in probe.stdout + probe.stderr:
+        say(f"step 2: {B_SESSION} is not provably absent (exit {probe.returncode}: {(probe.stdout + probe.stderr).strip()[:300]}); B cannot run here")
         b_owned = False
         failed = failed or 2
         raise SystemExit
@@ -458,8 +463,9 @@ finally:
         # B's own owner daemon (its per-key session, absent before B started), if
         # quitEndSessions left it, and the state it wrote under its key.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-        subprocess.run([b.cli, "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
-                       capture_output=True, timeout=60)
+        stop = subprocess.run([b.cli, "--json", "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
+                              capture_output=True, text=True, timeout=60)
+        say(f"cleanup: B daemon stop exit {stop.returncode}: {(stop.stdout + stop.stderr).strip()[:300]}")
         if b_state_new:
             shutil.rmtree(B_STATE, ignore_errors=True)
     # Nothing of the run stays: the B copy and the temp homes with their memory.
