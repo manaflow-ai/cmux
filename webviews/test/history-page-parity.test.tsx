@@ -242,11 +242,11 @@ test("Clear History offers each range and clears only the kind the chip shows", 
   await click(menuItem("Last Hour")!);
   expect(provider.last(HistoryOps.clear)).toMatchObject({ range: "hour", kinds: ["command"] });
 
-  // The daemon never clears locations or closed items, so Clear is off under those chips.
-  for (const chip of ["Locations", "Closed"]) {
-    await click(button(chip));
-    expect(button("Clear History…").disabled).toBe(true);
-  }
+  // The daemon owns the trail (cx-hnmbt.12), so Clear also works under that chip.
+  await click(button("Locations"));
+  await click(button("Clear History…"));
+  await click(menuItem("All Time")!);
+  expect(provider.last(HistoryOps.clear)).toMatchObject({ range: "all", kinds: ["location"] });
 });
 
 test("in Japanese every string of the page is the Japanese one", async () => {

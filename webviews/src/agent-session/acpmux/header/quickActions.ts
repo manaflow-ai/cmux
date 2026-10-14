@@ -3,7 +3,10 @@ import { useSyncExternalStore } from "react";
 /// The chat header's quick actions (the buttons left of the Sources summary and "..." menu): which ones show,
 /// in which order, and whether each one toggles its panel or opens another copy. This is the one model
 /// the header reads (ChatHeaderTools). The default copies T3 Chat and ChatGPT: every button toggles,
-/// so a second click closes what the first one opened.
+/// so a second click closes what the first one opened. By default only the most-used show (Changes,
+/// Preview, Terminal, Browser; Leo 2026-10-12: about four buttons with "..."): [+] New tab, Files and
+/// Split Down fold into the top of the "..." chat menu, each while it applies, until the person shows
+/// them here.
 ///
 /// The user customizes it in `agent-pane/layout.json` next to `cmux.json` (the file the App watches and
 /// pushes through `applyCustomization`):
@@ -24,8 +27,7 @@ import { useSyncExternalStore } from "react";
 /// Split Down owns a terminal under the chat (cx-kk7lm): with Terminal, the chat's Split Right, it is
 /// the Split Right and Split Down every pane's toolbar has.
 ///
-/// Files owns a tree of the chat's folder beside it (cx-p4rt). It is off by default until it is
-/// styled: the right-click menu lists it unchecked, and checking it adds the button.
+/// Files owns a tree of the chat's folder beside it (cx-p4rt).
 ///
 /// `newTab` is ChatGPT's [+] New tab: it opens a New Tab page in a column right of the chat, and the
 /// same button then reads Hide tabs, which hides the panes beside the chat (the App zooms the chat,
@@ -39,9 +41,9 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["terminal", "splitDown", "browser", "changes", "files", "preview", "newTab"];
-/// Not shown until a person adds them.
-const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["files"]);
+const ids: readonly QuickActionId[] = ["changes", "preview", "terminal", "splitDown", "browser", "files", "newTab"];
+/// Not shown until a person adds them (in the chat menu meanwhile).
+const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["newTab", "files", "splitDown"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
 const isMode = (value: unknown): value is QuickActionMode => value === "toggle" || value === "open";
 

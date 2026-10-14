@@ -98,6 +98,11 @@ public struct CnxHostLaunch: Sendable, Equatable {
         return data
     }
 
+    /// The control line that ends a removed phone's live links.
+    public static func dropPhoneLine(_ phoneDeviceID: String) -> Data {
+        line(["type": "drop_phone", "phone_device_id": phoneDeviceID])
+    }
+
     static func line(_ object: [String: String]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)

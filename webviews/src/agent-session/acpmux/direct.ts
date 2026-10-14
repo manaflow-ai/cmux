@@ -2,11 +2,13 @@ import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
   AcpmuxPermission,
+  AcpmuxSecretAsk,
   AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -125,6 +127,11 @@ const COMMANDS_KIND = "available_commands_update";
 const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
+/// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
+const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
+/// or the agent stopped waiting.
+const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -145,6 +152,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       id: String(option.optionId ?? option.id),
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
+      kind: typeof option.kind === "string" ? option.kind : undefined,
     })),
   };
 }
@@ -498,6 +506,7 @@ export class AcpmuxDirectClient {
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
   /// is "pending" from its question, or from arriving while one is open, until it completes.
@@ -820,6 +829,7 @@ export class AcpmuxDirectClient {
     this.planRow = undefined;
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.pendingSecret = undefined;
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.heldEdits.clear();
@@ -1167,7 +1177,7 @@ export class AcpmuxDirectClient {
     const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, ...SECRET_KINDS],
       eventStream: true,
       visible,
     });
@@ -1321,6 +1331,7 @@ export class AcpmuxDirectClient {
     this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.pendingSecret = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
     for (const event of events) {
@@ -1338,10 +1349,12 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const queue = this.queue;
     const permission = this.pendingPermission;
+    const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
+    this.pendingSecret = secret;
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
         if (event.seq > replayAfterSeq && event.dir === "mux") this.reduceLiveState(event);
@@ -1383,6 +1396,14 @@ export class AcpmuxDirectClient {
         this.pendingPermission = this.permissions.state.supported
           ? undefined
           : [...this.groupedPermissions.values()].at(-1);
+    } else if (event.kind === "secret_request")
+      this.pendingSecret = {
+        secretId: String(msg.secretId ?? ""),
+        name: String(msg.name ?? ""),
+        reason: String(msg.reason ?? ""),
+      };
+    else if (event.kind === "secret_decision") {
+      if (this.pendingSecret?.secretId === msg.secretId) this.pendingSecret = undefined;
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
@@ -1735,6 +1756,7 @@ export class AcpmuxDirectClient {
       permissionGroups: this.permissions.state,
       queue: this.queue,
       permission: this.pendingPermission,
+      secret: this.pendingSecret,
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
@@ -1952,6 +1974,36 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
   }
+  /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
+  /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
+  async archive(archived: boolean): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/archive", { sessionId, archived });
+  }
+  /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
+  /// shown again.
+  async markUnread(): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/markUnread", { sessionId });
+  }
+  /// New side chat: acpmux tags the fork `sessionId` as a side chat of `chat` (the `side` tag),
+  /// which keeps it off the lists (cx-jlzsf).
+  async markSide(sessionId: string, chat: string): Promise<void> {
+    await this.request("_acpmux/side", { sessionId, chat });
+  }
+  /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
+  /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
+  /// install from the Harnesses page).
+  async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const reply = await this.request("_acpmux/harness/health", {
+      ...(options.refresh ? { refresh: true } : {}),
+      ...(options.rescan ? { rescan: true } : {}),
+    });
+    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
@@ -1981,6 +2033,21 @@ export class AcpmuxDirectClient {
       ...(answers === undefined ? {} : { answers }),
       ...gestureMeta(ticket),
     });
+  }
+  /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
+  /// one-use ref), none declines. The wire log never holds the value (wire.ts).
+  async secret(secretId: string, value?: string): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return;
+    try {
+      await this.request("_acpmux/secret_submit", { sessionId, secretId, ...(value ? { value } : {}) });
+    } catch (error) {
+      // A card acpmux no longer has never gets its answer: close it. Any other refusal keeps it.
+      const message = error instanceof Error ? error.message : "";
+      if (!SECRET_GONE.some((gone) => message.includes(gone))) throw error;
+      if (this.pendingSecret?.secretId === secretId) this.pendingSecret = undefined;
+      this.emit();
+    }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
     await this.permissions.respond(groupId, revision, decision);
@@ -2198,14 +2265,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
@@ -2481,6 +2549,22 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
   return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
 }
 
+/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
+/// known fields.
+function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
+  if (!value || typeof value !== "object") return undefined;
+  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const source = (raw: unknown) =>
+    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const start = {
+    ...(typeof model === "string" && model ? { model } : {}),
+    ...(typeof effort === "string" && effort ? { effort } : {}),
+    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
+    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
+  };
+  return start.model || start.effort ? start : undefined;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
@@ -2497,6 +2581,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),

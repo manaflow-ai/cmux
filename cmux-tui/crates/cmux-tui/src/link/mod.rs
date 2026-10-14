@@ -20,6 +20,7 @@ mod inbound;
 mod launchd;
 mod lines;
 mod machine_gate;
+pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
 mod process_exit;
@@ -114,6 +115,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("access") {
         return access_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("machine") {
+        return machine_update::run(&args[1..]);
+    }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
         print!("{}", catalog().remote_client.link_help);
@@ -159,6 +163,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             )
         }
         "stop" => ensure::run_stop(&flags(rest, &["--state-dir"])?),
+        "archive" => ensure::run_archive(&flags(rest, &["--state-dir"])?),
         "status" => ensure::run_status(&flags(rest, &["--state-dir"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),

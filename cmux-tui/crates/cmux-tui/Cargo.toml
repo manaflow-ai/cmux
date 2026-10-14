@@ -13,10 +13,26 @@ workspace = true
 [features]
 default = []
 iroh-transport = ["cmux-remote/iroh-transport"]
+# Windows only (cx-w0uha): build cmux-tui.exe as a thin launcher that loads
+# the whole program from cmux_tui.dll beside it. The DLL is the library
+# target built with `cargo rustc -p cmux-tui --lib --crate-type cdylib`.
+# Windows Defender scans every large image in a new shell's process lineage
+# when PowerShell 7 starts (about 470 ms per terminal for the 41 MB daemon);
+# a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
+# the whole program on every platform (dev builds, tests).
+windows-thin-exe = []
+
+# The whole program. src/main.rs stays the crate root (its dispatch tables are
+# where they always were); the cmux-tui binary is a small entry point that
+# calls `cmux_tui::main`, or, with `windows-thin-exe` on Windows, loads the
+# program from cmux_tui.dll.
+[lib]
+name = "cmux_tui"
+path = "src/main.rs"
 
 [[bin]]
 name = "cmux-tui"
-path = "src/main.rs"
+path = "src/bin/cmux-tui.rs"
 
 [[bin]]
 name = "cmux-tui-hook"
@@ -95,7 +111,7 @@ futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
-windows-sys.workspace = true
+windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true

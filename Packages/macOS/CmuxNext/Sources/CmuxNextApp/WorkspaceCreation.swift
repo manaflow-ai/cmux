@@ -31,6 +31,18 @@ enum WorkspaceCreation {
         }
     }
 
+    /// Closes a workspace whose first terminal failed; when the close fails
+    /// too, `repair` releases it (it stays, empty, with the terminal error).
+    @MainActor
+    private static func closeHalfCreated(_ key: WorkspaceKey, on connection: DaemonConnection, repair: EmptyWorkspaceRepair) async throws {
+        do {
+            try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+        } catch {
+            repair.closeFailed(key)
+            throw error
+        }
+    }
+
     /// Creates workspace `key` (named `name`) with its first terminal
     /// (`terminal`) on `connection`, owned by `repair` while it runs: a
     /// failure closes the workspace (its terminals with it) and the repair
@@ -47,7 +59,7 @@ enum WorkspaceCreation {
             try await withTerminal(
                 createWorkspace: { try await connection.createWorkspace(name: name, key: key).key },
                 createTerminal: terminal,
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
+                closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
     }
@@ -76,7 +88,7 @@ enum WorkspaceCreation {
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
                 },
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
+                closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
         }
     }
@@ -100,6 +112,7 @@ enum WorkspaceCreation {
                 _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
                                                                            origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
             } else {
+                if let token = spawn.inputToken, spawn.firstChat == nil { tabs.firstPageTokens[created.workspace] = token }
                 _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
             }
             return created.key.rawValue

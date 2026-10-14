@@ -40,8 +40,7 @@ nonisolated struct NewTabSpareSlot<Spare> {
 /// pane there changes size or focus, so the adoption changes no size: WebKit
 /// shows it at once at its final layout (hqacp-v2: a page parked at the
 /// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare. A spare
-/// exists only while the new tab page is likely: Cmd-T opens it
-/// (`tabs.newTabKind` page) or it was opened in this session.
+/// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
     /// One adoption, for `debug.new_tab` (timing test, section 2.3).
@@ -81,15 +80,11 @@ final class NewTabSparePool {
         self.services = services
     }
 
-    /// The new tab page is likely soon: a spare is worth its memory.
-    var isLikely: Bool {
-        usedThisSession || services.settings?.snapshot.newTabKind == .page
-    }
 
     /// At launch, before any window: makes the first spare, so its page loads while the windows
     /// build; the launch's restored New Tab page adopts it, or ``start()`` parks it (bd cx-z9kz0).
     func prewarm() {
-        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm,
+        guard services.agentTabs.canHostChat, slot.shouldWarm,
               let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
         else { return }
         slot.parked(view)
@@ -217,7 +212,7 @@ final class NewTabSparePool {
     private(set) var lastRecycleRefusal: String?
 
     func recycle(_ view: AgentPaneView) -> Bool {
-        lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : !isLikely ? "not likely" : view.model.newTab == nil ? "became a chat"
+        lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
             : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
         guard lastRecycleRefusal == nil else { return false }
         BenchSpans.measure("pool.recycle") {
@@ -259,7 +254,7 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -301,7 +296,7 @@ final class NewTabSparePool {
             BenchSpans.measure("pool.park") { parking.addSubview(view) }
             return
         }
-        guard isLikely, slot.shouldWarm, let content = target?.contentView,
+        guard slot.shouldWarm, let content = target?.contentView,
               let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
         else { return }
         park(in: content)

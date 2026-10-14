@@ -4,11 +4,11 @@
   width: max-content;
   min-width: 140px;
   max-width: min(240px, calc(100vw - 24px));
-  padding: 5px;
-  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
-  border-radius: 10px;
+  padding: var(--ui-popup-padding);
+  border: 0;
+  border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
@@ -122,17 +122,7 @@
   color: var(--agent-muted);
   white-space: normal;
 }
-/* A control the session has not reported yet keeps its place: the chip's box, inert, with one
-   quiet bar where its label goes (ComposerPickers ChipSkeleton, cx-ncc.58). */
-.acpmux-chip-skeleton { pointer-events: none; }
-.acpmux-chip-skeleton .acpmux-chip-skeleton-face { justify-content: center; }
-.acpmux-effort.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 48px; }
-.acpmux-mode.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 34px; padding: 0 3px; }
-.acpmux-chip-skeleton-bar {
-  display: block;
-  width: 60%;
-  height: 8px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-muted) 22%, transparent);
-}
-.acpmux-chip-skeleton .acpmux-chip-skeleton-face:hover { background: none; }
+/* A control the session has not reported yet, as this harness's chats last showed it: the real
+   chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
+.acpmux-chip-pending { pointer-events: none; }
+.acpmux-chip-pending .acpmux-picker-button:hover { background: none; }

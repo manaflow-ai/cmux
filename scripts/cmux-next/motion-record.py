@@ -229,34 +229,6 @@ def drag():
     record("drag", "back", lambda: paced_drag(x + width * 2, y, x, y), seconds=2.0)
 
 
-def newtab():
-    # The New Tab page's template dots switch its layout in place. The dots
-    # show with newTab.templateSwitcher on, in a page warmed after it is set:
-    # the tunable stays on in this build tag's own slot store, so record on a
-    # second launch of the same tag (the first only sets it). Clicks land on
-    # the dots: 18 pt wide, 4 pt apart, centered at the pane's bottom
-    # (screen.css). A pick saves tabs.newTabTemplate to the host user's
-    # shared settings, so the run ends on "default", the value it had.
-    rpc("debug.tunables", {"action": "set", "key": "newTab.templateSwitcher", "value": True})
-    rpc("debug.motion", {"action": "speed", "value": "fast"})  # the tunable write reloads settings
-    action("newTabPage")
-    time.sleep(2.0)  # test harness: the page loads
-    save_layout("newtab")
-    panes = [pane for window in (rpc("debug.pane_chrome") or {}).get("windows") or [] for pane in window.get("panes") or []]
-    if not panes:
-        print("newtab: skipped, pane_chrome reports no pane", flush=True)
-        return
-    left, top, width, height = panes[0]["border"]
-    dots = ["default", "composer", "threads", "console", "classic", "terminal"]
-
-    def pick(template):
-        x = left + width / 2 - 55 + 22 * dots.index(template)
-        return rpc("debug.mouse", {"action": "click", "x": x, "y": top + height - 21})
-
-    for template in ("threads", "composer", "console", "default"):
-        record("newtab", template, lambda: pick(template))
-
-
 def key(name, *modifiers):
     """A key press through the window's key path, as a person types it."""
     return rpc("debug.key", {"key": name, "modifiers": list(modifiers)})
@@ -517,7 +489,7 @@ def hovercard():
 
 
 
-SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "newtab": newtab, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
+SURFACES = {"tabs": tabs, "panes": panes, "focus": focus, "toasts": toasts, "popups": popups, "hover": hover, "groups": groups, "drag": drag, "dock": dock, "sidebar": sidebar, "palette": palette, "hovercard": hovercard, "panels": panels, "everyday": everyday, "switch": switch}
 
 
 def main():

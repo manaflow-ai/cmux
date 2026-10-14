@@ -70,8 +70,13 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
+    // Muse Code runs this command directly (no `||:` wrapper reads in every
+    // shell it may use), so a failure stays quiet there instead of showing on
+    // every hook; the agent never waits on cmux.
+    let quiet = arguments.first().is_some_and(|source| source == "muse");
     match parse_args(arguments).and_then(|args| run(args, exe_prefix)) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(_) if quiet => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
             ExitCode::FAILURE
@@ -114,7 +119,7 @@ fn run_reading(
         inbox::print_nothing(inbox);
         return Ok(());
     }
-    let (socket, terminal) = match session_route() {
+    let (socket, terminal) = match session_route(&args.source) {
         Some(route) => route,
         None => {
             drain_native_payload()?;
@@ -154,14 +159,22 @@ fn run_reading(
 mod inbox;
 
 /// The session socket and terminal that receive this event: the terminal's
-/// own `CMUX_TUI_*` values, or, for an agent in a tmux session started
-/// outside cmux-tui (which has none), the cmux-tui terminal attached to the
-/// pane's tmux session.
-fn session_route() -> Option<(PathBuf, Option<String>)> {
+/// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
+/// (Muse Code), the values of the agent process the hook runs under; or, for
+/// an agent in a tmux session started outside cmux-tui (which has none), the
+/// cmux-tui terminal attached to the pane's tmux session.
+fn session_route(source: &str) -> Option<(PathBuf, Option<String>)> {
     if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
         let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
         return Some((PathBuf::from(socket), terminal));
     }
+    #[cfg(unix)]
+    if ancestor_route::clears_environment(source) {
+        let route = ancestor_route::ancestor_terminal()?;
+        return Some((route.socket, route.terminal));
+    }
+    #[cfg(not(unix))]
+    let _ = source;
     let route = tmux_route::attached_terminal()?;
     Some((route.socket, Some(route.terminal)))
 }
@@ -178,6 +191,11 @@ fn session_route() -> Option<(PathBuf, Option<String>)> {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[path = "cmux-tui-hook/tmux_route.rs"]
 mod tmux_route;
+
+/// The session route of an agent that runs hooks with a cleared environment.
+#[cfg(unix)]
+#[path = "cmux-tui-hook/ancestor_route.rs"]
+mod ancestor_route;
 
 /// Outcome of the provider-facing wait for the detached child.
 #[derive(Debug, PartialEq, Eq)]

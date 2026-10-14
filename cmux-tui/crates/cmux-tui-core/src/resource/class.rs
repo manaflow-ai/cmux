@@ -60,6 +60,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
+                | Self::GitBranches
                 | Self::GitDiff
                 | Self::GitFilesList
                 | Self::GitFilesSearch
@@ -99,6 +100,7 @@ impl ResourceOperation {
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
                 | Self::KeybindingsGet
+                | Self::BrowserDevicesList
                 | Self::SidebarLayoutGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet

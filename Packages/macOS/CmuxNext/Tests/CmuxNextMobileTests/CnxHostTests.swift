@@ -123,9 +123,61 @@ import Testing
         if case .unavailable = await supervisor.current.phase {} else { Issue.record("expected unavailable") }
     }
 
+    @Test func phonesGroupTheirLinkAndPresenceIDs() {
+        let phones = CnxKnownPhone.group([
+            CnxRegisteredDevice(deviceID: "a", kind: "phone", name: "Aziz's iPhone", updatedAt: "2026-10-13T10:00:00Z"),
+            CnxRegisteredDevice(deviceID: "m", kind: "mac", name: "Studio"),
+            CnxRegisteredDevice(deviceID: "b", kind: "phone", name: "Aziz's iPhone (presence)", updatedAt: "2026-10-13T11:00:00Z"),
+            CnxRegisteredDevice(deviceID: "c", kind: "phone", name: "Old iPhone"),
+        ])
+        #expect(phones.map(\.name) == ["Aziz's iPhone", "Old iPhone"])
+        #expect(phones[0].deviceIDs == ["a", "b"])
+        #expect(phones[0].updatedAt == "2026-10-13T11:00:00Z")
+        #expect(phones[0].owns("A") && !phones[0].owns("c"))
+        // Two phones with one name never join: Remove must not take both.
+        let twins = CnxKnownPhone.group([
+            CnxRegisteredDevice(deviceID: "x", kind: "phone", name: "iPhone"),
+            CnxRegisteredDevice(deviceID: "y", kind: "phone", name: "iPhone"),
+            CnxRegisteredDevice(deviceID: "z", kind: "phone", name: "iPhone (presence)"),
+        ])
+        #expect(twins.map(\.deviceIDs) == [["x"], ["y"], ["z"]])
+    }
+
+    @Test func dropPhoneIsOneControlLine() {
+        #expect(String(decoding: CnxHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
+    }
+
+    @Test func directoryListsAndRemovesWithTheBearerToken() async throws {
+        let base = try #require(URL(string: "https://cnx.test"))
+        let log = RequestLog()
+        let directory = CnxDeviceDirectory(baseURL: base) { request in
+            await log.add(request)
+            if request.httpMethod == "DELETE" {
+                return (Data(), request.url?.lastPathComponent == "b" ? 404 : 200)
+            }
+            let body = #"{"devices":[{"deviceId":"a","kind":"phone","name":"P"},{"deviceId":"b","kind":"phone","name":"P (presence)"}]}"#
+            return (Data(body.utf8), 200)
+        }
+        let phones = try await directory.phones(token: "tok")
+        #expect(phones.count == 1)
+        try await directory.remove(try #require(phones.first), token: "tok")
+        let requests = await log.requests
+        #expect(requests.map { "\($0.httpMethod ?? "GET") \($0.url?.path ?? "")" } == ["GET /v1/me/devices", "DELETE /v1/devices/a", "DELETE /v1/devices/b"])
+        #expect(requests.allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer tok" })
+        let failing = CnxDeviceDirectory(baseURL: base) { _ in (Data(), 502) }
+        await #expect(throws: CnxDeviceDirectory.Failure.status(502)) { try await failing.phones(token: "tok") }
+    }
+
     static func launch(executable: URL) -> CnxHostLaunch {
         CnxHostLaunch(executable: executable, baseURL: URL(fileURLWithPath: "/dev/null"), teamID: "personal-u", userID: "u",
                       deviceID: "d", deviceName: "Mac", daemonSocket: "/tmp/cmux-tui-501/cmux-app-tag.sock",
                       stateDirectory: URL(fileURLWithPath: "/tmp/cnx-state"), fileRoots: ["/a", "/b"], stackProjectID: "p")
     }
 }
+
+/// Requests a test directory saw, in order.
+actor RequestLog {
+    private(set) var requests: [URLRequest] = []
+    func add(_ request: URLRequest) { requests.append(request) }
+}
+

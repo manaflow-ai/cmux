@@ -4,10 +4,14 @@
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <cmux-remote-browser-host.app> [--out DIR]
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled [--out DIR]
   scripts/cmux-next/remote-browser-local-live.py --tag <tag> --bundled --edge [--out DIR]
+  scripts/cmux-next/remote-browser-local-live.py --tag <tag> --host-app <app> --stats [--out DIR]
 (--bundled: the host the DEV build embeds in Contents/Helpers, with CMUX_NEXT_RB_HOST unset)
 (--edge: only the popup edge check, in a short window: a date picker at the page's bottom-right
 edge shows in full in its own child panel (cx-3nbw), follows a window move, never becomes key,
 takes a click, and goes with its tab; a <select> there opens a native menu.)
+(--stats: only the media numbers, read from the host log's `serve: stats` lines (host
+cx-mpk or later): frame rate and bitrate of an animated page, frames sent by a still page,
+and input to frame sent for clicks that repaint the page; written to stats.json.)
 
 Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app
 (no activation, automation socket, CMUX_NEXT_RB_HOST=--host-app), serves a local test page,
@@ -30,7 +34,9 @@ parser.add_argument("--tag", required=True)
 host_source = parser.add_mutually_exclusive_group(required=True)
 host_source.add_argument("--host-app")
 host_source.add_argument("--bundled", action="store_true")
-parser.add_argument("--edge", action="store_true")
+mode = parser.add_mutually_exclusive_group()
+mode.add_argument("--edge", action="store_true")
+mode.add_argument("--stats", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
@@ -77,12 +83,26 @@ body{margin:0;font:16px sans-serif;background:#eef} #date{position:fixed;right:6
 <script>function c(id){const r=document.getElementById(id).getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]}
 document.title='rb edge '+c('date').concat(c('sel')).map(Math.round).join(',')</script>
 </body></html>"""
+# The stats pages: an animated canvas (every frame repaints a moving box and a counter), and a
+# still page whose background changes on each mousedown (the title counts the clicks).
+MOTION = """<!doctype html><html><head><title>loading</title></head><body style="margin:0;background:#111">
+<canvas id="c" style="width:100vw;height:100vh;display:block"></canvas><script>
+const c=document.getElementById('c'),g=c.getContext('2d');let n=0;
+function f(t){c.width=innerWidth*devicePixelRatio;c.height=innerHeight*devicePixelRatio;g.fillStyle='#223';
+g.fillRect(0,0,c.width,c.height);const x=(t/4)%c.width;g.fillStyle='hsl('+(n%360)+',80%,60%)';
+g.fillRect(x,c.height/3,c.width/6,c.height/3);g.fillStyle='#fff';g.font=(40*devicePixelRatio)+'px sans-serif';
+g.fillText('frame '+(n++),40,80*devicePixelRatio);requestAnimationFrame(f)}
+document.title='rb motion';requestAnimationFrame(f)</script></body></html>"""
+TAP = """<!doctype html><html><head><title>rb tap 0</title></head><body style="margin:0;height:100vh;background:#345">
+<script>let n=0;addEventListener('mousedown',()=>{n++;document.body.style.background=n%2?'#c33':'#3c3';
+document.title='rb tap '+n})</script></body></html>"""
 PAGE2 = "<!doctype html><html><head><title>rb two</title></head><body style='background:#dfe'>page two</body></html>"
 
 
 class Page(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        body = (EDGE if self.path.startswith("/edge") else SIZE if self.path.startswith("/size") else LIST if self.path.startswith("/list") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
+        body = (MOTION if self.path.startswith("/motion") else TAP if self.path.startswith("/tap") else
+                EDGE if self.path.startswith("/edge") else SIZE if self.path.startswith("/size") else LIST if self.path.startswith("/list") else PAGE2 if self.path.startswith("/two") else PAGE1).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.send_header("Content-Length", str(len(body)))
@@ -259,6 +279,95 @@ def edge(opened):
          {"reopened": reopened, "gone": gone})
 
 
+def stats(opened):
+    """cx-mpk: frame rate, bitrate and input to frame sent, from the host's `serve: stats` lines."""
+    if not opened:
+        step("a local host tab opens for the stats run", False, {"open": report.get("open")})
+        return
+    tab = opened["tab"]
+    hosts = rb("state").get("local_hosts") or []
+    host_log = hosts[0]["log"] if hosts else None
+
+    def mark():
+        return os.path.getsize(host_log) if host_log and os.path.exists(host_log) else 0
+
+    def lines_since(offset):
+        if not host_log or not os.path.exists(host_log):
+            return []
+        with open(host_log, "rb") as f:
+            f.seek(offset)
+            text = f.read().decode("utf-8", "replace")
+        out = []
+        for line in text.splitlines():
+            if line.startswith("serve: stats "):
+                try:
+                    out.append(json.loads(line[len("serve: stats "):]))
+                except ValueError:
+                    pass
+        return out
+
+    def on_tab(prefix):
+        return lambda: session_where(lambda s: s["tab"] == tab and (s.get("title") or "") == prefix)
+
+    def pct(values, q):
+        values = sorted(values)
+        return values[min(len(values) - 1, int(round(q * (len(values) - 1))))] if values else None
+
+    def summary(windows):
+        ms = sum(w["ms"] for w in windows)
+        frames = sum(w["frames"] for w in windows)
+        nbytes = sum(w["bytes"] for w in windows)
+        enc = [w["encode_ms"] for w in windows if w["encode_ms"]["n"]]
+        lat = [v for w in windows for v in w["input_to_frame_ms"]]
+        secs = max(ms, 1) / 1000
+        return {"windows": len(windows), "ms": ms, "frames": frames, "keyframes": sum(w["keyframes"] for w in windows),
+                "bytes": nbytes, "fps": round(frames / secs, 1), "kbps": round(nbytes * 8 / 1000 / secs, 1),
+                "target_kbps": windows[-1]["target_kbps"] if windows else None,
+                "encode_ms": {"n": sum(e["n"] for e in enc), "p50_median": pct([e["p50"] for e in enc], 0.5),
+                              "p95_max": max((e["p95"] for e in enc), default=None),
+                              "max": max((e["max"] for e in enc), default=None)},
+                "input_to_frame_ms": {"n": len(lat), "p50": pct(lat, 0.5), "p95": pct(lat, 0.95), "max": max(lat, default=None)}}
+
+    numbers = {"host_log": host_log}
+    # An animated page: the capture runs at the page's frame rate, capped at 60.
+    rb("navigate", tab=tab, url=BASE + "/motion")
+    wait(on_tab("rb motion"), 30)
+    time.sleep(2)
+    start = mark()
+    time.sleep(8)
+    shot("stats-motion")
+    numbers["motion"] = summary(lines_since(start))
+    # A still page sends nothing once it has painted.
+    rb("navigate", tab=tab, url=BASE + "/tap")
+    wait(on_tab("rb tap 0"), 30)
+    # The host flushes a window at most 1 s after its last frame (a timer), so after 3 s the
+    # paint of the page is logged; frames in the next 3 s show up by the read 1.5 s later.
+    time.sleep(3)
+    start = mark()
+    time.sleep(4.5)
+    numbers["still"] = summary(lines_since(start))
+    # Clicks that repaint the page: input to the frame that answers it.
+    start = mark()
+    clicks = 20
+    for i in range(clicks):
+        rb("click", tab=tab, x=400 + (i % 5) * 40, y=300, button="left")
+        time.sleep(0.4)
+    tapped = wait(on_tab(f"rb tap {clicks}"), 15)
+    time.sleep(1.5)  # the next window flushes the last samples
+    shot("stats-tap")
+    numbers["tap"] = summary(lines_since(start))
+    numbers["tap"]["title"] = (tapped or session_where(lambda s: s["tab"] == tab) or {}).get("title")
+    with open(os.path.join(opts.out, "stats.json"), "w") as f:
+        json.dump(numbers, f, indent=1)
+    report["stats"] = numbers
+    motion, still, tap = numbers["motion"], numbers["still"], numbers["tap"]
+    step("an animated page streams at a real frame rate (host stats)",
+         motion["windows"] > 0 and motion["fps"] >= 20 and motion["kbps"] > 0, motion)
+    step("a still page sends no frames", still["frames"] == 0, still)
+    step("each click that repaints the page is answered by a frame (input to frame sent)",
+         bool(tapped) and tap["input_to_frame_ms"]["n"] >= clicks * 3 // 4, tap)
+
+
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 config = os.path.join(opts.out, "cmux.json")
@@ -301,6 +410,8 @@ try:
         rb("navigate", tab=opened["tab"], url=BASE + "/")
     if opts.edge:
         edge(opened)
+    elif opts.stats:
+        stats(opened)
     else:
         first = wait(title_is("rb one"), 60)
         state = rb("state")

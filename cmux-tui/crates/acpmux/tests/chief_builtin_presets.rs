@@ -86,7 +86,7 @@ impl Daemon {
             .env("CMUX_MUX_SOCKET", "/tmp/brain-daemon.sock")
             .env("CMUX_CHIEF_OWNER_SOCKET", "/tmp/brain-owner.sock")
             .env("PATH", "/usr/bin:/bin")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("CMUX_BUNDLED_CLI_PATH")
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_APP_DAEMON_SOCKET")

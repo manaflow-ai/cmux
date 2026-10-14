@@ -206,14 +206,15 @@ impl Gate {
             .unwrap_or_else(PoisonError::into_inner)
             .set(Writer::Owner, layer, lock)
             .map_err(|e| DriverError::new(ErrorCode::Forbidden, e.0))?;
-        self.sync_request_filter();
-        Ok(())
+        self.sync_request_filter()
     }
 
     /// Hands the engine a request filter while any policy layer is active,
     /// so requests the page makes itself (script navigation, links, popups,
-    /// redirects, fetch) are decided before they are sent.
-    fn sync_request_filter(&self) {
+    /// redirects, fetch) are decided before they are sent. The engine also
+    /// gets the policy's host check for connections no request filter sees
+    /// (WebSockets; crate::policy_proxy).
+    fn sync_request_filter(&self) -> Result<(), DriverError> {
         let active = {
             let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
             policy.base().is_active() || policy.agent().is_active()
@@ -260,7 +261,19 @@ impl Gate {
             filter
         });
         let installed = self.driver.set_request_filter(filter);
-        self.filter_enforced.store(!active || installed, std::sync::atomic::Ordering::SeqCst);
+        let policy = self.policy.clone();
+        let connections = self.driver.set_connection_policy(active.then(|| {
+            Arc::new(move |host: &str, port: u16| {
+                policy.lock().unwrap_or_else(PoisonError::into_inner).allows_connection(host, port)
+            }) as crate::policy_proxy::ConnectionPolicy
+        }));
+        // A policy the engine could not apply fails closed: the session's
+        // calls are refused until it is cleared (or a later sync applies it).
+        self.filter_enforced.store(
+            !active || (installed && connections.is_ok()),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        connections
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -696,7 +709,7 @@ impl Gate {
                 policy.set(Writer::Agent, layer, lock).map_err(|e| format!("{title}: {}", e.0))?;
                 let answer = effective(&policy);
                 drop(policy);
-                self.sync_request_filter();
+                self.sync_request_filter().map_err(|e| format!("{title}: {}", e.message))?;
                 Ok(answer)
             }
             other => Err(format!("policy: unknown operation {other:?}")),

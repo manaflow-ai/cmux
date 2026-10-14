@@ -27,6 +27,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
+  if (state.mockHarnesses)
+    (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   const deliver = () => {

@@ -15,7 +15,8 @@ usage() {
   sed -n '2,9p' "$0" | sed 's/^# //'
   cat <<'USAGE'
 
-Usage: build-cnx-hostd.sh [--cached-only] [--print-path] [--check-build-allowed]
+Usage: build-cnx-hostd.sh [--output PATH] [--cached-only] [--print-path] [--check-build-allowed]
+  --output PATH  also copy the binary (and PATH.ref) there
 Environment:
   CMUX_NEXT_CNX_HOSTD_ARCHS  space/comma-separated arm64 and/or x86_64 (default: ARCHS, else host)
   CMUX_NEXT_CNX_HOSTD_CACHE  cache root (default: cnx-ios/rust/target/hosted/cnx-hostd)
@@ -25,8 +26,10 @@ USAGE
 build_allowed() { [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}${NX_JOB_ID:-}" ]]; }
 cached_only=0
 print_path=0
+output=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --output) output="${2:?missing path after --output}"; shift 2 ;;
     --cached-only) cached_only=1; shift ;;
     --print-path) print_path=1; shift ;;
     --check-build-allowed) build_allowed; exit $? ;;
@@ -71,8 +74,17 @@ cache_root="${CMUX_NEXT_CNX_HOSTD_CACHE:-$rust_root/target/hosted/cnx-hostd}"
 cache_dir="$cache_root/$source_key/$arch_key"
 cache_bin="$cache_dir/cnx-hostd"
 
+copy_output() {
+  [[ -n "$output" && "$output" != "$cache_bin" ]] || return 0
+  mkdir -p "$(dirname "$output")"
+  cp -f "$cache_bin" "$output"
+  cp -f "$cache_bin.ref" "$output.ref" 2>/dev/null || true
+  chmod 755 "$output"
+}
+
 if [[ -x "$cache_bin" ]]; then
   if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "cnx-hostd $source_key $arch_key already cached at $cache_bin"; fi
+  copy_output
   exit 0
 fi
 if [[ "$cached_only" -eq 1 ]]; then
@@ -110,4 +122,5 @@ chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
 printf '%s\n' "key=$source_key" "commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)" "archs=$archs" \
   "sha256=$(shasum -a 256 "$cache_bin" | awk '{print $1}')" > "$cache_bin.ref"
+copy_output
 if [[ "$print_path" -eq 1 ]]; then printf '%s\n' "$cache_bin"; else echo "cnx-hostd built at $cache_bin"; fi

@@ -119,6 +119,24 @@ export class TeamHub extends DurableObject<Env> {
     }
   }
 
+  /**
+   * The owner removed this device (DELETE /v1/devices/:id): drop a Mac's row, tell the team it is
+   * offline, and close the device's socket with 4002 `removed`.
+   */
+  async removeDevice(deviceId: string): Promise<void> {
+    const wasMac = this.macRow(deviceId) !== undefined
+    const presence = wasMac ? { ...this.presenceOf(deviceId), online: false } : null
+    this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
+    for (const ws of this.ctx.getWebSockets(deviceId)) {
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(4002, "removed")
+      } catch {}
+    }
+    this.live.delete(deviceId)
+    if (presence) this.broadcast(JSON.stringify({ type: "presence", mac: presence }))
+  }
+
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(): Promise<{ colo: string | null }> {
     if (this.env.ENVIRONMENT === "test") return { colo: null }

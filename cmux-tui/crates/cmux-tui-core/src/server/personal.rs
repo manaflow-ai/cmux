@@ -8,6 +8,27 @@ use serde_json::{Value, json};
 use super::Mux;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 
+/// A machine's icon on the session registry: `set-session-icon` and the
+/// `icon` of each `list-personal` session record.
+pub(super) const SESSION_ICON_CAPABILITY: &str = "session-icon-v1";
+
+/// `set-session-icon`: `icon` is required; a string sets it, JSON null
+/// clears it.
+#[derive(Debug, Deserialize)]
+pub(super) struct SetSessionIconParams {
+    session_id: String,
+    #[serde(deserialize_with = "required_nullable")]
+    icon: Option<String>,
+}
+
+/// A field that must be present and may be null (serde treats a missing
+/// `Option` field as null unless the field has its own deserializer).
+fn required_nullable<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    Option::deserialize(deserializer)
+}
+
 /// One group of `import-session-organization`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -140,6 +161,14 @@ pub(super) fn put_session(
     Ok(json!({"session": record, "created": created}))
 }
 
+/// Set or clear the icon of a known session (`session-icon-v1`).
+pub(super) fn set_session_icon(mux: &Mux, params: SetSessionIconParams) -> anyhow::Result<Value> {
+    let (session, changed) = mux.personal_mutation(|registry| {
+        registry.set_session_icon(&params.session_id, params.icon.as_deref())
+    })?;
+    Ok(json!({"session": session, "changed": changed}))
+}
+
 pub(super) fn forget_session(mux: &Mux, session: &str, force: bool) -> anyhow::Result<Value> {
     let ((), changed) =
         mux.personal_mutation(|registry| Ok(((), registry.forget_session(session, force)?)))?;
@@ -264,3 +293,7 @@ pub(super) fn set_terminal(
         mux.personal_mutation(|registry| registry.set_personal_terminal(session, key, theme))?;
     Ok(json!({"terminal": terminal, "changed": changed}))
 }
+
+#[cfg(test)]
+#[path = "session_icon_tests.rs"]
+mod session_icon_tests;

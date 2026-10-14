@@ -38,8 +38,9 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  // The default buttons, and nothing open yet (other files in this run share the page's modules).
-  configureQuickActions({});
+  // Every quick action but Files shown (the list before the chat menu took the less-used ones), and
+  // nothing open yet (other files in this run share the page's modules).
+  configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "changes", "preview", "newTab"] });
   applyHostEvent({ kind: "headerState", value: { lit: [] } });
   const lists: string[] = [];
   root = createRoot(host);
@@ -99,7 +100,7 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   expect(hideBrowser?.disabled).toBe(true);
   rightClick("Browser");
   pick("Reset Buttons");
-  expect(lists.at(-1)).toBe(
-    "terminal:toggle splitDown:toggle browser:toggle changes:toggle preview:toggle newTab:toggle",
-  );
+  // The default keeps the most-used four; New tab, Files and Split Down are in the chat menu.
+  expect(lists.at(-1)).toBe("changes:toggle preview:toggle terminal:toggle browser:toggle");
+  act(() => configureQuickActions({}));
 });

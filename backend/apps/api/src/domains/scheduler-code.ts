@@ -37,6 +37,9 @@ export const countDeploy = (state: SchedulerState, prev: Body | undefined, next:
   return { ok: true, deploys: { day, count: count + 1 } }
 }
 
+/** The member scheduled and delivered runs of `automation` are charged to from now on (cx-ds09i). */
+export const chargeTo = (state: SchedulerState, automation: string, user: string): SchedulerState => ({ ...state, charged_to: { ...state.charged_to, [automation]: user } })
+
 export const reduceDeploy = (state: SchedulerState, st: SchedulerStore, params: unknown, ctx: ReduceContext): ReduceResult<SchedulerState> => {
   const d = decodeParams<typeof AutomationDeploy.params.Type>(AutomationDeploy, params)
   if (!d.ok) return d
@@ -55,7 +58,7 @@ export const reduceDeploy = (state: SchedulerState, st: SchedulerStore, params: 
   st.putAutomation(next)
   return {
     ok: true,
-    state: st.head({ ...state, ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
+    state: st.head({ ...(ctx.principal.user ? chargeTo(state, a.id, ctx.principal.user) : state), ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
     value: next,
     outbox: [automationOutbox(next)],
     writes: st.writes()

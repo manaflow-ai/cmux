@@ -146,6 +146,7 @@ test("the page shows each harness's state on this Mac", async () => {
     "Claude Code": "ready",
     Grok: "ready",
     Codex: "signIn",
+    "Gemini CLI": "notInstalled",
     OpenCode: "notInstalled",
     Pi: "notInstalled",
     "Vercel AI Gateway": "notInstalled",

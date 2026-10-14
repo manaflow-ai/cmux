@@ -100,6 +100,10 @@ export type AcpmuxActivity = {
 /// `line` is where the change starts, when the tool call's locations name it.
 export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; line?: number };
 
+/// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
+/// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
+export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+
 export type AcpmuxPermission = {
   permissionId: string;
   groupId?: string;
@@ -107,7 +111,7 @@ export type AcpmuxPermission = {
   title?: string;
   kind?: string;
   pending: boolean;
-  options: { id: string; name: string; allow: boolean }[];
+  options: { id: string; name: string; allow: boolean; kind?: string }[];
   /// The question this permission asks (AskUserQuestion, Codex user input, an interactive ACP
   /// ask, the Chief), mapped from the request by question/model.ts; unset for a tool permission.
   question?: AgentQuestion;
@@ -207,6 +211,7 @@ export type AcpmuxSnapshot = {
   permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
+  secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -223,6 +228,9 @@ export type AcpmuxSnapshot = {
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
+    /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
+     * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
+    start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */
@@ -698,3 +706,7 @@ export function paneHeader(
   }
   return { title, status, detail: reason || rowError || status };
 }
+
+/** Where acpmux's start model or effort comes from: `saved` (acpmux defaults or the person's
+ * pick), `profile` (the harness profile's own), `catalog` (the model catalog's default). */
+export type StartSource = "saved" | "profile" | "catalog";

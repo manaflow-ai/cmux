@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67'
+IR_SHA256 = '4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955'
 
 
 @dataclass(frozen=True)
@@ -473,6 +473,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'expected_generation': CommandFieldMetadata(7, None),
             'expected_revision': CommandFieldMetadata(7, None),
+            'if_empty': CommandFieldMetadata(None, 'close-workspace-if-empty-v1'),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
@@ -2090,6 +2091,16 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'page-credential': CommandMetadata(
+        'page-credential',
+        'local-admin',
+        12,
+        'page-credential-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'pairing-response': CommandMetadata(
         'pairing-response',
         'local-admin',
@@ -2817,6 +2828,18 @@ COMMANDS = {
             'screen': CommandFieldMetadata(None, None),
         },
     ),
+    'set-session-icon': CommandMetadata(
+        'set-session-icon',
+        'control',
+        12,
+        'session-icon-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'icon': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-size-counts': CommandMetadata(
         'set-size-counts',
         'control',
@@ -3250,6 +3273,7 @@ COMMANDS = {
         {
             'favicon_url': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
+            'profile_id': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
@@ -3414,6 +3438,18 @@ COMMANDS = {
             'pattern': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'timeout_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'ws-listen': CommandMetadata(
+        'ws-listen',
+        'local-admin',
+        12,
+        'ws-listen-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_origin': CommandFieldMetadata(None, None),
+            'allow_origins': CommandFieldMetadata(None, None),
         },
     ),
     'zoom-pane': CommandMetadata(

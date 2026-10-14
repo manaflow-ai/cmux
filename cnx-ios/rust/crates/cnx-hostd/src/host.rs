@@ -77,7 +77,11 @@ pub async fn run(config: HostConfig) -> Result<()> {
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
-                tokens.invalidate().await;
+                // Only a refusal of the token itself marks it refused; a network error or a
+                // server error keeps it (the supervising app would otherwise refresh on every retry).
+                if unauthorized(&error) {
+                    tokens.invalidate().await;
+                }
                 backoff = (backoff * 2).min(Duration::from_secs(60));
                 format!("{error:#}")
             }
@@ -123,6 +127,24 @@ async fn connect_once(
         exclude_cgnat: config.exclude_cgnat,
     };
     Ok(serve_signaling(signaling, context).await)
+}
+
+/// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
+/// the signaling upgrade).
+pub fn unauthorized(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(cnx_link::api::ApiError::Status { status, .. }) =
+            cause.downcast_ref::<cnx_link::api::ApiError>()
+        {
+            return *status == 401;
+        }
+        if let Some(cnx_link::signaling::SignalingError::Connect(message)) =
+            cause.downcast_ref::<cnx_link::signaling::SignalingError>()
+        {
+            return message.contains("401");
+        }
+        false
+    })
 }
 
 /// Answer every admitted dial on `signaling` until it closes; returns the
@@ -214,6 +236,22 @@ async fn answer_session(
         }
     });
     let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // The owner removed this phone (Settings > Mobile > Remove): end its link now.
+    let mut drops = control::drops();
+    let removable = connected.link.clone();
+    let phone = peer.device_id.to_lowercase();
+    let drop_watch = tokio::spawn(async move {
+        loop {
+            match drops.recv().await {
+                Ok(id) if id == phone => {
+                    removable.close("removed");
+                    return;
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(_) => return,
+            }
+        }
+    });
     while let Some(incoming) = connected.link.accept().await {
         tokio::spawn(services::serve(
             Arc::clone(&context.services),
@@ -224,6 +262,28 @@ async fn answer_session(
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_401_marks_the_token_refused() {
+        let refused =
+            anyhow::Error::new(cnx_link::api::ApiError::Status { status: 401, body: String::new() })
+                .context("POST /v1/devices");
+        assert!(unauthorized(&refused));
+        let upgrade = anyhow::Error::new(cnx_link::signaling::SignalingError::Connect(
+            "HTTP error: 401 Unauthorized".into(),
+        ));
+        assert!(unauthorized(&upgrade));
+        let server = anyhow::Error::new(cnx_link::api::ApiError::Status { status: 502, body: String::new() });
+        assert!(!unauthorized(&server));
+        assert!(!unauthorized(&anyhow::Error::new(cnx_link::api::ApiError::Http("dns".into()))));
+        assert!(!unauthorized(&anyhow::anyhow!("the app sent no access token")));
+    }
 }

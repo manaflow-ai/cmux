@@ -4,9 +4,16 @@ import { Schema } from "effect"
 import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
+/**
+ * How long a billable fact (a money meter row: model.spend_usd) is kept: the bill and its later
+ * corrections read these rows (cx-y79zh S2, plans/cmux-next/usage-billing.md), so they outlive the
+ * dedupe window by far. Count-meter rows are priced 0 to customers today and keep the dedupe window.
+ */
+export const BILLABLE_FACT_RETENTION_MS = 400 * 24 * 3600_000
 /** Records per `record` call (one tail invocation or one step boundary sends a handful). */
 export const MAX_RECORDS_PER_CALL = 500
 /** Egress requests per team per minute (abuse limit A18, automations-billing.md 5.5). */
@@ -24,8 +31,10 @@ export interface RecordResult {
   readonly invalid: number
   /** The batch had more than MAX_RECORDS_PER_CALL records and nothing was recorded; send smaller batches. */
   readonly too_large?: true
-  /** False when the team is at its hard cap (or no cap is configured): stop at the next step boundary. */
+  /** False when the team is at its hard cap (or an invalid ceiling is set): stop at the next step boundary. */
   readonly allowed: boolean
+  /** With `limit`: false when that member reached their monthly AI limit (cx-ds09i); stop at the next step boundary. */
+  readonly user_allowed?: boolean
   readonly summary: UsageSummary
 }
 
@@ -46,6 +55,12 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,
       run TEXT, automation TEXT, step TEXT, attempt INTEGER, commit_sha TEXT, observed_at INTEGER NOT NULL, recorded_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_recorded ON usage_ledger (recorded_at)`)
+    // Per meter: the prune's oldest row per retention, its deletes and the billing level (S2 review P2-1).
+    ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_meter_recorded ON usage_ledger (meter, recorded_at)`)
+    // A fact names its member, and a correction names the fact it corrects (cx-y79zh S1); older objects get the columns.
+    const ledgerCols = new Set(ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_ledger)`).toArray().map((c) => c.name))
+    if (!ledgerCols.has("user")) ctx.storage.sql.exec(`ALTER TABLE usage_ledger ADD COLUMN user TEXT`)
+    if (!ledgerCols.has("corrects")) ctx.storage.sql.exec(`ALTER TABLE usage_ledger ADD COLUMN corrects TEXT`)
     // One row per team: the current egress minute and its count (a fixed window).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS egress_minute (id INTEGER PRIMARY KEY CHECK (id = 1), minute INTEGER NOT NULL, n INTEGER NOT NULL)`)
     // usd_micros: integer micro-dollars, the only money column (summed exactly).
@@ -58,6 +73,77 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
         ctx.storage.sql.exec(`UPDATE usage_month SET usd_micros = CAST(ROUND(quantity * 1000000) AS INTEGER) WHERE meter = 'model.spend_usd'`)
       })
     }
+    ensureUserTables(ctx.storage.sql)
+    // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+    // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
+    if (!ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_push)`).toArray().some((c) => c.name === "period_end")) ctx.storage.sql.exec(`ALTER TABLE usage_push ADD COLUMN period_end INTEGER NOT NULL DEFAULT 0`)
+  }
+
+  /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
+  async pushedLevel(entity: string, subscription: string, periodStart: number): Promise<string | null> {
+    if (!this.isBound(entity)) return null
+    const row = this.ctx.storage.sql.exec<{ identifier: string }>(`SELECT identifier FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+    return row?.identifier ?? null
+  }
+
+  /** The usage sync sent `identifier` (level `micros`) for this subscription period [start, end) (seconds). */
+  async recordPush(entity: string, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number): Promise<void> {
+    this.bind(entity)
+    this.ctx.storage.sql.exec(
+      `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at`,
+      subscription, periodStart, periodEnd, identifier, micros, Date.now()
+    )
+  }
+
+  /** The latest period before `beforeStart` that the sync sent for this subscription (its final push after renewal). */
+  async previousPush(entity: string, subscription: string, beforeStart: number): Promise<{ period_start: number; period_end: number } | null> {
+    if (!this.isBound(entity)) return null
+    const row = this.ctx.storage.sql.exec<{ period_start: number; period_end: number }>(`SELECT period_start, period_end FROM usage_push WHERE subscription = ? AND period_start < ? AND period_end > 0 ORDER BY period_start DESC LIMIT 1`, subscription, beforeStart).toArray()[0]
+    return row ? { period_start: Number(row.period_start), period_end: Number(row.period_end) } : null
+  }
+
+  /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number): Promise<UserReserve> {
+    this.bind(entity)
+    const now = Date.now()
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now)
+    if (r.ok) this.scheduleAlarm()
+    return r
+  }
+
+  /**
+   * The call ended (`actualMicros`) or never reached a provider (null: the reservation is dropped).
+   * One transaction writes the call's one fact, the member's spend and the team's model spend
+   * (usage-user.ts settleCall), so the member limit and the team counter cannot disagree.
+   */
+  async settleCall(entity: string, id: string, actualMicros: number | null): Promise<void> {
+    this.bind(entity)
+    settleCall(this.ctx.storage, id, actualMicros, Date.now())
+  }
+
+  /** The pre-S1 name, kept for one release: a Worker isolate from before the deploy still calls it (review P3). */
+  async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
+    return this.settleCall(entity, id, actualMicros)
+  }
+
+  /** team.ai_limit.get: this month's spend (USD, settled plus open) of the users named, and only those. */
+  async userSpends(entity: string, users: ReadonlyArray<string>): Promise<Record<string, number>> {
+    this.bind(entity)
+    const month = utcMonth(Date.now())
+    const out: Record<string, number> = {}
+    for (const u of users.slice(0, 500)) {
+      const { spent, open } = userSpentMicros(this.ctx.storage.sql, month, u)
+      out[u] = Math.round(spent + open) / 1_000_000
+    }
+    return out
+  }
+
+  /** A metered automation step boundary: may this member's run go on under `limitMicros` this month? */
+  async userAllowed(entity: string, user: string, limitMicros: number): Promise<{ allowed: boolean; spent_usd: number }> {
+    this.bind(entity)
+    const { spent, open } = userSpentMicros(this.ctx.storage.sql, utcMonth(Date.now()), user)
+    return { allowed: spent + open < limitMicros, spent_usd: Math.round(spent) / 1_000_000 }
   }
 
   private ceiling() {
@@ -92,7 +178,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
    * customer charge). Records count in the UTC month they are recorded in, so a
    * late or clock-skewed record still counts against the current cap.
    */
-  async record(entity: string, records: ReadonlyArray<unknown>): Promise<RecordResult> {
+  async record(entity: string, records: ReadonlyArray<unknown>, limit?: { readonly user: string; readonly limitMicros: number }): Promise<RecordResult> {
     this.bind(entity)
     const now = Date.now()
     if (records.length > MAX_RECORDS_PER_CALL) {
@@ -118,14 +204,16 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
         }
         const month = utcMonth(now)
         const inserted = sql.exec(
-          `INSERT OR IGNORE INTO usage_ledger (key, meter, quantity, month, source, run, automation, step, attempt, commit_sha, observed_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          v.key, v.meter, v.quantity, month, v.source, v.run ?? null, v.automation ?? null, v.step ?? null, v.attempt ?? null, v.commit ?? null, v.observed_at, now
+          `INSERT OR IGNORE INTO usage_ledger (key, meter, quantity, month, source, run, automation, step, attempt, commit_sha, user, observed_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          v.key, v.meter, v.quantity, month, v.source, v.run ?? null, v.automation ?? null, v.step ?? null, v.attempt ?? null, v.commit ?? null, v.user ?? null, v.observed_at, now
         ).rowsWritten
         if (inserted === 0) {
           duplicates++
           continue
         }
         recorded++
+        // A record that names its member (an automation run's owner) counts against their monthly limit too.
+        if (v.user) addUserSpend(sql, month, v.user, recordCostMicros(v.meter, v.quantity))
         sql.exec(
           `INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, ?, ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity, usd_micros = usd_micros + excluded.usd_micros`,
           month, v.meter, v.quantity, recordMicros(v.meter, v.quantity)
@@ -135,7 +223,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     if (invalid > 0) console.error(JSON.stringify({ msg: "usage records refused", team: entity, invalid }))
     const summary = this.summaryFor(entity, now)
     this.scheduleAlarm()
-    return { recorded, duplicates, invalid, allowed: summary.stopped === null, summary }
+    const member = limit ? userSpentMicros(sql, utcMonth(now), limit.user) : undefined
+    return { recorded, duplicates, invalid, allowed: summary.stopped === null, summary, ...(member && limit ? { user_allowed: member.spent + member.open < limit.limitMicros } : {}) }
   }
 
   /**
@@ -176,13 +265,39 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   protected override nextWakeAt(): number | null {
-    const row = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger`).toArray()[0]
-    // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-    return row?.at === null || row?.at === undefined ? null : Number(row.at) + USAGE_KEY_RETENTION_MS + 3600_000
+    const sql = this.ctx.storage.sql
+    // One index search per meter (usage_ledger_meter_recorded, `meter = ?`); a GROUP BY scans the whole index.
+    const times: number[] = []
+    for (const meter of METERS) {
+      const at = sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE meter = ?`, meter).toArray()[0]?.at
+      // One hour of slack: one wake prunes a batch of keys, not one wake per key.
+      if (at !== null && at !== undefined) times.push(Number(at) + (MONEY_METERS.has(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+    }
+    const reservations = nextUserWake(sql)
+    if (reservations !== null) times.push(reservations)
+    return times.length === 0 ? null : Math.min(...times)
   }
 
-  /** Dedupe keys leave after their retention; monthly counters stay. */
+  /** Dedupe keys leave after their retention, billable facts after theirs; monthly counters stay; stale member reservations are charged. */
   protected override async onWake(now: number): Promise<void> {
-    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
+    expireUserReservations(this.ctx.storage, now, utcMonth(now))
+  }
+
+  /**
+   * The billing level (cx-y79zh S2): the sum of the team's settled AI spend facts recorded in
+   * [from, to), corrections included, in integer micro-dollars. Pass-through pricing: the billed
+   * amount is our cost (AI_PRICE_VERSION). The reconcile worker sends this level, never deltas.
+   */
+  async level(entity: string, from: number, to: number): Promise<{ micros: number; facts: number; last_at: number | null }> {
+    // A team that never used the meter has no facts; a read does not bind (create) its object (S2 review P3).
+    if (!this.isBound(entity)) return { micros: 0, facts: 0, last_at: null }
+    const row = this.ctx.storage.sql.exec<{ micros: number | null; facts: number; last_at: number | null }>(
+      `SELECT SUM(CAST(ROUND(quantity * 1000000) AS INTEGER)) AS micros, COUNT(*) AS facts, MAX(recorded_at) AS last_at FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at >= ? AND recorded_at < ?`,
+      from, to
+    ).toArray()[0]
+    return { micros: Number(row?.micros ?? 0), facts: Number(row?.facts ?? 0), last_at: row?.last_at === null || row?.last_at === undefined ? null : Number(row.last_at) }
   }
 }

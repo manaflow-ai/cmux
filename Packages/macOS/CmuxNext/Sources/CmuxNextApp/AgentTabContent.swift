@@ -56,7 +56,8 @@ struct AgentTabContent {
         let images = pane.services.agentTabs.launchImages
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99).
         let newTabFrame = { view?.model.newTab == nil ? nil : images.newTabFrame(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        if paneView.launchImageView == nil, let image = images.take(key) ?? newTabFrame() { paneView.showLaunchImage(image) }
+        let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
+        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
         guard paneView.launchImageView != nil, let view else { return }
         view.showsLoadingState = false
         paneView.onLaunchImageCleared = { [weak view] in

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
+inline constexpr std::string_view kProtocolIrSha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -394,6 +394,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PasteImageRequest;
@@ -453,6 +454,7 @@ struct SetRatioRequest;
 struct SetRowHeightsRequest;
 struct SetScreenMetadataRequest;
 struct SetScreenPinnedRequest;
+struct SetSessionIconRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
@@ -500,6 +502,7 @@ struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
+struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
@@ -1426,6 +1429,7 @@ struct CloseWorkspaceRequest {
     std::optional<bool> end_terminals{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
+    std::optional<bool> if_empty{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
@@ -3530,6 +3534,10 @@ struct OverflowEvent {
     friend bool operator==(const OverflowEvent&, const OverflowEvent&) = default;
 };
 
+struct PageCredentialRequest {
+    friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
+};
+
 struct PairingRequestedEvent {
     std::string code{};
     std::uint64_t expires_in{};
@@ -4420,6 +4428,12 @@ struct SetScreenPinnedRequest {
     friend bool operator==(const SetScreenPinnedRequest&, const SetScreenPinnedRequest&) = default;
 };
 
+struct SetSessionIconRequest {
+    std::optional<std::string> icon{};
+    std::string session_id{};
+    friend bool operator==(const SetSessionIconRequest&, const SetSessionIconRequest&) = default;
+};
+
 struct SetSizeCountsRequest {
     Field<std::uint64_t> client{};
     Field<bool> counts{};
@@ -5069,6 +5083,7 @@ struct UpdateBrowserProfileRequest {
 struct UpdateFrontendBrowserTabRequest {
     Field<std::string> favicon_url{};
     Field<std::string> owner{};
+    Field<std::string> profile_id{};
     Id surface{};
     Field<std::string> title{};
     Field<std::string> url{};
@@ -5276,6 +5291,12 @@ struct WorkspaceRenamedEvent {
     Id workspace{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const WorkspaceRenamedEvent&, const WorkspaceRenamedEvent&) = default;
+};
+
+struct WsListenRequest {
+    Field<std::string> allow_origin{};
+    Field<std::vector<std::string>> allow_origins{};
+    friend bool operator==(const WsListenRequest&, const WsListenRequest&) = default;
 };
 
 enum class ZoomPaneRequestMode {
@@ -7566,6 +7587,12 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
+struct Codec<PageCredentialRequest> {
+    static Result<Json> encode(const PageCredentialRequest& value);
+    static Result<PageCredentialRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PairingResponseRequest> {
     static Result<Json> encode(const PairingResponseRequest& value);
     static Result<PairingResponseRequest> decode(const Json& value);
@@ -7920,6 +7947,12 @@ struct Codec<SetScreenPinnedRequest> {
 };
 
 template <>
+struct Codec<SetSessionIconRequest> {
+    static Result<Json> encode(const SetSessionIconRequest& value);
+    static Result<SetSessionIconRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetSizeCountsRequest> {
     static Result<Json> encode(const SetSizeCountsRequest& value);
     static Result<SetSizeCountsRequest> decode(const Json& value);
@@ -8199,6 +8232,12 @@ template <>
 struct Codec<WaitForRequest> {
     static Result<Json> encode(const WaitForRequest& value);
     static Result<WaitForRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<WsListenRequest> {
+    static Result<Json> encode(const WsListenRequest& value);
+    static Result<WsListenRequest> decode(const Json& value);
 };
 
 template <>

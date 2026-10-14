@@ -135,6 +135,10 @@ public struct SettingsSchemaExport {
             row["kind"] = "string_list"
             row["choices"] = choices(list)
             row["ordered"] = true
+        case .choiceSet(let list):
+            row["kind"] = "string_list"
+            row["choices"] = choices(list)
+            row["ordered"] = false
         }
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the

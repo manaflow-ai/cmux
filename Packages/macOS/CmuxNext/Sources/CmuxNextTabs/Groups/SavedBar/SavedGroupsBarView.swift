@@ -9,7 +9,7 @@ import QuartzCore
 /// horizontally (trackpad or wheel) when the chips overflow. Click reopens a
 /// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
 public final class SavedGroupsBarView: NSView {
-    public static var preferredHeight: CGFloat { Metrics.tabHeight }
+    public static var preferredHeight: CGFloat { Metrics.controlHeight }
 
     public let model: SavedGroupsBarModel
     public var contextMenuProvider: TabContextMenuProvider?

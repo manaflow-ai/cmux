@@ -5,13 +5,13 @@
 /// relative entry is dropped with one.
 public struct PickerPinnedSetting {
     public init() {}
-    public nonisolated static let configPath = ["picker", "pinned"]
+    // The path and default: schemas/settings/source/picker.json (SettingsSchema+Picker.generated.swift).
 
     nonisolated static func parse(_ root: JSONValue, home: String) -> ([String], [SettingsDiagnostic]) {
-        guard let value = root.value(at: configPath) else { return ([], []) }
-        let path = configPath.joined(separator: ".")
+        guard let value = root.value(at: pinnedPath) else { return (pinnedDefault, []) }
+        let path = pinnedPath.joined(separator: ".")
         guard let items = value.arrayValue else {
-            return ([], [SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an array of folder paths")])
+            return (pinnedDefault, [SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an array of folder paths")])
         }
         var pinned: [String] = []
         var diagnostics: [SettingsDiagnostic] = []

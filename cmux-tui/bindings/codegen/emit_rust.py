@@ -118,7 +118,9 @@ def _string(value: str) -> str:
 def _doc(text: str | None, indent: str = "") -> list[str]:
     if not text:
         return []
-    words = " ".join(str(text).split()).replace("`", "\\`")
+    # Escape what rustdoc would read as markup: a backtick, and `<` (an `<hex>` in a schema
+    # description became an unclosed HTML tag and failed `cargo doc -D warnings`, #20129).
+    words = " ".join(str(text).split()).replace("`", "\\`").replace("<", "\\<")
     return [f"{indent}/// {words}"]
 
 

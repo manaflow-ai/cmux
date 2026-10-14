@@ -2294,6 +2294,7 @@ class CloseWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    if_empty: Union[bool, MissingType] = field(default=MISSING)
     reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
 
 
@@ -3530,6 +3531,12 @@ class NotifyRequest:
 
 
 @dataclass(frozen=True)
+class PageCredentialRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
+    pass
+
+
+@dataclass(frozen=True)
 class PairingResponseRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pairing-response/request'
     request: int
@@ -4013,6 +4020,13 @@ class SetScreenPinnedRequest:
 
 
 @dataclass(frozen=True)
+class SetSessionIconRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-session-icon/request'
+    icon: Union[str, None]
+    session_id: str
+
+
+@dataclass(frozen=True)
 class SetSizeCountsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-size-counts/request'
     surface: Id
@@ -4299,6 +4313,7 @@ class UpdateFrontendBrowserTabRequest:
     surface: Id
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4402,6 +4417,13 @@ class WaitForRequest:
     surface: Id
     pattern: str
     timeout_ms: int
+
+
+@dataclass(frozen=True)
+class WsListenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ws-listen/request'
+    allow_origin: Union[str, None, MissingType] = field(default=MISSING)
+    allow_origins: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5640,6 +5662,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
     'PasteImageRequest',
@@ -5699,6 +5722,7 @@ __all__ = [
     'SetRowHeightsRequest',
     'SetScreenMetadataRequest',
     'SetScreenPinnedRequest',
+    'SetSessionIconRequest',
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
@@ -5746,6 +5770,7 @@ __all__ = [
     'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
+    'WsListenRequest',
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',

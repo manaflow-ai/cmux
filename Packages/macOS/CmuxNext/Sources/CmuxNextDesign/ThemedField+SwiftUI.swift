@@ -38,7 +38,7 @@ public struct ThemedField: NSViewRepresentable {
     ///   - onMove: Up (-1) and Down (1); nil leaves them to the field.
     ///   - onCancel: Escape; nil leaves it to the field.
     public init(text: Binding<String>, placeholder: String? = nil, secure: Bool = false, font: NSFont = Typography.body,
-                height: CGFloat = Metrics.tabHeight, focusOnAppear: Bool = false, boxed: Bool = true,
+                height: CGFloat = Metrics.controlHeight, focusOnAppear: Bool = false, boxed: Bool = true,
                 isFocused: Binding<Bool>? = nil, identifier: String? = nil,
                 onSubmit: @escaping @MainActor () -> Void = {}, onMove: (@MainActor (Int) -> Void)? = nil,
                 onCancel: (@MainActor () -> Void)? = nil) {
@@ -91,7 +91,7 @@ public struct ThemedField: NSViewRepresentable {
     }
 
     public func sizeThatFits(_ proposal: ProposedViewSize, nsView: ThemedFieldHost, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? Metrics.tabHeight * 8, height: height)
+        CGSize(width: proposal.width ?? Metrics.controlHeight * 8, height: height)
     }
 
     /// Carries the field's edits to the binding and its Return, Up and Down to the callbacks.

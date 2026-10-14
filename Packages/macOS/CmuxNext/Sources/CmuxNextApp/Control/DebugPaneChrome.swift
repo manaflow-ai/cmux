@@ -46,6 +46,20 @@ enum DebugPaneChrome {
                     fields["gap_below"] = .number(Double(border.minY - pill.maxY))
                     fields["pill_left_minus_border_left"] = .number(Double(pill.minX - border.minX))
                 }
+                // The tab bar's trailing controls (`tabs.toolbarButtons` + "…"): frame, reveal, buttons and "…"'s rows.
+                if let toolbar = view.toolbar?.view {
+                    func rows(_ menu: NSMenu?) -> [JSONValue] {
+                        (menu?.items ?? []).map { item in
+                            item.isSeparatorItem ? .string("-") : item.submenu.map { .object([item.title: .array(rows($0))]) }
+                                ?? .string((item.state == .on ? "✓ " : "") + item.title)
+                        }
+                    }
+                    fields["toolbar"] = .object([
+                        "frame": rect(topLeft(toolbar.convert(toolbar.bounds, to: nil))), "revealed": .bool(toolbar.reveal.isRevealed),
+                        "more_alpha": .number(Double(toolbar.moreButton.alphaValue)),
+                        "buttons": .array(toolbar.buttons.map { .string($0.accessibilityLabel() ?? "") }), "more_menu": .array(rows(toolbar.moreMenu?())),
+                    ])
+                }
                 if let firstCell {
                     fields["first_cell_minus_border"] = .array([.number(Double(firstCell.x - border.minX)), .number(Double(firstCell.y - border.minY))])
                 }

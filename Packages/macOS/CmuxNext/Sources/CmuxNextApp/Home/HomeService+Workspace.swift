@@ -60,7 +60,7 @@ extension HomeService {
     /// Returns once no `ensure_home` is in flight (at once when none is).
     /// Each request has the connection's timeout, so this never outlives it.
     func awaitHomeEnsured() async {
-        for await inFlight in Observations({ self.homeEnsureInFlight }) where !inFlight { return }
+        for await inFlight in ObservationStream({ self.homeEnsureInFlight }) where !inFlight { return }
     }
 
     /// The Chief owner's connection, once it serves conversations (this task

@@ -105,6 +105,7 @@ ${tooltips}
       "agent-session/acpmux/modelPicker.css",
       "agent-session/acpmux/summary/summary.css",
       "agent-session/acpmux/header/header.css",
+      "agent-session/acpmux/newtab/screen.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="acpmux-menu" id="cascade">Model</div>
@@ -121,6 +122,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
 <div class="ui-positioner"><div class="acpmux-summary-popover" id="summary">Summary</div></div>
+<div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
       "cascade",
@@ -136,6 +138,8 @@ ${tooltips}`,
       "chat-menu",
       "pr-status",
       "summary",
+      // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
+      "new-tab-suggestions",
       "title-tooltip",
     ],
   };
@@ -175,6 +179,45 @@ ${tooltips}`,
           await page.close();
         });
       }
+
+      // Leo 10-13 (coherence pass): one elevation for every menu and popover. The New Tab
+      // suggestions cast a deeper, darker shadow of their own than the menus opened from the same
+      // box, so the two read as different layers.
+      test("every menu and popover in the agent pane casts the one popup elevation", async () => {
+        const page = await open(browser, pane);
+        const look = (id: string) =>
+          page.$eval(`#${id}`, (node) => {
+            const style = getComputedStyle(node);
+            return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+          });
+        const want = await look("context-menu");
+        const ids = pane.surfaces.filter((id) => id !== "title-tooltip");
+        const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
+        for (const id of ids) seen[id] = await look(id);
+        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        await page.close();
+      });
+
+      // Coherence pass batch 2: the web popups cast the native popup shadow (PopupStyle.swift), so a
+      // menu has the same depth in a page as over the sidebar. The deeper two-layer shadow came with
+      // the glass popups (#19008); popups are solid again, and POLISH asks for subtle shadows.
+      test("the web popup shadow is the native popup shadow", async () => {
+        const swift = fs.readFileSync(
+          path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopupStyle.swift"),
+          "utf8",
+        );
+        const value = (name: string) => Number(swift.match(new RegExp(`let ${name}: CGFloat = ([\\d.]+)`))![1]);
+        const [offset, blur, alpha] = [value("shadowOffset"), value("shadowBlur"), value("shadowAlpha")];
+        const page = await open(browser, pages);
+        const shadow = await page.$eval("#menu", (node) => getComputedStyle(node).boxShadow);
+        // Black at an alpha serializes as rgba() or, from color-mix(), as color(srgb ...).
+        const drops = shadow
+          .split(/,(?![^(]*\))/)
+          .filter((part) => !part.includes("inset"))
+          .map((part) => part.trim().replace(/^rgba\(0, 0, 0, ([\d.]+)\)/, "color(srgb 0 0 0 / $1)"));
+        expect(drops).toEqual([`color(srgb 0 0 0 / ${alpha}) 0px ${offset}px ${blur}px 0px`]);
+        await page.close();
+      });
 
       test("the web tooltips match the native tooltip", async () => {
         for (const fixture of [pages, pane]) {

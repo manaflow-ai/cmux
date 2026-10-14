@@ -49,9 +49,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has('input[type="time"]', 2) ? null : "no time fields";
     case "string_list":
       return row.choices
-        ? has("[data-ordered-choices]")
+        ? has(row.ordered === false ? "[data-choice-set]" : "[data-ordered-choices]")
           ? null
-          : "no ordered choice list"
+          : "no choice list"
         : has("input.token-input")
           ? null
           : "no token field";

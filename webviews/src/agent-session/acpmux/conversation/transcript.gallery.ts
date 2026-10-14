@@ -79,6 +79,35 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+/// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
+/// sent to the in-page mock daemon (mock.ts).
+type GalleryCall = { method: string; params?: { id?: string; sessionId?: string; archived?: unknown } };
+/// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
+/// snapshot), and its header offers the chat menu.
+const chatMenuReady = async (ctx: PlayContext) => {
+  const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] }).cmuxGalleryLog;
+  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), { capMs: 10_000 });
+  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), { capMs: 10_000 });
+};
+/// The plays that run the pane's real client against the in-page mock daemon.
+const mockDaemonFrames = {
+  longFrameFailMs: {
+    value: 150,
+    reason:
+      "The mock daemon's attach and the first transcript mount share the menu's first frame on the CPU-only gallery VM (51-78 ms measured); these plays gate which requests reach acpmux, not frame time.",
+  },
+  layoutShiftMax: {
+    value: 0.05,
+    reason:
+      "The mock daemon's answer swaps the stage's snapshot for the client's own chat (0.013 measured); the transcript plays above gate layout shift.",
+  },
+  settleMaxMs: {
+    value: 1000,
+    reason:
+      "A menu pick waits for the in-page mock daemon's round trip and its session change (268 ms measured on the CPU-only VM); this play gates the request, not latency.",
+  },
+};
+
 const openWorked = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
@@ -291,6 +320,7 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
@@ -389,18 +419,27 @@ export default agentPaneEntry({
       },
     },
     "archive-chat-key": {
-      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat over the pane's own acpmux connection (cx-jlzsf), then asks the app to close its tab.",
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
       play: async (ctx) => {
-        await ctx.focus({ selector: "[contenteditable='true']" });
         const page = ctx.document.defaultView as unknown as {
           cmuxAcpmuxBridge?: { command?(name: string): void };
-          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+          cmuxGalleryLog: GalleryCall[];
         };
+        await chatMenuReady(ctx);
+        await ctx.focus({ selector: "[contenteditable='true']" });
         page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        // The tab closes only after acpmux took the tag.
         await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+          page.cmuxGalleryLog.some(({ method, params }) => method === "pane.action" && params?.id === "closeTab"),
         );
+        const archived = page.cmuxGalleryLog.find(({ method }) => method === "acpmux _acpmux/archive");
+        if (archived?.params?.archived !== true || !archived.params.sessionId)
+          throw new Error(`Archive did not go to acpmux: ${JSON.stringify(archived)}`);
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.archive"))
+          throw new Error("archive went to the host bridge");
       },
     },
     "fork-any-turn": {
@@ -422,17 +461,77 @@ export default agentPaneEntry({
       },
     },
     "mark-unread-menu": {
-      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
+      // The whole chat menu fits, so its last rows are on screen for the click.
+      height: 900,
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
       play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await chatMenuReady(ctx);
         await ctx.click({ role: "button", name: "Chat actions" });
         await ctx.click({ role: "menuitem", name: "Mark as Unread" });
-        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+        await ctx
+          .waitFor(() =>
+            page.cmuxGalleryLog.some(
+              ({ method, params }) => method === "acpmux _acpmux/markUnread" && params?.sessionId,
+            ),
+          )
+          .catch((error: unknown) => {
+            throw new Error(
+              `${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`,
+            );
+          });
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"))
+          throw new Error("mark unread went to the host bridge");
+      },
+    },
+    "harness-health-acpmux": {
+      note: "Play: the chat's agent CLI health (cx-ny85) is read from acpmux on the pane's own connection (cx-jlzsf), never the host.",
+      ready: { transport: "mock" },
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await chatMenuReady(ctx);
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "acpmux _acpmux/harness/health"));
+        if (page.cmuxGalleryLog.some(({ method }) => method === "harness.health"))
+          throw new Error("harness health went to the host bridge");
+      },
+    },
+    "side-chat-acpmux": {
+      note: "Play: New side chat (the chat menu's chat.side action) forks the chat, has acpmux tag the fork the chat's side chat on the pane's own connection (cx-jlzsf), then asks the app only to open it beside the chat.",
+      ready: { transport: "mock" },
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as {
+          cmuxGalleryLog: GalleryCall[];
+          cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+        };
+        await chatMenuReady(ctx);
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        // The menu row's own call (header/sideChatRow.ts): through the chat's last turn.
+        void page.cmuxAcpmuxActions?.["chat.side"]?.({ throughSeq: Number.MAX_SAFE_INTEGER });
+        await ctx
+          .waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.sideChat"))
+          .catch((error: unknown) => {
+            throw new Error(
+              `${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`,
+            );
+          });
+        const order = page.cmuxGalleryLog.map(({ method }) => method);
+        const side = page.cmuxGalleryLog.find(({ method }) => method === "acpmux _acpmux/side");
+        if (!side?.params?.sessionId || order.indexOf("acpmux _acpmux/side") > order.indexOf("chat.sideChat"))
+          throw new Error(
+            `acpmux did not tag the side chat before the app opened it: ${JSON.stringify(order.slice(-8))}`,
+          );
       },
     },
     "thought-row": {
-      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      note: "Play: a thought shows in full on its row, wrapped after a muted Thought label, with nothing to open and no tooltip (Leo 2026-10-13).",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -451,18 +550,17 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
-        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
-        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
-        if (ctx.document.body.textContent?.includes("jittered backoff"))
-          throw new Error("a closed thought shows only its first line");
-        await ctx.click({ selector: "button.cv-thought" });
-        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
-        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+        const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        // Hovering the thought used to pop its full text as a tooltip.
+        await ctx.hover({ selector: ".cv-thought__text" });
+        if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
+          throw new Error("a thought is a row of text, not a toggle");
+        if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
     "thought-find": {
-      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      note: "Play: Find in Chat for a word in a thought marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
         longFrameFailMs: {
           value: 80,
@@ -471,7 +569,7 @@ export default agentPaneEntry({
         },
         layoutShiftMax: {
           value: 0.01,
-          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+          reason: "Find opens the fold that holds the match, which moves the rows below on purpose.",
         },
       },
       snapshot: chat([
@@ -505,7 +603,7 @@ export default agentPaneEntry({
         };
         await ctx.waitFor(() => active() !== undefined);
         const at = active()!.startContainer.parentElement;
-        if (!at?.closest(".cv-thought__body"))
+        if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
     },
@@ -889,6 +987,27 @@ export default agentPaneEntry({
           },
         },
       ),
+    },
+    "secret-card": {
+      note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: { secretId: "gallery-secret", name: "STRIPE_API_KEY", reason: "Create the test webhook" },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
     },
     queued: {
       note: "Prompts queued behind a running turn.",

@@ -56,12 +56,6 @@ final class AppsService {
         transport.turnedOff = disabled ? RefusalStrings.turnedOffByOrganization : nil
     }
 
-    /// What the local daemon's supervisor needs from this app at launch: the
-    /// first-party app packages shipped in the app bundle (its default apps).
-    nonisolated static var daemonEnvironment: [String: String] {
-        ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
-    }
-
     func start() {
         client.start()
         // task-owner: one off-main load of the bundled package directories and the scope table at launch

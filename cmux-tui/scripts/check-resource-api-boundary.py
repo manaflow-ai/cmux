@@ -1074,6 +1074,14 @@ def _validate_catalog_type(
                 "operations.settings.snapshot.result",
                 "errors.settings.invalid.details.fields.accepted",
                 "errors.settings.invalid.details.fields.value",
+                # Browser devices are Chrome DevTools' JSONV1 device objects,
+                # verbatim, so a Chrome custom-device export reads unchanged
+                # and Chrome's new keys survive (browser-devices-v1, cx-ocbf3).
+                "operations.browser.devices.add_custom.params.fields.device",
+                "operations.browser.tab.emulate.params.fields.custom",
+                "types.BrowserDeviceAddResult.fields.device",
+                "types.BrowserDeviceList.fields.chrome",
+                "types.BrowserDeviceList.fields.devices.items",
                 # A keybinding's args are the command's own object, passed
                 # through unchanged (keybindings.json, cx-9ce.17).
                 "types.KeybindingEntry.fields.args.value.values",

@@ -1,5 +1,4 @@
 # path	kind	count (scripts/cmux-next/check-type-scale.py; may only go down)
-webviews/src/agent-activity/styles.css	size	6
 webviews/src/agent-session/acpmux-preview/styles.css	size	3
 webviews/src/agent-session/acpmux/Inspector.css	size	4
 webviews/src/agent-session/acpmux/changes/changes.css	size	7
@@ -16,7 +15,7 @@ webviews/src/agent-session/acpmux/markdownField.css	size	4
 webviews/src/agent-session/acpmux/mockFixture.ts	size	2
 webviews/src/agent-session/acpmux/newtab/screen.css	size	15
 webviews/src/agent-session/acpmux/prototype/prototype.css	size	18
-webviews/src/agent-session/acpmux/styles.css	size	76
+webviews/src/agent-session/acpmux/styles.css	size	74
 webviews/src/agent-session/acpmux/subagents/subagents.css	size	2
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css	size	1
 webviews/src/agent-session/acpmux/turnChanges/turnChanges.css	size	4

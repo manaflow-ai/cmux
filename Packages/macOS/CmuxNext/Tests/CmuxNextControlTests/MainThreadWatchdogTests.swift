@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CoreFoundation
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogTests {

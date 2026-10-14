@@ -13,6 +13,9 @@
 //!   "denied":[id]}`: the phones the user approved, and those whose request
 //!   the user refused (`pairing.rs`). Sent at start and on every change.
 //!
+//! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
+//!   phone (Settings > Mobile > Remove): hostd closes its live links now.
+//!
 //! End of stdin means the app is gone: the process exits.
 //!
 //! stdout carries one JSON event per line for the app (logs go to stderr);
@@ -23,12 +26,18 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
+static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+
+/// Phone device ids the app removed, as they arrive (lowercased).
+pub fn drops() -> broadcast::Receiver<String> {
+    DROPS.get_or_init(|| broadcast::channel(16).0).subscribe()
+}
 
 /// Whether this process runs supervised (`CNX_CONTROL=stdio`).
 pub fn enabled() -> bool {
@@ -42,6 +51,7 @@ pub enum Inbound {
     Token { token: String },
     Acpmux { url: String, token: Option<String> },
     Devices(crate::pairing::DeviceTrust),
+    DropPhone { phone_device_id: String },
 }
 
 impl Inbound {
@@ -114,6 +124,10 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Devices(trust)) => {
                     devices_tx.send_replace(Some(trust));
                 }
+                Some(Inbound::DropPhone { phone_device_id }) => {
+                    let _ =
+                        DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
+                }
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
@@ -166,6 +180,10 @@ mod tests {
                 }],
                 denied: vec!["q".into()],
             }))
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"drop_phone","phone_device_id":"P"}"#),
+            Some(Inbound::DropPhone { phone_device_id: "P".into() })
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);

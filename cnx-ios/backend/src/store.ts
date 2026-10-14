@@ -38,6 +38,10 @@ export interface Store {
   listMacs(teamId: string): Promise<Array<Device>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
   listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
+  /** Every device (Macs and phones) one owner registered, newest first. */
+  listOwnerDevices(ownerUserId: string): Promise<Array<Device>>
+  /** Deletes the owner's device; "not_found" when it does not exist or belongs to someone else. */
+  deleteDevice(deviceId: string, ownerUserId: string): Promise<Device | "not_found">
   getPrefs(userId: string, teamId: string): Promise<Prefs>
   /** Only the given fields change; `undefined` keeps the stored value. */
   putPrefs(userId: string, teamId: string, patch: Partial<Prefs>): Promise<Prefs>
@@ -93,6 +97,14 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
       const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
       return rs.map(row)
     },
+    async listOwnerDevices(ownerUserId) {
+      const rs = await db.select().from(devices).where(eq(devices.ownerUserId, ownerUserId)).orderBy(sql`${devices.updatedAt} desc`)
+      return rs.map(row)
+    },
+    async deleteDevice(deviceId, ownerUserId) {
+      const [r] = await db.delete(devices).where(and(eq(devices.deviceId, deviceId), eq(devices.ownerUserId, ownerUserId))).returning()
+      return r ? row(r) : "not_found"
+    },
     async getPrefs(userId, teamId) {
       const [r] = await db.select().from(teamPrefs).where(and(eq(teamPrefs.userId, userId), eq(teamPrefs.teamId, teamId))).limit(1)
       return { color: r?.color ?? null, emoji: r?.emoji ?? null }
@@ -132,6 +144,15 @@ export const memoryStore = (): Store => ({
   },
   async listOwnerMacs(owner) {
     return [...mem.devices.values()].filter((d) => d.ownerUserId === owner && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
+  },
+  async listOwnerDevices(owner) {
+    return [...mem.devices.values()].filter((d) => d.ownerUserId === owner).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  },
+  async deleteDevice(id, owner) {
+    const d = mem.devices.get(id)
+    if (!d || d.ownerUserId !== owner) return "not_found"
+    mem.devices.delete(id)
+    return { ...d }
   },
   async getPrefs(u, t) {
     return { ...(mem.prefs.get(`${u}\u0000${t}`) ?? { color: null, emoji: null }) }

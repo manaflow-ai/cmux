@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Live check of New <Kind> Tab (cmuxterm-hq#1829, cx-9r5w) on a running tagged cmux-next build.
 
-`newTab.ofKind` opens a tab of the selected tab's kind whatever `tabs.newTabKind` says: on a
-browser tab it opens a browser tab on that tab's engine, while Cmd-T (`newTab.default`) opens the
-New Tab page under the default setting. The old id `newTab.sameKind` still runs Cmd-T's action,
+`newTab.ofKind` opens a tab of the selected tab's kind: on a browser tab it opens a browser tab on
+that tab's engine, while Cmd-T (`newTab.default`) always opens the New Tab page. The old id `newTab.sameKind` still runs Cmd-T's action,
 so keybindings and scripts keep working. A browser tab's menu titles the action by its kind
 ("New Browser Tab").
 
@@ -142,11 +141,7 @@ def main():
         bool(opened) and opened.get("kind") == "browser" and opened.get("browser_engine") == browser.get("browser_engine") and not page)
 
     # Cmd-T as the user presses it (debug.key: the key router, user origin) on a browser tab
-    # opens the New Tab page under tabs.newTabKind's default ("page"). The slot's config may
-    # name another kind, so the check sets the default and restores it.
-    saved = rpc("settings.get", {"path": "tabs.newTabKind"})
-    print("tabs.newTabKind was:", saved, "set:", rpc("settings.set", {"path": "tabs.newTabKind", "value": "page"}), flush=True)
-    time.sleep(1)  # test harness: the config reloads
+    # always opens the New Tab page.
     print("select the browser tab:", action("tab.focus", focus=True, target="tab:" + browser_id), flush=True)
     time.sleep(1)  # test harness
     before = {t.get("tab_resource_id") for t in daemon_tabs()}
@@ -156,11 +151,6 @@ def main():
     row("Cmd-T on a browser tab still opens the New Tab page", "one new tab; the focused pane shows the New Tab page",
         f"new {[(t.get('kind'), t.get('browser_engine'), t.get('url')) for t in new or []]}; New Tab page {page}",
         bool(new) and len(new) == 1 and bool(page))
-    previous = (saved or {}).get("value")
-    if isinstance(previous, str) and previous != "page":
-        rpc("settings.set", {"path": "tabs.newTabKind", "value": previous})
-    elif previous is None:
-        rpc("settings.unset", {"path": "tabs.newTabKind"})
 
     reply = action("newTab.sameKind")
     row("the old id newTab.sameKind runs Cmd-T's action", "no error; runs newTab.default",

@@ -6,6 +6,7 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import Foundation
 import UniformTypeIdentifiers
+import CmuxNextMobileHost
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
 /// that type's line budget is frozen).
@@ -31,12 +32,16 @@ struct PageFactory {
     /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
     func appsWebPage(route: String?) -> PageWebView? {
         guard PageTunables.appStore.value == .web else { return nil }
-        let relay = DaemonPageRelay(services: services)
+        // The organization's DisabledFeatures `apps` turns the store off for this page too (the
+        // native store reads the same transport state), checked on every call.
+        let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
+            apps?.transport.turnedOff
+        }
         let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
-            guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            guard AppsPageConfirmations().needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
-            return AppsPageConfirmations.confirmation(op: op, params: params, detail: detail)
+            return AppsPageConfirmations().confirmation(op: op, params: params, detail: detail)
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -165,7 +170,8 @@ struct PageFactory {
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
         let native = AppPageNativeProvider(services: services, page: .settings)
-        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native),
+                      PageRoute(prefix: "cmux.settings.mobile.", provider: MobilePageProvider(host: services.iphone))]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,

@@ -139,6 +139,8 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
+  /** With `ready.transport: "mock"`: the harnesses the mock daemon lists (`[]`: none installed). */
+  mockHarnesses?: unknown[];
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
    * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;

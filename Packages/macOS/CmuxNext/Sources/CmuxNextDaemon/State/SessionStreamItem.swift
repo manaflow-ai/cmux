@@ -90,7 +90,7 @@ enum SessionWire {
             var zoom: Double?
             if case .number(let value)? = extra?["zoom"] { zoom = value }
             return SessionStateMirror.TabRecord(zoom: zoom, back: urls("back"), forward: urls("forward"),
-                                                icon: extra?["icon"]?.stringValue)
+                                                icon: extra?["icon"]?.stringValue, emulation: extra?["emulation"])
         }
 
         var progress: TerminalProgressReport? {
@@ -105,8 +105,10 @@ enum SessionWire {
         var programStatus: [ProgramStatusRecord] { ProgramStatusRecord.records(extra) }
 
         /// When the terminal's running shell command started (`extra.busy.since_ms`, terminal-activity-v1:
-        /// OSC 133 C..D), nil at a prompt.
+        /// OSC 133 C..D), nil at a prompt and while the daemon's `extra.activity` says the command uses
+        /// the terminal interactively (`in_use`: htop, vim, a REPL), which is never work in progress.
         var busySinceMs: UInt64? {
+            if case .object(let activity)? = extra?["activity"], activity["state"]?.stringValue != "running" { return nil }
             guard case .object(let busy)? = extra?["busy"] else { return nil }
             return busy["since_ms"]?.stringValue.flatMap { UInt64($0, radix: 10) }
         }

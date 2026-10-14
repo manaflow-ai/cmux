@@ -97,7 +97,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
             TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
-                        hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
+                        // On the settled grid the page layer draws the active
+                        // tab's card live (the same view as the page).
+                        hiddenTabId: zoomState.phase == .overview ? activeID : zoomTabId,
                         gridInteractive: zoomState.gridInteractive,
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
                         scrollOffset: $overviewScroll, position: $overviewPosition,
@@ -228,41 +230,65 @@ struct TabsScreen<Source: TabsDataSource>: View {
             onScroll: { dy in chrome.pageDragged(dy, theme) })
     }
 
-    /// The active tab's live page. It stays at one place in the view tree;
-    /// a zoom only changes its scale, clip and offset, so the client's view
-    /// (a web view, a terminal) is never rebuilt by a transition. It is laid
-    /// out at full size and scaled into the zooming rect.
+    /// The active tab's live page. It stays at one place in the view tree
+    /// in every phase: full screen on the page, the zoom's rect while it
+    /// zooms, and its own card on the settled grid (live, following the
+    /// grid's scroll). Only its scale, clip and offset change, so the
+    /// client's view (a web view, a terminal) is never rebuilt or swapped,
+    /// and the pixels on screen when a transition starts or ends are the
+    /// same view's. It is laid out at full size and scaled into the rect.
+    /// Until `isContentReady` says so, the tab's card covers it.
     @ViewBuilder private var pageLayer: some View {
-        let settled = zoomState.phase == .page
-        let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0) : zoomGeometry()
+        let phase = zoomState.phase
+        let settled = phase == .page
+        let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0)
+            : phase == .overview ? (rect: activeCardRect, radius: overviewLayout.cardRadius) : zoomGeometry()
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
+        let close = phase == .overview ? zoomDriver.chrome.closeOpacity
+            : CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: phase == .interactive || zoomState.headingToOverview)
         ZStack(alignment: .topLeading) {
             theme.colors.pageBackground
             if let tab = activeTab {
                 source.content(for: tab, context: contentContext)
                     .id(tab.id)
+                if !source.isContentReady(tab.id) {
+                    ScaledContent(pageSize: size) { source.card(for: tab) }
+                        .allowsHitTesting(false)
+                }
             }
         }
         .frame(width: size.width, height: size.height)
         .scaleEffect(scale, anchor: .topLeading)
         .frame(width: max(1, g.rect.width), height: max(1, g.rect.height), alignment: .topLeading)
         .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
-        // The card's close button rides its corner at full size and fades in
-        // with the zoom's progress (CardChrome).
+        .allowsHitTesting(settled && !chrome.swiping && !chrome.editing)
+        // The card's close button: it rides the zooming card's corner at full
+        // size (fading in with progress) and is the active card's close
+        // button on the settled grid (this layer covers that card).
         .overlay(alignment: .topTrailing) {
-            if zoomTabId != TabsScreenSpace.newTabMarker {
-                CardCloseGlyph()
-                    .padding(4)
-                    .opacity(CardChrome.zoomCloseOpacity(progress: zoomState.progress,
-                                                         headingToOverview: zoomState.phase == .interactive || zoomState.headingToOverview))
-                    .allowsHitTesting(false)
+            if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
+                Button {
+                    withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.close(id) }
+                } label: {
+                    CardCloseGlyph().padding(4).contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .opacity(settled ? 0 : close)
+                .allowsHitTesting(phase == .overview && close > 0.5)
+                .accessibilityHidden(phase != .overview)
+                .accessibilityLabel("Close \(activeTab?.title ?? "")")
             }
         }
         .offset(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY)
-        .opacity(zoomState.phase == .overview ? 0 : 1)
-        .allowsHitTesting(settled && !chrome.swiping && !chrome.editing)
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
+    }
+
+    /// The active tab's card on screen (the grid's reported content origin).
+    private var activeCardRect: CGRect {
+        let index = activeIndex ?? 0
+        let grid = OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: max(tabs.count, index + 1))
+        return grid.zoomEndpoint(index, contentOrigin: gridContentOrigin, fallbackOffset: overviewScroll)
     }
 
     /// The tab beside the page during a toolbar swipe (its card content at

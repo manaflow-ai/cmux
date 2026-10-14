@@ -54,30 +54,24 @@ extension UpdaterService {
             guard invocation.origin == .user else { return }
             self?.markTipActionUsed(id.rawValue)
         }
-        activationObservation?.cancel()
-        activationObservation = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                self?.refreshTip()
-            }
-        }
+        refreshTipOnActivation()
     }
 
     /// Follows `updates.*` in cmux.json (R114): the gate's preferences and
     /// Sparkle's schedule and download behavior.
     func follow(_ settings: SettingsController) {
         settingsObservation?.cancel()
-        // The update card's Automatic Updates box writes the same setting
-        // as Settings > General (UPDATE-CARD); the change returns through
-        // the observation below.
-        writeAutomaticUpdates = { [weak self, weak settings] on in
+        // The update card's Automatic Updates box and the tip card's Never Show Tips write the
+        // same settings as Settings (UPDATE-CARD); the change returns through the observation below.
+        writeSetting = { [weak self, weak settings] setting, on in
             guard let settings else { return }
-            let log = self?.log
+            let log = self?.log, path = setting == .tips ? SidebarSectionsSetting.tipsPath : UpdatesSettings.downloadAutomaticallyPath
             // task-owner: one settings write that ends by itself; nothing to cancel.
             Task { @MainActor in
                 do {
-                    try await settings.setSetting(at: UpdatesSettings.downloadAutomaticallyPath, to: .bool(on), by: .user)
+                    try await settings.setSetting(at: path, to: .bool(on), by: .user)
                 } catch {
-                    log?.append("automatic updates not written: \(error)")
+                    log?.append("\(path.joined(separator: ".")) not written: \(error)")
                 }
             }
         }

@@ -12,7 +12,7 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  padding: 18px 18px 10px;
+  padding: 18px var(--page-edge) 10px;
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -73,14 +73,14 @@
 
 .pw-button:disabled,
 .pw-select:disabled {
-  color: var(--page-text-3);
+  color: var(--page-text-disabled);
 }
 
 .pw-notice {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 10px 18px 0;
+  margin: 10px var(--page-edge) 0;
   padding: 6px 10px;
   border-radius: 7px;
   border: 1px solid var(--page-separator);
@@ -92,10 +92,12 @@
   min-width: 0;
 }
 
+/* Rows pad their hover pill by 8 px, so the list pads by 8 less: row text, section titles and
+   help all start on the page edge, under the header's title. */
 .pw-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 18px 18px;
+  padding: 4px calc(var(--page-edge) - 8px) 18px;
 }
 
 .pw-section {
@@ -108,6 +110,7 @@
 
 .pw-section-title {
   margin: 0 0 6px;
+  padding: 0 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--page-text-2);
@@ -117,6 +120,7 @@
 .pw-empty,
 .pw-unavailable {
   margin: 4px 0 8px;
+  padding: 0 8px;
   color: var(--page-text-3);
 }
 
