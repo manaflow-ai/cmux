@@ -249,12 +249,24 @@ fn keyed_gate(
     if !params.require_person_key {
         return Ok(());
     }
+    // Only nothing listening (no socket, or refused) is "acpmux does not run".
+    // Any other connect error, and a status that cannot be read, is an
+    // unknown fact: not safe, and the client starts without its key.
+    let unknown = || (Refusal::NeedsKeyedStart, Some(keyed_restart_reason(Some(&json!({})))));
     let status = match AcpmuxLink::connect(socket, |_| {}) {
-        Err(_) => None,
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            None
+        }
+        Err(_) => return Err(unknown()),
         Ok(link) => {
             let status = link.call("_acpmux/status", json!({}), CALL_TIMEOUT);
             link.close();
-            Some(status.map_err(|error| (Refusal::of(error), None))?)
+            Some(status.map_err(|_| unknown())?)
         }
     };
     let keyed = status.as_ref().is_some_and(|status| {

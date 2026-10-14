@@ -8653,8 +8653,9 @@ person's relayed allows with a person key of its own (the app's keyed acpmux
 restart, `acp daemon start --person-key-fd`) sends `require_person_key: true`
 and, when it holds one, `person_instance` (the acpmux run, `personInstance`,
 it holds a key for; 1 to 128 letters, digits or `_`, `.`, `:`, `-`). The
-daemon then reads its acpmux's `_acpmux/status` before anything else of the
-start (it never starts acpmux for this check), and the start goes on only
+daemon then reads its acpmux's `_acpmux/status` after the request, machine,
+tab and home folder checks and before acpmux is contacted for the start (it
+never starts acpmux for this check), and the start goes on only
 when that run holds a person key and is the named run. Otherwise the answer
 is `agent_session.needs_keyed_start` with
 `data: {reason: "needs_keyed_start", safe_to_restart, live_agents, remote_sessions}`:
@@ -8662,7 +8663,10 @@ is `agent_session.needs_keyed_start` with
 keeps agent hosts across a restart (`agentHosts`) and runs no live agent
 (`liveAgents` 0) and no session proxied from a peer (`remoteSessions` 0);
 `live_agents` and `remote_sessions` are those counts (0 when acpmux does not
-run; null when the status lacks one, which is never safe). The refusal never
+run; null when the status lacks one, which is never safe). Only nothing
+listening on the socket counts as acpmux not running; any other connect
+error, or a status that cannot be read, answers `safe_to_restart: false`
+with null counts. The refusal never
 carries the run id or any key material. The client restarts acpmux with its
 key itself (and only on `safe_to_restart`, or after the person's click), then
 starts again; this check does not close the race with an agent that starts
