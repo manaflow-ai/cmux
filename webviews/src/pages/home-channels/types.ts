@@ -99,6 +99,9 @@ export interface HomeChiefGrant {
   harnesses: string[];
 }
 
+/** The grant fields the person changed (the others are not sent: the owner keeps its defaults). */
+export type HomeChiefGrantChange = Partial<HomeChiefGrant>;
+
 export type ParticipantKind = "human" | "agent";
 
 export interface HomeParticipant {

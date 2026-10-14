@@ -26659,138 +26659,6 @@
         }
       }
     },
-    "picker.addAgent": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إضافة وكيل…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodaj agenta…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilføj agent…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent hinzufügen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add agent…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Añadir agente…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajouter un agent…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aggiungi agente…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントを追加…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ថែមភ្នាក់ងារ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 추가…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Legg til agent…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dodaj agenta…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adicionar agente…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Добавить агента…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เพิ่มเอเจนต์…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aracı ekle…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Додати агента…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thêm tác tử…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "添加智能体…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "新增代理…"
-          }
-        }
-      }
-    },
     "picker.allModels": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -99549,402 +99417,6 @@
         }
       }
     },
-    "newtab.addHarness": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "دمج أداة تشغيل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integriši harness"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrer en harness"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Harness integrieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Integrate a harness"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrar un harness"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Intégrer un harness"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integra un harness"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ハーネスを統合"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បញ្ចូល harness"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "하네스 통합"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrer en harness"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zintegruj harness"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrar um harness"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подключить harness"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ผสานรวม harness"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Harness entegre et"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Під’єднати harness"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tích hợp harness"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "集成 harness"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "整合 harness"
-          }
-        }
-      }
-    },
-    "newtab.addHarness.dismiss": {
-      "comment": "Agent pane: New Tab, the button that hides the Integrate a harness line for good (shown only when no agent harness is installed)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تجاهل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odbaci"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afvis"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Schließen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dismiss"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Descartar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ignorer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ignora"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閉じる"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dispensar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bỏ qua"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉"
-          }
-        }
-      }
-    },
-    "newtab.noAgent": {
-      "comment": "Agent pane: New Tab note when Return is pressed on a prompt but no agent harness is installed (hq #1893)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد وكيل لسؤاله."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nema agenta kojeg biste pitali."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der er ingen agent at spørge."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kein Agent zum Fragen."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No agent to ask."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay ningún agente al que preguntar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucun agent à qui demander."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessun agente a cui chiedere."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "質問できるエージェントがありません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានភ្នាក់ងារដើម្បីសួរទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "물어볼 에이전트가 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen agent å spørre."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak agenta, którego można zapytać."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum agente para perguntar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет агента, которому можно задать вопрос."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีเอเจนต์ให้ถาม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sorulacak bir ajan yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Немає агента, якого можна запитати."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không có tác tử nào để hỏi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有可询问的智能体。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有可詢問的智慧體。"
-          }
-        }
-      }
-    },
     "picker.enableHarness": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -151167,6 +150639,402 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法開始聊天。"
+          }
+        }
+      }
+    },
+    "newTabPage.openFailed": {
+      "comment": "Agent pane: under the New Tab page's field when the terminal or browser tab it asked for did not open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تُفتح علامة التبويب. اضغط على Return للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica se nije otvorila. Pritisnite Return da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen blev ikke åbnet. Tryk på Retur for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Tab wurde nicht geöffnet. Drücke den Zeilenschalter, um es erneut zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab didn't open. Press Return to try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña no se abrió. Pulsa Retorno para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'onglet ne s'est pas ouvert. Appuyez sur Retour pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda non si è aperta. Premi A capo per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タブを開けませんでした。Return キーを押してもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងមិនបានបើកទេ។ ចុច Return ដើម្បីព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이 열리지 않았습니다. Return 키를 눌러 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen ble ikke åpnet. Trykk på Retur for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta się nie otworzyła. Naciśnij Return, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba não abriu. Pressione Return para tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка не открылась. Нажмите Return, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บไม่เปิด กด Return เพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme açılmadı. Yeniden denemek için Return tuşuna basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка не відкрилася. Натисніть Return, щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab không mở được. Nhấn Return để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页未能打开。按 Return 键重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁未能打開。按下 Return 鍵再試一次。"
+          }
+        }
+      }
+    },
+    "modelPicker.addHarness": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة أداة تشغيل…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj harness…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness hinzufügen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add harness…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir harness…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter un harness…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi harness…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ハーネスを追加…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែម harness…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하네스 추가…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til harness…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar harness…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить harness…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่ม harness…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ekle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати harness…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm harness…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加 harness…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增 harness…"
+          }
+        }
+      }
+    },
+    "composer.addHarness": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إضافة أداة تشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilføj harness"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add harness"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Añadir harness"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajouter un harness"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiungi harness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ハーネスを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ថែម harness"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하네스 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg til harness"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj harness"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar harness"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Добавить harness"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เพิ่ม harness"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Harness ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Додати harness"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm harness"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "添加 harness"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新增 harness"
           }
         }
       }
