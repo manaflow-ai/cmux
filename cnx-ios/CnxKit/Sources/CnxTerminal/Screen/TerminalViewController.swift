@@ -106,11 +106,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     #endif
     /// Viewports requested before the current one (frames for them may still arrive).
     private var recentTops: [Int] = []
-    private var follow = TerminalFollowPolicy()
-    private var following: Bool {
-        get { follow.following }
-        set { follow.following = newValue }
-    }
+    /// The one owner of the scroll position (verify/terminal-scroll-model.md).
+    private var scroll = TerminalScrollModel()
+    private var following: Bool { scroll.isFollowing }
     /// Back from the alternate screen: until the user scrolls, Ghostty's
     /// latest viewport report places the surface. Frames on screen then
     /// have no earlier primary-screen frame to be matched against, and the
@@ -122,7 +120,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// When the key bar shows (SPEC M4) and the constraints that apply it.
     private var keyBarRule = KeyBarVisibility()
     private var tuiSizing = TerminalTUISizing()
-    private var laidOutSize = CGSize.zero
+    /// The scroll model is setting the offset (not a person).
+    private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
     private var keyBarHidden: NSLayoutConstraint!
@@ -431,16 +430,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.layoutIfNeeded()
         outputSinceProbe = true
         updateDocument()
-        pinToBottomIfFollowing()
+        applyScroll()
     }
 
-    /// Following the prompt: the document's end rests above the composer now.
-    private func pinToBottomIfFollowing() {
-        guard following, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating, cell.height > 0 else { return }
-        let target = maxOffsetY
-        guard abs(scrollView.contentOffset.y - target) > 0.5 else { return }
-        scrollView.contentOffset.y = target
-        updateViewport(visibleMinY: target)
+    /// The only place the content offset is set (besides UIKit's own drags,
+    /// decelerations and the keyboard-drag pin): the scroll model's target
+    /// for the document and insets as they are now. Called after layout and
+    /// after each processed output batch, so at most once per display frame.
+    private func applyScroll() {
+        // A deceleration stopped by a touch that never became a drag ends no
+        // gesture: settle it here.
+        if scroll.isInteracting, !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating,
+           fling == nil, !dragPinsToComposer, !model.isTUI, cell.height > 0 {
+            scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+        }
+        guard !model.isTUI, cell.height > 0,
+              let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
+                                         bottomOffsetY: maxOffsetY) else { return }
+        if abs(scrollView.contentOffset.y - target) > 0.5 {
+            settingOffset = true
+            scrollView.contentOffset.y = target
+            settingOffset = false
+        }
+        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        updateBottomFade()
+        setScrollButton(visible: scrollButtonVisibility.update(
+            offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
     }
 
     /// The navigation bar reads its scroll edge effect from the top view
@@ -640,7 +655,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 freezeLastFrame()
                 // The rows being read are rebuilt from the replay: back to the
                 // prompt once it is laid out (user report 2026-10-14).
-                following = true
+                scroll.reset()
             }
             replayGate.received(data.count, isReset: isReset)
             // Per chunk: queue the bytes and nothing else. Parsing, the row
@@ -734,7 +749,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if replayDone {
             outputSinceProbe = true
             updateDocument()
-            pinToBottomIfFollowing()
         }
         if freezeView != nil, raw > Self.mirrorReset.count || replayDone, replayHasContent() {
             // The replay is parsed and draws something: drop the held frame on
@@ -791,7 +805,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Holds what is on screen until the replay after a reset is drawn. Only
     /// once the page has drawn something (the first attach has nothing to hold).
     private func freezeLastFrame() {
+        // Never while the page is being scrolled: the still would stand over
+        // the moving rows and show an older position until the replay was in
+        // (user report 2026-10-14, frames alternating near the bottom).
         guard freezeView == nil, view.window != nil, document != nil || model.isTUI,
+              !scrollView.isTracking, !scrollView.isDecelerating,
               let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
         snapshot.frame = view.bounds
         snapshot.isUserInteractionEnabled = false
@@ -809,7 +827,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 self.replayGate.expire()
                 self.outputSinceProbe = true
                 self.updateDocument()
-                self.pinToBottomIfFollowing()
             }
             self.unfreeze()
         }
@@ -837,7 +854,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Shows the bottom fade while rows are scrolled under the composer.
     private func updateBottomFade() {
-        let under = !model.isTUI && scrollView.contentOffset.y < maxOffsetY - 1
+        // Only when rows are really under the composer (following rests on
+        // the bottom, whatever the insets did mid-animation).
+        let under = !model.isTUI && !following && scrollView.contentOffset.y < maxOffsetY - 1
         let alpha: CGFloat = under ? 1 : 0
         if bottomFade.alpha != alpha { bottomFade.alpha = alpha }
     }
@@ -847,23 +866,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func layoutTerminal() {
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
-        defer {
-            // The page's size changed (it came back from the grid or another
-            // tab at its full size): keep the last row on the composer (F8).
-            if bounds.size != laidOutSize {
-                laidOutSize = bounds.size
-                pinToBottomIfFollowing()
-            }
-            // Never rest past the document's end (Codex QA F4: a taller
-            // composer and a focus change in one pass left the offset below
-            // the last row, a black page until the keyboard moved again).
-            if following, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating, cell.height > 0,
-               scrollView.contentOffset.y > maxOffsetY + 0.5 {
-                scrollView.contentOffset.y = maxOffsetY
-                following = true
-                updateViewport(visibleMinY: maxOffsetY)
-            }
-        }
+        // After any layout (the page's size, the insets, the composer): the
+        // scroll model places the rows (F4, F8: never past the end, the last
+        // row on the composer when following, a reader on their rows).
+        defer { applyScroll() }
         #if DEBUG
         if CommandLine.arguments.contains("-CnxTermLog") {
             NSLog("cnxterm layout kb=%@ stack=%@ view=%@ window=%@", NSCoder.string(for: view.keyboardLayoutGuide.layoutFrame), NSCoder.string(for: bottomStack.frame), NSCoder.string(for: view.frame), NSCoder.string(for: view.convert(view.bounds, to: nil)))
@@ -910,18 +916,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let previousOffset = scrollView.contentOffset.y
             scrollView.contentInset = insets
             scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
-            if following, !scrollView.isTracking || dragPinsToComposer, !model.isTUI {
+            if following || dragPinsToComposer, !model.isTUI {
                 // Rides the keyboard: the offset changes inside the keyboard's
                 // animation; the surface covers both ends of it.
-                let target = maxOffsetY
-                if abs(target - previousOffset) > 0.5 {
-                    updateViewport(visibleMinY: min(previousOffset, target))
-                    scrollView.contentOffset.y = target
-                    return
+                updateViewport(visibleMinY: min(previousOffset, maxOffsetY))
+                if dragPinsToComposer {
+                    settingOffset = true
+                    scrollView.contentOffset.y = maxOffsetY
+                    settingOffset = false
                 }
             }
         }
-        updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 
     private var maxOffsetY: CGFloat {
@@ -938,7 +943,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard scrollbar.total != documentTotal || document == nil || outputSinceProbe else { return }
         // The scrollback shrank (`clear`, ESC [3J): the rows the user was
         // reading are gone. Follow the prompt again, like Terminal.
-        follow.scrollbackChanged(from: documentTotal, to: scrollbar.total, screenRows: surface.grid.rows)
+        if scrollbar.total < documentTotal, scrollbar.total <= max(surface.grid.rows, 1) { scroll.reset() }
         let previousTotal = documentTotal
         documentTotal = scrollbar.total
         outputSinceProbe = false
@@ -962,44 +967,30 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                lastContentRow: lastContent)
-            .keepingEnd(of: document, following: following, totalRows: scrollbar.total, previousTotal: previousTotal)
         guard next != document else { return }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
         document = next
         scrollView.contentSize = CGSize(width: view.bounds.width, height: next.contentHeight(cellHeight: cell.height))
         if hadDocument, shift != 0 {
-            // The top moved (cleared, or found): keep the same rows on
-            // screen and the frame on screen where its rows belong.
+            // The top moved (cleared, or found): the frame on screen goes
+            // where its rows now belong.
             place(atRow: presentedTop)
-            if !following {
-                scrollView.contentOffset.y = min(max(-scrollView.contentInset.top, scrollView.contentOffset.y - shift), maxOffsetY)
-            }
         }
-        // Pinned while following; a document that ends above the place on
-        // screen (nothing left there but blank rows) follows again.
-        // Only a finger on the page holds the pin back; a deceleration or
-        // bounce must not leave a following view behind growing output.
-        if let target = follow.documentResized(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY,
-                                               userIsScrolling: scrollView.isTracking || (scrollView.isDecelerating && !following)) {
-            scrollView.contentOffset.y = target
-        }
-        // Output that grows the document below a reader shows Jump to bottom
-        // without a scroll (Codex QA F2).
-        setScrollButton(visible: scrollButtonVisibility.update(
-            offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
-        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        // The scroll model places the rows: the bottom when following, the
+        // anchored rows when reading, nothing while a finger owns the page.
+        applyScroll()
     }
 
     /// Input is about to go to the program: on the primary screen, follow
     /// the output again and jump to the prompt if the user scrolled away.
     /// (Output alone never moves someone who scrolled up; typing does.)
     private func revealCursorForInput() {
-        guard cell.height > 0, let target = follow.input(isTUI: model.isTUI, offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY) else { return }
+        guard cell.height > 0, !model.isTUI else { return }
         fling?.stop()
         fling = nil
-        scrollView.setContentOffset(CGPoint(x: 0, y: target), animated: false)
-        updateViewport(visibleMinY: scrollView.contentOffset.y)
+        scroll.input()
+        applyScroll()
     }
 
     /// Rows kept rendered above and below the visible rows. A frame for a new
@@ -1162,15 +1153,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             statusScrim.isHidden = false
             scrollView.addSubview(surface)
             viewportTop = -1
-            following = true
+            scroll.reset()
             placesFromReport = true
             refreshAfterTUI = true
             // Direct typing outlives the TUI only while the terminal keeps focus.
             if !hadFocus { model.directTyping = false }
             document = nil
             updateDocument()
-            scrollView.contentOffset.y = maxOffsetY
-            updateViewport(visibleMinY: scrollView.contentOffset.y)
+            applyScroll()
         }
         surface.drawNow()
         // The TUI's rows follow the settled keyboard (R1-1); the shell's do not.
@@ -1186,7 +1176,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             dragPin.moved(fingerY: scrollView.panGestureRecognizer.location(in: view).y,
                           keyboardTop: view.keyboardLayoutGuide.layoutFrame.minY)
             // The keyboard now follows the finger: back on the prompt (M6).
-            if dragPinsToComposer { following = true }
+            if dragPinsToComposer { scroll.keyboardDragPinned() }
         }
         if dragPinsToComposer, scrollView.isTracking, !pinningDrag,
            scrollView.panGestureRecognizer.translation(in: view).y > 0 {
@@ -1201,9 +1191,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
-        if scrollView.isTracking || scrollView.isDecelerating || fling != nil {
-            follow.userScrolled(offsetY: scrollView.contentOffset.y, maxOffsetY: maxOffsetY, rowHeight: cell.height)
-        }
+        if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
         // The rubber band past the top of a short scrollback is not a scroll
         // away from the prompt (verify/jump-button.md).
         setScrollButton(visible: scrollButtonVisibility.update(
@@ -1214,15 +1202,35 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A reader who already scrolled up keeps scrolling normally.
         // Pinned only once the touch reaches the keyboard (R3-1).
         dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
+        // A finger owns the offset until it lifts (or the deceleration ends).
+        scroll.began()
         placesFromReport = false
         fling?.stop()
         fling = nil
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard dragPinsToComposer else { dragPin.ended(); return }
+        let pinned = dragPinsToComposer
         dragPin.ended()
-        if following { scrollView.setContentOffset(CGPoint(x: 0, y: maxOffsetY), animated: false) }
+        if pinned {
+            // The keyboard drag ended on the prompt.
+            scroll.jumpToBottom()
+            applyScroll()
+        } else if !decelerate {
+            settleScroll()
+        }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        settleScroll()
+    }
+
+    /// The finger lifted (or the deceleration ended): follow within two rows
+    /// of the bottom, else read here, anchored to the top row.
+    private func settleScroll() {
+        guard !model.isTUI, cell.height > 0 else { return }
+        scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+        applyScroll()
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
@@ -1238,8 +1246,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func scrollToBottom(animated: Bool) {
-        following = true
-        scrollView.setContentOffset(CGPoint(x: 0, y: maxOffsetY), animated: animated)
+        fling?.stop()
+        scroll.jumpToBottom()
+        applyScroll()
     }
 
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
@@ -1248,7 +1257,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         placesFromReport = false
         fling?.stop()
         let animator = FlingAnimator(scrollView: scrollView, velocity: velocity, minY: -scrollView.contentInset.top, maxY: maxOffsetY)
-        animator.onEnd = { [weak self] in self?.fling = nil }
+        scroll.began()
+        animator.onEnd = { [weak self] in
+            self?.fling = nil
+            self?.settleScroll()
+        }
         fling = animator
         animator.start()
     }

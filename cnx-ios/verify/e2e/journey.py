@@ -1073,6 +1073,108 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         check(not black, f"black frames: {black[:10]}")
         return f"20 s of Codex working, keyboard down: no resize or reset; {len(changes)} upper-band changes (Codex output)"
 
+    def s_scroll_to_bottom_stable(self):
+        """User report 2026-10-14 ("weird frame oscillation when I scroll to the
+        bottom"): scrolling down into the bottom of a long transcript, the page
+        never shows another region for a frame, and once released it settles."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        self.mac_write(term, "clear; python3 -c \"[print(f'\\x1b[4{i%7}m row {i:04d} \\x1b[0m' + ' text'*8) for i in range(1,601)]\"; echo BOTTOMMARK\n")
+        self.mac_wait_text(term, "BOTTOMMARK", timeout=20)
+        time.sleep(1.5)
+        for _ in range(3):
+            self.sim.swipe(201, 250, 201, 750, duration=0.15); time.sleep(0.8)
+        time.sleep(1.5)
+        video = os.path.join(self.out, f"to-bottom-{self.run_id}.mp4")
+        self.sim.record_start(video)
+        time.sleep(0.3)
+        for _ in range(4):
+            self.sim.swipe(201, 600, 201, 120, duration=0.15); time.sleep(0.7)
+        for _ in range(3):
+            self.sim.drag(201, 600, 201, 150, duration=0.35, hold=0.0); time.sleep(0.6)
+        time.sleep(3)
+        self.sim.record_stop()
+        import shutil, subprocess as sp, glob
+        from PIL import Image, ImageChops, ImageStat
+        d = video + ".frames"
+        shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
+        sp.run(["ffmpeg", "-loglevel", "error", "-i", video, "-vf", "fps=60,scale=402:-1", f"{d}/%04d.png"], check=True)
+        bands = []
+        for f in sorted(glob.glob(f"{d}/*.png")):
+            im = Image.open(f).convert("L"); w, h = im.size
+            bands.append(im.crop((0, int(h * 0.08), w - 12, int(h * 0.72))))
+        shutil.rmtree(d, ignore_errors=True)
+        def diff(a, b): return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+        # A frame of another region: far from both neighbors while they match each other.
+        flips = [i for i in range(1, len(bands) - 1)
+                 if diff(bands[i - 1], bands[i + 1]) < 4 and diff(bands[i], bands[i - 1]) > 15]
+        black = [i for i, b in enumerate(bands) if max(b.getdata()) < 60]
+        settled = bands[-60:]
+        moving = [i for i in range(1, len(settled)) if diff(settled[i], settled[i - 1]) > 2]
+        check(not flips, f"frames showing another region on the way to the bottom: {flips}")
+        check(not black, f"black frames: {black[:10]}")
+        check(not moving, "the page still moved after it settled at the bottom")
+        jump = self.sim.find(label="Scroll to bottom")
+        check(not jump, "not at the bottom after scrolling down (Jump to bottom still shown)")
+        return f"scrolled into the bottom: {len(bands)} frames at 60 fps, no frame of another region, settled"
+
+    STREAMER = r"""
+import sys, time
+w = sys.stdout.write
+for i in range(1, 801):
+    w("\r\x1b[2K" + ("\x1b[4%dm" % (i % 7)) + " out %04d \x1b[0m" % i + " text" * 8 + "\n")
+    w("\x1b[2K\x1b[2mWorking (%ds) - esc to interrupt\x1b[0m" % (i // 20))
+    sys.stdout.flush()
+    time.sleep(0.05)
+w("\r\x1b[2KSTREAMDONE\n")
+"""
+
+    def s_scroll_while_streaming(self):
+        """User reports 2026-10-14 (oscillation near the bottom; "super buggy
+        and unsmooth" while the agent works): with ~20 lines/s streaming and a
+        status line redrawn below, drag up, fling, drag down and fling to the
+        bottom; at 60 fps no frame shows another region, no black frame, and
+        the page ends following the bottom."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        script = f"/tmp/cnx-e2e-{self.run_id}-stream.py"
+        open(script, "w").write(self.STREAMER)
+        self.mac_write(term, f"clear; seq 1 300; python3 {script}\n")
+        self.mac_wait_text(term, " out 0060 ", timeout=15)
+        video = os.path.join(self.out, f"stream-scroll-{self.run_id}.mp4")
+        self.sim.record_start(video)
+        time.sleep(0.3)
+        self.sim.drag(201, 250, 201, 600, duration=0.6, hold=0.2); time.sleep(0.8)   # drag up (reading)
+        self.sim.swipe(201, 250, 201, 700, duration=0.12); time.sleep(1.5)           # fling up
+        self.sim.drag(201, 600, 201, 250, duration=0.6, hold=0.2); time.sleep(0.8)   # drag down
+        for _ in range(4):
+            self.sim.swipe(201, 600, 201, 120, duration=0.12); time.sleep(0.9)       # fling to the bottom
+        time.sleep(2)
+        self.sim.record_stop()
+        import shutil, subprocess as sp, glob
+        from PIL import Image, ImageChops, ImageStat
+        d = video + ".frames"
+        shutil.rmtree(d, ignore_errors=True); os.makedirs(d)
+        sp.run(["ffmpeg", "-loglevel", "error", "-i", video, "-vf", "fps=60,scale=402:-1", f"{d}/%04d.png"], check=True)
+        bands = []
+        for f in sorted(glob.glob(f"{d}/*.png")):
+            im = Image.open(f).convert("L"); w, h = im.size
+            bands.append(im.crop((0, int(h * 0.08), w - 12, int(h * 0.72))))
+        shutil.rmtree(d, ignore_errors=True)
+        def diff(a, b): return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+        flips = [i for i in range(1, len(bands) - 1)
+                 if diff(bands[i - 1], bands[i + 1]) < 4 and diff(bands[i], bands[i - 1]) > 15 and diff(bands[i], bands[i + 1]) > 15]
+        black = [i for i, b in enumerate(bands) if max(b.getdata()) < 60]
+        self.sim.shot(f"stream-scroll-end-{self.run_id}")
+        following = not self.sim.find(label="Scroll to bottom")
+        self.mac_write(term, "\x03")
+        check(not flips, f"frames showing another region: {flips}")
+        check(not black, f"black frames: {black[:10]}")
+        check(following, "not following the bottom after flinging to it (Jump to bottom shown)")
+        return f"{len(bands)} frames at 60 fps while streaming: no frame of another region, no black frame, following at the end"
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1662,6 +1764,8 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("reattach_no_jumps", "Terminal: a reattach with long history does not pass through old rows", "termlive", self.s_reattach_no_jumps),
             ("no_resize_on_scroll", "Terminal: scrolling up never resizes the PTY", "termlive", self.s_no_resize_on_scroll),
             ("codex_reset_watch", "Terminal: Codex working, untouched: no resets or resizes (real Codex)", "termlive", self.s_codex_reset_watch),
+            ("scroll_to_bottom_stable", "Terminal: scrolling into the bottom never flashes another region", "termlive", self.s_scroll_to_bottom_stable),
+            ("scroll_while_streaming", "Terminal: scrolling while output streams is smooth and stays put", "termlive", self.s_scroll_while_streaming),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
