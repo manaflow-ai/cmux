@@ -58,6 +58,17 @@ import Testing
         }
     }
 
+    /// cx-az6hc: in a whole-process run another suite draws a sidebar row first, so the shared
+    /// tunables watch already holds the default cap when a test sets its own. The cap still
+    /// applies to the next row drawn.
+    @Test func aCapSetAfterAnotherRowDrewAppliesToTheNextRow() throws {
+        try Self.withCap(nil) { _ = Self.sevenItems() }
+        try Self.withCap(.three) {
+            let stack = try Self.stack(Self.sevenItems(), Self.busy)
+            #expect(stack.states.count == 3)
+        }
+    }
+
     @Test func theCornerBadgeTooltipListsEveryStateWithoutAMoreCount() throws {
         try Self.withCap(.three) {
             let corner = try Self.stack(Self.sevenItems(style: .corner), Self.busy)
