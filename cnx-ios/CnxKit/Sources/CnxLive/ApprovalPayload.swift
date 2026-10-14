@@ -66,8 +66,7 @@ public struct ApprovalPayload: Sendable, Equatable {
         switch value {
         case .null: out += "null"
         case .bool(let b): out += b ? "true" : "false"
-        case .number(let n):
-            out += n.rounded() == n && abs(n) < 1e15 ? String(Int64(n)) : String(n)
+        case .number(let n): out += canonicalNumber(n)
         case .string(let s): canonicalString(s, into: &out)
         case .array(let items):
             out += "["
@@ -85,6 +84,52 @@ public struct ApprovalPayload: Sendable, Equatable {
                 canonicalJSON(object[key] ?? .null, into: &out)
             }
             out += "}"
+        }
+    }
+
+    /// A number as acpmux prints it (serde_json `Number` display) after reading
+    /// the text this phone sends for it (`JSONEncoder`, review m9): an integer
+    /// literal stays its digits; any other literal is an f64, printed shortest
+    /// round-trip with serde's layout (`100.0`, `0.00001`, `1e-6`, `1.5e+20`).
+    public static func canonicalNumber(_ n: Double) -> String {
+        guard n.isFinite else { return "null" }
+        let wire = (try? JSONEncoder().encode(n)).map { String(decoding: $0, as: UTF8.self) } ?? n.description
+        if wire == "-0" { return "-0.0" }
+        let digits = wire.hasPrefix("-") ? wire.dropFirst() : Substring(wire)
+        if !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }), Int64(wire) != nil || UInt64(wire) != nil {
+            return wire
+        }
+        return floatText(n)
+    }
+
+    /// serde_json's f64 text: shortest round-trip digits (Swift's are the same),
+    /// laid out as ryu does.
+    static func floatText(_ n: Double) -> String {
+        let sign = n.sign == .minus ? "-" : ""
+        let text = abs(n).description
+        let parts = text.split(separator: "e", maxSplits: 1)
+        let exponent = parts.count == 2 ? Int(parts[1]) ?? 0 : 0
+        let mantissa = parts[0].split(separator: ".", maxSplits: 1)
+        let fraction = mantissa.count == 2 ? String(mantissa[1]) : ""
+        var digits = Array(String(mantissa[0]) + fraction)
+        var k = exponent - fraction.count
+        while digits.first == "0" { digits.removeFirst() }
+        while digits.last == "0" { digits.removeLast(); k += 1 }
+        guard !digits.isEmpty else { return sign + "0.0" }
+        let length = digits.count
+        let kk = length + k
+        let d = String(digits)
+        func exp(_ e: Int) -> String { e >= 0 ? "e+\(e)" : "e\(e)" }
+        if k >= 0, kk <= 16 {
+            return sign + d + String(repeating: "0", count: k) + ".0"
+        } else if kk > 0, kk <= 16 {
+            return sign + String(digits[..<kk]) + "." + String(digits[kk...])
+        } else if kk > -5, kk <= 0 {
+            return sign + "0." + String(repeating: "0", count: -kk) + d
+        } else if length == 1 {
+            return sign + d + exp(kk - 1)
+        } else {
+            return sign + String(digits[0]) + "." + String(digits[1...]) + exp(kk - 1)
         }
     }
 

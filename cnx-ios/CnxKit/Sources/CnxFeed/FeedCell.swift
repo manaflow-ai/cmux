@@ -205,6 +205,16 @@ struct FeedCell: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .transition(.opacity)
+            } else if let pending = item.pending {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text(pending)
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("feed.permission.pending")
+                .transition(.opacity)
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     if let command = request.toolCall.command {

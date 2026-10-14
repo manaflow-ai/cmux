@@ -433,13 +433,9 @@ public final class CnxAuthModel {
     /// coordinator) and this model's team list.
     public func signOut() async {
         if let willSignOut, !isMock {
-            // At most 3 s: an unreachable service never holds sign-out.
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await willSignOut() }
-                group.addTask { try? await Task.sleep(for: .seconds(3)) }
-                await group.next()
-                group.cancelAll()
-            }
+            // At most 3 s: an unreachable service or a half-dead link never
+            // holds sign-out (the work goes on in the background).
+            await BoundedWait(.seconds(3)).run { await willSignOut() }
         }
         teamsUserID = nil
         fetchedTeams.reset()

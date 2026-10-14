@@ -44,7 +44,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A workspace created on this phone opens its first tab ready to type.
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
-    @ObservationIgnored private var focusOnOpen = false
+    @ObservationIgnored private(set) var focusOnOpen = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil) {
@@ -74,10 +74,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public var workspace: Workspace? { store.workspace(id: workspaceID) }
 
     /// The screen appeared (an action, outside any view update): remembers
-    /// the opening tab and consumes this workspace's focus request.
+    /// the opening tab and consumes this workspace's focus request. `init`
+    /// already armed `focusOnOpen` from it; a page that appeared first may
+    /// have used it, so this only consumes (re-arming would raise the
+    /// keyboard on the next page shown).
     public func opened() {
         if let activeTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
-        if store.takeFocusOnOpen(workspaceID) { focusOnOpen = true }
+        _ = store.takeFocusOnOpen(workspaceID)
     }
 
     private var macName: String {
