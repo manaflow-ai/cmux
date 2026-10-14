@@ -52,6 +52,24 @@ nonisolated enum AcpmuxVersionHandoff {
         return !FileManager.default.fileExists(atPath: path)
     }
 
+    #if DEBUG
+    /// DEBUG only: whether `environment` runs the `CMUX_NEXT_ACPMUX_BIN` override and the daemon
+    /// at `runningPath` is another binary (the bundled acpmux, or an earlier override). The server
+    /// peer check refuses such a daemon whatever its build, so a swap restarts it like a replaced
+    /// bundle would; comparing builds alone keeps it when both binaries come from one commit.
+    static func swapsOverride(runningPath: String?, override: URL?, executable: URL) -> Bool {
+        guard let override, override == executable, let runningPath else { return false }
+        return URL(fileURLWithPath: runningPath).resolvingSymlinksInPath().path != executable.resolvingSymlinksInPath().path
+    }
+
+    /// The executable path of process `pid` (`proc_pidpath`), nil when unknown.
+    static func executablePath(pid: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+    #endif
+
     /// The bundled acpmux's build (`<executable> --version`).
     static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
         await Task.detached {
@@ -76,7 +94,17 @@ nonisolated enum AcpmuxVersionHandoff {
     /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
         let bundled = await bundledBuild(environment)
+        #if DEBUG
+        let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
+                                                     override: AcpmuxEnvironment.debugExecutableOverride,
+                                                     executable: environment.executable) } ?? false
+        if swapped, let pid = status.pid {
+            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
+        }
+        let isReplaced = swapped || (status.pid.map(Self.replaced(pid:)) ?? false)
+        #else
         let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
+        #endif
         guard decide(status.build, bundled, status.agentHosts, replaced: isReplaced) == .restart, let pid = status.pid else {
             return false
         }

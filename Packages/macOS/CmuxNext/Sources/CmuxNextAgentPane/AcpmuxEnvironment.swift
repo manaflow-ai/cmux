@@ -40,8 +40,16 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:]
     ) -> AcpmuxEnvironment? {
+        // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift). The
+        // Release branch is the search alone, so Release compiles no read of it.
+        #if DEBUG
+        guard let executable = debugExecutableOverride
+            ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
+            .first(where: { isExecutable($0.path) }) else { return nil }
+        #else
         guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
+        #endif
         let slug = tag.flatMap(tagSlug)
         let home: URL
         if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
