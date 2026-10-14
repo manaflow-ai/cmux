@@ -292,7 +292,7 @@ impl Mux {
                     .flatten()
                     .filter_map(|tab| reopened_as.get(tab.as_str()?).cloned())
                     .collect::<Vec<_>>();
-                group["tab_ids"] = json!(tabs);
+                group["tab_ids"] = serde_json::json!(tabs);
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }

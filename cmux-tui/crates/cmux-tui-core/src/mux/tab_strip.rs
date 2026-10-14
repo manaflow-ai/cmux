@@ -314,7 +314,7 @@ pub(crate) fn group_archive(
     id: &str,
     record: &TabGroupRecord,
     tabs: &[String],
-) -> serde_json::Value {
+) -> Value {
     let workspace = pane_by_public_id(state, &record.pane_id)
         .and_then(|pane| state.screen_of(pane))
         .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
