@@ -269,13 +269,51 @@ import Testing
         let path = temporarySocketPath()
         let first = try makeServer(.allowAll, path: path)
         defer { first.stop() }
-        #expect(unlink(path) == 0)
-        let second = try makeServer(.automation, path: path)
+        // Another server's socket replaces the file in one rename, so there is
+        // no moment with nothing at the path for the first server to fill.
+        let other = temporarySocketPath()
+        let second = try makeServer(.automation, path: other)
         defer { second.stop() }
+        #expect(rename(other, path) == 0)
         try await Task.sleep(for: .milliseconds(500))
         let identify = try LineClient(path: path).call("system.identify")
-        #expect(identify["result"]?["access_mode"] == "automation", "the second server keeps the path")
+        #expect(identify["result"]?["access_mode"] == "automation", "the first server leaves the path alone")
         first.stop()
         #expect(try LineClient(path: path).send("ping") == "PONG", "stopping the first never removes the second's socket")
+    }
+
+    /// A quit landing while a restore is binding: the restore's new listener
+    /// is closed and its file removed, without a crash.
+    @Test func aStopDuringARestoreClosesTheNewSocket() async throws {
+        let path = temporarySocketPath()
+        let binds = Mutex(0)
+        let box = Mutex<ControlSocketServer?>(nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let server = ControlSocketServer(
+            configuration: .init(path: path, accessMode: .allowAll),
+            router: router,
+            accept: { Darwin.accept($0, nil, nil) },
+            bind: { descriptor, address, length in
+                let result = Darwin.bind(descriptor, address, length)
+                let count = binds.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count == 2 { box.withLock { $0 }?.stop() }  // the restore's bind
+                return result
+            }
+        )
+        box.withLock { $0 = server }
+        defer { box.withLock { $0 = nil } }
+        try server.start()
+        #expect(unlink(path) == 0)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while binds.withLock({ $0 }) < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(binds.withLock { $0 } == 2, "the delete started one restore")
+        #expect(!server.isRunning)
+        #expect(access(path, F_OK) != 0, "the restored socket of a stopped server is removed")
     }
 }
