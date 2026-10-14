@@ -25,6 +25,7 @@ import {
   threadSummaries,
   threadOf,
   timelineRows,
+  withChiefNames,
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
@@ -71,7 +72,14 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const stamp = useStamp(strings.language);
   const column = useRef<HTMLDivElement | null>(null);
   const me = snap.me?.id;
-  const open = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+  const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
+  // A Chief's direct message shows the Chief's current name (its record), not the name its
+  // conversation was made with ("Chief" for every brain's own DM).
+  const conversations = useMemo(
+    () => withChiefNames(snap.conversations, channels, me, sheetState.chiefs),
+    [snap.conversations, channels, me, sheetState.chiefs],
+  );
+  const open = snap.selected ? conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
   const pendingState = (key: string) => {
     const entry = pendingByKey.get(key);
@@ -96,12 +104,11 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   }, [snap.threadView, shown]);
   const people = useMemo(() => {
     const map = new Map<string, HomeParticipant>();
-    for (const conversation of snap.conversations.values()) for (const p of conversation.participants) map.set(p.id, p);
+    for (const conversation of conversations.values()) for (const p of conversation.participants) map.set(p.id, p);
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
-  }, [snap.conversations, snap.me]);
+  }, [conversations, snap.me]);
   const mentionable = useMemo(() => others(open, me), [open, me]);
-  const channels = useMemo(() => channelIds(snap.conversations.values(), me), [snap.conversations, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
@@ -260,7 +267,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const openChief = open ? chiefOf(open) : undefined;
   const paletteItems = useMemo<PaletteItem[]>(() => {
     const items: PaletteItem[] = [];
-    for (const c of chronological(snap.conversations.values())) {
+    for (const c of chronological(conversations.values())) {
       const isChannel = channels.has(c.id);
       const other = c.participants.find((p) => p.id !== me);
       const title = conversationName(c, me);
@@ -305,7 +312,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         mark: <HomeIcon name="plus" size={16} />,
         run: () => store.sheets.open({ kind: "newChief" }),
       });
-    const current = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+    const current = snap.selected ? conversations.get(snap.selected) : undefined;
     if (online && caps.invite && current?.owner === "local")
       items.push({
         id: "a:invite",
@@ -348,7 +355,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         mark: <HomeIcon name="check" size={16} />,
         run: () => snap.thread && setOwner(snap.thread, me),
       });
-    const openRow = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+    const openRow = snap.selected ? conversations.get(snap.selected) : undefined;
     if (openRow && snap.inboxState)
       items.push({
         id: "a:pin",
@@ -378,7 +385,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     // The actions close over the latest render; the list is rebuilt when its inputs change.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    snap.conversations,
+    conversations,
     channels,
     me,
     threads,
@@ -409,7 +416,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
       <PicturesContext.Provider value={sheetState.pictures}>
         <div className="lg-page">
           <ConversationList
-            conversations={snap.conversations}
+            conversations={conversations}
             channels={channels}
             people={people}
             activity={snap.activity}
@@ -615,7 +622,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
             sheets={store.sheets}
             state={sheetState}
             strings={strings}
-            conversations={snap.conversations}
+            conversations={conversations}
             me={me}
           />
           {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
