@@ -406,8 +406,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // nothing slides: the last line sits where it rests in every painted frame.
     const chat = newChat();
     const page = await open(chat, 760);
+    const atRest = await restingLastLine(page);
     await watch(page);
-    const atRest = await restingFrame(page);
     for (const widths of [
       Array.from({ length: 40 }, (_, step) => 754 - step * 7),
       Array.from({ length: 40 }, (_, step) => 481 + step * 7),
@@ -419,7 +419,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const frames = await stop(page);
     expect(frames.length).toBeGreaterThan(40);
     expect(frames.filter((frame) => frame.glides > 0).length).toBe(0);
-    expect(frames.filter((frame) => Math.abs(frame.lastLine - atRest.lastLine) > REST_SLACK)).toEqual([]);
+    expect(frames.filter((frame) => Math.abs(frame.lastLine - atRest) > REST_SLACK)).toEqual([]);
     await page.close();
   });
 
