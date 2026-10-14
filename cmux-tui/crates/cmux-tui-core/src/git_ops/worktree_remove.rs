@@ -115,8 +115,11 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
 /// its HEAD reaches: on a detached HEAD, or on the branch that goes with it.
 fn guard(repository: &Repository, attempt: &Attempt) -> Result<(), ResourceError> {
     let arguments = ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"];
+    // Submodules stay in the status (a changed one is work to keep), so
+    // their own filter drivers are blanked too.
     let output = repository
-        .run(&arguments, MAX_STATUS_BYTES)
+        .with_submodule_filters()
+        .and_then(|repository| repository.run(&arguments, MAX_STATUS_BYTES))
         .map_err(|failure| run_failed(OPERATION, &failure))?;
     let files: Vec<String> = output
         .stdout
