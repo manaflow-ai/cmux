@@ -741,7 +741,7 @@ struct SessionArtifactsSheet: View {
     var body: some View {
         let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
         ArtifactsBrowser(
-            title: "Files and artifacts",
+            title: "Files and Artifacts",
             artifacts: collected.artifacts,
             source: collected.source(fallback: store.source.artifactSource),
             state: surface.artifacts,

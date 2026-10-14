@@ -228,7 +228,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         ForEach(Filter.allCases) { Text($0.title).tag($0) }
                     }
                 } label: {
-                    Image(systemName: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    // A Label, not a bare Image: the bar then hosts a native button whose touch
+                    // area covers the whole 44 pt glass circle (a bare Image label was 36 pt).
+                    Label("Filter", systemImage: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
                 // Compose opens the Chief conversation with the keyboard up

@@ -177,7 +177,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
         } label: {
-            Image(systemName: "line.3.horizontal.decrease")
+            Label("Filter", systemImage: "line.3.horizontal.decrease")
         }
         .accessibilityLabel("Filter")
     }

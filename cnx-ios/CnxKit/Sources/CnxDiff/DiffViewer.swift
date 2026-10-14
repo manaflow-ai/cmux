@@ -229,13 +229,12 @@ struct DiffOptionsMenu: View {
                 }
                 .pickerStyle(.inline)
             }
-            Toggle("Wrap lines", systemImage: "text.word.spacing", isOn: $state.wrapLines)
-            Toggle("Hide whitespace", systemImage: "space", isOn: $state.hideWhitespace)
-            Toggle("Show viewed files", systemImage: "checkmark.circle", isOn: $state.showViewed)
+            Toggle("Wrap Lines", systemImage: "text.word.spacing", isOn: $state.wrapLines)
+            Toggle("Hide Whitespace", systemImage: "space", isOn: $state.hideWhitespace)
+            Toggle("Show Viewed Files", systemImage: "checkmark.circle", isOn: $state.showViewed)
         } label: {
-            Image(systemName: "ellipsis")
-                .frame(width: 44, height: 44)
-                .contentShape(.rect)
+            // A Label: the bar hosts a native button that takes the whole 44 pt circle.
+            Label("Diff options", systemImage: "ellipsis")
         }
         .accessibilityLabel("Diff options")
     }

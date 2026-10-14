@@ -195,14 +195,14 @@ struct ChatComposer: View {
                 }
                 Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
                 Button("Files", systemImage: "paperclip") { showFiles = true }
-                Button("Mention a file", systemImage: "at") {
+                Button("Mention a File", systemImage: "at") {
                     text += text.isEmpty || text.last?.isWhitespace == true ? "@" : " @"
                     expand()
                 }
             }
             Section {
                 if let plan = store.planModeSwitch {
-                    Toggle("Plan mode", systemImage: "checklist", isOn: Binding(
+                    Toggle("Plan Mode", systemImage: "checklist", isOn: Binding(
                         get: { plan.isOn(currentModeID: store.currentModeID) },
                         set: { store.setMode(plan.mode(on: $0)) }
                     ))
@@ -217,7 +217,7 @@ struct ChatComposer: View {
                         }
                         .pickerStyle(.inline)
                     } label: {
-                        Label("Permission mode", systemImage: "lock.shield")
+                        Label("Permission Mode", systemImage: "lock.shield")
                     }
                 }
                 if !store.availableCommands.isEmpty {
@@ -373,7 +373,7 @@ struct ChatComposer: View {
         .contextMenu {
             if state == .queue {
                 Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
-                Button("Steer now (interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
+                Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
         .accessibilityLabel(state == .stop ? "Stop" : "Send")
