@@ -3416,6 +3416,14 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
+        const openOwnTab = (sessionId: string) =>
+          mock
+            ? Promise.resolve(false)
+            : callNative("chat.openTab", { sessionId }).then(
+                () => true,
+                () => false,
+              );
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -3626,9 +3634,15 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
+          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
+          // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.fork(Number(throughSeq)));
+            const chat = client.selectedSession;
+            const forked = await client.fork(Number(throughSeq), undefined, true);
+            if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
@@ -3662,13 +3676,24 @@ function AcpmuxPane() {
             await client.markSide(sessionId, chat);
             await postNative("chat.sideChat", { sessionId });
           },
+          // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
+          // its own tab and brings this one back to the chat.
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.continueIn(String(harness)));
+            return client.continueIn(String(harness));
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
-          "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
+          "chat.handoff.start": async ({ review }) => {
+            const receipt = await client.startHandoff(review as HandoffReviewInput);
+            const source = client.handoff.state.record?.source.sessionId;
+            const target = receipt?.targetSessionId;
+            if (!target || !source || client.selectedSession !== target) return receipt;
+            if (await openOwnTab(target)) {
+              if (client.selectedSession === target) await persistSession(await client.select(source));
+            } else await persistSession(target);
+            return receipt;
+          },
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope, paths, context_lines }) =>
             client.gitDiff(String(scope), {
