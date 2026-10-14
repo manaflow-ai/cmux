@@ -10,16 +10,7 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
-  const VARIANTS = [
-    "controls",
-    "working",
-    "pull-requests",
-    "new-tab",
-    "code",
-    "model-menu",
-    "access-menu",
-    "summary",
-  ];
+  const VARIANTS = ["controls", "working", "pull-requests", "new-tab", "code", "model-menu", "access-menu", "summary"];
   const SIZES = [
     { width: 280, scale: 1 },
     { width: 360, scale: 1 },
@@ -71,9 +62,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
     }
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const report = await page.evaluate(() =>
-      JSON.stringify(
-        (window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport,
-      ),
+      JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
     await page.close();
     return playFailures(report);
@@ -101,9 +90,7 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
       const failures: string[] = [];
       for (let start = 0; start < VARIANTS.length; start += 4)
         for (const [index, found] of (
-          await Promise.all(
-            VARIANTS.slice(start, start + 4).map((variant) => play(variant, width, scale)),
-          )
+          await Promise.all(VARIANTS.slice(start, start + 4).map((variant) => play(variant, width, scale)))
         ).entries())
           failures.push(...found.map((failure) => `${VARIANTS[start + index]}: ${failure}`));
       expect(failures).toEqual([]);
