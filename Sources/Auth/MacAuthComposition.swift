@@ -31,6 +31,8 @@ struct MacAuthComposition {
     /// Reconciles Cloud transports with the coordinator's selected team.
     let cloudTeamScopeObserver: CloudTeamScopeObserver
     let teamScopeRecoveryTriggers: MacAuthTeamScopeRecoveryTriggers
+    /// Identifies usage analytics as the signed-in account; resets on sign-out.
+    let postHogIdentityObserver: PostHogIdentityObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -227,6 +229,7 @@ struct MacAuthComposition {
             browserSignIn: browserSignIn
         )
         self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
+        self.postHogIdentityObserver = PostHogIdentityObserver(auth: coordinator)
         self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) { isSameAccount in
             AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch(isSameAccount: isSameAccount)
         }
@@ -238,6 +241,9 @@ struct MacAuthComposition {
         cloudTeamScopeObserver.start()
         teamScopeRecoveryTriggers.start()
         coordinator.start()
+        // After `coordinator.start()`: the observer awaits the restore task,
+        // which does not exist until the coordinator starts.
+        postHogIdentityObserver.start()
     }
 
     /// Where the file-fallback token store persists, namespaced by bundle id

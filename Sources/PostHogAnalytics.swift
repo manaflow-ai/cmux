@@ -21,6 +21,10 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
     private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
     private let lastReportedCrashAtKey = "posthog.lastReportedCrashAt"
+    /// The Cloud account this install last identified as. Kept across launches
+    /// so a sign-out or account switch can reset the persisted identity even
+    /// when it happens in a later launch than the identify call.
+    private let identifiedAccountIDKey = "posthog.identifiedAccountID"
 
     private let workQueue: DispatchQueue
     private let workQueueSpecificKey = DispatchSpecificKey<Void>()
@@ -130,6 +134,51 @@ final class PostHogAnalytics: @unchecked Sendable {
             merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
             self.capturePostHog(event, merged)
         }
+    }
+
+    /// Merge this install's anonymous PostHog person into the signed-in Cloud
+    /// account. `accountID` is the sign-in service user id, the same value the
+    /// web server uses as `distinct_id`. Only the id is sent: no email or name.
+    /// A different previously identified account is reset first so two
+    /// accounts never share one person. No-op when telemetry is disabled.
+    func identify(accountID: String) {
+        guard !accountID.isEmpty else { return }
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            let previous = self.userDefaults.string(forKey: self.identifiedAccountIDKey)
+            if previous == accountID, PostHogSDK.shared.getDistinctId() == accountID {
+                return
+            }
+            if let previous, previous != accountID {
+                self.resetPostHogIdentityOnWorkQueue()
+            }
+            PostHogSDK.shared.identify(accountID)
+            self.userDefaults.set(accountID, forKey: self.identifiedAccountIDKey)
+            self.flushPostHog()
+        }
+    }
+
+    /// Drop the identified account after Cloud sign-out so later events use a
+    /// fresh anonymous id. No-op when this install never identified, or when
+    /// telemetry is disabled (the stored account then stays so a later launch
+    /// with telemetry on still resets before identifying someone else).
+    func resetIdentity() {
+        dispatchAsyncOnWorkQueue { [weak self] in
+            guard let self else { return }
+            guard self.userDefaults.string(forKey: self.identifiedAccountIDKey) != nil else { return }
+            self.startIfNeededOnWorkQueue()
+            guard self.didStart else { return }
+            self.resetPostHogIdentityOnWorkQueue()
+            self.userDefaults.removeObject(forKey: self.identifiedAccountIDKey)
+        }
+    }
+
+    private func resetPostHogIdentityOnWorkQueue() {
+        PostHogSDK.shared.reset()
+        // `reset()` also clears registered super properties.
+        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
     }
 
     /// Mirror a previous-run crash into PostHog Error Tracking as one
