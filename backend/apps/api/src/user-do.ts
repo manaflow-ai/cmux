@@ -10,7 +10,7 @@ import { admit } from "./domains/common.ts"
 import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
-import { AvatarRefs, avatarKey, avatarsConfigured, checkAvatar, mayAvatarSet, toBase64, type AvatarRef } from "./home-avatars.ts"
+import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
 import type { Env } from "./env.ts"
 import { HomePushQueue } from "./home-push.ts"
 import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } from "./home-push-drain.ts"
@@ -40,8 +40,6 @@ export class UserDO extends OwnerDO<UserState> {
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
   /** Home push queue (home-push.ts): one row per conversation, the dedupe for redelivered and coalesced bumps. */
   private readonly homePush: HomePushQueue
-  /** Participant avatar references of this account (home-avatars.ts); the bytes are in R2. */
-  private readonly avatars: AvatarRefs
 
   /** Sends one Home alert (APNs, as FeedDO); tests replace it inside the object. */
   protected homePushSender = apnsHomePushSender(this.env)
@@ -50,7 +48,6 @@ export class UserDO extends OwnerDO<UserState> {
     super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.homePush = new HomePushQueue(this.sqlStore)
-    this.avatars = new AvatarRefs(ctx.storage.sql)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
       tablePrefix: "inbox_",
@@ -227,59 +224,7 @@ export class UserDO extends OwnerDO<UserState> {
     return { frames }
   }
 
-  /**
-   * RPC: participant.avatar.set for a participant of this account (the user or one of its Chiefs).
-   * One at a time: the blob is written before its reference, and a blob is deleted only after the
-   * reference that named it is gone and no other participant of the account names it.
-   */
-  async avatarSet(entity: string, principal: Principal, participant: string, data: Uint8Array | null): Promise<{ ok: true; avatar: AvatarRef | null } | { ok: false; code: string; message: string }> {
-    const engine = this.existing()
-    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "unknown_participant", message: "unknown user" }
-    const state = engine.currentState
-    // The same admission as every account op: the principal kind, a live install and its grant.
-    if (!userPathAllowed(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
-    const denied = admit("cloud:UserDO", "participant.avatar.set", principal, (p) => grantFor(state, p), Date.now())
-    if (denied) return { ok: false, code: denied.code, message: denied.message }
-    const refused = mayAvatarSet(entity, principal, participant, (id) => chiefActive(state, id))
-    if (refused) return refused
-    if (!avatarsConfigured(this.env)) return { ok: false, code: "home.not_configured", message: "avatars are not configured on this deployment" }
-    let ref: AvatarRef | null = null
-    if (data) {
-      const checked = checkAvatar(data)
-      if ("ok" in checked) return checked
-      ref = checked.ref
-    }
-    const bucket = this.env.HOME_ATTACHMENTS!
-    const result = await this.ctx.blockConcurrencyWhile(async () => {
-      // The blob first, then its reference: a failed write changes nothing.
-      if (ref && data) {
-        try {
-          await bucket.put(avatarKey(entity, ref.sha256), data, { httpMetadata: { contentType: ref.media_type } })
-        } catch (error) {
-          return { ok: false as const, code: "owner.unreachable", message: `the picture could not be stored: ${String(error)}` }
-        }
-      }
-      const gone = [...this.avatars.put(participant, ref)]
-      // References of Chiefs that are gone for good (tombstones, or no record) go too.
-      for (const stale of this.avatars.participants().filter((id) => id.startsWith("agent_") && !state.chiefs?.[id])) gone.push(...this.avatars.put(stale, null))
-      return { ok: true as const, avatar: ref, gone }
-    })
-    if (!result.ok) return result
-    // Unreferenced blobs: best effort (a failed delete leaves bytes nothing names).
-    for (const sha of new Set(result.gone)) await bucket.delete(avatarKey(entity, sha)).catch(() => undefined)
-    return { ok: true, avatar: result.avatar }
-  }
-
-  /** RPC: participant.avatar.get: the reference and the bytes (base64), or null. */
-  async avatarGet(entity: string, participant: string): Promise<{ ok: true; avatar: (AvatarRef & { data: string }) | null } | { ok: false; code: string; message: string }> {
-    const engine = this.existing()
-    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "unknown_participant", message: "unknown user" }
-    const ref = this.avatars.get(participant)
-    if (!ref || !this.env.HOME_ATTACHMENTS) return { ok: true, avatar: null }
-    const object = await this.env.HOME_ATTACHMENTS.get(avatarKey(entity, ref.sha256))
-    if (!object) return { ok: true, avatar: null }
-    return { ok: true, avatar: { ...ref, data: toBase64(new Uint8Array(await object.arrayBuffer())) } }
-  }
+  async avatar(call: AvatarCall) { return avatarRpc(this.ctx, this.env, this.existing()?.currentState, call) } // RPC: participant avatars (user-avatars.ts)
 
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
@@ -290,11 +235,8 @@ export class UserDO extends OwnerDO<UserState> {
     return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
   }
 
-  /**
-   * RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the
-   * user's `allow_requests_from`, never the discovery flags. An object that never served this
-   * user answers the default without binding.
-   */
+  /** RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the user's
+   *  `allow_requests_from`, never the discovery flags; an object that never served this user answers the default without binding. */
   async homeAllowRequestsFrom(entity: string): Promise<homeConversation.AllowRequestsFrom> {
     if (this.boundEntity() !== entity) return homeUser.DEFAULT_HOME_SETTINGS.allow_requests_from
     return homeUser.homeSettingsOf(this.bind(entity).currentState.home_settings).allow_requests_from
