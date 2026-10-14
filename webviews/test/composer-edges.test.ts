@@ -1,10 +1,11 @@
 // The composer card and the permission cards draw one quiet hairline and no glass (hq#1957, the
 // border hunt). #20303 gave the card a 0 8px 24px drop shadow and an inset text-color rim that
 // ignored appearance.borders = none, and the permission cards a .5px border plus a shadow:
-//   - neither surface casts a drop shadow (every box-shadow layer is inset);
-//   - the composer card's edge is the --acpmux-composer-edge hairline, focused or not;
+//   - no surface casts a drop shadow (every box-shadow layer is inset), the New Tab box included;
+//   - the composer card's resting edge is the --acpmux-composer-edge hairline;
 //   - under appearance.borders = none (`data-borders="none"` on the root) neither surface draws
-//     a visible edge: every shadow layer and border is clear.
+//     a visible edge at rest: every shadow layer and border is clear. Focus still steps the card's
+//     edge toward the accent (composerStates.css): a focus state, not a border.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -98,6 +99,18 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
       selector: ".acpmux-permission-surface",
     },
   ];
+  const newTab = { name: "New Tab box", entry: "agent-pane.new-tab", variant: "empty", selector: ".nt-box" };
+
+  test(`${newTab.name}: no drop shadow, focused or not`, async () => {
+    const page = await open(newTab.entry, newTab.variant, newTab.selector);
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    const resting = await page.evaluate(edges, newTab.selector);
+    await page.locator(".nt-field").first().focus();
+    const focused = await page.evaluate(edges, newTab.selector);
+    await page.close();
+    expect(resting.shadows.filter((layer) => !layer.inset)).toEqual([]);
+    expect(focused.shadows.filter((layer) => !layer.inset)).toEqual([]);
+  });
 
   for (const surface of surfaces) {
     test(`${surface.name}: no drop shadow, focused or not`, async () => {
@@ -112,7 +125,10 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
 
     test(`${surface.name}: appearance.borders = none draws no edge`, async () => {
       const page = await open(surface.entry, surface.variant, surface.selector);
-      await page.evaluate(() => (document.documentElement.dataset.borders = "none"));
+      await page.evaluate(() => {
+        document.documentElement.dataset.borders = "none";
+        (document.activeElement as HTMLElement | null)?.blur();
+      });
       const measured = await page.evaluate(edges, surface.selector);
       await page.close();
       expect(measured.shadows.filter((layer) => layer.alpha > 0)).toEqual([]);
@@ -122,6 +138,7 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
 
   test("composer card: one hairline edge by default", async () => {
     const page = await open("agent-pane.composer-row", "claude-auto", ".acpmux-composer-box");
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     const measured = await page.evaluate(edges, ".acpmux-composer-box");
     await page.close();
     expect(measured.shadows).toHaveLength(1);
