@@ -35,7 +35,7 @@ extension SidebarBridge {
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         guard let item = model.layout.item(id) else {
-            if id == LanesSidebarItem.id { return services.agentActivityPage.open() }
+            if id == SidebarTransientItem.lanesID { return services.agentActivityPage.open() }
             return WhatsNewPage.activateClientItem(id, services: services, in: state)
         }
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),

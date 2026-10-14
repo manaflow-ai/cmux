@@ -53,17 +53,17 @@ struct AgentLanesTests {
         #expect(lanes.lanes["op-idle"]?.state == .idle)
         #expect(lanes.lanes["op-idle"]?.since == Date(timeIntervalSince1970: 1_760_000_000))
         #expect(lanes.lanes["op-gone"]?.peer == "mini")
-        #expect(LanesSidebarItem.item(lanes: lanes).info.badge == 3, "failed, waiting and lost need a person")
+        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3, "failed, waiting and lost need a person")
 
         // The idle lane dies on its next turn: the count follows the push, no poll.
         acpmux.push(Self.summary("op-idle", "failed", error: "Credit balance too low", parent: "chief"))
         try await until { lanes.lanes["op-idle"]?.state == .failed }
-        #expect(LanesSidebarItem.item(lanes: lanes).info.badge == 4)
+        #expect(SidebarTransientItem.lanes(lanes).info.badge == 4)
 
         // A person answered the permission; the lane works again.
         acpmux.push(Self.summary("op-asks", "working", parent: "chief"))
         try await until { lanes.lanes["op-asks"]?.state == .working }
-        #expect(LanesSidebarItem.item(lanes: lanes).info.badge == 3)
+        #expect(SidebarTransientItem.lanes(lanes).info.badge == 3)
 
         // A closed session has no lane and leaves the view.
         acpmux.push(["sessionId": "op-busy", "name": "op-busy", "status": "closed", "lane": NSNull()])
@@ -87,7 +87,7 @@ struct AgentLanesTests {
         let model = SidebarModel()
         let feed = SidebarWhatsNewItemFeed.start(model: model, center: center, settings: settings, lanes: lanes)
         defer { feed.cancel() }
-        let lanesItem = { model.transientTopItems.first { $0.item.id == LanesSidebarItem.id } }
+        let lanesItem = { model.transientTopItems.first { $0.item.id == SidebarTransientItem.lanesID } }
 
         try await Task.sleep(for: .milliseconds(200))
         #expect(lanesItem() == nil, "off by default: no Lanes item")

@@ -17,7 +17,7 @@ enum SidebarWhatsNewItemFeed {
         return Task {
             for await items in ObservationStream({ () -> [SidebarTransientItem] in
                 [WhatsNewPage.sidebarItem(center: center),
-                 settings?.snapshot.previewFeatures == true ? LanesSidebarItem.item(lanes: lanes) : nil].compactMap(\.self)
+                 settings?.snapshot.previewFeatures == true ? SidebarTransientItem.lanes(lanes) : nil].compactMap(\.self)
             }) {
                 if model.transientTopItems != items { model.transientTopItems = items }
             }
