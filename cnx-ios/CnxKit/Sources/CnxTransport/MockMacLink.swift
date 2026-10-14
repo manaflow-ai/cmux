@@ -1,5 +1,8 @@
 import Foundation
 
+// Test and DEBUG-demo only: never compiled into a Production build.
+#if DEBUG
+
 /// An in-process link for previews and UI verification. `echo` channels echo;
 /// other services answer through `responder`.
 public final class MockMacLink: MacLink, @unchecked Sendable {
@@ -61,3 +64,4 @@ final class MockChannel: LinkChannel, @unchecked Sendable {
         continuation.finish()
     }
 }
+#endif

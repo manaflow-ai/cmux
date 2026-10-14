@@ -181,8 +181,11 @@ public final class CnxAuthModel {
                 // Recording pace, not synchronization: a slow team list.
                 try? await Task.sleep(for: .seconds(delay))
             }
-            #endif
             fetchedTeams.fetched(AppStore.mock().teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) })
+            #else
+            // Mock auth exists only in DEBUG builds.
+            fetchedTeams.fetched([])
+            #endif
             return
         }
         guard let stack else { return }

@@ -3,16 +3,23 @@ import CnxModel
 import SwiftUI
 
 /// Owns one `AgentChatStore` per agent tab so the chat, Home and Feed share
-/// session state (answering in the Feed updates the open chat). Sources are
-/// mocks until the acpmux link lands; swap `makeSource` then.
+/// session state (answering in the Feed updates the open chat). Live data
+/// (`LiveCoordinator`) replaces `makeSource` with acpmux sources; until then a
+/// tab says it is not connected. Scripted mock sessions exist only in DEBUG
+/// builds with mock data on.
 @MainActor
 @Observable
 public final class AgentSessionDirectory {
     public static let shared = AgentSessionDirectory()
     private var stores: [String: AgentChatStore] = [:]
     public var makeSource: (AgentSessionSummary) -> any AgentSessionSource = { summary in
-        // Tabs made on the phone ("New session") start empty.
-        MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+        #if DEBUG
+        if DeveloperOptions.mockContentEnabled {
+            // Tabs made on the phone ("New session") start empty.
+            return MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
+        }
+        #endif
+        return DisconnectedAgentSource(summary: summary)
     }
 
     public init() {}

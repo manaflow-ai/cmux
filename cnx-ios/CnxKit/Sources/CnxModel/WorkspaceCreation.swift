@@ -265,6 +265,22 @@ public final class WorkspaceCreator {
     }
 }
 
+/// No Mac is linked: nothing can be created, and a request says so (never a
+/// made-up workspace).
+@MainActor
+public final class UnavailableWorkspaceCreationBackend: WorkspaceCreationBackend {
+    public init() {}
+
+    public func canCreate(on macID: String) -> Bool { false }
+
+    public func options(on macID: String) -> WorkspaceCreationOptions { WorkspaceCreationOptions() }
+
+    public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
+        throw WorkspaceCreationError("Not connected to this Mac")
+    }
+}
+
+#if DEBUG
 /// Mock mode: every option, created after a short latency on an injected
 /// clock. `failNext` makes the next creation fail (demo of the refusal path).
 @MainActor
@@ -293,3 +309,4 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         return placeholder
     }
 }
+#endif

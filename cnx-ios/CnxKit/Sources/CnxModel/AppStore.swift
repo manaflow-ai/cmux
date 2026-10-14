@@ -69,7 +69,12 @@ public final class AppStore {
     /// one of the sample Mac sets by position. Appearance is per user per team
     /// and persists locally until `PUT /v1/teams/:id/prefs` is wired.
     public func applyAccountTeams(_ accountTeams: [AccountTeam], selectedID: String?) {
+        #if DEBUG
         let sampleMacs = AppStore.mock().teams.map(\.macs)
+        #else
+        // No sample Macs outside DEBUG: Macs come only from live data.
+        let sampleMacs: [[MacDevice]] = []
+        #endif
         teams = accountTeams.enumerated().map { index, team in
             Team(
                 id: team.id,

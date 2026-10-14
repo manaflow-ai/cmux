@@ -13,15 +13,22 @@ public struct TerminalScreen: View {
         self.tabs = tabs
     }
 
-    /// A mock terminal, for UI work without a Mac.
+    #if DEBUG
+    /// A mock terminal, for UI work without a Mac (DEBUG builds only).
     public init(mockTitle: String = "zsh", tabs: [TerminalTabItem] = []) {
         self.init(model: TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: mockTitle), tabs: tabs)
     }
+    #endif
 
     public var body: some View {
         TerminalControllerView(model: model)
             .ignoresSafeArea()
             .background(Color.black)
+            .overlay {
+                if !model.connectionState.isAttached {
+                    TerminalConnectingView(state: model.connectionState).transition(.opacity)
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
