@@ -270,8 +270,11 @@ public struct MacScreenHomeView: View {
                     .font(.system(size: 11, design: .monospaced)).textSelection(.enabled).lineLimit(3)
                 HStack {
                     Button(copied ? L.t("macScreen.home.copied", "Copied") : L.t("macScreen.home.copy", "Copy Link")) {
-                        NSPasteboard.general.clearContents()
+                        // Marked concealed (nspasteboard.org): clipboard managers do not keep the room secret.
+                        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+                        NSPasteboard.general.declareTypes([.string, concealed], owner: nil)
                         NSPasteboard.general.setString(link.absoluteString, forType: .string)
+                        NSPasteboard.general.setString("", forType: concealed)
                         copied = true
                     }
                     .accessibilityIdentifier("macScreen.home.copyLink")

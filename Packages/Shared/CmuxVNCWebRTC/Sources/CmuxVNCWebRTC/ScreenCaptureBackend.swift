@@ -10,7 +10,7 @@ import ScreenCaptureKit
 /// the hardware encoder), and CGEvent posts the viewer's input as if from
 /// this Mac's own keyboard and mouse. Needs Screen Recording and
 /// Accessibility for the host app.
-public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, @unchecked Sendable {
+public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     // @unchecked: state behind `lock`; SCStream calls back on `queue`.
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "cmux.screen.capture", qos: .userInteractive)
@@ -21,9 +21,16 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
+    /// Stopped by the viewer: no recovery after that.
+    private var stopped = false
+    private var reconfiguration: CGDisplayReconfigurationCallBack?
 
     public init(log: @escaping @Sendable (String) -> Void) {
         self.log = log
+    }
+
+    deinit {
+        if let reconfiguration { CGDisplayRemoveReconfigurationCallback(reconfiguration, Unmanaged.passUnretained(self).toOpaque()) }
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -41,6 +48,44 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
         displays(found.map { pixelSize($0) }, main)
         try await capture(found[main])
+        watchDisplays()
+    }
+
+    /// A display added, removed or changing mode: read the displays again
+    /// and capture the streaming one at its new size (a stream configured for
+    /// the old mode can stop delivering frames).
+    private func watchDisplays() {
+        let callback: CGDisplayReconfigurationCallBack = { _, flags, context in
+            guard !flags.contains(.beginConfigurationFlag), let context else { return }
+            let backend = Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
+            backend.recover("displays changed")
+        }
+        lock.withLock { reconfiguration = callback }
+        CGDisplayRegisterReconfigurationCallback(callback, Unmanaged.passUnretained(self).toOpaque())
+    }
+
+    /// Captures the current display again (after a reconfiguration or a stream error).
+    private func recover(_ reason: String) {
+        guard !lock.withLock({ stopped }) else { return }
+        log("capture restarting: \(reason)")
+        Task {
+            guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true) else { return }
+            let found = content.displays.sorted { $0.frame.minX < $1.frame.minX }
+            guard !found.isEmpty else { return }
+            let (display, sizes, index, notify) = lock.withLock { () -> (SCDisplay, [CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?) in
+                let previous = displays.indices.contains(current) ? displays[current].displayID : CGMainDisplayID()
+                displays = found
+                current = found.firstIndex { $0.displayID == previous } ?? (found.firstIndex { $0.displayID == CGMainDisplayID() } ?? 0)
+                return (found[current], found.map { pixelSize($0) }, current, onDisplays)
+            }
+            notify?(sizes, index)
+            try? await capture(display)
+        }
+    }
+
+    public func stream(_ stream: SCStream, didStopWithError error: any Error) {
+        guard lock.withLock({ self.stream === stream }) else { return }
+        recover("stream stopped: \(error.localizedDescription)")
     }
 
     /// The display's size in pixels (Retina displays capture at full density).
@@ -60,7 +105,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         configuration.queueDepth = 4
         configuration.showsCursor = true
         let filter = SCContentFilter(display: display, excludingWindows: [])
-        let stream = SCStream(filter: filter, configuration: configuration, delegate: nil)
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         let previous = lock.withLock { () -> SCStream? in
@@ -97,10 +142,15 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     public func stop() {
-        let stream = lock.withLock { () -> SCStream? in
-            defer { self.stream = nil }
-            return self.stream
+        let (stream, callback) = lock.withLock { () -> (SCStream?, CGDisplayReconfigurationCallBack?) in
+            defer {
+                self.stream = nil
+                stopped = true
+                reconfiguration = nil
+            }
+            return (self.stream, reconfiguration)
         }
+        if let callback { CGDisplayRemoveReconfigurationCallback(callback, Unmanaged.passUnretained(self).toOpaque()) }
         if let stream { Task { try? await stream.stopCapture() } }
     }
 }

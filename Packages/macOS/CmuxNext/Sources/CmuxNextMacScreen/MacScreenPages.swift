@@ -20,8 +20,9 @@ public final class MacScreenPages {
     /// Records a person asked to open in a new tab, until that tab's page is
     /// made (its key is not known before): record URL -> when it was asked.
     private var openingByPerson: [String: Date] = [:]
-    /// Open Mac tabs, for renames.
+    /// Open Mac tabs, for renames and quitting.
     private let tabs = NSHashTable<MacScreenPageTab>.weakObjects()
+    private var termination: (any NSObjectProtocol)?
     /// How long a person's new-tab request may wait for its page.
     static let openingWindow: TimeInterval = 5
 
@@ -30,6 +31,12 @@ public final class MacScreenPages {
         host = MacScreenShareHost(store: store)
         store.onRenamed = { [weak self] id, name in
             for tab in self?.tabs.allObjects ?? [] where tab.record.macID == id { tab.rename(name) }
+        }
+        // Quitting ends every session now, so the other Mac stops showing a viewer at once.
+        termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { // main-proof: observer on queue: .main
+                for tab in self?.tabs.allObjects ?? [] { tab.pane?.close() }
+            }
         }
     }
 
