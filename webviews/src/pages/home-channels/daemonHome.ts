@@ -705,8 +705,9 @@ export class DaemonHomeClient implements PageClient {
         // A Cloud person or Chief is known here only once a Cloud conversation naming them was read
         // (the list renders first), so a picture the local owner does not have is asked of Cloud too.
         const known = via !== undefined;
+        // A refused Cloud read (not shared, not found) is no picture, kept like one.
         let found: Json | null = known
-          ? await fromCloud()
+          ? await fromCloud().catch(() => null)
           : (await this.capable(AVATARS_CAPABILITY, this.local))
             ? await this.local.operation<Json>("participant.avatar.get", {
                 machine: "current",

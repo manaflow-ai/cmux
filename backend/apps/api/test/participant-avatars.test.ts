@@ -54,7 +54,7 @@ const joinTeam = async (owner: { team: string }, member: { user: string }) => {
 const hidden = (r: { json: any }) => expect(r.json._tag === "BadRequest" ? r.json.code : JSON.stringify(r.json)).toBe("selector.not_found")
 
 describe("participant avatars (Cloud)", { timeout: 60_000 }, () => {
-  it("a person sets their own; the type comes from the bytes; anyone signed in reads it", async () => {
+  it("a person sets their own; the type comes from the bytes; only someone in a conversation with her reads it", async () => {
     const mira = await person("avatar-mira")
     const set = await op(mira.session, "participant.avatar.set", { participant_id: mira.user, bytes: b64(PNG) })
     expect(set.json.ok, JSON.stringify(set.json)).toBe(true)
@@ -78,6 +78,13 @@ describe("participant avatars (Cloud)", { timeout: 60_000 }, () => {
     const big = new Uint8Array(1024 * 1024 + 1); big.set(PNG)
     expect((await op(mira.session, "participant.avatar.set", { participant_id: mira.user, bytes: b64(big) })).json.error.code).toBe("avatar_too_large")
     expect((await read(other.session, "participant.avatar.get", { participant_id: mira.user, conversation })).json.value.avatar.sha256).toBe(await sha(PNG))
+    // A third person naming a conversation they are not in, or one that does not exist: hidden.
+    const third = await person("avatar-third")
+    hidden(await read(third.session, "participant.avatar.get", { participant_id: mira.user, conversation }))
+    hidden(await read(third.session, "participant.avatar.get", { participant_id: mira.user, conversation: "conv_0000000000000000000000000Z" }))
+    // After the reader leaves, the conversation no longer shows her picture to them.
+    expect((await op(other.session, "participants.remove", { conversation, participant: other.user })).json.ok).toBe(true)
+    hidden(await read(other.session, "participant.avatar.get", { participant_id: mira.user, conversation }))
   })
 
   it("nobody sets another person's avatar", async () => {
@@ -93,6 +100,7 @@ describe("participant avatars (Cloud)", { timeout: 60_000 }, () => {
     const session = await sessionToken("avatar-owner")
     const user = (await op(session, "user.ensure", {})).json.value.id as string
     const chief = (await op(session, "chief.create", { display_name: "Design Chief" })).json.value
+    const other = (await op(session, "chief.create", { display_name: "Release Chief" })).json.value
     // The chief's MuxDO learns its owner through the outbox.
     const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
     for (let i = 0; i < 5; i++) await fireAlarm(userDO)
@@ -112,6 +120,10 @@ describe("participant avatars (Cloud)", { timeout: 60_000 }, () => {
     const ch = await call("/v1/auth/challenge", undefined, { user, install })
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
     const tok = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(sig), agent: chief.id })).json.access_token as string
+    // A Chief token reads its own picture and its owner's, not another Chief's of the same owner.
+    expect((await read(tok, "participant.avatar.get", { participant_id: chief.id })).json.value.avatar.data).toBe(b64(GIF))
+    expect((await read(tok, "participant.avatar.get", { participant_id: user })).json.value.avatar.media_type).toBe("image/gif")
+    hidden(await read(tok, "participant.avatar.get", { participant_id: other.id }))
     const byChief = await op(tok, "participant.avatar.set", { participant_id: chief.id, bytes: b64(PNG) })
     expect(byChief.json.ok).toBe(false)
     expect(byChief.json.error.code).toBe("forbidden")

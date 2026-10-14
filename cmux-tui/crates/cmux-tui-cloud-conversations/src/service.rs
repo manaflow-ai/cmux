@@ -494,7 +494,7 @@ impl CloudConversations {
         }
         let mut params = json!({"participant_id": participant});
         if let Some(conversation) = conversation {
-            if !crate::contract::valid_conversation_id(conversation) {
+            if !contract::valid_conversation_id(conversation) {
                 return Err(CloudError::BadRequest(format!(
                     "conversation {conversation:?} is not a conversation id"
                 )));
