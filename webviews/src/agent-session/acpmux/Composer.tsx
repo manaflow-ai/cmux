@@ -778,7 +778,7 @@ export function Composer({
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
     if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
-      // The list draws in the chat's queue slot, outside the form (ComposerQueue.tsx).
+      // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
       const chat = form.current?.closest(".acpmux-main") ?? form.current;
       const rows = chat?.querySelectorAll<HTMLElement>(".acpmux-composer-queue .acpmux-queued");
       const last = rows?.[rows.length - 1];

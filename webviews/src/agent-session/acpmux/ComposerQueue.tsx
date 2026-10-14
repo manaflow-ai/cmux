@@ -1,5 +1,5 @@
 // Prompts waiting for the running turn, as compact rows over the composer. The list takes its own
-// place at the top of the composer's stack (App.tsx's queue slot), so the transcript, a question
+// place at the top of the composer form, over its location strip, so the transcript, a question
 // waiting for an answer and the pull requests above the composer each keep theirs: none is cut
 // off or drawn over, and the transcript scrolls in what is left.
 //
@@ -95,7 +95,6 @@ export function ComposerQueue({
   if (shown.length === 0) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
-  const waiting = shown.length - steering;
 
   const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])];
   const focusRow = (index: number) => {
@@ -276,12 +275,6 @@ export function ComposerQueue({
   );
   return (
     <ol ref={list} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
-      {waiting > 0 && (
-        <li className="acpmux-queue-header" aria-hidden="true">
-          <span className="acpmux-queued-kind">{t("composer.queued")}</span>
-          <span>{t("composer.queueAfterTurn")}</span>
-        </li>
-      )}
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>
@@ -296,7 +289,14 @@ export function ComposerQueue({
           )}
         </li>
       )}
-      {shown.map((entry, index) => (
+      {shown.map((entry, index) => [
+        // "Queued" heads the prompts that wait for the turn, under any sent now.
+        index === steering && (
+          <li key="queued" className="acpmux-queue-header" aria-hidden="true">
+            <span className="acpmux-queued-kind">{t("composer.queued")}</span>
+            <span>{t("composer.queueAfterTurn")}</span>
+          </li>
+        ),
         // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.
         <li
           className="acpmux-queued"
@@ -312,8 +312,8 @@ export function ComposerQueue({
               {cells(entry, index)}
             </ContextMenu>
           )}
-        </li>
-      ))}
+        </li>,
+      ])}
     </ol>
   );
 }
