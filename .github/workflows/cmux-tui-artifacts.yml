@@ -451,6 +451,8 @@ jobs:
                 "https://files.cmux.com/cmux-tui/tree/$published_key/daemon-tests.json?preflight=$RUN_ID" 2>/dev/null; then
             daemon_tested=false
             echo "Tree $published_key has no daemon-tests marker; a feat-cmux-next push runs the daemon tests to write it."
+          elif [[ "$tree_ready" == true && -z "${source_json:-}" ]]; then
+            echo "::warning::could not read tree/$published_key/source.json; the daemon-tests marker is not checked in this run"
           fi
           echo "daemon_tested=$daemon_tested" >> "$GITHUB_OUTPUT"
 
@@ -801,7 +803,8 @@ jobs:
     # are replaced; the first pass writes the marker for all of them.
     concurrency:
       group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && 'marker' || github.sha }}
-      # Keep every publisher alive, including a queued run. The complete-key
+      # Keep every publisher alive, including a queued run (on the marker
+      # path a newer push replaces only the waiting job). The complete-key
       # preflight skips duplicate work after the first complete run.
       cancel-in-progress: false
     name: cmux_next_ daemon tests (macOS)

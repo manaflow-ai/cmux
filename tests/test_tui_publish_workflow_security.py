@@ -325,7 +325,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in build
     assert "cancel-in-progress: false" in build
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
-    assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
+    # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
+    # tree another run already published shares one group per key, because
+    # only the missing daemon-tests marker is at stake there, not the tree.
+    assert ("group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && "
+            "github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && "
+            "'marker' || github.sha }}") in daemon
     assert "cancel-in-progress: false" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
