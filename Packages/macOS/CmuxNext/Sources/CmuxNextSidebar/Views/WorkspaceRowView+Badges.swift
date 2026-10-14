@@ -12,7 +12,7 @@ extension WorkspaceRowView {
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle) {
         let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity)
         guard style != .trailing, !isShowingPlaceholder else {
-            rowBadge.configure([])
+            rowBadge.configure([], look: .corner)
             return
         }
         if shown.icon == nil {
