@@ -24,6 +24,14 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    static let npDiag: Void = {
+        atexit { FileHandle.standardError.write(Data(("NPDIAG atexit\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8)) }
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            FileHandle.standardError.write(Data(("NPDIAG willTerminate\n" + Thread.callStackSymbols.joined(separator: "\n") + "\n").utf8))
+        }
+    }()
+    init() { _ = Self.npDiag }
+
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     /// An 8 pt square of color, as PNG.
