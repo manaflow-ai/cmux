@@ -5,8 +5,9 @@ When Apple's notary queue is slow, nightly.yml waits up to 20m (nightly-next)
 or 40m per run and the feed does not move. Teammates still need the build, so
 build-sign-notarize-nightly uploads the Developer ID-signed app as a run
 artifact right after signing and before the notarization wait. Diagnostic
-notary builds and paused builds (which may carry the browser-data import)
-never upload an app: the repository is public.
+notary builds and builds held by NIGHTLY_NEXT_NOTARY_PAUSED (the browser-data import)
+never upload an app: the repository is public. A failed upload never blocks
+notarization.
 """
 
 from pathlib import Path
@@ -52,7 +53,10 @@ class SignedUnnotarizedArtifactTests(unittest.TestCase):
             condition = steps()[index(name)]["if"]
             self.assertIn("needs.decide.outputs.fast_build != 'true'", condition)
             self.assertIn("needs.decide.outputs.notary_test != 'true'", condition)
-            self.assertIn("needs.decide.outputs.notary_paused != 'true'", condition)
+            self.assertIn("needs.decide.outputs.import_paused != 'true'", condition)
+            # A submissions pause (Apple's queue stuck) is exactly when teammates need it.
+            self.assertNotIn("notary_paused", condition)
+            self.assertTrue(steps()[index(name)].get("continue-on-error"), name)
 
     def test_fast_dogfood_upload_does_not_depend_on_notarization(self):
         condition = steps()[index("Upload fast arm64 dogfood artifact")]["if"]
