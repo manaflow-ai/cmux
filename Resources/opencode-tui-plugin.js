@@ -207,6 +207,11 @@ export function dispatchSessionHook(eventName, payload, spawnImpl = spawn, baseE
   }
 }
 
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
 function sessionEventName(event) {
   const data = properties(event);
   if (event?.type === "session.created") return "session-start";
@@ -215,6 +220,7 @@ function sessionEventName(event) {
   // OpenCode keeps an execution interrupted by shutdown and resumes it.
   if (event?.type === "session.execution.interrupted" && data.reason === "shutdown") return null;
   if (["session.execution.succeeded", "session.execution.interrupted"].includes(event?.type)) return "stop";
+  if (event?.type === "session.error" && NON_TERMINAL_SESSION_ERRORS.has(data.error?.name)) return null;
   if (["session.execution.failed", "session.next.step.failed", "session.error"].includes(event?.type)) return "stop-failure";
   if (event?.type === "session.idle") return "stop";
   if (event?.type === "session.status" && statusType(data.status) === "idle") return "stop";

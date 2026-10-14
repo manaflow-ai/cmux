@@ -12,6 +12,17 @@ const DEFAULT_SOCKET = `${os.homedir()}/.config/cmux/cmux.sock`;
 const REPLY_TIMEOUT_MS = 120_000;
 const MAX_PLAN_BYTES = 128 * 1024;
 
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
+const isNonTerminalSessionError = (event) => {
+  if (event?.type !== "session.error") return false;
+  const props = event.properties || event.data || {};
+  return NON_TERMINAL_SESSION_ERRORS.has(props.error?.name);
+};
+
 const createCMUXFeed = async (ctx, options = {}) => {
   const environment = { ...process.env, ...options.environment };
   const socketPath = environment.CMUX_SOCKET_PATH || DEFAULT_SOCKET;
@@ -869,6 +880,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "session.execution.failed":
         case "session.next.step.failed":
         case "session.error": {
+          if (isNonTerminalSessionError(event)) break;
           const sid = sessionIdFromEvent(event);
           if (sid && shouldEmitStop(sid, "failure")) {
             const error = failureMessage(event);
@@ -1093,11 +1105,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
 export const CMUXFeed = createCMUXFeed;
 
-const CMUX_FEED_SERVER_OWNER_KEY = Symbol.for("cmux.feed.server.owner");
+const CMUX_FEED_SERVER_SCOPES_KEY = Symbol.for("cmux.feed.server.scopes");
 
-// Released OpenCode calls `server(ctx)` inside each TUI process with the
-// project server context. Old V2 snapshots called it from a shared service
-// without that context, so only subscribe when it is present.
 const isTUIProcessServerContext = (ctx) =>
   Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
 
@@ -1105,22 +1114,13 @@ export default {
   id: "cmux.server",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
-    // cmux-feed.js and plugins/cmux/index.js both load this source. Every
-    // loader in one plugin scope receives the same ctx; a reinitialized scope
-    // receives a new one, which replaces the previous feed.
-    const owner = globalThis[CMUX_FEED_SERVER_OWNER_KEY] ||= { ctx: null, feed: null };
-    if (owner.ctx === ctx) return {};
-    const previous = owner.feed;
-    owner.ctx = ctx;
-    owner.feed = null;
-    previous?.dispose?.();
-    const feed = await createCMUXFeed(ctx);
-    if (owner.ctx !== ctx) {
-      feed.dispose();
-      return {};
-    }
-    owner.feed = feed;
-    return feed;
+    // cmux-feed.js and plugins/cmux/index.js both load this source, and every
+    // loader in one plugin scope receives the same ctx. OpenCode keeps one
+    // scope per directory, and disposes a scope's hooks when it tears it down.
+    const scopes = globalThis[CMUX_FEED_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
+    return createCMUXFeed(ctx);
   },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },

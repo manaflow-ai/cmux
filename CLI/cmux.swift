@@ -36742,6 +36742,11 @@ function sendStop(ctx, event, failed = false) {
   });
 }
 
+// OpenCode publishes these through session.error without ending the turn: a
+// user interrupt (Esc) then goes idle, and a context overflow compacts and
+// continues. The idle stop that follows is the turn's outcome.
+const NON_TERMINAL_SESSION_ERRORS = new Set(["MessageAbortedError", "ContextOverflowError"]);
+
 const createCMUXSessionRestore = async (ctx) => {
   const handleEvent = async (event) => {
       trackMessage(event);
@@ -36770,9 +36775,12 @@ const createCMUXSessionRestore = async (ctx) => {
         case "session.execution.interrupted":
           if (!isResumableInterruption(event)) sendStop(ctx, event);
           break;
+        case "session.error":
+          if (NON_TERMINAL_SESSION_ERRORS.has(props.error?.name)) break;
+          sendStop(ctx, event, true);
+          break;
         case "session.execution.failed":
         case "session.next.step.failed":
-        case "session.error":
           sendStop(ctx, event, true);
           break;
         case "session.deleted":
@@ -36803,23 +36811,27 @@ function isTUIProcessServerContext(ctx) {
   return Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
 }
 
-const CMUX_SESSION_SERVER_OWNER_KEY = Symbol.for("cmux.session.server.owner");
+const CMUX_SESSION_SERVER_SCOPES_KEY = Symbol.for("cmux.session.server.scopes");
 
 export default {
   id: "cmux.server",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
-    // Every loader in one plugin scope receives the same ctx; a reinitialized
-    // scope receives a new one and must subscribe again.
-    const owner = globalThis[CMUX_SESSION_SERVER_OWNER_KEY] ||= { ctx: null };
-    if (owner.ctx === ctx) return {};
-    owner.ctx = ctx;
+    // Every loader in one plugin scope receives the same ctx. OpenCode keeps
+    // one scope per directory and disposes a scope's hooks when it tears it
+    // down, after which this scope must not send hooks.
+    const scopes = globalThis[CMUX_SESSION_SERVER_SCOPES_KEY] ||= new WeakSet();
+    if (scopes.has(ctx)) return {};
+    scopes.add(ctx);
     globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
     const hooks = await createCMUXSessionRestore(ctx);
-    // OpenCode never disposes a scope's hooks, so a replaced scope goes quiet.
+    let disposed = false;
     return {
       event: async (input) => {
-        if (owner.ctx === ctx) await hooks.event(input);
+        if (!disposed) await hooks.event(input);
+      },
+      dispose() {
+        disposed = true;
       },
     };
   },
