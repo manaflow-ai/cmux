@@ -2,9 +2,10 @@
 //! .cmux-scratch/chief-errors/catalog.md). It sends SIGTERM to the brain
 //! that holds `state/host.lock` (the brain then shuts down the acpmux
 //! daemon it started, which ends its agent hosts and their sessions, and
-//! exits) and waits until that process has ended. The app starts a new
-//! brain when one exits (ChiefBrainWatch), so a brain that holds the lock
-//! next is stopped the same way. Then it stops the home's session daemon
+//! exits) and waits until that process has ended. First it writes
+//! `state/shutdown`, so the app (ChiefBrainWatch) does not start a new
+//! brain; an older app that still does gets its brain stopped the same
+//! way. Then it stops the home's session daemon
 //! with its terminals, also after a brain that did not stop in time (a
 //! daemon left running keeps the Chief on old code across an upgrade,
 //! cosmic-gray 2026-10-14). Nothing is started.
@@ -44,11 +45,23 @@ pub(super) fn run(global: &GlobalArgs, chief_home: Option<&Path>) -> i32 {
         }
     };
     let root = home.root.display().to_string();
+    let marker = home.shutdown_marker();
+    if let Err(error) = marker
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&marker, "cmux chief shutdown\n"))
+    {
+        eprintln!("cmux: {}: {error}", marker.display());
+    }
     let brain = stop_brain(&home.host_lock(), BRAIN_STOP_LIMIT);
     match &brain {
         Ok(true) => eprintln!("cmux: {}", m.shutdown_brain.replace("{home}", &root)),
         Ok(false) => {}
-        Err(why) => eprintln!("cmux: {why}"),
+        Err(why) => {
+            // The brain still runs: its next crash is restarted as before.
+            let _ = std::fs::remove_file(&marker);
+            eprintln!("cmux: {why}");
+        }
     }
     let daemon = stop_daemon(global, &home);
     if brain.is_err() { 1 } else { daemon }

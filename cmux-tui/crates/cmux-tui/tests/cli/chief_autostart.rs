@@ -391,3 +391,23 @@ fn chief_shutdown_stops_a_restarted_brain_and_the_session_daemon() {
     assert!(brains_gone, "both brains stopped: {brains:?}");
     assert!(daemon_gone, "the session daemon stopped; stderr: {}", stderr_of(&shutdown));
 }
+
+#[test]
+fn chief_shutdown_tells_the_app_until_the_next_chief_starts_it() {
+    // The app (ChiefBrainWatch) does not start a brain again while
+    // `state/shutdown` is there; the next `cmux chief` starts it and
+    // takes the marker away, so a later crash restarts as before.
+    let sandbox = Sandbox::new("chief-shutdown-marker");
+    let home = sandbox.isolated();
+    let home_arg = home.to_str().unwrap();
+    let marker = home.join("state/shutdown");
+    assert_success(&sandbox.chief(&["--chief-home", home_arg, "-p", "hello"]));
+    assert!(!marker.exists(), "a started Chief has no shutdown marker");
+
+    assert_success(&sandbox.chief(&["shutdown", "--chief-home", home_arg]));
+    assert!(marker.exists(), "the shutdown leaves its marker for the app");
+
+    assert_success(&sandbox.chief(&["--chief-home", home_arg, "-p", "hello again"]));
+    assert!(!marker.exists(), "the next cmux chief takes the marker away");
+    assert_success(&sandbox.chief(&["shutdown", "--chief-home", home_arg]));
+}
