@@ -294,6 +294,10 @@ private struct DoneUndoBar: View {
                 .padding(.horizontal, 18)
                 .frame(height: 44)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                // Swipe down or sideways to dismiss (it came from the bottom); a tap is Undo's.
+                .cnxDismissibleToast(entry: .bottom, announcement: "Marked done", tapDismisses: false) {
+                    if store.lastDoneID == id { withAnimation(.cnxSmooth) { store.clearDone() } }
+                }
                 .padding(.bottom, 12)
                 .transition(.offset(y: 16).combined(with: .opacity))
                 .task(id: id) {

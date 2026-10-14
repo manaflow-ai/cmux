@@ -234,20 +234,23 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return true
     }
 
-    /// Shown by TabsKit as a glass toast (a tab that could not be created): one short
-    /// line (`TabNotice`). It clears itself after `noticeLifetime`, or on a tap (TabsKit
-    /// calls `clearNotice()`).
-    public private(set) var notice: String?
-    public func clearNotice() { notice = nil }
+    /// The workspace's toast (a tab that could not be opened or closed): one short line
+    /// (`TabNotice`). `WorkspaceScreen` draws it as a `cnxDismissibleToast` above the
+    /// bottom chrome; it clears after `noticeLifetime`, on a swipe or on a tap.
+    public private(set) var toastText: String?
+    /// TabsKit's own toast is never used: it draws at the top, over the title and Back
+    /// (upstream request U6), so the kit always sees no notice.
+    public var notice: String? { nil }
+    public func clearNotice() { toastText = nil }
 
     /// How long a toast stays (a UI timeout, not synchronization).
     static let noticeLifetime: Duration = .seconds(4)
 
     private func show(_ text: String) {
-        notice = text
+        toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.noticeLifetime)
-            if self?.notice == text { withAnimation { self?.clearNotice() } }
+            if self?.toastText == text { withAnimation { self?.clearNotice() } }
         }
     }
 
