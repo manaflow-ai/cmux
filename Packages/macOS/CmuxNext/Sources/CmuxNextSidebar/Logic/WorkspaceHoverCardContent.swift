@@ -42,6 +42,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var facts: [Fact] = []
         let detail = workspace.detail
         if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3)) }
+        // How many items are unread: rows draw no count (`SidebarRowBadgeStyle`), so it reads here.
+        if case let .count(n) = workspace.unread, n > 0 { facts.append(Fact(icon: .notification, text: Strings.unreadCount(n))) }
         if let agent = workspace.agentName {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · ")))
         }

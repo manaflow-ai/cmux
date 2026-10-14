@@ -16,7 +16,7 @@ import Testing
     private static let failing = WorkspaceID("ws-failing")
     private static let now = Date()
 
-    private static func sidebar() -> SidebarView {
+    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let agentRow = SidebarWorkspace(id: agent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
                                         kind: .harness, unread: .count(1), activity: .success, agentBrand: "claude")
@@ -27,6 +27,7 @@ import Testing
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(agentRow), .workspace(terminalRow), .workspace(failingRow)]),
         ])
+        model.rowBadgeStyle = style
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
@@ -86,5 +87,23 @@ import Testing
         #expect(card.facts.contains { $0.text == Strings.unreadCount(3) })
         let row = try Self.row(Self.sidebar(), Self.failing)
         #expect(row.accessibilityLabel()?.contains(Strings.unreadCount(3)) == true)
+    }
+
+    /// Leo's alternative (`sidebar.rowBadge` stack): one glyph per pending item in the trailing slot,
+    /// the most urgent first, overlapping like an avatar stack, at most three; the tooltip says how
+    /// many more there are.
+    @Test func theStackDrawsUpToThreeOverlappingGlyphsMostUrgentFirst() throws {
+        let row = try Self.row(Self.sidebar(.stack), Self.failing)
+        let stack = try #require(Self.visible(RowBadgeView.self, in: row).first)
+        #expect(stack.view.states == [.error, .success, .success])
+        #expect(stack.frame.minX > row.title.frame.minX, "the stack is in the trailing slot")
+        let glyphs = Self.visible(StatusIndicatorView.self, in: stack.view).map(\.frame).sorted { $0.minX < $1.minX }
+        #expect(glyphs.count == 3)
+        for (left, right) in zip(glyphs, glyphs.dropFirst()) {
+            #expect(right.minX > left.minX && right.minX < left.maxX, "glyphs overlap: \(left) \(right)")
+            #expect(abs(right.midY - left.midY) < 0.5, "glyphs share a center line")
+        }
+        #expect(stack.view.toolTip?.contains(Strings.unreadCount(3)) == true)
+        #expect(stack.view.toolTip?.contains(Strings.statusMore(1)) == true)
     }
 }

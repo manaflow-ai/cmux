@@ -1,0 +1,69 @@
+import AppKit
+import CmuxNextDesign
+import Foundation
+
+/// The row's state badge (`SidebarRowBadgeStyle`, Leo and Lawrence 2026-10-14): no count number.
+/// The row leads with its harness logo or its kind icon (a user's icon still wins), the badge sits
+/// on that icon's bottom-right corner (or, as a stack, in the trailing slot), and the right side
+/// shows the dim time since the last change.
+extension WorkspaceRowView {
+    /// Applies `style` after the rest of `configure`: the leading icon, the badge, and the hidden
+    /// count and trailing glyph. `trailing` leaves the row as it was.
+    func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle) {
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity)
+        guard style != .trailing, !isShowingPlaceholder else {
+            rowBadge.configure([])
+            return
+        }
+        if shown.icon == nil {
+            icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
+        }
+        badge.configure(.none)
+        activity.configure(.idle)
+        if timeText == nil, let last = ws.lastActivity {
+            timeText = WorkspaceRowContent.ageText(last, now: Date())
+            timeLabel.stringValue = timeText ?? ""
+        }
+        let corner = style == .corner
+        rowBadge.glyphSide = corner ? SidebarStyle.dotSize + Metrics.space1 : SidebarStyle.statusGlyphSize
+        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked)
+        rowBadge.toolTip = Self.badgeSummary(badges)
+    }
+
+    /// What the badges say, for the tooltip: the count, then each state, then what the stack left out.
+    static func badgeSummary(_ badges: WorkspaceRowBadges) -> String? {
+        var parts: [String] = []
+        if badges.unreadCount > 0 { parts.append(Strings.unreadCount(badges.unreadCount)) }
+        for state in badges.items where state != .success {
+            if let text = Strings.activity(state), !parts.contains(text) { parts.append(text) }
+        }
+        if badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    /// Places the corner badge on the leading icon, or the stack left of `trailing` centered on
+    /// `cy`; returns the new trailing edge.
+    func layoutRowBadge(style: SidebarRowBadgeStyle, trailing: CGFloat, cy: CGFloat) -> CGFloat {
+        guard !rowBadge.isHidden else { return trailing }
+        let side = rowBadge.discSide, scale = window?.backingScaleFactor ?? 2
+        func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        if style == .stack {
+            let width = rowBadge.preferredWidth
+            rowBadge.frame = NSRect(x: snapped(trailing - width), y: snapped(cy - side / 2), width: width, height: side)
+            return rowBadge.frame.minX - Metrics.space2
+        }
+        // The disc's center sits a quarter of a glyph inside the icon's bottom-right corner.
+        let inset = rowBadge.glyphSide / 4, box = icon.frame
+        rowBadge.frame = NSRect(x: snapped(box.maxX - inset - side / 2), y: snapped(box.maxY - inset - side / 2),
+                                width: side, height: side)
+        return trailing
+    }
+
+    /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.
+    static func badgeBackdrop(_ fill: NSColor?) -> CGColor {
+        let base = Palette.sidebarBackground.usingColorSpace(.sRGB) ?? Palette.sidebarBackground
+        guard let fill = fill?.usingColorSpace(.sRGB) else { return base.cgColor }
+        let blended = base.blended(withFraction: fill.alphaComponent, of: fill.withAlphaComponent(1)) ?? base
+        return blended.cgColor
+    }
+}
