@@ -267,6 +267,35 @@
 .nt-style-option:hover,.nt-style-option:has(:checked){color:var(--agent-text)}
 .nt-style-option:has(:focus-visible){outline:var(--cmux-focus-ring-width,1.5px) solid var(--cmux-focus-ring-color,color-mix(in srgb,var(--agent-text) 40%,transparent));outline-offset:-1px}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option{transition:none}}
+
+/* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
+   text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);
+   the pickers and buttons keep the arrow. The box lifts on hover by the composer's hover step
+   (the native Palette.hoverFill), not while it has the keyboard (the ring shows focus), and
+   eases with the hover token both ways. The fill is a gradient layer over the surface, so the
+   lift is a registered property that can ease. */
+@property --nt-box-lift {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+.nt-input {
+  cursor: text;
+}
+.nt-input :is(button, [role="button"], .nt-shell-glyph, .nt-prompt-glyph) {
+  cursor: default;
+}
+.nt-box {
+  --nt-box-fill: color-mix(in srgb, var(--acpmux-composer-hover) var(--nt-box-lift), var(--acpmux-composer-bg));
+  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)), var(--cmux-surface-solid, var(--acpmux-base));
+}
+.nt-box:hover:not(:focus-within) {
+  --nt-box-lift: 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nt-box {
+    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
+  }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
    title keeps clear of the count; the icon and age columns stay where every other row has them. */
