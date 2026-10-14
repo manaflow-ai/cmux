@@ -111,6 +111,11 @@ pub struct SessionMeta {
     pub permission_policy: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Who set `title`: None while it is the first prompt's line, `harness`
+    /// (its own `session_info_update`), `asked` (a generated title is on its
+    /// way or failed; never asked again), `generated` (`hub/titles.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
