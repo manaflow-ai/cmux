@@ -17,6 +17,9 @@ export type DaemonAuth =
 
 type Pending = { resolve(data: unknown): void; reject(error: unknown): void };
 
+/** The resource API's envelope (spec resource-api-v2.md), on the same connection as raw commands. */
+const OPERATION_PROTOCOL = "cmux.protocol/2";
+
 function daemonError(code: string, message: string): DaemonError {
   const error = new Error(message) as DaemonError;
   error.name = "DaemonError";
@@ -28,6 +31,7 @@ export class DaemonSocket {
   private socket: WebSocket | null = null;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  private readonly operations = new Map<string, Pending>();
   private readonly listeners = new Set<(event: Record<string, unknown>) => void>();
   private readonly closeListeners = new Set<(reason: string) => void>();
 
@@ -81,8 +85,10 @@ export class DaemonSocket {
         const reason = event.code === 1008 ? "authentication failed" : `closed (${event.code})`;
         if (!ready) reject(daemonError(event.code === 1008 ? "auth_rejected" : "unreachable", reason));
         const code = event.code === 1008 ? "auth_rejected" : "disconnected";
-        for (const waiter of this.pending.values()) waiter.reject(daemonError(code, reason));
+        for (const waiter of [...this.pending.values(), ...this.operations.values()])
+          waiter.reject(daemonError(code, reason));
         this.pending.clear();
+        this.operations.clear();
         for (const listener of this.closeListeners) listener(reason);
       });
     });
@@ -91,6 +97,18 @@ export class DaemonSocket {
   private receive(value: Record<string, unknown>): void {
     if (typeof value.event === "string") {
       for (const listener of this.listeners) listener(value);
+      return;
+    }
+    if (value.protocol === OPERATION_PROTOCOL && typeof value.id === "string") {
+      const waiter = this.operations.get(value.id);
+      if (!waiter) return;
+      this.operations.delete(value.id);
+      if (value.ok === true) waiter.resolve(value.result);
+      else {
+        const error = (value.error ?? {}) as { code?: unknown; message?: unknown };
+        const code = String(error.code ?? "error");
+        waiter.reject(daemonError(code, String(error.message ?? code)));
+      }
       return;
     }
     const id = typeof value.id === "number" ? value.id : undefined;
@@ -113,6 +131,32 @@ export class DaemonSocket {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (data) => resolve(data as T), reject });
       socket.send(JSON.stringify({ ...params, id, cmd }));
+    });
+  }
+
+  /** One `cmux.protocol/2` operation (resource-api-v2.md); resolves to its `result`, rejects with
+   *  the error's `code`. A mutation needs `idempotencyKey`. */
+  operation<T = Record<string, unknown>>(
+    operation: string,
+    params: Record<string, unknown>,
+    idempotencyKey?: string,
+  ): Promise<T> {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(daemonError("disconnected", "not connected"));
+    const id = `op-${this.nextId++}`;
+    return new Promise<T>((resolve, reject) => {
+      this.operations.set(id, { resolve: (data) => resolve(data as T), reject });
+      socket.send(
+        JSON.stringify({
+          protocol: OPERATION_PROTOCOL,
+          type: "request",
+          id,
+          operation,
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+          params,
+        }),
+      );
     });
   }
 
