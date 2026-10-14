@@ -280,8 +280,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 executable: "/Users/example/.local/bin/agy",
                 launchArguments: [
                     "/Users/example/.local/bin/agy",
-                    "--conversation",
-                    "old-conversation",
+                    "--prompt-interactive",
+                    "models",
                     "--sandbox",
                     "danger-full-access",
                     "--add-dir",
@@ -5168,6 +5168,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
                 },
                 "Kiro should publish a resume binding instead of clearing it: \(state.commands)"
+            )
+        }
+
+        if scenario.agent == "antigravity" {
+            let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
+                guard let payload = self.jsonObject(command),
+                      payload["method"] as? String == "surface.resume.set" else {
+                    return nil
+                }
+                return payload["params"] as? [String: Any]
+            }
+            XCTAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
+            let params = try XCTUnwrap(resumeSetRequests.first)
+            XCTAssertEqual(params["kind"] as? String, "antigravity")
+            XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
+            XCTAssertEqual(params["auto_resume"] as? Bool, true)
+            XCTAssertEqual(
+                params["command"] as? String,
+                "cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ] && '\(scenario.executable)' '--conversation' '\(scenario.sessionId)' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'"
+            )
+            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
+            XCTAssertFalse(
+                state.commands.contains { command in
+                    self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
+                },
+                "Antigravity should publish a resume binding instead of clearing it: \(state.commands)"
             )
         }
     }

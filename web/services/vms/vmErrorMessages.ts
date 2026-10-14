@@ -149,6 +149,29 @@ export async function vmRouteDeadlineCopy(kind: "inProgress" | "providerTimeout"
   };
 }
 
+/** Localized copy for a provider capacity refusal (routeHelpers vmProviderCapacityResponse). */
+export async function vmProviderCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("providerCapacity", locale);
+}
+
+/** Localized copy for a machine-state conflict (routeHelpers vmStateConflictResponse). */
+export async function vmStateConflictCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("stateConflict", locale);
+}
+
+async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: `vmErrors.${key}`,
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Localized guidance when the provider account's network rule capacity is exhausted. */
 export async function vmNetworkRuleCapacityCopy(locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
