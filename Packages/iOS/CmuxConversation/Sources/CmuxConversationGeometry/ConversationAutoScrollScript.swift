@@ -121,12 +121,10 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
 /// restores the reader's anchor, shifting the offset by the page's height)
 /// carries on from there instead of being undone.
 public struct ConversationAutoScrollMotion: Equatable, Sendable {
-    /// The offset when the step began.
-    private var startOffset: CGFloat
+    /// The step's distance already applied to the content.
+    private var applied: CGFloat = 0
 
-    public init(startOffset: CGFloat) {
-        self.startOffset = startOffset
-    }
+    public init() {}
 
     public struct Frame: Equatable, Sendable {
         /// The content offset to show this frame.
@@ -141,10 +139,12 @@ public struct ConversationAutoScrollMotion: Equatable, Sendable {
     }
 
     /// The offset for this frame, `distance` points into the step (positive
-    /// into history), from the transcript's `currentOffsetY`, kept within
-    /// `top...bottom`.
+    /// into history): the transcript's `currentOffsetY` moved by the
+    /// distance not yet applied, kept within `top...bottom`.
     public mutating func frame(distance: CGFloat, currentOffsetY: CGFloat, top: CGFloat, bottom: CGFloat) -> Frame {
-        let y = min(bottom, max(top, startOffset - distance))
-        return Frame(offsetY: y, reachedEdge: distance != 0 && (y == top || y == bottom))
+        let delta = distance - applied
+        applied = distance
+        let y = min(bottom, max(top, currentOffsetY - delta))
+        return Frame(offsetY: y, reachedEdge: delta != 0 && (y == top || y == bottom))
     }
 }

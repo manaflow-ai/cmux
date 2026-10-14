@@ -10,8 +10,11 @@ import UIKit
 /// moves the content offset each frame; the steps go through the scroll
 /// delegate callbacks a finger would (begin and end dragging, end
 /// decelerating), so the transcript leaves and regains the bottom as it does
-/// under a real drag. Each step is a signpost interval (subsystem
-/// `com.cmux.conversation`, category `AutoScroll`) for the trace.
+/// under a real drag. Like a finger, it moves the content by each frame's
+/// delta from where it is (`ConversationAutoScrollMotion`), so an anchor
+/// restore when an older page lands carries on instead of being undone.
+/// Each step is a signpost interval (subsystem `com.cmux.conversation`,
+/// category `AutoScroll`) for the trace.
 @MainActor
 final class ConversationAutoScrollDriver {
     static let environmentKey = "CMUX_UITEST_CONVERSATION_AUTOSCROLL"
@@ -21,7 +24,7 @@ final class ConversationAutoScrollDriver {
     private var link: CADisplayLink?
     private var index = 0
     private var stepStart: CFTimeInterval = 0
-    private var motion = ConversationAutoScrollMotion(startOffset: 0)
+    private var motion = ConversationAutoScrollMotion()
     private var interval: OSSignpostIntervalState?
     private let signposter = OSSignposter(subsystem: "com.cmux.conversation", category: "AutoScroll")
 
@@ -94,7 +97,7 @@ final class ConversationAutoScrollDriver {
         endInterval()
         index = next
         stepStart = time
-        motion = ConversationAutoScrollMotion(startOffset: scrollView.contentOffset.y)
+        motion = ConversationAutoScrollMotion()
         guard index < script.steps.count else { return stop() }
         let step = script.steps[index]
         switch step {
