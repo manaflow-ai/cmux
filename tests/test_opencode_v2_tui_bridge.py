@@ -145,8 +145,22 @@ const liveB = makeLive("b", { CMUX_SOCKET_PATH: socketPath, CMUX_SURFACE_ID: "su
 const cleanupA = await mod.createCMUXTUIBridge(liveA, { environment: liveA.environment });
 const cleanupB = await mod.createCMUXTUIBridge(liveB, { environment: liveB.environment });
 
+// OpenCode can publish the restored session before the TUI has committed its
+// route/tab state. The session-start event must survive that startup race so
+// cmux can record the binding used by the next workspace restore.
+const routeA = liveA.ui.router.current;
+const tabsA = liveA.ui.tabs.list;
+liveA.ui.router.current = () => ({ type: "home" });
+liveA.ui.tabs.list = () => [];
+setTimeout(() => {
+  liveA.ui.router.current = routeA;
+  liveA.ui.tabs.list = tabsA;
+}, 0);
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
-await new Promise((resolve) => setImmediate(resolve));
+await Promise.race([
+  waitForObserved((event) => event.hook_event_name === "SessionStart" && event.session_id === "child-a"),
+  new Promise((_, reject) => setTimeout(() => reject(new Error("restored OpenCode session-start was dropped before TUI route became visible")), 2000)),
+]);
 liveB.emit({ details: { type: "session.execution.succeeded", data: { sessionID: "child-b" } } });
 liveA.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-a", action: "edit", resources: ["/tmp/a/file"] } } });
 liveB.emit({ details: { type: "permission.asked", data: { sessionID: "child-a", id: "perm-wrong", action: "edit" } } });
