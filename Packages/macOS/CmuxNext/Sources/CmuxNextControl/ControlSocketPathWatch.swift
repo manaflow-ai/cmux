@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 import Foundation
+import os
 
 /// Notices that a control socket's file is gone and asks for it back.
 ///
@@ -49,7 +50,12 @@ final class ControlSocketPathWatch: Sendable {
     func start() {
         let parent = (path as NSString).deletingLastPathComponent
         let directory = open(parent.isEmpty ? "." : parent, O_EVTONLY)
-        guard directory >= 0 else { return }
+        guard directory >= 0 else {
+            // Without the watch a deleted socket stays gone until relaunch; say so once.
+            let error = String(cString: strerror(errno))
+            pathWatchLog.error("socket path watch off: cannot open \(parent, privacy: .public): \(error, privacy: .public)")
+            return
+        }
         let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: directory, eventMask: [.write, .rename, .delete], queue: queue)
         // wakeup-allow: kqueue directory event (no timer); one lstat per event
         watch.setEventHandler { [weak self] in self?.checkPath() }
@@ -92,3 +98,5 @@ final class ControlSocketPathWatch: Sendable {
         }
     }
 }
+
+private let pathWatchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "control-socket")

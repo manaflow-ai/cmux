@@ -150,6 +150,9 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
         v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one"),
         "peer session not listed after add_peer settled: {v}"
     );
+    // cx-v9k2f: a peer's session carries its lane like a local one.
+    let listed = v["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/remote-one");
+    assert_eq!(listed.unwrap()["lane"]["state"], "idle", "{v}");
 
     // Prompt through A by the prefixed name; the reply streams to A's client.
     ca.call(method::MUX_ATTACH, json!({"session": "b/remote-one", "limit": 0})).await.unwrap();
@@ -673,6 +676,53 @@ async fn every_answer_for_a_peers_prompt_goes_to_the_peer_within_a_hop_limit() {
         })
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+}
+
+/// Prompt bookmarks of a peer's chat live on the daemon that owns it: A forwards both
+/// `_acpmux/bookmark_set` and `_acpmux/bookmark_get` to B, which checks the seq in its own log.
+#[tokio::test]
+async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "marks").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "marked"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "hi"}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let page = cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 5000})).await;
+    let page = page.unwrap();
+    let events = page["events"].as_array().unwrap();
+    let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
+    let (prompt_seq, reply_seq) = (seq_of("user_message"), seq_of("turn_result"));
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let refused = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+        )
+        .await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");
+    let set = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": prompt_seq, "bookmarked": true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set["peer"], "b", "{set}");
+    assert_eq!(set["bookmarks"], json!([prompt_seq]), "{set}");
+    let got = ca.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(got["peer"], "b", "{got}");
+    assert_eq!(got["bookmarks"], json!([prompt_seq]), "{got}");
+    // B holds it, in its own session.
+    let on_b = cb.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(on_b["bookmarks"], json!([prompt_seq]), "{on_b}");
+    assert!(on_b.get("peer").is_none(), "{on_b}");
 }
 
 /// A TCP relay in front of `port` that counts the bytes each way: what

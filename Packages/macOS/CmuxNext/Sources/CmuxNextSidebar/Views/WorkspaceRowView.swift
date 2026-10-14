@@ -173,22 +173,30 @@ final class WorkspaceRowView: SidebarRowView {
         // content (`WorkspaceRowContent`) says. WORKSPACE-ROWS-NO-DEFAULT-ICON:
         // only a user's icon or a page's favicon draws; else the title leads.
         let shown = row.content ?? WorkspaceRowContent()
-        icon.configure(icon: shown.icon)
+        // A row badge style other than `.trailing` draws the unread count and activity in its
+        // badge and leads with the kind icon (`configureBadges`): set those views once, here, so
+        // a status tick does not flip the icon image and the activity indicator twice per configure.
+        let badgesLead = content.rowBadge != .trailing && !isShowingPlaceholder
+        if badgesLead, shown.icon == nil {
+            icon.configure(icon: nil, fallback: ws.kind.iconName, brand: ws.kindBrand ?? ws.agentBrand)
+        } else {
+            icon.configure(icon: shown.icon)
+        }
         iconKind = shown.icon
         title.stringValue = ws.title
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.time, shown.time ?? "", shown.meta ?? "")
-        activity.configure(shown.activity, style: ws.activityStyle)
+        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.trailingText, shown.trailingText ?? "", shown.meta ?? "")
+        activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
-        badge.configure(ws.unread)
+        badge.configure(badgesLead ? .none : ws.unread)
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence : [])
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil

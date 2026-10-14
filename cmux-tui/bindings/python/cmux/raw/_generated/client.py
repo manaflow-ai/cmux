@@ -111,6 +111,15 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, if_empty: Union[bool, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals, if_empty=if_empty, reason=reason))
 
+    def cloud_attachment_link(self, conversation: str, hash: str, *, name: Union[str, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> CloudAttachmentLinkResult:
+        return self._invoke_command('cloud-attachment-link', CloudAttachmentLinkRequest(conversation=conversation, hash=hash, name=name, variant=variant))
+
+    def cloud_attachment_read(self, conversation: str, hash: str, *, length: Union[int, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, variant: Union[str, None, MissingType] = MISSING) -> CloudAttachmentReadResult:
+        return self._invoke_command('cloud-attachment-read', CloudAttachmentReadRequest(conversation=conversation, hash=hash, length=length, offset=offset, variant=variant))
+
+    def cloud_attachment_upload(self, op: str, *, byte_count: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, data: Union[str, None, MissingType] = MISSING, duration_ms: Union[int, None, MissingType] = MISSING, height: Union[int, None, MissingType] = MISSING, mime_type: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, piece: Union[str, None, MissingType] = MISSING, poster: Union[JsonValue, None, MissingType] = MISSING, preview: Union[JsonValue, None, MissingType] = MISSING, sha256: Union[str, None, MissingType] = MISSING, upload: Union[str, None, MissingType] = MISSING, width: Union[int, None, MissingType] = MISSING) -> CloudAttachmentUploadResult:
+        return self._invoke_command('cloud-attachment-upload', CloudAttachmentUploadRequest(op=op, byte_count=byte_count, conversation=conversation, data=data, duration_ms=duration_ms, height=height, mime_type=mime_type, name=name, offset=offset, piece=piece, poster=poster, preview=preview, sha256=sha256, upload=upload, width=width))
+
     def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
 
@@ -155,6 +164,9 @@ class GeneratedClientMixin:
 
     def cloud_mux_unsubscribe(self) -> JsonValue:
         return self._invoke_command('cloud-mux-unsubscribe', CloudMuxUnsubscribeRequest())
+
+    def cloud_participant_avatar_get(self, participant_id: str, *, conversation: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-participant-avatar-get', CloudParticipantAvatarGetRequest(participant_id=participant_id, conversation=conversation))
 
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
@@ -841,6 +853,9 @@ GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-grou
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
+GeneratedClientMixin.cloud_attachment_link.__cmux_command__ = COMMANDS['cloud-attachment-link']
+GeneratedClientMixin.cloud_attachment_read.__cmux_command__ = COMMANDS['cloud-attachment-read']
+GeneratedClientMixin.cloud_attachment_upload.__cmux_command__ = COMMANDS['cloud-attachment-upload']
 GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['cloud-conversation-history']
 GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
 GeneratedClientMixin.cloud_conversation_run.__cmux_command__ = COMMANDS['cloud-conversation-run']
@@ -856,6 +871,7 @@ GeneratedClientMixin.cloud_inbox_unsubscribe.__cmux_command__ = COMMANDS['cloud-
 GeneratedClientMixin.cloud_mux_ack.__cmux_command__ = COMMANDS['cloud-mux-ack']
 GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-subscribe']
 GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
+GeneratedClientMixin.cloud_participant_avatar_get.__cmux_command__ = COMMANDS['cloud-participant-avatar-get']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']

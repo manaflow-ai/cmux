@@ -21999,6 +21999,42 @@
     "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-participant-avatar-get": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "participant-avatars-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "participant_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only (and the person's authenticated page). Needs cloud-conversations-v1 too. Calls the cloud. See spec/commands.md."
+   ]
+  },
   "cloud-conversation-runs": {
    "authority": "local-admin",
    "since": 12,
@@ -22801,6 +22837,479 @@
    "stream": null,
    "constraints": [
     "Trusted local and authenticated WebSocket connections. variant original (default), poster or preview; name follows the attachment name rule. The caller and the hash follow the conversation-attachment-read rule. path is /attachments/<token> on the daemon's WebSocket listener (HTTP GET or HEAD, one byte range), valid for expires_in_ms (10 minutes) or until a restart. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview, validation_invalid). See spec/commands.md."
+   ]
+  },
+  "cloud-attachment-upload": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "sha256": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "byte_count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mime_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "width": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "height": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "duration_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "poster": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "preview": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "upload": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "piece": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "upload": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "needs": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "stored": {
+      "type": {
+       "kind": "object",
+       "fields": {
+        "hash": {
+         "type": {
+          "kind": "scalar",
+          "name": "string"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "mime_type": {
+         "type": {
+          "kind": "scalar",
+          "name": "string"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "byte_count": {
+         "type": {
+          "kind": "scalar",
+          "name": "uint64"
+         },
+         "presence": "required",
+         "nullable": false
+        },
+        "poster": {
+         "type": {
+          "kind": "object",
+          "fields": {
+           "hash": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "mime_type": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "byte_count": {
+            "type": {
+             "kind": "scalar",
+             "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+           }
+          },
+          "additional_properties": false
+         },
+         "presence": "optional",
+         "nullable": true,
+         "default": null
+        },
+        "preview": {
+         "type": {
+          "kind": "object",
+          "fields": {
+           "hash": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "mime_type": {
+            "type": {
+             "kind": "scalar",
+             "name": "string"
+            },
+            "presence": "required",
+            "nullable": false
+           },
+           "byte_count": {
+            "type": {
+             "kind": "scalar",
+             "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false
+           }
+          },
+          "additional_properties": false
+         },
+         "presence": "optional",
+         "nullable": true,
+         "default": null
+        }
+       },
+       "additional_properties": false
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "received": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "The person's own clients with the app's lease (the verified app, an authenticated page), like every lease command. The same steps, fields, rules and refusals as conversation-attachment-upload; begin asks the cloud owner for an upload slot, commit sends the poster or preview then the file to the cloud owner and answers its record. Rejects: attachment_rejected, cloud_* errors. See spec/commands.md."
+   ]
+  },
+  "cloud-attachment-read": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "variant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "length": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mime_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "byte_count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "eof": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "The person's own clients with the app's lease. Bytes of a cloud attachment variant through a signed URL the cloud owner mints; the same result as conversation-attachment-read (hash is the part's hash). See spec/commands.md."
+   ]
+  },
+  "cloud-attachment-link": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-attachments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "hash": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "variant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_in_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "The person's own clients with the app's lease. A local download link (GET /attachments/<token>, byte ranges) that reads the cloud owner's signed URL with the lease. See spec/commands.md."
    ]
   },
   "conversation-run-append": {
@@ -27251,6 +27760,44 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "participant-avatar-changed": {
+   "since": 12,
+   "capability": "participant-avatars-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "participant-avatar-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "avatar": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
      }
     },
     "additional_properties": false

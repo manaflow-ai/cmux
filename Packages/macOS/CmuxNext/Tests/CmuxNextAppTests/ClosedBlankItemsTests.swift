@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextHistory
 import Foundation
 import Testing
 
@@ -25,13 +26,13 @@ struct ClosedBlankItemsTests {
 
     /// One closed item as `closed.list` lists it. A tab item carries its tab's name, as the daemon
     /// records it.
-    private static func closed(_ kind: String, name: String? = nil, _ tabs: String...) throws -> ClosedItem {
+    private static func closed(_ kind: String, name: String? = nil, _ tabs: String...) throws -> CmuxNextDaemon.ClosedItem {
         let label = name.map { "\"\($0)\"" } ?? "null"
         let json = """
         {"id":"closed_1","kind":"\(kind)","name":\(label),"workspace_id":null,"pane_id":null,"index":0,"closed_at_ms":1,
          "screens":[{"name":null,"tabs":[\(tabs.joined(separator: ","))]}],"window":null,"member_count":1,"members":[]}
         """
-        return try JSONDecoder().decode(ClosedItem.self, from: Data(json.utf8))
+        return try JSONDecoder().decode(CmuxNextDaemon.ClosedItem.self, from: Data(json.utf8))
     }
 
     @Test func untouchedNewTabPagesAndTheirWorkspacesAreLeftOut() throws {
@@ -55,5 +56,23 @@ struct ClosedBlankItemsTests {
             "untitled chat: Terminal · -",
             "workspace with a terminal: workspace-7 · /Users/you/src/cmux",
         ])
+    }
+
+    /// One row per page (Leo 2026-10-14): a page closed again shows once, at its newest close,
+    /// newest first. Terminals and chats carry no identity beyond a name or folder, so each close
+    /// of them stays its own row.
+    @Test func aPageClosedAgainShowsOnceAtItsNewestClose() {
+        func entry(_ id: String, _ kind: CmuxNextHistory.ClosedItem.Kind, at seconds: Double, url: String? = nil, cwd: String? = nil) -> HistoryEntry {
+            let item = CmuxNextHistory.ClosedItem(id: id, kind: kind, title: url ?? cwd ?? "", machine: "local", cwd: cwd, url: url)
+            return HistoryEntry(id: id, kind: .closed, time: Date(timeIntervalSince1970: seconds), title: item.title, payload: .closed(item))
+        }
+        let shown = HistoryService.newestOnce([
+            entry("example-1", .browserTab, at: 1, url: "https://example.com/"),
+            entry("shell-1", .terminalTab, at: 2, cwd: "/Users/you"),
+            entry("example-2", .browserTab, at: 3, url: "https://example.com/"),
+            entry("shell-2", .terminalTab, at: 4, cwd: "/Users/you"),
+            entry("cmux", .browserTab, at: 5, url: "https://cmux.com/"),
+        ]).map { $0.id }
+        #expect(shown == ["cmux", "shell-2", "example-2", "shell-1"])
     }
 }

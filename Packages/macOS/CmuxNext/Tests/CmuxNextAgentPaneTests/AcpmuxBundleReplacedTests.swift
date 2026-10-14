@@ -42,7 +42,8 @@ struct AcpmuxBundleReplacedTests {
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
         func environment() throws -> AcpmuxEnvironment {
             try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
-                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
+                                                   environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket],
+                                                   executableOverride: nil))
         }
 
         // Each step is named, so a failure says whether the update or the setup broke.
@@ -75,7 +76,7 @@ struct AcpmuxBundleReplacedTests {
         var pathLength: Int32 = 0
         if case .success(let (_, after?)) = pids { pathLength = proc_pidpath(after, &path, UInt32(path.count)) }
         // Whatever failed, every daemon this test started ends with it.
-        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, deadline: .seconds(10))
+        _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: home, deadline: .seconds(10))
         guard case .success(let (before, after)) = pids, let pid = after else {
             Issue.record("\(step) failed: \(pids)\n--- daemon.log\n\(log)")
             return

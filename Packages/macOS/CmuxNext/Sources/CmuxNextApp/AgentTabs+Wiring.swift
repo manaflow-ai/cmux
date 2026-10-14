@@ -198,7 +198,8 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust))
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust),
+                                           servesKeyedReason: daemon.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
@@ -214,9 +215,9 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
                     return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
                 }
-                host.start = { [weak tabs] cwd, harness in
+                host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+                    return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
                 }
             }
             // cx-0q7o: the app's own ssh exec to that machine restarts its acpmux with a key.
@@ -224,9 +225,9 @@ extension AgentTabStore {
                 host.approvals = AgentPaneRemoteApprovals(machineID: link.machineID, label: link.host.label, restart: { [weak services, weak link] in
                     guard let services, let link else { return .failed("") }
                     return await services.ssh.restartWithApprovals(link)
-                }, prepare: { [weak services, weak link] in
+                }, prepare: { [weak services, weak link] preparation in
                     guard let services, let link else { return false }
-                    return await services.ssh.restartWithApprovalsIfIdle(link)
+                    return await services.ssh.restartWithApprovalsIfIdle(link, preparation)
                 })
             } else if let cloud = services.machines.session(daemon.machineID), cloud.link != nil || cloud.appLink != nil {
                 // cx-psxg: a Cloud machine on the /api/vm link, through the web Cloud service; cx-kvmz:

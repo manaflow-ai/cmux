@@ -166,3 +166,91 @@ fn a_malformed_key_starts_nothing() {
         assert_ne!(fixture.command("status").output().unwrap().status.code(), Some(0));
     }
 }
+
+/// One `cmux.protocol/2` request on `client`; the response.
+fn v2(client: &mut Client, id: &str, operation: &str, params: Value, extra: Value) -> Value {
+    let mut params = params;
+    params["machine"] = json!("current");
+    params["session"] = json!("current");
+    let mut request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                             "operation": operation, "params": params});
+    for (key, value) in extra.as_object().unwrap() {
+        request[key] = value.clone();
+    }
+    client.rpc(request)
+}
+
+/// The Chief home's conversation owner (the app's `DaemonLauncher.forChief`,
+/// cx-ebm.59.5) is this same `server ensure --install-key-stdin` owner, so it
+/// trusts exactly what a build daemon trusts. A Home page's gesture
+/// (`origin.confirmation.issue` for the page relay's `chief.profile.create`)
+/// is confirmed only on the connection that proved the key with
+/// `client-hello`: a connection without the hello, or with another key, is
+/// refused as not the verified app; the proved one gets the token, and the
+/// page's create then goes through as the person.
+#[test]
+fn an_owner_with_a_key_confirms_a_page_gesture_only_for_the_proved_app() {
+    use sha2::Digest as _;
+    let fixture = Fixture::new("confirm");
+    let started = success(&fixture.ensure_with_key(&format!("cmuxik1 inst_app {KEY_HEX}\n")));
+    assert_eq!(started["status"], "started", "{started}");
+
+    let mut relay = fixture.connect();
+    let hello = relay.rpc(
+        json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "home-channels"}),
+    );
+    assert_eq!(hello["ok"], true, "{hello}");
+    let relay_id = hello["data"]["connection_id"].as_str().unwrap().to_owned();
+
+    let create = json!({"display_name": "Ops", "role": "Release captain"});
+    let mut canonical: std::collections::BTreeMap<String, Value> =
+        create.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    canonical.insert("machine".into(), json!("current"));
+    canonical.insert("session".into(), json!("current"));
+    let digest = sha2::Sha256::digest(serde_json::to_string(&canonical).unwrap().as_bytes());
+    let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let issue = json!({"operation": "chief.profile.create", "params_sha256": digest,
+                       "relay_connection_id": relay_id});
+
+    // No hello, and a hello with another key: not the verified app.
+    let mut unproved = fixture.connect();
+    let mut wrong = fixture.connect();
+    assert_ne!(wrong.hello("inst_app", OTHER_KEY_HEX)["data"]["verified"], true);
+    for (client, id) in [(&mut unproved, "issue-none"), (&mut wrong, "issue-wrong")] {
+        let refused = v2(client, id, "origin.confirmation.issue", issue.clone(), json!({}));
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+        assert_eq!(
+            refused["error"]["message"], "needs a verified cmux app connection",
+            "{refused}"
+        );
+    }
+
+    // The page's create without a confirmation is refused for the gesture.
+    let page_only = v2(
+        &mut relay,
+        "create-page",
+        "chief.profile.create",
+        create.clone(),
+        json!({"idempotency_key": "page-create", "origin": {"claim": "page"}}),
+    );
+    assert_eq!(page_only["ok"], false, "{page_only}");
+    assert_eq!(page_only["error"]["details"]["reason"], "gesture_required", "{page_only}");
+
+    // The app that proved its key is the verified app: it gets the token.
+    let mut app = fixture.connect();
+    assert_eq!(app.hello("inst_app", KEY_HEX)["data"]["verified"], true);
+    let issued = v2(&mut app, "issue-app", "origin.confirmation.issue", issue, json!({}));
+    assert_eq!(issued["ok"], true, "{issued}");
+    let token = issued["result"]["token"].as_str().unwrap().to_owned();
+    let made = v2(
+        &mut relay,
+        "create-user",
+        "chief.profile.create",
+        create,
+        json!({"idempotency_key": "user-create",
+                         "origin": {"claim": "user", "confirmation": token}}),
+    );
+    assert_eq!(made["ok"], true, "{made}");
+    assert_eq!(made["result"]["value"]["display_name"], "Ops", "{made}");
+}
