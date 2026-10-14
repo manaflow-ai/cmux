@@ -10,7 +10,9 @@
 // the same class, sets a non-zero border-radius; in TSX, a class list with a sub-pixel Tailwind
 // border width and a `rounded` utility. A custom property holding a sub-pixel ring shadow layer (an
 // elevation token) always counts. Straight one-side separators (`border-top: .5px`) are left alone:
-// WebKit draws a straight sub-pixel border as one device pixel. A rule (or the comment line above a TSX line) marked
+// WebKit draws a straight sub-pixel border as one device pixel. So are offset insets
+// (`inset 0 .5px 0`), which draw one side. Known limits: a radius set in another file, or on a
+// selector without a class, is not seen, and a width kept in its own custom property is not traced. A rule (or the comment line above a TSX line) marked
 // `hairline-allow: <reason>` is exempt.
 import fs from "node:fs";
 import path from "node:path";
@@ -77,11 +79,13 @@ function subjectClasses(part: string): string[] {
   return [...last.matchAll(/\.([\w-]+)/g)].map((match) => match[1]!);
 }
 
-/** A rim declaration's width is sub-pixel (box-shadow: a ring whose blur is 0 and spread is sub-pixel). */
+/** A rim declaration's width is sub-pixel (box-shadow: a layer whose blur is 0 and spread is sub-pixel;
+ * a layer that names the hairline token is fine, the others are still checked). */
 function subPixelRim(property: string, value: string): boolean {
-  if (!RIM_PROPERTY.test(property) || /var\(--cmux-hairline/.test(value) || !SUB_PIXEL.test(value)) return false;
-  if (!/^box-shadow$/i.test(property)) return true;
+  if (!RIM_PROPERTY.test(property) || !SUB_PIXEL.test(value)) return false;
+  if (!/^box-shadow$/i.test(property)) return !/var\(--cmux-hairline(?![\w-])/.test(value);
   return splitTop(value).some((entry) => {
+    if (/var\(--cmux-hairline/.test(entry)) return false;
     const lengths = entry
       .replace(/\b(?:rgba?|hsla?|color-mix|color|oklch|oklab|lab|lch|var)\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, "")
       .match(/-?(?:\d*\.)?\d+(?:px)?\b/g);

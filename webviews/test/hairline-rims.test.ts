@@ -75,6 +75,7 @@ describe("hairline rims", () => {
         ".tile { border-radius: 4px; outline: 0.5px solid red; }",
         ":root { --pop: 0 2px 6px black, inset 0 0 0 0.5px red; }",
         ".ok { border-radius: 8px; box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) red; }",
+        ".mixed { border-radius: 8px; box-shadow: inset 0 0 0 var(--cmux-hairline) red, 0 0 0 .5px blue; }",
         ".ok2 { border-radius: 8px; border: var(--cmux-hairline) solid red; }",
         ".line { border-top: .5px solid red; }",
         ".flat { box-shadow: inset 0 0 0 .5px red; }",
@@ -94,6 +95,7 @@ describe("hairline rims", () => {
         "a.css:4 .chip",
         "a.css:5 .tile",
         "a.css:6 :root",
+        "a.css:8 .mixed",
         "b.tsx:1 className",
       ]);
     } finally {

@@ -85,7 +85,7 @@ const layers = (value: string) => {
 };
 const hairlines = (value: string) =>
   layers(expand(value)).filter((layer) =>
-    /^inset\s+0\s+0\s+0\s+(?:[\d.]*\d(px)?\b|var\(--cmux-hairline\b)/.test(layer),
+    /^inset\s+0\s+0\s+0\s+(?:[\d.]*\d(px)?\b|var\(--cmux-hairline(?![\w-]))/.test(layer),
   );
 
 // A border drawn by the rule is an edge too: any `border`/`border-width` that is not 0 or none.
