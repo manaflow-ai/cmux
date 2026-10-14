@@ -526,5 +526,5 @@ pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
             s
         })
         .collect();
-    (!rules.is_empty()).then(|| Value::Array(rules))
+    (!rules.is_empty()).then_some(Value::Array(rules))
 }
