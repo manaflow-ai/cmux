@@ -32,7 +32,7 @@ export const katexStylePlugin = {
   name: "katex-style",
   setup(build) {
     build.onResolve({ filter: /^katex\/dist\/katex\.min\.css$/ }, () => ({
-      path: "katex.css",
+      path: "katex-style.js",
       namespace: "katex-style",
     }));
     build.onLoad({ filter: /.*/, namespace: "katex-style" }, () => ({
