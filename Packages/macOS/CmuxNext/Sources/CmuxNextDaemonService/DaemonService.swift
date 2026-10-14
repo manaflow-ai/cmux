@@ -93,7 +93,8 @@ public final class DaemonService {
     /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
-    @ObservationIgnored private var lastStartupError: DaemonError?
+    /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
+    @ObservationIgnored private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
@@ -409,7 +410,7 @@ public final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): not connected to cmux-tui"
+            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
         }
         do {
             try await body(connection)
