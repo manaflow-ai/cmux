@@ -983,11 +983,11 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
                 self?.terminalView.clearSelection()
             })
         }
-        if UIPasteboard.general.hasStrings {
-            actions.append(UIAction(title: TerminalText.paste, image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
-                self?.paste()
-            })
-        }
+        // Copy, Paste, Select All (Paste is always offered; it pastes nothing
+        // when the clipboard has no text).
+        actions.append(UIAction(title: TerminalText.paste, image: UIImage(systemName: "doc.on.clipboard")) { [weak self] _ in
+            self?.paste()
+        })
         actions.append(UIAction(title: TerminalText.selectAll) { [weak self] _ in
             self?.selectAll()
         })
