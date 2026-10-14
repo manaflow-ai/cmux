@@ -53,9 +53,16 @@ function row(container: HTMLElement, hidden: Set<Element>): number {
   return children.reduce((sum, child) => sum + wanted(child, hidden), 0) + gap * Math.max(0, children.length - 1);
 }
 
-/** Whether the row shows icons: `icons` is what it shows now, `wanted` the width every label whole takes. */
+/** Room the labels need, past the row's, before icons give way to them again. */
+const LABELS_BACK = 4;
+
+/**
+ * Whether the row shows icons: `icons` is what it shows now, `wanted` the width every label whole
+ * takes. With labels shown a shortening label's overflow is whole pixels (scrollWidth), so going
+ * back from icons needs clear room or the row would flip every frame in that band.
+ */
 export function showsIcons(icons: boolean, wanted: number, room: number): boolean {
-  return wanted > room + 0.5;
+  return icons ? wanted > room - LABELS_BACK : wanted > room + 0.5;
 }
 
 /** Whether the row's controls fit with every label shown. */
