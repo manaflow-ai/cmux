@@ -39,15 +39,63 @@ struct PinCommands {
     /// The id of the pin undo toast (one per window; a newer pin change replaces it).
     static let undoToastID = "pin-undo"
 
-    /// Shows the undo toast for a user's pin change in the active window;
-    /// its Undo button and Cmd-Z (TOAST-UNDO-KEY) run `inverse`, which shows
-    /// the next toast. One toast per window: a newer pin change replaces it.
-    /// (An NSUndoManager entry is not used: the terminal and the toast own
-    /// Cmd-Z, and an entry on the window would keep the toast from the key.)
+    /// Shows the undo toast for a user's pin or sidebar change in the active
+    /// window and puts the same step on the window's undo stack. The toast
+    /// only hides after its time: Edit > Undo and Cmd-Z still undo the step
+    /// later, like any macOS undo. While the toast shows, its Undo button and
+    /// Cmd-Z (TOAST-UNDO-KEY, or the undo stack when it holds the step) run
+    /// `inverse` once; the other path then does nothing. `inverse` shows the
+    /// next toast (registered during an undo, its step becomes the redo).
     func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
         let windows = context.services.windows
         guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        handle.onAction = { inverse(self) }
+        let step = PinUndoStep(title: title) { inverse(self) }
+        step.handle = handle
+        step.undoManager = window.undoManager
+        PinUndoStep.newest = step
+        handle.onAction = { step.run(fromToast: true) }
+        handle.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
+        // The handler holds the step (an undo manager may not retain its target), so it outlives the toast.
+        window.undoManager?.registerUndo(withTarget: step) { [step] _ in
+            MainActor.assumeIsolated { step.run(fromToast: false) }
+        }
+        window.undoManager?.setActionName(title)
     }
+}
+
+/// One undo step shared by the toast and the window's undo stack: it runs
+/// its inverse once, whichever path comes first.
+@MainActor
+final class PinUndoStep {
+    /// The step registered last (a newer one is the top of its stack, not this).
+    static weak var newest: PinUndoStep?
+    private var inverse: (() -> Void)?
+    private let title: String
+    weak var handle: CmuxToastHandle?
+    weak var undoManager: UndoManager?
+
+    init(title: String, _ inverse: @escaping @MainActor () -> Void) {
+        self.title = title
+        self.inverse = inverse
+    }
+
+    /// Still to run, registered last, and the top of `manager` (its action name).
+    func isTop(of manager: UndoManager?) -> Bool {
+        guard let manager, inverse != nil, Self.newest === self, manager === undoManager else { return false }
+        return manager.undoActionName == title
+    }
+
+    func run(fromToast: Bool) {
+        guard let inverse else { return }
+        self.inverse = nil
+        if fromToast {
+            undoManager?.removeAllActions(withTarget: self) // the toast ran it: the stack loses the step
+        } else if let handle, !handle.isDismissed {
+            handle.onAction = nil
+            handle.dismiss() // the stack ran it: the toast goes
+        }
+        inverse()
+    }
+}
 }

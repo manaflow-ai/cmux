@@ -202,6 +202,27 @@ def undo(label, check):
     time.sleep(1.0)  # test harness: let the redo land
 
 
+def undo_toasts():
+    return [t for w in toast().get("windows", []) for t in w.get("toasts", []) if t.get("undo")]
+
+
+def late_undo(label, undone, redone):
+    """Cmd-Z after the undo toast has hidden still undoes the step (the window's undo stack keeps it, like any macOS
+    undo); Shift-Cmd-Z redoes it, so the step's result stays for the next step."""
+    gone = wait(lambda: not undo_toasts() or None, 20)  # the toast hides after its own time (6 s)
+    time.sleep(10.0)  # test harness: Cmd-Z comes 10 s after the toast hid, not inside its time
+    rpc("debug.key", {"key": "z", "modifiers": ["cmd"]})
+    ok = wait(lambda: bool(undone()) or None, 5)
+    record(f"{label}: Cmd-Z 10 s after the toast hid restores", bool(gone) and bool(ok),
+           f"toast hidden={bool(gone)} list={list_titles()} pinned={[i.get('ref') for i in section_items('sec_pinned')]}")
+    rpc("debug.key", {"key": "z", "modifiers": ["cmd", "shift"]})
+    again = wait(lambda: bool(redone()) or None, 5)
+    if not again and undo_toasts():
+        toast(undo=True)  # the inverse's own toast redoes it when the stack has no redo
+        again = wait(lambda: bool(redone()) or None, 5)
+    record(f"{label}: Shift-Cmd-Z redoes the late undo", bool(again), f"list={list_titles()}")
+
+
 def launch():
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
@@ -254,6 +275,7 @@ try:
                len(order) == len(tiles) + 1 and order[0] == tiles[0] and order[2:] == tiles[1:] and "Alpha" not in list_titles(),
                f"pinned before={tiles} after={order} list={list_titles()}")
         undo("workspace into Pinned", lambda: "Alpha" in list_titles())
+        late_undo("workspace into Pinned", lambda: "Alpha" in list_titles(), lambda: "Alpha" not in list_titles())
     else:
         record("workspace into Pinned at index 1", False, f"rows={list(rows())} pinned={pinned}")
 
