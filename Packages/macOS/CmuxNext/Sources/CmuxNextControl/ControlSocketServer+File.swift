@@ -103,6 +103,8 @@ extension ControlSocketServer {
         // Never block the caller (the App starts the server on the main
         // actor): a listener with a full backlog answers EAGAIN, not a wait.
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+        var noSigPipe: Int32 = 1  // the probe never writes; set anyway so no path can raise SIGPIPE
+        setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
