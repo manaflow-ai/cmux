@@ -139,7 +139,12 @@ class Target:
     @classmethod
     def find(cls):
         pid = app_pid()
-        windows = [w for w in (cua("list_windows", {"pid": pid}).get("windows") or []) if w.get("is_on_screen")]
+        # The window can still be ordering in after launch (hitch5 1014-112015-158e99 found none on screen): wait for it.
+        listed = {}
+        windows = wait(lambda: [w for w in (listed.update(cua("list_windows", {"pid": pid})) or listed.get("windows") or [])
+                                if w.get("is_on_screen")], 30)
+        if not windows:
+            fail_harness(f"cua-driver lists no on-screen window for pid {pid} after 30 s: {json.dumps(listed)[:400]}")
         main = max(windows, key=lambda w: w["bounds"]["width"] * w["bounds"]["height"])
         shot = os.path.join(SCRATCH, "window.png")
         cua("get_window_state", {"pid": pid, "window_id": main["window_id"], "screenshot_out_file": shot}, timeout=120)
