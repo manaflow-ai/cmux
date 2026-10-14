@@ -348,8 +348,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 [
                     TabsKitMenuItem(title: "Agent edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
-                    TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
-                    TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
+                    TabsKitMenuItem(title: "Files and artifacts", systemImage: "folder") { surface.showArtifacts = true },
+                    TabsKitMenuItem(title: "Copy session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
                 ],
                 [
                     TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",

@@ -102,7 +102,8 @@ public struct MockArtifactSource: ArtifactSource {
         let name = reference.split(separator: "/").last.map(String.init) ?? reference
         switch name {
         case "README.md": return readme
-        case "architecture.md", "protocol.md": return architecture
+        case "architecture.md", "protocol.md", "PROTOCOL.md": return architecture
+        case "relay-rtt.csv": return "transport,region,p50_ms,p95_ms,samples\nwireguard,us-west,38,61,240\nwireguard,eu-central,52,88,240\nwebrtc,us-west,41,70,240\nwebrtc,eu-central,57,96,240\nrelay,us-west,63,112,240\nrelay,eu-central,79,141,240\n"
         case "index.html": return indexHTML
         case "mux.rs", "main.rs", "lib.rs", "hostd.rs": return muxRust
         case "Cargo.toml": return cargoToml

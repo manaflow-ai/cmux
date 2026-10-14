@@ -441,12 +441,14 @@ struct AgentChatJumpButton: View {
                                 PulsingRing()
                             }
                         }
+                        .background(Color.cnxBackground.opacity(0.72), in: .circle)
+                        // A tinted glass disc, so transcript text under it never reads through the arrow.
+                        .glassEffect(.regular.tint(Color.cnxBackground.opacity(0.35)).interactive(), in: .circle)
+                        // The 36 pt disc in a 44 pt target.
+                        .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .background(Color.cnxBackground.opacity(0.72), in: .circle)
-                // A tinted glass disc, so transcript text under it never reads through the arrow.
-                .glassEffect(.regular.tint(Color.cnxBackground.opacity(0.35)).interactive(), in: .circle)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }

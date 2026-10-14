@@ -140,7 +140,7 @@ public struct ArtifactPreview: View {
                          highlightLine: artifact.line)
             }
         case .image(let data):
-            ZoomableImage(image: UIImage(data: data))
+            ZoomableImage(image: UIImage(data: data), label: "Image, \(artifact.name)")
         case .file(let url):
             AutoplayVideo(url: url)
         case .web(let url):
@@ -305,31 +305,201 @@ public struct WebPreview: UIViewRepresentable {
 /// Pinch and double-tap zoom (artifact previews and the chat's full-screen image viewer).
 public struct ZoomableImage: View {
     let image: UIImage?
-    @State private var scale: CGFloat = 1
-    @State private var base: CGFloat = 1
+    let label: String
+    @State private var zoom = ZoomControl()
+    var onZoomChange: ((Bool) -> Void)?
+    var onDismissDrag: ((CGFloat, Bool) -> Void)?
 
-    public init(image: UIImage?) {
+    /// `onZoomChange`: zoomed in or back at the fitted size. `onDismissDrag`: a downward
+    /// drag at the fitted size (translation, ended), for a swipe-to-dismiss host.
+    public init(image: UIImage?, label: String = "Image",
+                onZoomChange: ((Bool) -> Void)? = nil, onDismissDrag: ((CGFloat, Bool) -> Void)? = nil) {
         self.image = image
+        self.label = label
+        self.onZoomChange = onZoomChange
+        self.onDismissDrag = onDismissDrag
     }
 
     public var body: some View {
         if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .scaleEffect(scale)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZoomingImageView(image: image, label: label, control: zoom, onZoomChange: onZoomChange, onDismissDrag: onDismissDrag)
                 .background(Color.black)
-                .gesture(MagnifyGesture()
-                    .onChanged { scale = max(1, base * $0.magnification) }
-                    .onEnded { _ in base = scale })
-                .onTapGesture(count: 2) {
-                    withAnimation(.smooth) { scale = scale > 1 ? 1 : 2.5; base = scale }
+                // One labelled image for VoiceOver, with zoom as an action.
+                .accessibilityElement()
+                .accessibilityLabel(Text(label))
+                .accessibilityAddTraits(.isImage)
+                .accessibilityAction(named: Text("Zoom in or fit")) { zoom.view?.toggleZoomAtCenter() }
+                #if DEBUG
+                // `-cnx-image-zoom-demo`: double-tap's zoom path at launch (simulator HID
+                // double-taps do not reach the viewer).
+                .task {
+                    guard CommandLine.arguments.contains("-cnx-image-zoom-demo") else { return }
+                    try? await Task.sleep(for: .seconds(1))
+                    zoom.view?.toggleZoom(at: CGPoint(x: 60, y: 60))
                 }
-                .accessibilityLabel("Image")
+                #endif
         } else {
             ContentUnavailableView("Not an image", systemImage: "photo")
         }
+    }
+}
+
+/// Pinch, double-tap to zoom to the tapped point, pan while zoomed (a `UIScrollView`
+/// zoom host), and a downward drag reported only at the fitted size.
+/// Reaches the zoom view from SwiftUI (accessibility action, DEBUG demo).
+@MainActor
+final class ZoomControl {
+    weak var view: ZoomingImageScrollView?
+}
+
+struct ZoomingImageView: UIViewRepresentable {
+    let image: UIImage
+    let label: String
+    let control: ZoomControl
+    var onZoomChange: ((Bool) -> Void)?
+    var onDismissDrag: ((CGFloat, Bool) -> Void)?
+
+    func makeUIView(context: Context) -> ZoomingImageScrollView {
+        let view = ZoomingImageScrollView()
+        update(view)
+        return view
+    }
+
+    func updateUIView(_ view: ZoomingImageScrollView, context: Context) {
+        update(view)
+    }
+
+    private func update(_ view: ZoomingImageScrollView) {
+        control.view = view
+        view.onZoomChange = onZoomChange
+        view.onDismissDrag = onDismissDrag
+        view.set(image: image, label: label)
+    }
+}
+
+final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    let imageView = UIImageView()
+    let geometry = ZoomGeometry()
+    var onZoomChange: ((Bool) -> Void)?
+    var onDismissDrag: ((CGFloat, Bool) -> Void)?
+    private var wasZoomed = false
+    private var fittedFor: CGSize = .zero
+    private lazy var dismissPan = UIPanGestureRecognizer(target: self, action: #selector(dismissPanned(_:)))
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        delegate = self
+        minimumZoomScale = geometry.minimumScale
+        maximumZoomScale = geometry.maximumScale
+        showsVerticalScrollIndicator = false
+        showsHorizontalScrollIndicator = false
+        contentInsetAdjustmentBehavior = .never
+        decelerationRate = .fast
+        backgroundColor = .black
+        imageView.contentMode = .scaleAspectFit
+        imageView.isUserInteractionEnabled = true
+        imageView.isAccessibilityElement = true
+        imageView.accessibilityTraits = [.image]
+        addSubview(imageView)
+        // The scroll view is a container whose one element is the labelled image.
+        isAccessibilityElement = false
+        accessibilityElements = [imageView]
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+        dismissPan.delegate = self
+        addGestureRecognizer(dismissPan)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func set(image: UIImage, label: String) {
+        if imageView.image !== image {
+            imageView.image = image
+            fittedFor = .zero
+            setNeedsLayout()
+        }
+        imageView.accessibilityLabel = label
+        imageView.accessibilityHint = geometry.isZoomed(zoomScale) ? "Zoomed in. Double-tap to fit." : "Double-tap to zoom."
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard bounds.size != .zero, let image = imageView.image, image.size.width > 0 else { return }
+        if fittedFor != bounds.size {
+            // The image fitted to the viewport at scale 1.
+            fittedFor = bounds.size
+            setZoomScale(minimumZoomScale, animated: false)
+            let ratio = min(bounds.width / image.size.width, bounds.height / image.size.height)
+            let fitted = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            imageView.frame = CGRect(origin: .zero, size: fitted)
+            contentSize = fitted
+        }
+        center()
+    }
+
+    private func center() {
+        let insets = geometry.centeringInsets(content: imageView.frame.size, viewport: bounds.size)
+        contentInset = UIEdgeInsets(top: insets.vertical, left: insets.horizontal, bottom: insets.vertical, right: insets.horizontal)
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+        center()
+        let zoomed = geometry.isZoomed(zoomScale)
+        if zoomed != wasZoomed {
+            wasZoomed = zoomed
+            imageView.accessibilityHint = zoomed ? "Zoomed in. Double-tap to fit." : "Double-tap to zoom."
+            onZoomChange?(zoomed)
+        }
+    }
+
+    @objc func doubleTapped(_ recognizer: UITapGestureRecognizer) {
+        toggleZoom(at: recognizer.location(in: imageView))
+    }
+
+    /// Double-tap: zoom to `ZoomGeometry.doubleTapScale` around the point, or back to fit.
+    func toggleZoom(at point: CGPoint) {
+        if let target = geometry.doubleTapTarget(scale: zoomScale, tap: point, viewSize: bounds.size) {
+            zoom(to: target, animated: true)
+        } else {
+            setZoomScale(minimumZoomScale, animated: true)
+        }
+    }
+
+    func toggleZoomAtCenter() {
+        toggleZoom(at: CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY))
+    }
+
+    // MARK: Swipe to dismiss (fitted size only)
+
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer === dismissPan else { return super.gestureRecognizerShouldBegin(recognizer) }
+        guard onDismissDrag != nil, !geometry.isZoomed(zoomScale) else { return false }
+        let velocity = dismissPan.velocity(in: self)
+        return velocity.y > 0 && abs(velocity.y) > abs(velocity.x)
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    @objc private func dismissPanned(_ recognizer: UIPanGestureRecognizer) {
+        let translation = max(0, recognizer.translation(in: self).y)
+        switch recognizer.state {
+        case .changed: onDismissDrag?(translation, false)
+        case .ended, .cancelled, .failed: onDismissDrag?(translation, true)
+        default: break
+        }
+    }
+
+    // MARK: Accessibility
+
+    override func accessibilityPerformMagicTap() -> Bool {
+        toggleZoom(at: CGPoint(x: imageView.bounds.midX, y: imageView.bounds.midY))
+        return true
     }
 }
 

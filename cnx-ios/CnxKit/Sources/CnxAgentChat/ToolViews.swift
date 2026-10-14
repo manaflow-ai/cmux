@@ -35,6 +35,8 @@ struct ToolRowView: View {
                 header
             }
             .buttonStyle(.plain)
+            // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
+            .padding(.vertical, -6)
             if expanded {
                 ToolOutputView(call: call)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -80,7 +82,8 @@ struct ToolRowView: View {
                     .rotationEffect(.degrees(expanded ? 90 : 0))
             }
         }
-        .frame(minHeight: 32)
+        // 44 pt hit target; the Button's container pulls the row back to 32 pt of layout.
+        .frame(minHeight: 44)
         .contentShape(.rect)
     }
 }
@@ -141,10 +144,12 @@ struct ToolGroupView: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .frame(minHeight: 32)
+                // 44 pt hit target on a 32 pt row (the extra overlaps the row gaps).
+                .frame(minHeight: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -6)
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(calls) { call in
@@ -195,10 +200,12 @@ struct ThoughtRow: View {
                         .foregroundStyle(.tertiary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                 }
-                .frame(minHeight: 32)
+                // 44 pt hit target on a 32 pt row (the extra overlaps the row gaps).
+                .frame(minHeight: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .padding(.vertical, -6)
             if expanded || isLive {
                 Text(text)
                     .font(.subheadline)
@@ -250,7 +257,7 @@ struct DiffSnippet: View {
                 }
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
-                .frame(height: 40)
+                .frame(height: 44)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -344,11 +351,21 @@ struct EditedFilesCard: View {
                     openDiff(changeSet, file: file.id)
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: file.status == .added ? "doc.badge.plus" : "doc.text")
-                            .font(.system(size: 13)).foregroundStyle(.secondary).frame(width: 18)
+                        // Viewed (the shared `DiffViewedStore`): marked in Changes, Review or the file screen.
+                        let viewed = DiffViewedStore.shared.isViewed(file)
+                        Image(systemName: viewed ? "checkmark.circle.fill" : (file.status == .added ? "doc.badge.plus" : "doc.text"))
+                            .font(.system(size: 13)).foregroundStyle(viewed ? Color.cnxSuccess : .secondary).frame(width: 18)
+                            .accessibilityLabel(viewed ? Text("Viewed") : Text(""))
                         if typeSize.isAccessibilitySize {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(2).truncationMode(.middle)
+                                // The whole name on one line, scaled down to fit (never split
+                                // mid-word); the folder goes under it and truncates first.
+                                Text(file.fileName).font(.subheadline.monospaced()).lineLimit(1)
+                                    .minimumScaleFactor(0.4).truncationMode(.middle)
+                                if !file.directory.isEmpty {
+                                    Text(file.directory).font(.footnote).foregroundStyle(.tertiary)
+                                        .lineLimit(1).truncationMode(.head)
+                                }
                                 DiffCounts(additions: file.additions, deletions: file.deletions).fixedSize()
                             }
                             Spacer(minLength: 0)
@@ -362,8 +379,8 @@ struct EditedFilesCard: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .frame(minHeight: 40)
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

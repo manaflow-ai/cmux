@@ -251,7 +251,8 @@ public struct DiffFileScreen: View {
     private func stickyHeader(isViewed: Bool) -> some View {
         let path = HStack(spacing: 0) {
             if !file.directory.isEmpty {
-                Text(file.directory + "/")
+                // `directory` already ends in "/".
+                Text(file.directory)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.head)
