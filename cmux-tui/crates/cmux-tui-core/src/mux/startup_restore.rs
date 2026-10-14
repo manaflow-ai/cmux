@@ -160,6 +160,8 @@ impl Mux {
                     public_id: workspace.public_id,
                     key: workspace.key,
                     name: workspace.name,
+                    name_source: workspace.name_source,
+                    name_revision: workspace.name_revision,
                     screens: Vec::new(),
                     active_screen: 0,
                 },

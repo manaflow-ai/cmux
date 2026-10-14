@@ -127,6 +127,8 @@ impl Mux {
                     public_id: workspace.public_id.clone(),
                     key: workspace.key.clone(),
                     name: workspace.name.clone(),
+                    name_source: workspace.name_source,
+                    name_revision: workspace.name_revision,
                     group_key: self.session.clone(),
                 },
                 position: workspace_index,

@@ -600,6 +600,7 @@ ENUM_BY_PATH = {
     'types/CursorStyle': models.CursorStyle,
     'types/DetachReason': models.DetachReason,
     'types/FrontendFocusTarget': models.FrontendFocusTarget,
+    'types/NameSource': models.NameSource,
     'types/NotificationLevel': models.NotificationLevel,
     'types/NotificationSource': models.NotificationSource,
     'types/PaneDirection': models.PaneDirection,
