@@ -510,6 +510,8 @@ jobs:
         env:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           OWNER_RUN_ID: ${{ needs.tree-preflight.outputs.owner_run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           SERVER_URL: ${{ github.server_url }}
           # The REST API host; github.com/repos/... is a 404 page, which the
           # silent curls took for "no other run" (cmuxterm-hq#1279).
@@ -557,17 +559,26 @@ jobs:
             # Taking over from a live owner would build the key twice and hit
             # the write-once commit objects.
             poll=$((poll + 1))
-            owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+            owner_json="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
               -u "x-access-token:$GH_TOKEN" \
               -H 'Accept: application/vnd.github+json' \
-              "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
-              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
-              2>/dev/null || echo unknown)"
+              "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" 2>/dev/null || true)"
+            owner_state="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("status", "unknown"), d.get("conclusion") or "")' "$owner_json" 2>/dev/null || echo unknown)"
+            # A feat-cmux-next push never waits for a branch (or pull request)
+            # run that owns its key (cx-kfbom follow-up, hq-a3 2026-10-14):
+            # such an owner publishes only after its macOS daemon tests, which
+            # can queue for an hour. Unknown means not a trunk push.
+            owner_trunk_push="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print("true" if d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else "false")' "$owner_json" 2>/dev/null || echo false)"
             owner_ended=false
             [[ "$owner_state" == completed* ]] && owner_ended=true
             if tree_ready; then
               echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
               takeover=false
+            elif [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next && "$owner_trunk_push" != true &&
+                    "$owner_state" != unknown && "$owner_ended" != true ]]; then
+              # Both may publish; the publish jobs keep whichever complete
+              # commit and tree publication exists first (write-once objects).
+              echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next run builds tree $KEY itself instead of waiting for that run's daemon tests."
             elif [[ "$owner_state" == in_progress* || "$owner_state" == queued* || "$owner_state" == waiting* || "$owner_state" == pending* ]]; then
               # A live owner builds; the claim is not asked, since an owner the
               # run-list fallback elected holds no claim to refuse a second one.

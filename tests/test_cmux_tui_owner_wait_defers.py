@@ -35,7 +35,8 @@ out = args[args.index("-o") + 1] if "-o" in args else None
 if "/actions/runs/" in url:
     if os.environ["FAKE_OWNER_STATUS"] == "fail":
         sys.exit(22)
-    print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", "")}))
+    print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", ""),
+                      "event": "push", "head_branch": os.environ.get("FAKE_OWNER_BRANCH", "feat-cmux-next")}))
     sys.exit(0)
 if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
     sys.exit(22)
@@ -118,7 +119,8 @@ def run_wait(owner, **fake):
                    API_URL="https://api.github.invalid", REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x",
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
                    FAKE_LOG=log)
-        env = {**env, "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+        env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next",
+               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
         result = subprocess.run(["bash", "-e", "-c", wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 
@@ -152,6 +154,19 @@ def main():
     uploads = [s for s in job("tree-owner-wait")["steps"] if "upload-artifact" in str(s.get("uses", ""))]
     _check(any("cmux-tui-tree-deferred-" in str(s.get("with", {}).get("name", "")) and "deferred" in str(s.get("if", ""))
                for s in uploads), "a deferring run leaves a cmux-tui-tree-deferred-<key> marker")
+
+    # hq-a3 2026-10-14: a feat-cmux-next push never waits for a branch run that
+    # owns its key (that run publishes only after its macOS daemon tests).
+    for status in ("in_progress", "queued"):
+        result, out, log = run_wait("4", FAKE_OWNER_STATUS=status, FAKE_OWNER_BRANCH="op-next-idle-caret")
+        _check(result.returncode == 0 and "takeover=true" in out and "deferred=false" in out and "claim" not in log,
+               f"a feat-cmux-next push builds a key a {status} branch run owns ({out.strip()!r}, {log.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", REF="refs/heads/op-next-other")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a branch push still defers to a live branch owner ({out.strip()!r})")
+    result, out, log = run_wait("4", FAKE_OWNER_BRANCH="op-next-idle-caret", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "takeover=false" in out,
+           f"a key a branch run already published is not built again ({out.strip()!r})")
 
     result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
     _check(result.returncode == 0 and "takeover=false" in out, f"a published tree: no build ({out.strip()!r})")
