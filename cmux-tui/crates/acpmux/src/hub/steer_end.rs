@@ -83,7 +83,10 @@ impl Hub {
             session,
             "mux",
             "user_message",
-            json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+            super::prompt_images::with_images(
+                json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+                &blocks,
+            ),
         );
         accept(
             json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),

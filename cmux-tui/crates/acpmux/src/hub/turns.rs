@@ -296,7 +296,10 @@ impl Hub {
             session,
             "mux",
             "user_message",
-            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+            prompt_images::with_images(
+                json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
+                &blocks,
+            ),
         );
         if !waiting {
             accept(
