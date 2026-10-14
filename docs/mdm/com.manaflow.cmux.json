@@ -673,6 +673,16 @@
       "title" : "Sidebar Background",
       "type" : "string"
     },
+    "appearance.statusIndicator.animation" : {
+      "default" : "animated",
+      "description" : "Static uses steady colors, a distinct shape for each state and short labels. It is always on under Reduce Motion.",
+      "enum" : [
+        "animated",
+        "static"
+      ],
+      "title" : "Status Indicators",
+      "type" : "string"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",

@@ -354,6 +354,7 @@
             "key" : "settings.group.statusIndicator",
             "rows" : [
               "appearance.statusIndicator.style",
+              "appearance.statusIndicator.animation",
               "appearance.statusIndicator.size",
               "appearance.statusIndicator.thickness",
               "appearance.statusIndicator.color",
@@ -12235,6 +12236,75 @@
     },
     {
       "accepts" : [
+        "animated",
+        "static"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.animated",
+            "text" : "Animated"
+          },
+          "value" : "animated"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.static",
+            "text" : "Static"
+          },
+          "value" : "static"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "animated",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.statusIndicator",
+        "text" : "Loading Indicator"
+      },
+      "help" : {
+        "key" : "settings.statusIndicator.animation.help",
+        "text" : "Static uses steady colors, a distinct shape for each state and short labels. It is always on under Reduce Motion."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.statusIndicator.animation",
+      "keywords" : [
+        "animation",
+        "motion",
+        "blink",
+        "pulse",
+        "flash",
+        "static",
+        "reduce motion",
+        "accessibility",
+        "headache"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "statusIndicator",
+        "animation"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.statusIndicator.animation",
+        "text" : "Status Indicators"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         1.5,
         1
@@ -23295,7 +23365,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "64d9a974884e7c1b45b39addb3195c498d94456d60e65de5dd67ec9628c11f81",
+  "schema_hash" : "377a98ac966aa50de064da932c8137620e76c0d891d6bff829255e98f3e14f59",
   "sections" : [
     {
       "id" : "general",
