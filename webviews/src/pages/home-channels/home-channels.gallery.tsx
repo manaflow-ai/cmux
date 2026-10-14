@@ -2,7 +2,7 @@
 // The channels Home (cmux-page://cmux.home-channels/): the same page main.tsx mounts, over the
 // in-memory provider's sample channels and direct messages, so the rail, timeline, message rows,
 // composer, thread panel and the Cmd-K switcher show without the app.
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
@@ -26,6 +26,8 @@ type Props = {
   runs?: MockRuns;
   /** The owner refuses pins and marks. */
   refuseInbox?: boolean;
+  /** The theme's terminal selection color, as the app sets `--cmux-text-selection`. */
+  terminalSelection?: string;
 };
 
 function HomeChannelsGallery({
@@ -36,6 +38,7 @@ function HomeChannelsGallery({
   longThread = false,
   runs = "none",
   refuseInbox = false,
+  terminalSelection,
 }: Props) {
   const [store] = useState(() => {
     const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox));
@@ -48,7 +51,7 @@ function HomeChannelsGallery({
   const [strings] = useState(() => createStrings(table));
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   return (
-    <div ref={setRoot} style={{ height: "100%" }}>
+    <div ref={setRoot} style={{ height: "100%", "--cmux-text-selection": terminalSelection } as CSSProperties}>
       {root ? (
         <UiProvider container={root}>
           <HomeChannelsPage store={store} strings={strings} />
@@ -174,6 +177,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("zzzz", { selector: switcherField });
         await ctx.waitFor(() => ctx.document.querySelector(".lg-palette-none"));
+      },
+    },
+    "selected-text": {
+      note: "Selected message text under the default theme, whose terminal selection is slate blue: the page tints it with its own accent instead.",
+      props: { select: "c-release", terminalSelection: "#3f638b" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-msg.head .hc-md"));
+        await ctx.selectText({ selector: ".lg-main .hc-msg.head .hc-md" });
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },

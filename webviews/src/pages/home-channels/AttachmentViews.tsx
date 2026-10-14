@@ -179,6 +179,7 @@ function VideoPlayer({
   };
   return (
     <figure className="hc-att-video" style={{ width: size.width }}>
+      {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a shared file has no captions */}
       <video
         src={src}
         poster={posterSrc}
@@ -401,6 +402,7 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
         </span>
       </span>
       {state === "uploading" && (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the tray draws its own fill bar
         <span
           className="hc-tray-bar"
           role="progressbar"
