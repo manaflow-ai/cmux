@@ -236,7 +236,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.waitForTimeout(300);
   }
   /// The command's toggle, at the start of the turn.
-  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
+  // The row reads as what the command did ("Listed build"); its Shell block shows `ls build`.
+  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Listed build" }).first();
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
