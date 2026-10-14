@@ -6,7 +6,7 @@
 #   the console user's GUI session (console-session.sh); CMUX_TAG is the app's baked tag.
 #
 # Brings up the virtual display, launches the app on it (no activation, automation socket,
-# a config of its own with only ui.paneAnimations on, the mock agent pane), runs `golden.py drive` into
+# an empty config of its own, the mock agent pane), runs `golden.py drive` into
 # out/golden/, and quits the app through its socket (quitEndSessions). Only the exact PIDs
 # this script started are ever signaled. Judging is a separate step (`golden.py judge`).
 set -uo pipefail
@@ -68,10 +68,7 @@ done
 cat "$out/vdisplay.out"
 grep -q '^ready' "$out/vdisplay.out" || { echo "error: the virtual display never came up" >&2; exit 0; }
 
-# Pane layout changes snap unless ui.paneAnimations is on (off by default, motion.md rule 9),
-# so the New Tab grow is only there to measure with it on. The reduce_* scenarios then prove
-# Reduce Motion still snaps it.
-printf '{"ui": {"paneAnimations": true}}\n' > "$out/cmux-next.json"
+printf '{}\n' > "$out/cmux-next.json"
 rm -f "$socket"
 env CMUX_TAG="$tag" CMUX_NEXT_AGENT_PANE_MOCK=1 CMUX_NEXT_SOCKET_MODE=automation CMUX_NEXT_NO_ACTIVATE=1 \
   CMUX_DEV_BACKEND_MODE=local CMUX_NEXT_AGENT_PANE_FULL_RATE=1 CMUX_NEXT_CONFIG_FILE="$out/cmux-next.json" \
