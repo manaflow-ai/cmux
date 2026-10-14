@@ -90,12 +90,17 @@ public final class MemoryMacScreenSecrets: MacScreenSecrets {
     private var items: [String: VNCPairing] = [:]
     /// Accounts whose reads fail (a locked or denied Keychain), for tests.
     public var failing: Set<String> = []
+    /// Every write is refused (a Keychain the process cannot write, e.g. a launch from ssh), for tests.
+    public var writesFail = false
     public init() {}
     public func read(_ account: String) -> MacScreenSecretRead {
         if failing.contains(account) { return .failed(-25308) }
         return items[account].map(MacScreenSecretRead.found) ?? .missing
     }
-    public func save(_ pairing: VNCPairing, for account: String) { items[account] = pairing }
+    public func save(_ pairing: VNCPairing, for account: String) {
+        if writesFail { return }
+        items[account] = pairing
+    }
     public func remove(_ account: String) { items[account] = nil }
 }
 

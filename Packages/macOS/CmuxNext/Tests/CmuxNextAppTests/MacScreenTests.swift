@@ -121,6 +121,26 @@ struct MacScreenStoreTests {
 }
 
 extension MacScreenStoreTests {
+    /// A pairing whose secret the Keychain refused is not saved: no Mac that
+    /// opens as "not paired", and the person is told why.
+    @Test func refusedSecretWriteDoesNotSaveTheMac() throws {
+        let (store, _, secrets) = makeStore()
+        secrets.writesFail = true
+        let link = VNCPairing.generate(name: "Mac B", kind: "stream").link.absoluteString
+        guard case .failure = store.add(link: link) else {
+            Issue.record("a Mac whose secret was not stored was saved")
+            return
+        }
+        #expect(store.macs.isEmpty)
+    }
+
+    /// A refused write of this Mac's new link gives no link (it would change on every launch).
+    @Test func refusedHostSecretWriteGivesNoLink() {
+        let (store, _, secrets) = makeStore()
+        secrets.writesFail = true
+        #expect(store.hostPairing(name: "Mac A") == nil)
+    }
+
     /// A locked or denied Keychain never resets this Mac's link (that would unpair every device).
     @Test func unreadableKeychainKeepsTheLink() throws {
         let (store, _, secrets) = makeStore()
