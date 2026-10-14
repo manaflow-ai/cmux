@@ -9,7 +9,7 @@
   padding: 10px 12px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--page-text) 13%, transparent);
-  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--page-text) 18%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--page-text) 18%, transparent);
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
