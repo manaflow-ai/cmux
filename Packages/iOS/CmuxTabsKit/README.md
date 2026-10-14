@@ -61,6 +61,9 @@ transport or models.
   225 pt/s, keeps going left at the finger's speed, and the close goes through
   your `close(_:)`; the grid reflows once it returns true (false: the card
   springs back and your `notice` shows). When one tab is left, it opens.
+- **One tab.** A lone tab gets Safari's larger centred card (two thirds of
+  the screen width, same aspect, close button and title row) with "1 Tab" in
+  the bar; the grid reflows into and out of it.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
