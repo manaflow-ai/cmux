@@ -990,6 +990,7 @@ struct ContentView: View {
     @State private var lastReconciledPortalRenderingStatesByWorkspaceId: [UUID: Bool] = [:]
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
+    @State private var activeKeyboardNavigationModeName: String?
     @State private var isFullScreen: Bool = false
     @State private var observedWindowReference = WeakWindowReference()
     var observedWindow: NSWindow? { observedWindowReference.window }
@@ -2612,6 +2613,11 @@ struct ContentView: View {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
                 }
+
+                if let activeKeyboardNavigationModeName {
+                    KeyboardNavigationModeIndicator(modeName: activeKeyboardNavigationModeName)
+                        .zIndex(101)
+                }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
@@ -2705,6 +2711,18 @@ struct ContentView: View {
             NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification, object: SurfaceCatalog.shared)
         ) { _ in
             invalidateCommandPaletteCloudWorkspaceTargets()
+        })
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: .keyboardNavigationModeDidChange)
+        ) { notification in
+            guard let windowNumber = notification.userInfo?["windowNumber"] as? Int else {
+                activeKeyboardNavigationModeName = nil
+                return
+            }
+            guard windowNumber == observedWindow?.windowNumber else {
+                return
+            }
+            activeKeyboardNavigationModeName = notification.userInfo?["mode"] as? String
         })
         view = AnyView(view.onReceive(
             NotificationCenter.default.publisher(for: CloudSidebarOrganizationStore.didChangeNotification, object: SurfaceCatalog.shared.sidebarOrganization)
@@ -3498,6 +3516,10 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 observedWindowReference = WeakWindowReference(window)
                 isFullScreen = window.styleMask.contains(.fullScreen)
+                let activeMode = AppDelegate.shared?.activeKeyboardNavigationMode
+                activeKeyboardNavigationModeName = activeMode?.windowNumber == window.windowNumber
+                    ? activeMode?.mode.id
+                    : nil
                 let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
                 clampSidebarWidthIfNeeded(availableWidth: availableWidth)
                 fitSidePanelsToWindow(availableWidth: availableWidth)

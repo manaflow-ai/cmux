@@ -2742,6 +2742,35 @@ enum CmuxEmbeddedConfigSchema {
             "$ref": "#/$defs/shortcutBindingNullable"
           }
         },
+        "modes": {
+          "type": "object",
+          "default": {},
+          "description": "Persistent navigation modes. Each mode has a one-stroke enter shortcut, bare-key action bindings, and optionally swallows unbound keys.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["enter", "bindings"],
+            "properties": {
+              "enter": {
+                "type": "string",
+                "description": "One shortcut stroke that enters this mode, such as ctrl+space."
+              },
+              "bindings": {
+                "type": "object",
+                "default": {},
+                "description": "Bare key strings mapped to navigation action IDs.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "swallowUnboundKeys": {
+                "type": "boolean",
+                "default": false,
+                "description": "Keep unbound keys inside the mode instead of exiting and passing them through."
+              }
+            }
+          }
+        },
         "when": {
           "type": "object",
           "default": {},

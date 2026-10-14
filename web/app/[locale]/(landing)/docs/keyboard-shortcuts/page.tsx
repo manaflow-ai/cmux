@@ -20,6 +20,25 @@ const shortcutChordExample = `{
   }
 }`;
 
+const navigationModeExample = `{
+  "shortcuts": {
+    "modes": {
+      "navigate": {
+        "enter": "ctrl+space",
+        "bindings": {
+          "h": "focusLeft",
+          "j": "focusDown",
+          "k": "focusUp",
+          "l": "focusRight",
+          "[": "prevSurface",
+          "]": "nextSurface",
+          "z": "toggleSplitZoom"
+        }
+      }
+    }
+  }
+}`;
+
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   return auditedDocsMetadata({
@@ -54,6 +73,16 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleArray")}</li>
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
+
+      <DocsHeading level={2} id="navigation-modes" className="scroll-mt-24">{t("navigationModesTitle")}</DocsHeading>
+      <p>
+        {t.rich("navigationModesIntro", {
+          settingsFile: (chunks) => <code>{chunks}</code>,
+          configurationLink: (chunks) => <Link href="/docs/configuration">{chunks}</Link>,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{navigationModeExample}</CodeBlock>
+      <p>{t("navigationModesExit")}</p>
 
       <KeyboardShortcuts />
     </>

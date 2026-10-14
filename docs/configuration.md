@@ -272,6 +272,35 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.
 
+## Sticky navigation modes
+
+Define a persistent navigation mode under `shortcuts.modes` when you want bare keys to control cmux after one entry shortcut. The example keeps `h`, `j`, `k`, and `l` on pane focus, while shifted keys resize panes:
+
+```json
+{
+  "shortcuts": {
+    "modes": {
+      "navigate": {
+        "enter": "ctrl+space",
+        "bindings": {
+          "h": "focusLeft",
+          "j": "focusDown",
+          "k": "focusUp",
+          "l": "focusRight",
+          "shift+h": "resize-pane-left",
+          "shift+l": "resize-pane-right",
+          "[": "prevSurface",
+          "]": "nextSurface",
+          "z": "toggleSplitZoom"
+        }
+      }
+    }
+  }
+}
+```
+
+Press Escape or Return to leave the mode. By default, an unbound key also leaves the mode and is passed to the focused surface; set `swallowUnboundKeys` to `true` to keep unbound keys inside it. Mode bindings are limited to cmux navigation actions and never run shell commands. The active mode appears in the window while it is engaged.
+
 ## New Cloud Workspace shortcut and the plus-button menu
 
 Cmd+Y creates a workspace on the machine that owns the most recently selected Cloud workspace, or the first usable machine in the right-hand Cloud sidebar. If no usable Cloud workspace or machine is available, it opens the New Cloud Machine flow. When a remembered selection is stale, the resolver uses the current right-hand Cloud sidebar order, including pins and manual reordering; an empty or still-loading fleet deterministically stays on the New Cloud Machine flow. Cmd+Shift+Y always opens the New Cloud Machine flow. Cmd+N always creates a local workspace on this Mac. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`.

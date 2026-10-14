@@ -84,6 +84,7 @@ extension AppDelegate {
     ) -> TabManager? {
         guard normalizedFlags.isEmpty,
               activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+              forcedKeyboardNavigationActionForCurrentEvent == nil,
               event.cmuxIsPrintableTextInput,
               let window = event.window ?? shortcutRoutingKeyWindow,
               window.firstResponder is GhosttyNSView,
@@ -111,7 +112,8 @@ extension AppDelegate {
         normalizedFlags: NSEvent.ModifierFlags
     ) -> Bool {
         guard normalizedFlags.isEmpty,
-              activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+              activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+              forcedKeyboardNavigationActionForCurrentEvent == nil else {
             return false
         }
 
