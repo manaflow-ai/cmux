@@ -282,6 +282,41 @@ public struct ArtifactExtractor: Sendable {
         return result
     }
 
+    /// Drops pieces of wrapped references anywhere in the list, scrollback
+    /// included (R3-3): a reference that another one ends with, starting in
+    /// the middle of a path component (`rivate/tmp/x` of `/private/tmp/x`,
+    /// `1910.txt` of `/tmp/e2e-091910.txt`), or a slash path without an
+    /// extension that another one starts with, ending mid-component (`/tm`).
+    /// A whole relative path (`docs/a.md` of `/repo/docs/a.md`) is kept.
+    public static func droppingFragments(_ list: [TerminalArtifact]) -> [TerminalArtifact] {
+        var wholes: [String] = []
+        for artifact in list where artifact.kind != .link {
+            wholes.append(artifact.reference)
+            let canonical = canonical(artifact.reference)
+            if canonical != artifact.reference { wholes.append(canonical) } else if ["/tmp/", "/var/", "/etc/"].contains(where: { artifact.reference.hasPrefix($0) }) {
+                wholes.append("/private" + artifact.reference)
+            }
+        }
+        func isFragment(_ piece: TerminalArtifact) -> Bool {
+            guard piece.kind != .link else { return false }
+            let r = piece.reference
+            for w in wholes where w.count > r.count && canonical(w) != canonical(r) {
+                // An absolute path is only ever a piece of another absolute one.
+                if r.hasPrefix("/"), !(w.hasPrefix("/") || w.hasPrefix("~")) { continue }
+                if w.hasSuffix(r) {
+                    let before = w[w.index(w.endIndex, offsetBy: -r.count - 1)]
+                    if before != "/" { return true }
+                }
+                if w.hasPrefix(r), r.hasPrefix("/"), !(r.split(separator: "/").last ?? "").contains(".") {
+                    let after = w[w.index(w.startIndex, offsetBy: r.count)]
+                    if after != "/" { return true }
+                }
+            }
+            return false
+        }
+        return list.filter { !isFragment($0) }
+    }
+
     /// The key two references to the same file share: macOS's `/tmp`, `/var`
     /// and `/etc` are `/private/...` (R2-7).
     public static func canonical(_ reference: String) -> String {

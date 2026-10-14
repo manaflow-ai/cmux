@@ -119,7 +119,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// A drag that began while following the prompt with the keyboard up:
     /// a downward drag dismisses the keyboard and the content stays pinned
     /// to the composer, row for row (SPEC M6).
-    private var dragPinsToComposer = false
+    private var dragPin = KeyboardDragPin()
+    private var dragPinsToComposer: Bool { dragPin.pinning }
     private var pinningDrag = false
 
     init(model: TerminalModel, chrome: TerminalChrome = .standalone) {
@@ -608,9 +609,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         feedInFlight = false
-        if freezeView != nil, raw > Self.mirrorReset.count {
-            // The replay is parsed: drop the held frame on the next present
-            // (or after one more batch, whichever comes first).
+        if freezeView != nil, raw > Self.mirrorReset.count, replayHasContent() {
+            // The replay is parsed and draws something: drop the held frame on
+            // the next present (or after one more batch, whichever comes first).
             freezeBatches += 1
             if freezeBatches >= 2 { unfreeze() }
         }
@@ -670,6 +671,27 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.insertSubview(snapshot, belowSubview: bottomBacking)
         freezeView = snapshot
         freezeBatches = 0
+        // A TUI's replay at a new size can be an empty alternate screen until
+        // the program repaints (R3-2); the held frame waits for that, but
+        // never longer than this.
+        let held = ObjectIdentifier(snapshot)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.freezeCap) { [weak self] in
+            guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
+            self.unfreeze()
+        }
+    }
+
+    /// The longest a held frame stays up after a reset.
+    static let freezeCap: TimeInterval = 0.5
+
+    /// Whether the screen now has something to show: on the alternate screen,
+    /// a TUI that has repainted (any text); the primary screen's replay
+    /// always counts.
+    private func replayHasContent() -> Bool {
+        guard model.isTUI else { return true }
+        let rows = surface.grid.rows
+        guard rows > 0, let blank = surface.leadingBlankRows(through: rows - 1) else { return true }
+        return blank < rows
     }
 
     private func unfreeze() {
@@ -995,6 +1017,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         updateBottomFade()
         guard !model.isTUI else { return }
+        if scrollView.isTracking, !pinningDrag {
+            dragPin.moved(fingerY: scrollView.panGestureRecognizer.location(in: view).y,
+                          keyboardTop: view.keyboardLayoutGuide.layoutFrame.minY, following: following)
+        }
         if dragPinsToComposer, scrollView.isTracking, !pinningDrag,
            scrollView.panGestureRecognizer.translation(in: view).y > 0 {
             // Dismissing the keyboard: the prompt stays on the composer.
@@ -1019,15 +1045,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // A reader who already scrolled up keeps scrolling normally.
-        dragPinsToComposer = following && model.keyboardVisible && !model.isTUI
+        // Pinned only once the touch reaches the keyboard (R3-1).
+        dragPin.began(following: following, keyboardUp: model.keyboardVisible, isTUI: model.isTUI)
         placesFromReport = false
         fling?.stop()
         fling = nil
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard dragPinsToComposer else { return }
-        dragPinsToComposer = false
+        guard dragPinsToComposer else { dragPin.ended(); return }
+        dragPin.ended()
         if following { scrollView.setContentOffset(CGPoint(x: 0, y: maxOffsetY), animated: false) }
     }
 
