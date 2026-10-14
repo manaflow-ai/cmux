@@ -151,6 +151,7 @@ def make_workspaces():
     have = {r.get("title") for r in workspace_rows()}
     empty = [f"perf-{i:04d}" for i in range(opts.count - opts.ticking) if f"perf-{i:04d}" not in have]
     ticking = [f"perf-tick-{i:02d}" for i in range(opts.ticking) if f"perf-tick-{i:02d}" not in have]
+    rpc("debug.hangs", {"clear": True})
     start = time.monotonic()
     with ThreadPoolExecutor(max_workers=8) as pool:
         # The ticking ones first, so they list near the top, where the window shows rows.
@@ -167,6 +168,15 @@ def make_workspaces():
         time.sleep(2)
     summary["listed"] = shown
     check(shown >= opts.count, f"the sidebar lists {shown} of {opts.count} perf workspaces")
+    # Window membership while 1,000 workspaces arrive: no stall in reconcileMembership (it was
+    # O(n^2) in WindowRegistry.owner(of:)), and the registry stays consistent.
+    hangs = hang_records(rpc("debug.hangs", {}))
+    membership = [h for h in hangs if any("reconcileMembership" in f or "WindowRegistry" in f for f in h["frames"])]
+    summary["create_hangs"] = hangs[:12]
+    check(not membership, f"create: no main-thread stall in window membership ({[h['ms'] for h in membership]})")
+    windows = rpc("debug.windows") or {}
+    summary["windows_consistent"] = windows.get("consistent")
+    check(windows.get("consistent") is not False, f"create: window invariants hold ({(windows.get('problems') or [])[:3]})")
 
 
 def ticking_terminals():
@@ -259,7 +269,7 @@ def export_table(trace, schema):
         return element
 
     for row in root.iter("row"):
-        yield [(child.tag, resolve(child)) for child in row]
+        yield [(child.tag, resolve(child)) for child in row], ids
 
 
 GENERIC = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
@@ -280,7 +290,7 @@ def main_thread_profile(trace):
     (consecutive main-thread samples, gap under 3 ms) longer than 30 ms: what a slow reply waited for."""
     samples = []
     try:
-        for cells in export_table(trace, "time-profile"):
+        for cells, ids in export_table(trace, "time-profile"):
             thread = next((n for t, n in cells if t == "thread"), None)
             if thread is None or "Main Thread" not in (thread.get("fmt") or ""):
                 continue
@@ -288,7 +298,7 @@ def main_thread_profile(trace):
             bt = next((n for t, n in cells if t in ("backtrace", "tagged-backtrace")), None)
             if bt is not None and bt.tag != "backtrace":
                 bt = next(iter(bt.iter("backtrace")), bt)
-            frames = [f.get("name") or "?" for f in bt.iter("frame")] if bt is not None else []
+            frames = [ids.get(f.get("ref"), f).get("name") or "?" for f in bt.iter("frame")] if bt is not None else []
             samples.append((int(when.text) if when is not None and (when.text or "").isdigit() else 0, frames))
     except Exception as error:  # noqa: BLE001 (export failures are reported, the run goes on)
         return {"error": f"export: {error}"}
@@ -323,7 +333,7 @@ def hitches(trace, pid):
     """Animation Hitches rows for the app: count and durations."""
     durations, rows = [], 0
     try:
-        for cells in export_table(trace, "hitches"):
+        for cells, _ in export_table(trace, "hitches"):
             process = next((n for t, n in cells if t == "process"), None)
             if process is None or str(pid) not in (process.get("fmt") or ""):
                 continue

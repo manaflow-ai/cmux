@@ -64,12 +64,61 @@ public final class ControlWorkspaceInfoCache {
     }
 
     /// Drops the entries of models not in `live` (closed workspaces, a
-    /// reconnect that replaced the models).
+    /// reconnect that replaced the models). Every publish calls it: when
+    /// each live model has its entry and there are no others (the usual
+    /// case), it returns without building a set (O(n) lookups, no allocation).
     public func retain(_ live: [WorkspaceModel]) {
+        if entries.count == live.count, live.allSatisfy({ entries[ObjectIdentifier($0)]?.model === $0 }) {
+            return
+        }
         let keep = Set(live.map(ObjectIdentifier.init))
         let dropped = entries.filter { !keep.contains($0.key) }
         guard !dropped.isEmpty else { return }
         stale.withLock { set in dropped.values.forEach { set.remove($0.generation) } }
         entries = entries.filter { keep.contains($0.key) }
+    }
+
+    // MARK: Derived values
+
+    private struct Memo {
+        let key: AnyHashable
+        let value: Any
+        let generation: UInt64
+    }
+
+    private var memos: [String: Memo] = [:]
+
+    /// A value derived from many models (for example a window's visible
+    /// workspaces), kept between publishes like the workspace entries: built
+    /// inside its own Observation tracking, rebuilt when `key` changes or when
+    /// anything the build read changed (which also schedules a publish, as
+    /// for an entry). The publisher's own tracking then holds only `key`'s
+    /// inputs, not one access per model: a large access list made every
+    /// publish, and every first change after one, O(workspaces) (1,000
+    /// workspaces, 2026-10-14 profile).
+    public func memo<Key: Hashable, Value>(_ slot: String, key: Key, build: () -> Value) -> Value {
+        if let memo = memos[slot], memo.key == AnyHashable(key), let value = memo.value as? Value,
+           !stale.withLock({ $0.contains(memo.generation) }) {
+            return value
+        }
+        if let old = memos[slot] { stale.withLock { _ = $0.remove(old.generation) } }
+        nextGeneration += 1
+        let generation = nextGeneration
+        let value = withObservationTracking { build() } onChange: { [weak self] in
+            self?.stale.withLock { _ = $0.insert(generation) }
+            // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
+            Task { @MainActor in self?.onStale() }
+        }
+        memos[slot] = Memo(key: AnyHashable(key), value: value, generation: generation)
+        return value
+    }
+
+    /// Drops the memos whose slot is not in `slots` (closed windows).
+    public func retainMemos(_ slots: Set<String>) {
+        guard memos.keys.contains(where: { !slots.contains($0) }) else { return }
+        for (slot, memo) in memos where !slots.contains(slot) {
+            stale.withLock { _ = $0.remove(memo.generation) }
+            memos[slot] = nil
+        }
     }
 }

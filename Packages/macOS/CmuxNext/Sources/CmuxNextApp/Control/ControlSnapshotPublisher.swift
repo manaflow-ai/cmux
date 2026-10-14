@@ -149,10 +149,17 @@ final class ControlSnapshotPublisher {
             // reports one of their workspaces are hidden, and the count is
             // the sidebar's (current room, reported by a machine).
             info.isHidden = windows.awaitingContent[controller.state.id] != nil
-            info.visibleWorkspaceIDs = WindowProfiles.visible(members, profile: controller.state.profileID, machines: machines)
-                .filter { machines.workspace(id: $0) != nil }
+            // Kept between publishes (rooms, pins and per-workspace reads stay
+            // out of the publisher's own tracking): O(windows) when unchanged.
+            let profile = controller.state.profileID
+            let visible = {
+                WindowProfiles.visible(members, profile: profile, machines: machines).filter { machines.workspace(id: $0) != nil }
+            }
+            info.visibleWorkspaceIDs = cache?.memo("window:" + controller.state.id, key: members + ["\u{0}" + profile.rawValue],
+                                                   build: visible) ?? visible()
             return info
         }
+        cache?.retainMemos(Set(windows.controllers.map { "window:" + $0.state.id }))
         if let active = windows.active {
             let pane = active.focusedPane
             // The strip's selected tab: a daemon tab, or an internal page
