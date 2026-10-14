@@ -40495,12 +40495,7 @@ export default {
             let openCodeFailure: AgentHookNotificationSummary? = {
                 guard def.name == "opencode" else { return nil }
                 let event = reportedHookEventName(from: input)?.lowercased() ?? ""
-                let isFailure = event == "stopfailure"
-                    || event.contains("execution.failed")
-                    || event.contains("next.step.failed")
-                    || event == "session.error"
-                    || event == "error"
-                guard isFailure else { return nil }
+                guard isOpenCodeFailureHookEvent(event) else { return nil }
                 let rawObject = input.rawObject ?? input.object ?? [:]
                 return classifyAgentHookNotification(
                     def: def,
@@ -41796,7 +41791,7 @@ export default {
         let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         let reportedEvent = reportedHookEventName(from: parsedInput)
         let isOpenCodeStopFailure = source == "opencode"
-            && reportedEvent.map { normalizedOpenCodeHookEventName($0) == "stopfailure" } == true
+            && reportedEvent.map(isOpenCodeFailureHookEvent) == true
         let hookEventName: String
         if isOpenCodeStopFailure {
             // OpenCode uses the Claude-compatible StopFailure discriminator in
@@ -42149,6 +42144,17 @@ export default {
             .map { String(format: "%02x", $0) }
             .joined()
         return "fallback-\(String(digest.prefix(16)))"
+    }
+
+    /// The notification and Feed paths share this classification, so a raw
+    /// OpenCode failure event is an error in both.
+    private func isOpenCodeFailureHookEvent(_ value: String) -> Bool {
+        let event = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedOpenCodeHookEventName(event) == "stopfailure"
+            || event.contains("execution.failed")
+            || event.contains("next.step.failed")
+            || event == "session.error"
+            || event == "error"
     }
 
     private func normalizedOpenCodeHookEventName(_ value: String) -> String {
