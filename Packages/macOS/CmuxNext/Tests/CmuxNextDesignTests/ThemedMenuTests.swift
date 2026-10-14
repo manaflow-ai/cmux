@@ -81,6 +81,28 @@ import Testing
         #expect(counter.sender === menu.items[0])
     }
 
+    /// A row of a menu that is not open still runs its action, and never stops the main run loop:
+    /// `cancelTracking()` on a menu that is not tracking stops the thread's current run loop, and on
+    /// the main thread outside any tracking loop that is the process's own (the Swift Testing
+    /// helper's async main ended there and exited 0 mid-run on the macOS 27 lane).
+    @Test func aRowOfAClosedMenuNeverStopsTheMainRunLoop() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        row.highlightOverride = true
+        let press = KeyPress(row: row, key: try Self.returnKey())
+
+        // Return reaches the row from inside a run of the main run loop, so a stop lands on that
+        // run (CFRunLoopStop stops the innermost one) and not on the test helper's own.
+        RunLoop.main.perform(#selector(KeyPress.send), target: press, argument: nil, order: 0, modes: [.default])
+        let result = CFRunLoopRunInMode(.defaultMode, 0.3, false)
+        #expect(press.handled == true)
+        #expect(result == .timedOut, "the closed menu's row stopped the main run loop (\(result.rawValue))")
+        Self.drainRunLoop { counter.count > 0 }
+        #expect(counter.count == 1)
+    }
+
     /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
     @Test func returnOnASubmenuRowIsNotSwallowed() throws {
         let counter = Counter()
@@ -185,6 +207,20 @@ import Testing
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled }
+}
+
+/// Sends a key to a row when the run loop gets to it.
+@MainActor private final class KeyPress: NSObject {
+    let row: NSView
+    let key: NSEvent
+    var handled: Bool?
+
+    init(row: NSView, key: NSEvent) {
+        self.row = row
+        self.key = key
+    }
+
+    @objc func send() { handled = row.performKeyEquivalent(with: key) }
 }
 
 /// A menu delegate that records what it heard.
