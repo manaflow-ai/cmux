@@ -3454,10 +3454,16 @@ jobs:
           # Explicit PR release notes are safe before the signed editorial
           # digest arrives. Never fall back to raw commit titles or run the
           # model again in this publication job.
-          if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
-            ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
-            python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
-              --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+          if [ "$NIGHTLY_TRACK" = nightly-next ]; then
+            if [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
+              ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+              python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
+                --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+            else
+              ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next
+              python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" \
+                --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
+            fi
           fi
 
       - name: Upload branch nightly artifacts

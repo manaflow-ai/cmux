@@ -176,10 +176,10 @@ def build_news(items, commits, *, summarize=True):
         seen.add(pr["number"])
         body = re.sub(r"<!--.*?-->", "", pr.get("body") or "", flags=re.S)
         match = NOTE.search(body)
-        if match:
-            title = " ".join(match[1].split())
-            if not title or title.lower() in {"none", "n/a", "internal", "internal-only"}:
-                continue
+        title = " ".join(match[1].split()) if match else ""
+        if match and title.lower() in {"none", "n/a", "internal", "internal-only"}:
+            continue
+        if title:
             prefix, separator, remainder = title.partition(":")
             area = prefix.strip().lower().replace(" ", "-")
             if separator and area in AREAS:

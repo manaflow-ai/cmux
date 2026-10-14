@@ -21,7 +21,7 @@ Release note: Browser: Browser profiles can only be deleted by you.
 Release note: none explicitly hides an internal change. Without this line, a
 publish-time summarizer may propose a note for a user-visible change; raw titles
 remain in All changes. Remove these examples before filling the line below. -->
-Release note:
+Release note: <!-- leave blank to let publication propose a candidate -->
 
 ## Changelog
 
