@@ -287,6 +287,7 @@ struct BrowserScreen: View {
                             onCloseAll: closeAll,
                             placeholderId: newTabSlot?.showsPlaceholder(in: itemIds) == true ? Self.newTabMarker : nil,
                             placeholderTerminal: newTabIsTerminal,
+                            slotTakeover: newTabSlot?.created(in: itemIds),
                             onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
                     .allowsHitTesting(overviewVisible)

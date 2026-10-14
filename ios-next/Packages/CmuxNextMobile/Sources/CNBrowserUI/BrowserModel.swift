@@ -165,7 +165,10 @@ final class BrowserModel {
                     refreshHistory(tab.id)
                 }
             } else {
-                tabs.append(tab)
+                // A tab opened elsewhere (the Mac, or the event of our own
+                // create) joins the grid with its insert animation.
+                let m = BrowserStyle.shared.motion
+                withAnimation(m.resolve(m.reflow)) { tabs.append(tab) }
             }
             if tab.id == pendingRoute { open(tabId: tab.id) }
         case .browserClosed(let tabId):

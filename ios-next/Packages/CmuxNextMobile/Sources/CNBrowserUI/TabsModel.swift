@@ -270,7 +270,16 @@ final class TabsModel {
         guard includesTerminals else { syncOrder(); return }
         switch push {
         case .terminalUpdated(let t):
-            if let i = terminals.firstIndex(where: { $0.id == t.id }) { terminals[i] = t } else { terminals.append(t) }
+            if let i = terminals.firstIndex(where: { $0.id == t.id }) {
+                terminals[i] = t
+            } else {
+                // A terminal opened on the Mac joins the grid animated.
+                let m = BrowserStyle.shared.motion
+                withAnimation(m.resolve(m.reflow)) {
+                    terminals.append(t)
+                    syncOrder()
+                }
+            }
         case .terminalExited(let id, _):
             if let i = terminals.firstIndex(where: { $0.id == id }) { terminals[i].running = false }
         default:

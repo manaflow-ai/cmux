@@ -202,6 +202,8 @@ struct TabOverview: View {
     /// grid (at index tabs.count) so the zoom can land on its real frame.
     var placeholderId: String?
     var placeholderTerminal = false
+    /// The created tab that replaces the placeholder (no insert fade).
+    var slotTakeover: String?
     /// The grid started (true) or stopped (false) scrolling.
     var onScrolling: (Bool) -> Void = { _ in }
 
@@ -273,7 +275,8 @@ struct TabOverview: View {
                             .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
                             // A swiped card's departing copy carries on off screen;
                             // the card itself leaves without a fade.
-                            .transition(swipes.isDeparting(tab.id) ? .identity
+                            // The (+) tab taking its placeholder's slot appears in place.
+                            .transition(swipes.isDeparting(tab.id) || tab.id == slotTakeover ? .identity
                                         : .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
                     }
                     ForEach(swipes.departing) { d in

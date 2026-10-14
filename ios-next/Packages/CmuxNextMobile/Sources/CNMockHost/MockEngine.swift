@@ -74,6 +74,22 @@ actor MockEngine {
 
     func register(_ session: MockServerSession) {
         sessions[session.id] = session
+        scheduleMacNewTab()
+    }
+
+    /// `CMUX_NEXT_MOCK_MAC_NEW_TAB=<seconds>`: that long after the first
+    /// client connects, open a browser tab as the Mac would (only the
+    /// `browser.tab` event; no client request), for checking how the grid
+    /// takes a tab it did not create. Uses the injected clock.
+    private var macNewTabScheduled = false
+    private func scheduleMacNewTab() {
+        guard !macNewTabScheduled,
+              let seconds = ProcessInfo.processInfo.environment["CMUX_NEXT_MOCK_MAC_NEW_TAB"].flatMap(Double.init) else { return }
+        macNewTabScheduled = true
+        Task { [clock] in
+            try? await clock.sleep(for: .milliseconds(Int64(seconds * 1000)))
+            _ = self.createTab(url: "https://example.com")
+        }
     }
 
     func unregister(_ session: MockServerSession) {
