@@ -168,6 +168,8 @@ test("a pending command asks in one row: its verb and command once, then Allow, 
   expect(visibleText(panel)).toContain("Run");
   for (const jargon of ["ACP", "Isolation", "from this turn", "Expand details", "Tool permissions"])
     expect(seen).not.toContain(jargon);
+  // What Always grants stays in view while it can be chosen (cg-design-judge: hidden, 0-16).
+  expect(seen).toContain("Always also allows this chat's later requests");
   // No tooltips: every control names itself.
   expect([...panel.querySelectorAll("[title]")].map((node) => node.outerHTML)).toEqual([]);
   // The answers, short, while it waits.

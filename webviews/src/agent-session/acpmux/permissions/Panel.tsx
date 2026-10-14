@@ -90,12 +90,10 @@ function askOf(item: PermissionGroupItem, fallback: string) {
 function AskRow({
   item,
   actions,
-  notes,
   expandSignal,
 }: {
   item: PermissionGroupItem;
   actions?: React.ReactNode;
-  notes?: StringKey[];
   expandSignal: number;
 }) {
   const t = useT();
@@ -150,9 +148,6 @@ function AskRow({
               ))}
             </ul>
           )}
-          {notes?.map((note) => (
-            <p key={note}>{t(note)}</p>
-          ))}
           <p>{t("permission.reach")}</p>
         </div>
       )}
@@ -235,8 +230,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       aria-busy={state.busy}
     >
       {pending.map((group) => {
-        const notes: StringKey[] = [];
-        if (group.decisions.includes("allow_chat")) notes.push("permission.alwaysScope");
         const buttons =
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
@@ -246,7 +239,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                   <button
                     key={decision}
                     type="button"
-                    className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : ""}`}
+                    className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
                     aria-keyshortcuts={shortcuts[decision] || undefined}
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
@@ -263,11 +256,15 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                 key={item.permissionId}
                 item={item}
                 actions={index === 0 ? buttons : undefined}
-                notes={index === 0 ? notes : undefined}
                 expandSignal={expandSignal}
               />
             ))}
             {group.state === "collecting" && <output className="acpmux-ask-note">{t("permission.collecting")}</output>}
+            {/* What Always grants, in view while it can be chosen: hidden behind the row, the
+                bigger grant read as the same as Allow (cg-design-judge, 0-16 blind bouts). */}
+            {group.state === "pending" && group.decisions.includes("allow_chat") && (
+              <output className="acpmux-ask-note">{t("permission.alwaysScope")}</output>
+            )}
             {group.state === "pending" && !group.decisions.includes("allow_once") && (
               <output className="acpmux-ask-note">{t("permission.denyOnly")}</output>
             )}
