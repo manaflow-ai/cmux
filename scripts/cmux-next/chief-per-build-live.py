@@ -85,6 +85,7 @@ class App:
         self.acpmux = os.path.join(app, "Contents/Resources/bin/acpmux")
         self.socket = f"/tmp/cmux-debug-{tag}.sock"
         self.proc = None
+        self.owner_said = ""
 
     def answers(self):
         """Whether this app's control socket answers."""
@@ -96,10 +97,12 @@ class App:
         the bundle alone (no app terminal env), else None. Never starts one."""
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
         try:
-            out = subprocess.run([self.cli, "--json", "server", "status"], env=env,
-                                 capture_output=True, text=True, timeout=30).stdout
-            status = json.loads(out)
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+            run = subprocess.run([self.cli, "--json", "server", "status"], env=env,
+                                 capture_output=True, text=True, timeout=30)
+            self.owner_said = f"exit {run.returncode}: {run.stdout.strip()[:300]} {run.stderr.strip()[-300:]}"
+            status = json.loads(run.stdout)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            self.owner_said = f"{getattr(self, 'owner_said', '')} ({error!r})"
             return None
         return (status.get("session"), status.get("pid")) if status.get("status") == "running" else None
 
@@ -379,7 +382,7 @@ try:
     others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
     a_owner = wait(a.owner, 60)
     say(f"step 1: NIGHTLY brain {a_brain} on default; the owner's Chief DM holds M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
-    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}")
+    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; server status said {a.owner_said}")
     if not (a_brain and shown_m0 and count == 1 and not others and a_acpmux
             and a_owner and a_owner[0] == f"cmux-app-{TAG}" and a_owner[1]):
         failed = failed or 1
@@ -407,18 +410,21 @@ try:
     b_acpmux = pane_daemon(b, B_ACPMUX)
     a_acpmux_2 = acpmux_daemon(a, A_ACPMUX)
     say(f"step 2: B acpmux {b_acpmux} in {B_ACPMUX}; A acpmux now {a_acpmux_2} (was {a_acpmux})")
-    wait(lambda: chief_conversation(B_HOME), 60)
+    b_dm = wait(lambda: chief_conversation(B_HOME), 60)
     b_shown = chief_texts(B_HOME)
+    # A brain opens its tools socket after it connects; give B's a bounded wait.
+    wait(lambda: os.path.exists(os.path.join(B_HOME, "optchat", "tools.sock")), 60)
     sockets = {h: os.path.exists(os.path.join(h, "optchat", "tools.sock")) for h in (NIGHTLY_HOME, B_HOME)}
-    say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B's Chief DM {chief_conversation(B_HOME)} holds {len(b_shown)} messages;"
+    say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B's Chief DM {b_dm} holds {len(b_shown)} messages;"
         f" M0 in B: {any(t == m0 for _, t in b_shown)}; tools sockets {sockets}; memory M0 in B {memory_count(B_HOME, m0)}")
     b_owner = wait(b.owner, 60)
     a_owner_2 = a.owner()
     b_state = os.path.join(B_STATE, "tui")
+    say(f"step 2: B server status said {b.owner_said}")
     say(f"step 2: B owner {b_owner} (want session {B_SESSION}); B control socket {B_SOCKET} answers:"
         f" {b.answers()}; B state dir {b_state} exists {os.path.isdir(b_state)};"
         f" A owner now {a_owner_2} (was {a_owner})")
-    if not (b_brain and b_brain != a_brain and chief_conversation(B_HOME) and not any(t == m0 for _, t in b_shown) and all(sockets.values())
+    if not (b_brain and b_brain != a_brain and b_dm and not any(t == m0 for _, t in b_shown) and all(sockets.values())
             and memory_count(B_HOME, m0) <= 0
             and b_acpmux and a_acpmux_2 == a_acpmux and b_acpmux[0] != (a_acpmux or (0,))[0]
             and b_owner and b_owner[0] == B_SESSION and b_owner[1] and b_owner[1] != (a_owner or (0, 0))[1]
