@@ -103,9 +103,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sideChat(String)
     /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
     case chatTab(String)
-    /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
-    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool)
+    /// `chat.subagentPane {subagent, focus, tile, title}`: this chat's subagent beside the chat
+    /// (``AgentSubagentPanes``): a tab in the pane right of it, or with `tile` a pane of its own.
+    case subagentPane(String, AgentSubagentPanes.Open)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so

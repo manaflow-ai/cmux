@@ -202,7 +202,7 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                self = .subagentPane(id, AgentSubagentPanes.Open(params))
             } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
