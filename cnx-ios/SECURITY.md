@@ -200,7 +200,13 @@ the Mac.
 
 - **Terminal and browser tabs** use commands already on the allowlist:
   `new-tab {pane, cols, rows}` (size and placement only, as above),
-  `new-browser-tab {url, pane}`, and `close-surface {surface}`. Selecting a
+  `new-browser-tab {url, pane}`, and `close-surface {surface}`. The phone still
+  never names a folder: hostd adds the Mac's own choice to a phone's `new-tab`,
+  the folder of that pane's active tab (else another tab of the pane, else of
+  its workspace), from the daemon's own `list-workspaces`, canonicalized, never
+  `/`, the home folder or above (`pane_folder`). The terminal opens where the
+  person's other terminals in that workspace already are, as one made on the
+  Mac does; it gains no folder the phone's terminals in that pane lack. Selecting a
   tab stays on the phone (it remembers the last tab per workspace). The phone
   never sends `select-tab` or `report-focus` for its own navigation, because
   both move the Mac's view for the person sitting at it.
@@ -284,6 +290,19 @@ no `auth` before it (`echo` included) is refused at once. The design is in
   reaches the app, a refused key is closed `denied`, channels opened
   behind `auth` wait for it, one `auth` per link, a refusal silences new keys
   from that device id, and nothing is asked before the app's list arrives).
+
+## Test-only pairing seed (DEBUG builds)
+
+A hidden rig app cannot press the person-only "Allow … to connect?" prompt.
+For tagged test instances only, a DEBUG build reads `CMUX_NEXT_IPHONE_PAIRING_SEED`
+once at launch: the path of a JSON file `{"devices": [{"id"?, "name"?,
+"identityKey"?, "approvalKey"?}]}`. When a phone asks, the app reads that file;
+an entry whose given fields all match the request (at least an `id` or a `name`)
+pairs it without the prompt, exactly as Allow would (`IPhonePairingSeed`). A
+Release build compiles none of it and ignores the variable, so it is no path
+for anyone but a developer who launches their own DEBUG build with it. The e2e
+rig sets it in the rig app's `LSEnvironment` (`e2e/mac.py`) and names its
+simulator; it never clicks Allow and never writes `paired-devices.json`.
 
 ## Decisions for the person
 
