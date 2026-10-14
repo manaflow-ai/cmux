@@ -10,6 +10,7 @@ import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
 import * as gc from "./home-attachment-gc.ts"
 import { dmLinkOf, type DmLink } from "./conversation-dm-link.ts"
+import { firstName } from "./invite-first-name.ts"
 import { MAX_THREAD_PAGE, threadReplies, threadsOf, threadSummary } from "./conversation-threads.ts"
 
 type Head = conversation.ConversationState
@@ -37,12 +38,6 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
 }
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
 const ACCEPT_FAILURES = new Set(["unknown_invite", "invite_not_pending", "invite_expired"])
-
-/** First word of a display name, for the public invite card (never a full name or an address). */
-const firstName = (name: string | undefined): string | null => {
-  const first = (name ?? "").trim().split(/\s+/)[0] ?? ""
-  return first.length > 0 && first.length <= 40 && !first.includes("@") ? first : null
-}
 
 /** What the Worker learns about an attachment hash for one caller (never whether another conversation holds it). */
 export type AttachmentAccess =
@@ -237,19 +232,26 @@ export class ConversationDO extends OwnerDO<Head> {
     await super.webSocketClose(ws, code)
   }
 
-  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket, force = false) {
+  /** A chief brain's ephemeral frames (chief-brain/brain-do.ts), never committed: typing (a socket's gate) or a run change. */
+  async agentFrame(entity: string, agent: string, f: { typing: boolean } | { run: unknown; steps: ReadonlyArray<unknown> }): Promise<void> {
+    const state = this.isBound(entity) ? this.bind(entity).currentState : null
+    if (!state?.participants.some((p) => p.id === agent && p.kind === "agent" && p.left_at === undefined)) return
+    if ("typing" in f) return void (conversation.checkTyping(state, agent) || this.sendTyping(state, agent, f.typing, null))
+    this.toMembers(state, null, JSON.stringify({ t: "conversation-run-changed", conversation: state.id, run: f.run, steps: f.steps }))
+  }
+
+  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket | null, force = false) {
     const memo = this.typing.get(actor)
     const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
     if (decision.memo) this.typing.set(actor, decision.memo)
-    if (!decision.send) return
-    const text = JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on })
+    if (decision.send) this.toMembers(state, from, JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on }))
+  }
+
+  private toMembers(state: NonNullable<Head>, from: WebSocket | null, text: string) {
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === from) continue
-      const other = ws.deserializeAttachment() as ConvAttachment | null
+      const other = ws === from ? null : (ws.deserializeAttachment() as ConvAttachment | null)
       if (!other?.subscribed || !this.member(state, other.principal)) continue
-      try {
-        ws.send(text)
-      } catch {}
+      try { ws.send(text) } catch {}
     }
   }
 
