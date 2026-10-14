@@ -1,11 +1,12 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
 // whether each toggles or opens; by default Changes and Preview, each while it applies, then Terminal
 // and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
-// summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
-// which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
-// Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
-// checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
-// renders from the first frame at its final size; data fills in place.
+// summary button, which shows or hides the chat's summary panel (summary/SummaryCard.tsx); and the
+// "..." chat menu, which starts with the quick actions not shown as buttons ([+] New tab, which reads
+// Hide tabs in place, Files and Split Down; each while it applies) and New Terminal. Before them, the
+// chat branch's pull request with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx),
+// when the App found one. Every control renders from the first frame at its final size; data fills in
+// place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -177,6 +178,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
   });
   live.current = {
     actions,
@@ -189,6 +191,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    onTerminal,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
@@ -202,6 +205,7 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
+      onTerminal,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
@@ -244,6 +248,13 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.splitDown,
         onSelect: () => onSplitDown("toggle"),
       });
+    // New Terminal opens another terminal beside the chat every time, whatever Terminal's mode.
+    folded.push({
+      key: "quick-newTerminal",
+      label: t("header.newTerminal"),
+      icon: "terminal",
+      onSelect: () => onTerminal("open"),
+    });
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());
