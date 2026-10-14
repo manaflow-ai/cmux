@@ -306,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerPageDebugMethods(services)
                 control.registerRemoteBrowserDebugMethods(services)
                 RemoteViewDebugMethods(services: services).register(on: control.service?.router)
+                MacScreenDebugMethods(services: services).register(on: control.service?.router)
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
@@ -319,6 +320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 logger.error("control socket failed: \(String(describing: error), privacy: .public)")
             }
+            // Share This Mac resumes when the person left it on.
+            services.macScreenPages.activate()
         }
     }
 

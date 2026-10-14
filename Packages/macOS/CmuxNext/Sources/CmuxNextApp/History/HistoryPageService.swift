@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextMacScreen
 import CmuxNextRemoteView
 import Foundation
 import os
@@ -120,11 +121,19 @@ extension TabContentCache {
                 chrome?.addressBar.showPageURL()
                 return true
             }
+            // A Mac Screen pairing link typed or pasted in the address bar pairs that Mac and shows it.
+            if url.scheme == "cmux-vnc", let self, let tab = tabModel(key) {
+                guard let record = services.macScreenPages.pair(link: url) else { return true }
+                services.macScreenPages.confirm(key, url: record.url)
+                showAppPage(record.url, in: tab)
+                return true
+            }
             guard Self.isAppPage(url) else { return false }
             // Never load a cmux page address in the engine (WebKit cancels it without a word).
             guard let self, let tab = tabModel(key) else { return true }
             // Typed in the address bar (or a bookmark a person opened).
             if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
+            if MacScreenRecord.matches(url) { services.macScreenPages.confirm(key, url: url) }
             showAppPage(url, in: tab)
             return true
         }
@@ -142,6 +151,7 @@ extension TabContentCache {
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
+            || MacScreenRecord.matches(url)
     }
 
     /// A development remote tab record (`cmux://remote-browser`).
@@ -185,6 +195,22 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
                 })
+            page.onNavigate = { [weak self] target in
+                pages.forget(key)
+                self?.leaveAppPage(key, to: target)
+            }
+            return page
+        }
+        if let url, MacScreenRecord.matches(url) {
+            let pages = services.macScreenPages
+            let page = pages.makePage(
+                url: url, key: key, engine: engine, profile: profile, isLocal: services.machines.daemon(forTab: tab).isLocal,
+                show: { [weak self] target in
+                    guard let self, let tab = tabModel(key) else { return }
+                    showAppPage(target, in: tab)
+                },
+                newTab: { [weak services] target in services?.windows.active?.focusedPane?.newBrowserTab(url: target) },
+                closeTab: { [weak self] in self?.pageRequests.closeTab(key) })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)

@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import Carbon.HIToolbox
 
 /// Turns AppKit events into `RemoteInputEvent`s for the sink. Containment:
@@ -6,7 +6,7 @@ import Carbon.HIToolbox
 /// first responder); deactivating sends ups for every held key and button,
 /// so nothing stays pressed on the host.
 @MainActor
-final class RemoteInputController {
+public final class RemoteInputController {
     enum KeyDecision: Equatable {
         /// Sent (or swallowed); the view stops here.
         case handled
@@ -16,14 +16,14 @@ final class RemoteInputController {
         case textInput
     }
 
-    weak var sink: (any RemoteViewInputSink)?
-    var settings = RemoteDesktopSettings()
-    var releaseChord = RemoteReleaseChord.default
+    public weak var sink: (any RemoteViewInputSink)?
+    public var settings = RemoteDesktopSettings()
+    public var releaseChord = RemoteReleaseChord.default
     /// The App's cmux shortcut matcher (KeyboardShortcutSettings).
-    var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     var inputSourceIsASCIICapable: () -> Bool = RemoteInputController.currentInputSourceIsASCIICapable
     /// The view returns the keyboard to the viewer (resigns first responder).
-    var onReleaseKeyboard: (() -> Void)?
+    public var onReleaseKeyboard: (() -> Void)?
     /// Control mode and first responder. Turning it off releases everything.
     var isActive = false {
         didSet { if oldValue, !isActive { releaseAll() } }
@@ -107,7 +107,7 @@ final class RemoteInputController {
     }
 
     /// Ups for everything held; called on focus loss, mode change, release chord.
-    func releaseAll() {
+    public func releaseAll() {
         textRoutedKeys.removeAll()
         emit(keyboard.releaseAll())
     }

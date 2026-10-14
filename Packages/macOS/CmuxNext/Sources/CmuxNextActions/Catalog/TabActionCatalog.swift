@@ -80,6 +80,13 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.tab], cliName: "tab new-browser"
             ),
             ActionDescriptor(
+                id: "macScreen.open",
+                title: String(localized: "action.macScreen.open", defaultValue: "New Mac Screen Tab", bundle: .module),
+                keywords: ["mac", "screen", "remote", "control", "screen sharing", "vnc", "pair", "share this mac"],
+                category: .tab, symbol: "display", surfaces: [.palette, .menu, .contextMenu],
+                targets: [.pane], cliName: "tab new-mac-screen", mainMenu: .file
+            ),
+            ActionDescriptor(
                 id: "openBrowser.webkit",
                 title: String(localized: "action.openBrowser.webkit", defaultValue: "New WebKit Tab", bundle: .module),
                 keywords: ["tab", "web", "browser", "safari", "webkit", "create"],

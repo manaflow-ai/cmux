@@ -1,0 +1,215 @@
+public import CmuxScreenKit
+public import Foundation
+import Observation
+import Security
+
+/// One Mac this Mac can show: its name and view choices. The pairing
+/// (signaling Worker, room and secret) is in the Keychain, never here.
+public nonisolated struct SavedMac: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var addedAt: Date
+    public var lastConnectedAt: Date?
+    public var preferences: ScreenPreferences
+
+    public init(id: UUID = UUID(), name: String, addedAt: Date = Date(), lastConnectedAt: Date? = nil,
+                preferences: ScreenPreferences = ScreenPreferences()) {
+        self.id = id
+        self.name = name
+        self.addedAt = addedAt
+        self.lastConnectedAt = lastConnectedAt
+        self.preferences = preferences
+    }
+}
+
+/// Where pairing secrets live. The app uses the login Keychain; tests use memory.
+public protocol MacScreenSecrets: AnyObject {
+    func pairing(for account: String) -> VNCPairing?
+    func save(_ pairing: VNCPairing, for account: String)
+    func remove(_ account: String)
+}
+
+/// Generic passwords under one service (the app's bundle id, so tagged
+/// builds keep their own), one per saved Mac plus `host` for Share This Mac.
+public final class KeychainMacScreenSecrets: MacScreenSecrets {
+    private let service: String
+
+    public init(service: String) {
+        self.service = service
+    }
+
+    public func pairing(for account: String) -> VNCPairing? {
+        var query = baseQuery(account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        return try? JSONDecoder().decode(VNCPairing.self, from: data)
+    }
+
+    public func save(_ pairing: VNCPairing, for account: String) {
+        guard let data = try? JSONEncoder().encode(pairing) else { return }
+        let query = baseQuery(account)
+        if SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(add as CFDictionary, nil)
+        }
+    }
+
+    public func remove(_ account: String) {
+        SecItemDelete(baseQuery(account) as CFDictionary)
+    }
+
+    private func baseQuery(_ account: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+    }
+}
+
+/// Secrets in memory, for tests and previews.
+public final class MemoryMacScreenSecrets: MacScreenSecrets {
+    private var items: [String: VNCPairing] = [:]
+    public init() {}
+    public func pairing(for account: String) -> VNCPairing? { items[account] }
+    public func save(_ pairing: VNCPairing, for account: String) { items[account] = pairing }
+    public func remove(_ account: String) { items[account] = nil }
+}
+
+/// The Macs this Mac has paired with, and whether it shares its own screen.
+/// The list and the share switch are a JSON file (no secrets); pairings are
+/// `MacScreenSecrets`.
+@Observable
+public final class MacScreenStore {
+    public enum AddError: Error, Equatable {
+        /// Not a `cmux-vnc://pair` link.
+        case notALink
+        /// A pairing for RFB over WebRTC; this app shows screen streams only.
+        case notAScreenStream
+        /// This Mac's own Share This Mac link.
+        case ownLink
+    }
+
+    private struct File: Codable {
+        var macs: [SavedMac] = []
+        var shareEnabled = false
+    }
+
+    public private(set) var macs: [SavedMac] = []
+    /// Share This Mac is on (the person turned it on and has not turned it off).
+    public private(set) var shareEnabled = false
+    @ObservationIgnored private let file: URL
+    @ObservationIgnored public let secrets: any MacScreenSecrets
+
+    public init(file: URL, secrets: any MacScreenSecrets) {
+        self.file = file
+        self.secrets = secrets
+        if let data = try? Data(contentsOf: file), let stored = try? JSONDecoder().decode(File.self, from: data) {
+            macs = stored.macs
+            shareEnabled = stored.shareEnabled
+        }
+    }
+
+    /// `<Application Support>/<bundle id>/mac-screen.json` and the login
+    /// Keychain under the bundle id.
+    public static func forApplication(bundleIdentifier: String?) -> MacScreenStore {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(filePath: NSTemporaryDirectory())
+        let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
+        return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"),
+                              secrets: KeychainMacScreenSecrets(service: "\(bundle).mac-screen"))
+    }
+
+    public func mac(_ id: UUID?) -> SavedMac? {
+        guard let id else { return nil }
+        return macs.first { $0.id == id }
+    }
+
+    public func pairing(for id: UUID) -> VNCPairing? {
+        secrets.pairing(for: id.uuidString)
+    }
+
+    /// Saves the Mac a pairing link names. Pairing the same room again
+    /// (a renamed host, a new secret) updates that Mac instead of adding one.
+    @discardableResult
+    public func add(link text: String) -> Result<SavedMac, AddError> {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let pairing = VNCPairing(link: url) else { return .failure(.notALink) }
+        guard pairing.isStream else { return .failure(.notAScreenStream) }
+        if let own = secrets.pairing(for: Self.hostAccount), own.room == pairing.room { return .failure(.ownLink) }
+        if let index = macs.firstIndex(where: { secrets.pairing(for: $0.id.uuidString)?.room == pairing.room }) {
+            macs[index].name = pairing.name
+            secrets.save(pairing, for: macs[index].id.uuidString)
+            save()
+            return .success(macs[index])
+        }
+        let mac = SavedMac(name: pairing.name)
+        secrets.save(pairing, for: mac.id.uuidString)
+        macs.append(mac)
+        save()
+        return .success(mac)
+    }
+
+    public func forget(_ id: UUID) {
+        macs.removeAll { $0.id == id }
+        secrets.remove(id.uuidString)
+        save()
+    }
+
+    public func rename(_ id: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let index = macs.firstIndex(where: { $0.id == id }) else { return }
+        macs[index].name = name
+        save()
+    }
+
+    /// Keeps a session's view choices and when it last connected.
+    public func connected(_ id: UUID, preferences: ScreenPreferences) {
+        guard let index = macs.firstIndex(where: { $0.id == id }) else { return }
+        macs[index].preferences = preferences
+        macs[index].lastConnectedAt = Date()
+        save()
+    }
+
+    public func update(_ id: UUID, preferences: ScreenPreferences) {
+        guard let index = macs.firstIndex(where: { $0.id == id }), macs[index].preferences != preferences else { return }
+        macs[index].preferences = preferences
+        save()
+    }
+
+    // MARK: Share This Mac
+
+    static let hostAccount = "host"
+
+    public func setShareEnabled(_ enabled: Bool) {
+        guard shareEnabled != enabled else { return }
+        shareEnabled = enabled
+        save()
+    }
+
+    /// This Mac's own pairing: kept across launches, so paired Macs stay paired.
+    public func hostPairing(name: String) -> VNCPairing {
+        if var saved = secrets.pairing(for: Self.hostAccount), saved.isStream {
+            if saved.name != name {
+                saved.name = name
+                secrets.save(saved, for: Self.hostAccount)
+            }
+            return saved
+        }
+        return resetHostPairing(name: name)
+    }
+
+    /// A new room and secret: every Mac paired with the old link loses access.
+    @discardableResult
+    public func resetHostPairing(name: String) -> VNCPairing {
+        let pairing = VNCPairing.generate(name: name, kind: "stream")
+        secrets.save(pairing, for: Self.hostAccount)
+        return pairing
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(File(macs: macs, shareEnabled: shareEnabled)) else { return }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: file, options: .atomic)
+    }
+}

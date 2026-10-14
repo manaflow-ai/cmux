@@ -36,6 +36,7 @@ enum AgentHandlers {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        registry.bind("macScreen.open", run: { _ in context.services.macScreenPages.open() })
         AgentSessionWorkspace.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
