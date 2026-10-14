@@ -38,8 +38,9 @@ impl World {
         world
     }
 
-    /// An executable named `name` on the fake PATH. A short-lived `sh` writes
-    /// it so no sibling test's fork inherits a write descriptor (ETXTBSY).
+    /// An executable named `name` on the fake PATH that leaves `marker(name)`
+    /// behind if anything runs it. A short-lived `sh` writes it so no sibling
+    /// test's fork inherits a write descriptor (ETXTBSY).
     fn harness(&self, name: &str) -> PathBuf {
         let path = self.bin.join(name);
         let mut child = Command::new("/bin/sh")
@@ -48,9 +49,19 @@ impl World {
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
-        child.stdin.take().unwrap().write_all(b"#!/bin/sh\necho 1.0.0\n").unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"#!/bin/sh\ntouch \"$0.ran\"\necho 1.0.0\n")
+            .unwrap();
         assert!(child.wait().unwrap().success());
         path
+    }
+
+    /// The file the fake harness `name` touches when it runs.
+    fn marker(&self, name: &str) -> PathBuf {
+        self.bin.join(format!("{name}.ran"))
     }
 
     fn run(&self, app_socket: &Path, args: &[&str]) -> Output {
@@ -164,6 +175,18 @@ fn report(output: &Output) -> Value {
     })
 }
 
+/// Every row has exactly the documented keys, so agents can rely on them.
+#[track_caller]
+fn assert_row_schema(report: &Value) {
+    let rows = report["checks"].as_array().unwrap_or_else(|| panic!("no checks array: {report}"));
+    assert_eq!(rows.len(), 7, "{report}");
+    for row in rows {
+        let mut keys: Vec<&str> = row.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["detail", "fix", "fix_url", "id", "reason", "status"], "{row}");
+    }
+}
+
 #[track_caller]
 fn row<'a>(report: &'a Value, id: &str) -> &'a Value {
     report["checks"]
@@ -185,9 +208,10 @@ fn agents_doctor_reports_missing_wiring_without_changing_anything() {
     let report = report(&world.run(&missing_app, &["--json", "agents", "doctor"]));
 
     assert_eq!(report["schema_version"], 1, "{report}");
+    assert_row_schema(&report);
     let harness = row(&report, "harness.claude");
     assert_eq!(harness["status"], "ok", "{report}");
-    assert_eq!(harness["path"], claude.to_str().unwrap(), "{report}");
+    assert_eq!(harness["detail"], claude.to_str().unwrap(), "{report}");
     let codex = row(&report, "harness.codex");
     assert_eq!(codex["status"], "missing", "{report}");
     assert_eq!(codex["reason"], "not_on_path", "{report}");
@@ -225,6 +249,9 @@ fn agents_doctor_reports_missing_wiring_without_changing_anything() {
     assert!(text.contains("Codex on PATH"), "{text}");
     assert!(text.contains("missing"), "{text}");
     assert!(text.contains("only inside cmux chats"), "{text}");
+
+    // Read-only also means the harness itself never ran.
+    assert!(!world.marker("claude").exists(), "doctor ran the claude it found");
 }
 
 #[test]
@@ -249,21 +276,63 @@ fn agents_doctor_reports_configured_wiring_and_app_grants() {
         json!({"phase": "ready", "accessibility": false, "screen_recording": true, "helper": "cmux Computer Use"}),
     );
 
-    let output = world.run(&app.socket, &["--json", "agents", "doctor"]);
-    let methods = app.stop();
-    let report = report(&output);
+    let configured = world.run(&app.socket, &["--json", "agents", "doctor"]);
 
+    // A project .mcp.json that names cmux-cua is pending until Claude Code approves it,
+    // and a config that does not parse is reported, not guessed.
+    std::fs::write(world.home.join(".claude.json"), r#"{"mcpServers":{}}"#).unwrap();
+    std::fs::write(
+        world.work.join(".mcp.json"),
+        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua","args":["mcp"]}}}"#,
+    )
+    .unwrap();
+    std::fs::write(&codex_config, "[mcp_servers.computer\ncommand = ").unwrap();
+    let pending = world.run(&app.socket, &["--json", "agents", "doctor"]);
+
+    let cwd = std::fs::canonicalize(&world.work).unwrap();
+    let approved = json!({"mcpServers": {}, "projects": {cwd.to_str().unwrap(): {"enabledMcpjsonServers": ["cmux-cua"]}}});
+    std::fs::write(world.home.join(".claude.json"), approved.to_string()).unwrap();
+    let approved = world.run(&app.socket, &["--json", "agents", "doctor"]);
+    let methods = app.stop();
+
+    let report = report(&configured);
+    assert_row_schema(&report);
     let claude_mcp = row(&report, "mcp.claude");
     assert_eq!(claude_mcp["status"], "ok", "{report}");
-    assert_eq!(claude_mcp["scope"], "user", "{report}");
+    assert_eq!(claude_mcp["reason"], "configured", "{report}");
     let codex_mcp = row(&report, "mcp.codex");
     assert_eq!(codex_mcp["status"], "ok", "{report}");
-    assert_eq!(codex_mcp["location"], codex_config.to_str().unwrap(), "{report}");
+    assert!(
+        codex_mcp["detail"].as_str().unwrap().contains(codex_config.to_str().unwrap()),
+        "{report}"
+    );
+
+    let pending = self::report(&pending);
+    assert_row_schema(&pending);
+    let claude_mcp = row(&pending, "mcp.claude");
+    assert_eq!(claude_mcp["status"], "cmux_only", "{pending}");
+    assert_eq!(claude_mcp["reason"], "pending_approval", "{pending}");
+    assert!(
+        claude_mcp["detail"].as_str().unwrap().contains("pending approval in Claude Code"),
+        "{pending}"
+    );
+    let codex_mcp = row(&pending, "mcp.codex");
+    assert_eq!(codex_mcp["status"], "unknown", "{pending}");
+    assert_eq!(codex_mcp["reason"], "config_unreadable", "{pending}");
+
+    let approved = self::report(&approved);
+    let claude_mcp = row(&approved, "mcp.claude");
+    assert_eq!(claude_mcp["status"], "ok", "{approved}");
+    assert!(claude_mcp["detail"].as_str().unwrap().contains(".mcp.json"), "{approved}");
+
+    for harness in ["claude", "codex"] {
+        assert!(!world.marker(harness).exists(), "doctor ran the {harness} it found");
+    }
 
     let accessibility = row(&report, "grant.accessibility");
     let screen_recording = row(&report, "grant.screen_recording");
     if cfg!(target_os = "macos") {
-        assert_eq!(methods, vec!["computer_use.status".to_owned()], "{report}");
+        assert_eq!(methods, vec!["computer_use.status".to_owned(); 3], "{report}");
         assert_eq!(accessibility["status"], "missing", "{report}");
         assert_eq!(accessibility["fix_url"], ACCESSIBILITY_URL, "{report}");
         assert_eq!(screen_recording["status"], "ok", "{report}");
