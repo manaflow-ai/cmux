@@ -402,8 +402,14 @@ fn environment_tokens_and_sockets() {
             .iter()
             .map(|p| PathBuf::from(p.as_str().unwrap()))
             .collect();
+        let build = r["bundle_id"].as_str().map(|bundle_id| {
+            cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+                Some(bundle_id),
+                r["bundled_tag"].as_str(),
+            )
+        });
         let got = resolve(
-            r["tag"].as_str(),
+            build.as_ref(),
             r["bundled"].as_str().map(Path::new),
             &env,
             Path::new(r["user_home"].as_str().unwrap()),
