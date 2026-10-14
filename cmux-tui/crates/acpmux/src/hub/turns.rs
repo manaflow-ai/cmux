@@ -678,9 +678,7 @@ impl Hub {
     /// summary), so `wait` can report a failed turn after it resolves.
     pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let mut last = serde_json::Map::new();
-        for k in
-            ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"]
-        {
+        for k in super::views::LAST_TURN_KEYS {
             if let Some(v) = turn_result.get(k) {
                 last.insert(k.to_owned(), v.clone());
             }

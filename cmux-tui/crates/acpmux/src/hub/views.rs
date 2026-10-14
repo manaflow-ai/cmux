@@ -41,6 +41,11 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
+/// ended without an answer, e.g. `outcome_unknown`).
+pub(super) const LAST_TURN_KEYS: [&str; 7] =
+    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+
 /// The session's lane (cx-v9k2f): what a coordinator watching many agents
 /// needs at a glance, decided here once from the summary's own fields.
 ///
