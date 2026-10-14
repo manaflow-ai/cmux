@@ -329,6 +329,10 @@ struct PageSurface: UIViewRepresentable {
         } else if view.proxy.isFirstResponder {
             view.proxy.resignFirstResponder()
         }
+        // Off the page (the grid, address editing) the surface lets go of
+        // the keys: a menu presented over the grid while it was still first
+        // responder brought up the software keyboard (re-audit blocker).
+        if !wantsHardwareKeys, view.isFirstResponder { view.resignFirstResponder() }
         if wantsHardwareKeys, !keyboardActive, view.window != nil, !view.isFirstResponder {
             DispatchQueue.main.async {
                 // Only claim keys when nothing else (the address field) holds focus.
