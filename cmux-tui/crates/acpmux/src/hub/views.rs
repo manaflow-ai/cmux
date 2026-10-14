@@ -41,6 +41,43 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// The session's lane (cx-v9k2f): what a coordinator watching many agents
+/// needs at a glance, decided here once from the summary's own fields.
+///
+/// - `working` since its turn started.
+/// - `input`: a permission or question waits for the person.
+/// - `failed` since its last turn ended, with that turn's error text (an
+///   agent dead on "Credit balance too low" must not read as idle).
+/// - `lost`: the agent process is gone without an answer.
+/// - `idle` since its last turn ended, or since it was created.
+///
+/// `{state, since, error}`; null for a closed session.
+pub fn lane(summary: &Value) -> Value {
+    if summary["status"] == "closed" {
+        return Value::Null;
+    }
+    let ended = summary["lastTurn"]["endedAt"].as_u64();
+    let since_ended = ended.or(summary["createdAt"].as_u64());
+    let (state, since) = match status_indicator(summary) {
+        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        Some("input") => ("input", summary["updatedAt"].as_u64()),
+        Some("failed") => ("failed", since_ended),
+        Some("lost") => ("lost", ended.or(summary["updatedAt"].as_u64())),
+        _ => ("idle", since_ended),
+    };
+    let error = match state {
+        "failed" | "lost" => summary["lastTurn"]["errorText"].clone(),
+        _ => Value::Null,
+    };
+    json!({"state": state, "since": since, "error": error})
+}
+
+/// Set the summary's derived fields: its status dot and its lane.
+pub fn decide(summary: &mut Value) {
+    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary["lane"] = lane(summary);
+}
+
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
@@ -139,7 +176,7 @@ impl Hub {
             // Some attached client shows the chat (`hub/seen.rs`).
             "shown": self.shown(session),
         });
-        summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
+        decide(&mut summary);
         summary
     }
 
