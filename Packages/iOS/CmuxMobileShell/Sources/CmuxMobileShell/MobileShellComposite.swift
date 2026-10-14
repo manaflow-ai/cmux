@@ -11285,18 +11285,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             authorizations: userTailscalePairingAuthorizations
                         ) != nil
                     }
-                    let accepted = await persistPairedMacFromTicket(
-                        resolvedTicket,
-                        instanceTagUpdate: tagUpdate,
-                        displayNameOverride: reportedName,
-                        userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
-                        ifStillCurrent: isConnectCurrent
-                    )
-                    guard accepted else {
-                        await client.disconnect()
-                        lastError = MobileShellConnectionError.invalidResponse
-                        continue routeLoop
-                    }
                     diagnosticLog?.record(DiagnosticEvent(
                         .hostAuthenticated,
                         surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
@@ -11453,18 +11441,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // here only adds a second connect-time round trip and can
                     // observe a different process during a rapid dev restart.
                     startTerminalRefreshPolling(initialHostStatus: status)
-                    // The connect seam guarantees identity recovery for an
-                    // anonymous (v2 QR) ticket on every supported runtime, not
-                    // just push-event ones: when the event-listener task starts,
-                    // its status probe performs the recovery (one shared status
-                    // request); when the runtime has no server-push events that
-                    // task never runs, so recovery is scheduled directly here.
-                    // Without this, pairing succeeded but the Mac was never
-                    // persisted (no reconnect-on-launch, no host switcher entry).
-                    // The schedule is a no-op for tickets that carry a device id.
-                    if !(runtime.supportsServerPushEvents) {
-                        scheduleHostIdentityAdoptionIfNeeded(client: client)
-                    }
                     diagnosticLog?.record(DiagnosticEvent(
                         .rpcReady,
                         surface: DiagnosticCorrelation().handle(for: resolvedTicket.macDeviceID),
@@ -11493,6 +11469,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
                             )
                         ))
+                    }
+                    // Do not create or mutate a durable Computer until the
+                    // authenticated client has completed the foreground
+                    // handoff and published its workspace state. A transport
+                    // can answer the initial workspace request and still fail
+                    // while draining the previous focus; persisting here used
+                    // to leave a fresh, unreachable row behind after that
+                    // failed reconnect. The next attempt then saw the orphan
+                    // as another saved Computer (and could preserve a stale
+                    // hidden marker for it).
+                    let accepted = await persistPairedMacFromTicket(
+                        resolvedTicket,
+                        instanceTagUpdate: tagUpdate,
+                        displayNameOverride: reportedName,
+                        userAuthorizedTailscaleRoutes: userAuthorizedTailscaleRoutes,
+                        ifStillCurrent: isConnectCurrent
+                    )
+                    guard accepted else {
+                        rejectForegroundHostIdentity(
+                            client: client,
+                            reason: "paired_mac_persistence"
+                        )
+                        await client.disconnect()
+                        lastError = MobileShellConnectionError.invalidResponse
+                        continue routeLoop
+                    }
+                    // The connect seam guarantees identity recovery for an
+                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // just push-event ones: when the event-listener task starts,
+                    // its status probe performs the recovery (one shared status
+                    // request); when the runtime has no server-push events that
+                    // task never runs, so recovery is scheduled directly here.
+                    // Without this, pairing succeeded but the Mac was never
+                    // persisted (no reconnect-on-launch, no host switcher entry).
+                    // The schedule is a no-op for tickets that carry a device id.
+                    if !(runtime.supportsServerPushEvents) {
+                        scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
