@@ -334,7 +334,7 @@ describe("devbox image template", () => {
         // /etc/cmux/bashrc, and carries \[ \] color spans like the cmux prompt.
         writeFileSync(
           path.join(directory, "rc"),
-          `HISTFILE='${directory}/history'\nHISTSIZE=1000\n. '${path.join(templateDir, "cmux-ghost.bash")}'\nPS1='\\[\\e[32m\\]$ \\[\\e[0m\\]'\ncd '${directory}/files'\n`,
+          `HISTFILE='${directory}/history'\nHISTSIZE=1000\n. '${path.join(templateDir, "cmux-ghost.bash")}'\nPS1='\\[\\e[32m\\]$ \\[\\e[0m\\]'\ncd '${directory}/files'\ncl() { echo ran-cl; }\nclaude() { echo ran-claude; }\n`,
         );
         const driver = String.raw`
 import os, pty, re, select, sys, time
@@ -359,7 +359,8 @@ expect(prompt)
 # The suggestion appears after each key and is display only.
 os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
 os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
-run(b"\r", rb"cl: command not found")
+os.write(fd, b"\r"); out = expect(rb"[\r\n]ran-cl\r\n[\s\S]*" + prompt)
+if b"ran-claude" in out: sys.exit("Enter ran the suggestion instead of the typed text")
 # Right accepts; Enter runs the accepted line.
 os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
 run(b"\x1b[C\r", rb"[\r\n]accepted-ghost\r\n")
