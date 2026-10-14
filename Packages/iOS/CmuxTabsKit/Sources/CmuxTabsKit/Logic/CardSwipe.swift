@@ -6,20 +6,18 @@ import CoreGraphics
 /// (round 14):
 ///
 /// - Horizontal drags only (a mostly vertical drag scrolls the grid). The card
-///   lifts (scale 1.09) as soon as it is dragged. Left follows the finger 1:1;
-///   right is rubber-banded (at most ≈ 58 pt seen on device) and always
-///   springs back.
+///   lifts (scale 1.093 over about 80 ms) as soon as it is dragged. Left
+///   follows the finger from touch-down, gliding over the slop in 80 ms;
+///   right is rubber-banded (100 pt gives 44 pt) and always springs back.
 /// - No fade while dragging.
-/// - The card follows the finger from touch-down (the slop is not lost).
-/// - Release closes when the card, projected 0.35 s ahead at its release
-///   velocity, is at least 72% of its width to the left, or when the finger
-///   leaves leftward faster than 225 pt/s; otherwise the
-///   card springs back to its slot (0.66 / 0.86) and settles to scale 1
-///   (0.57 / 0.94).
-/// - Closing: the card keeps going left at the finger's speed (≥ 1000 pt/s,
-///   out within 190 ms), lifted and opaque; its tab leaves the grid on the
-///   way out without waiting for the host (a refused close brings the card
-///   back). When one tab is left, Safari opens it.
+/// - Release closes when the card is at least 72% of its width to the left,
+///   or when the finger leaves leftward faster than 225 pt/s; a slow drag
+///   under that springs back to its slot (0.56 / 0.92, right 0.75 / 0.81,
+///   carrying the finger's velocity) and settles to scale 1 (0.57 / 0.94).
+/// - Closing: the card keeps going left at the release speed (≥ 1000 pt/s),
+///   lifted and opaque, from the release frame until it is off screen; 99 ms
+///   in, its tab leaves the grid without waiting for the host (a refused
+///   close brings the card back). When one tab is left, Safari opens it.
 struct CardSwipe: Equatable, Sendable {
     static let commitFraction: CGFloat = 0.72
     static let flingVelocity: CGFloat = 225
@@ -28,27 +26,30 @@ struct CardSwipe: Equatable, Sendable {
     /// Safari: a 100 pt drag right (measured from touch-down) moves the card
     /// 44 pt (tabs-parity-audit 3f).
     static let rubberConstant: CGFloat = 0.695
-    /// Spring back to the slot (device: centre x fit 0.66 / 0.86, rms 0.6 pt).
-    static let snapBack = ZoomSpring(response: 0.66, damping: 0.86)
-    /// The card lifts while it is dragged (device: 1.0 -> 1.09 within ~60 ms
-    /// of the drag starting, about its centre) and settles back on release
+    /// Spring back to the slot after a left drag (simulator Safari, from the
+    /// turnaround: 0.562 / 0.918, tabs-parity-audit 3g) and after a right
+    /// drag (0.75 / 0.81, 3i).
+    static let snapBack = ZoomSpring(response: 0.56, damping: 0.92)
+    static let snapBackRight = ZoomSpring(response: 0.75, damping: 0.81)
+    /// The card lifts while it is dragged (Safari: 176 -> 192 pt, × 1.093,
+    /// over about 80 ms, about its centre) and settles back on release
     /// (scale fit 0.57 / 0.94).
-    static let liftScale: CGFloat = 1.09
-    static let lift = ZoomSpring(response: 0.08, damping: 1)
+    static let liftScale: CGFloat = 1.093
+    static let lift = ZoomSpring(response: 0.12, damping: 1)
+    /// The touch slop is caught up over this long once the drag is recognised.
+    static let slopCatchUp = 0.08
     static let settle = ZoomSpring(response: 0.57, damping: 0.94)
     /// A closing card keeps going left at the finger's speed (device ≈ 1000
     /// pt/s, still lifted and opaque) until it is off screen.
     static let flyOffMinSpeed: CGFloat = 1000
-    /// Fly-off time for `distance` points at the release speed.
-    /// Capped at Safari's exit time (simulator, the cmux-next tabs-parity-audit 3j: the
-    /// card is gone about 190 ms after it starts to accelerate).
+    /// Fly-off time for `distance` points at the release speed (Safari
+    /// carries it: about 1170 pt/s for a 100 pt / 0.12 s flick).
     static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
-        min(flyOffMaxDuration, Double(abs(distance) / max(abs(velocity), flyOffMinSpeed)))
+        Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
     }
-    static let flyOffMaxDuration = 0.19
-    /// The tab leaves the grid (count, reflow) this far into the fly-off:
-    /// Safari's count changes about 99 ms into its 190 ms exit.
-    static let flyOffRemovalFraction = 99.0 / 190
+    /// The tab leaves the grid (count, reflow) this long after the release
+    /// (Safari's count changes about 99 ms in).
+    static let flyOffRemovalDelay = 0.099
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 
@@ -60,17 +61,14 @@ struct CardSwipe: Equatable, Sendable {
     }
 
     /// Close on release? `offset` and `velocity` in points (/s), negative left.
-    /// The card is where it would come to rest: the release offset plus the
-    /// leftward velocity over `projectionTime`. A held release (no velocity)
-    /// still needs 72% of the width; a slow swipe that is still moving
-    /// closes sooner (Safari closed a 100 pt / 1 s swipe at −104.6 pt,
-    /// tabs-parity-audit 3e and 8a; a 60 pt flick closes at 250 pt/s, not
-    /// at 200).
-    static let projectionTime: CGFloat = 0.35
+    /// Close on release? `offset` and `velocity` in points (/s), negative
+    /// left. Only a large displacement (72% of the width) or a left fling
+    /// (faster than 225 pt/s) closes: a slow drag springs back however far
+    /// under the threshold it got (Safari; cmux-next tabs-parity-reaudit D3a: a slow
+    /// 100 pt drag springs back in Safari every time).
     static func commits(offset: CGFloat, velocity: CGFloat, cardWidth: CGFloat) -> Bool {
         guard offset < 0, velocity < flingVelocity else { return false }
-        let projected = offset + min(0, velocity) * projectionTime
-        return projected <= -commitFraction * cardWidth || velocity <= -flingVelocity
+        return offset <= -commitFraction * cardWidth || velocity <= -flingVelocity
     }
 
     /// Where the fly-off ends: past the screen's leading edge.

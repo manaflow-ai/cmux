@@ -149,12 +149,21 @@ struct TabOverview<Source: TabsDataSource>: View {
     var pending: TabsKitNewTabOption?
     /// The grid started (true) or stopped (false) scrolling.
     var onScrolling: (Bool) -> Void = { _ in }
+    /// A card tapped during the zoom to the grid (open it once settled).
+    var onQueueSelect: (String) -> Void = { _ in }
 
     @Environment(\.tabsKitTheme) private var theme
-    /// The card a long press lifted for a drag (also set by a long press
-    /// that only opens the menu), and whether that drag is over the grid.
-    @State private var dragging: String?
-    @State private var dragOver = false
+    /// A long-pressed card: lifted, the grid dimmed, its menu showing.
+    @State private var pressed: String?
+    @State private var pressStart: CGPoint = .zero
+    /// A long-pressed card being dragged to another slot.
+    @State private var reorder: CardReorder?
+
+    private struct CardReorder: Equatable {
+        let id: String
+        let grab: CGPoint
+        var point: CGPoint
+    }
 
     var body: some View {
         let tabs = source.tabs
@@ -164,66 +173,20 @@ struct TabOverview<Source: TabsDataSource>: View {
             ScrollView(.vertical) {
                 ZStack(alignment: .topLeading) {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
-                    ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                        let r = layout.card(index)
-                        let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
-                        TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
-                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
-                                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
-                                onClose: { Task { _ = await onClose(tab.id) } }) {
-                            source.card(for: tab)
-                        }
-                        .contentShape(.rect)
-                        .onTapGesture { if gridInteractive { onSelect(tab.id) } }
-                        // Long press: the card menu (the card lifts); moving the
-                        // finger instead drags the card to another slot.
-                        .contentShape(.contextMenuPreview, .rect(cornerRadius: layout.cardRadius))
-                        .contextMenu { cardMenu(tab) }
-                        .onDrag {
-                            dragging = tab.id
-                            return NSItemProvider(object: tab.id as NSString)
-                        }
-                        // Swipe left to close (CardSwipe).
-                        .gesture(CardSwipeGesture { phase in
-                            // The card the zoom is landing on stays put.
-                            guard gridInteractive || tab.id != hiddenTabId else { return }
-                            switch phase {
-                            case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: UIAccessibility.isReduceMotionEnabled, copy: copy)
-                            case .ended(_, let v):
-                                swipes.release(tab.id, velocity: v, card: r, reduceMotion: UIAccessibility.isReduceMotionEnabled, departing: copy) {
-                                    let closed = await onClose(tab.id)
-                                    // Safari opens the last tab when a swipe leaves only one.
-                                    if closed, source.tabs.count == 1, let last = source.tabs.first { onSelect(last.id) }
-                                    return closed
-                                }
-                            case .cancelled: swipes.cancel(tab.id, reduceMotion: UIAccessibility.isReduceMotionEnabled)
-                            }
-                        })
-                        .opacity(dragOver && dragging == tab.id ? 0 : swipes.opacity(tab.id))
-                        // Lifted about the card's centre while dragged.
-                        .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
-                        // Explicit stacking in grid order (a swiped card on top):
-                        // cards crossing in a reflow keep their order.
-                        .zIndex(swipes.isRaised(tab.id) ? 10_000 : Double(index))
-                        .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
-                        // A swiped card's departing copy carries on off screen.
-                        .transition(swipes.isDeparting(tab.id) ? .identity
-                                    : .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
-                    }
-                    ForEach(swipes.departing) { d in
-                        TabCard(title: d.tab.title, systemImage: d.tab.systemImage, pageSize: layout.size, width: d.rect.width, height: d.rect.height,
-                                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
-                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset, onClose: {}) {
-                            source.card(for: d.tab)
-                        }
-                        .opacity(swipes.departingOpacity(d.id))
-                        .scaleEffect(swipes.scale(d.id), anchor: UnitPoint(x: 0.5, y: d.rect.height / 2 / max(1, d.rect.height + 25)))
-                        .offset(x: d.rect.minX + swipes.offset(d.id), y: d.rect.minY)
-                        .zIndex(20_000)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                        .transition(.identity)
+                    // The listed cards, then any swiped card still flying off
+                    // after its tab left the list (the same view keeps going).
+                    ForEach(gridCards(), id: \.tab.id) { card in gridCardView(card) }
+                    if let id = pressed, let index = tabs.firstIndex(where: { $0.id == id }) {
+                        // The grid dims behind the lifted card; a tap outside closes the menu.
+                        Color.black.opacity(CardMenuStyle.dim)
+                            .frame(width: layout.size.width, height: max(layout.contentHeight, layout.size.height))
+                            .contentShape(.rect)
+                            .onTapGesture { closeMenu() }
+                            .zIndex(15_000)
+                            .transition(.opacity)
+                        cardMenuPanel(tabs[index], card: layout.card(index))
+                            .zIndex(17_000)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .top)))
                     }
                     if let pending {
                         let r = layout.card(tabs.count)
@@ -241,14 +204,12 @@ struct TabOverview<Source: TabsDataSource>: View {
                 // The grid reflows when a tab leaves (the data source removes
                 // it once its close succeeded).
                 .animation(theme.motion.resolve(theme.motion.reflow), value: tabs.map(\.id))
-                .onDrop(of: [.text], delegate: CardReorderDrop(layout: layout, ids: tabs.map(\.id), dragging: $dragging, over: $dragOver,
-                                                            canMove: source.supportsReordering, move: { source.moveTab($0, to: $1) }))
                 .onChange(of: tabs.map(\.id)) { _, ids in
-                    if let d = dragging, !ids.contains(d) { dragging = nil; dragOver = false }
+                    if let p = pressed, !ids.contains(p) { pressed = nil }
                 }
                 .onChange(of: gridInteractive) { _, _ in
-                    dragging = nil
-                    dragOver = false
+                    pressed = nil
+                    reorder = nil
                 }
                 .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
                     if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
@@ -281,23 +242,169 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// Safari's card menu: the source's groups (Copy Link, Duplicate Tab...),
     /// then Close Tab and Close Other Tabs.
-    @ViewBuilder private func cardMenu(_ tab: TabsKitTab) -> some View {
-        ForEach(Array(source.cardMenu(for: tab).enumerated()), id: \.offset) { _, group in
-            Section {
+    private struct GridCard {
+        let tab: TabsKitTab
+        let index: Int
+        let departed: DepartingCard?
+    }
+
+    private func gridCards() -> [GridCard] {
+        let tabs = source.tabs
+        var cards = tabs.enumerated().map { GridCard(tab: $0.element, index: $0.offset, departed: nil) }
+        let listed = Set(tabs.map(\.id))
+        for d in swipes.departing where !listed.contains(d.id) {
+            cards.append(GridCard(tab: d.tab, index: tabs.count, departed: d))
+        }
+        return cards
+    }
+
+    /// One grid card with its tap, long press and swipe.
+    @ViewBuilder private func gridCardView(_ card: GridCard) -> some View {
+        let tab = card.tab, index = card.index
+        let r = card.departed?.rect ?? layout.card(index)
+        let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
+        let lifted = pressed == tab.id || reorder?.id == tab.id
+        TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
+                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
+                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
+                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                onClose: { Task { _ = await onClose(tab.id) } }) {
+            source.card(for: tab)
+        }
+        .contentShape(.rect)
+        // During the zoom to the grid a tap is kept and opens the card once
+        // the grid has settled (Safari queues it).
+        .onTapGesture { if gridInteractive { onSelect(tab.id) } else if swipeInteractive { onQueueSelect(tab.id) } }
+        // Long press: the card menu; moving the finger then drags the card
+        // to another slot. A plain recogniser: the system context menu held
+        // the swipe back for about 450 ms.
+        .gesture(CardLongPressGesture { phase in press(phase, tab: tab, rect: r) })
+        // Swipe left to close (CardSwipe).
+        .gesture(CardSwipeGesture { phase in
+            // The card the zoom is landing on stays put.
+            guard gridInteractive || tab.id != hiddenTabId else { return }
+            let rm = UIAccessibility.isReduceMotionEnabled
+            switch phase {
+            case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: rm)
+            case .ended(_, let v):
+                swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy) {
+                    let closed = await onClose(tab.id)
+                    // Safari opens the last tab when a swipe leaves only one.
+                    if closed, source.tabs.count == 1, let last = source.tabs.first { onSelect(last.id) }
+                    return closed
+                }
+            case .cancelled: swipes.cancel(tab.id, reduceMotion: rm)
+            }
+        })
+        .opacity(swipes.opacity(tab.id))
+        // Lifted about the card's centre while swiped (× 1.093) or long
+        // pressed (× 1.06).
+        .scaleEffect(lifted ? CardMenuStyle.lift : swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
+        // Explicit stacking in grid order: cards crossing in a reflow keep
+        // their order.
+        .zIndex(swipes.isDeparting(tab.id) ? 20_000 : lifted ? 16_000 : swipes.isRaised(tab.id) ? 10_000 : Double(index))
+        .offset(cardOffset(tab.id, rect: r))
+        .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+    }
+
+    private func cardOffset(_ id: String, rect r: CGRect) -> CGSize {
+        if let drag = reorder, drag.id == id {
+            return CGSize(width: drag.point.x - drag.grab.x, height: drag.point.y - drag.grab.y)
+        }
+        return CGSize(width: r.minX + swipes.offset(id), height: r.minY)
+    }
+
+    private func contentPoint(_ p: CGPoint) -> CGPoint {
+        let o = scroll.contentOrigin ?? .zero
+        return CGPoint(x: p.x - o.x, y: p.y - o.y)
+    }
+
+    private func closeMenu() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { pressed = nil }
+    }
+
+    private func press(_ phase: CardPressPhase, tab: TabsKitTab, rect r: CGRect) {
+        switch phase {
+        case .began(let p):
+            guard gridInteractive, !swipes.isRaised(tab.id) else { return }
+            pressStart = p
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { pressed = tab.id }
+        case .changed(let p):
+            guard pressed == tab.id || reorder?.id == tab.id, source.supportsReordering || reorder != nil else { return }
+            if reorder == nil {
+                guard hypot(p.x - pressStart.x, p.y - pressStart.y) > 10 else { return }
+                let c = contentPoint(p)
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) { pressed = nil }
+                reorder = CardReorder(id: tab.id, grab: CGPoint(x: c.x - r.minX, y: c.y - r.minY), point: c)
+            }
+            guard var drag = reorder else { return }
+            drag.point = contentPoint(p)
+            reorder = drag
+            let center = CGPoint(x: drag.point.x - drag.grab.x + r.width / 2, y: drag.point.y - drag.grab.y + r.height / 2)
+            if let slot = layout.slot(at: center), slot < source.tabs.count, source.tabs.firstIndex(where: { $0.id == tab.id }) != slot {
+                withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.moveTab(tab.id, to: slot) }
+            }
+        case .ended, .cancelled:
+            if reorder?.id == tab.id {
+                withAnimation(theme.motion.resolve(theme.motion.reflow)) { reorder = nil }
+            }
+        }
+    }
+
+    /// The menu items: the source's groups, then Close Tab and Close Other Tabs.
+    private func menuGroups(_ tab: TabsKitTab) -> [[TabsKitMenuItem]] {
+        var groups = source.cardMenu(for: tab)
+        var close = [TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [onClose] in
+            Task { _ = await onClose(tab.id) }
+        }]
+        if source.tabs.count > 1 {
+            let others = source.tabs.map(\.id).filter { $0 != tab.id }
+            close.append(TabsKitMenuItem(title: "Close Other Tabs", systemImage: "xmark.square", isDestructive: true) { [onClose] in
+                for other in others { Task { _ = await onClose(other) } }
+            })
+        }
+        groups.append(close)
+        return groups
+    }
+
+    /// The glass menu under the lifted card (over it when there is no room below).
+    @ViewBuilder private func cardMenuPanel(_ tab: TabsKitTab, card: CGRect) -> some View {
+        let groups = menuGroups(tab)
+        let rows = groups.reduce(0) { $0 + $1.count }
+        let height = CGFloat(rows) * CardMenuStyle.row + CGFloat(max(0, groups.count - 1)) * 8
+        let width = CardMenuStyle.width
+        let below = card.maxY + theme.metrics.titleRow + 12
+        let screenBottom = (scroll.contentOrigin.map { -$0.y } ?? 0) + layout.size.height - layout.safeBottom - 60
+        let y = below + height <= screenBottom ? below : max(8, card.minY - 12 - height)
+        let x = min(max(16, card.midX - width / 2), layout.size.width - 16 - width)
+        VStack(spacing: 0) {
+            ForEach(Array(groups.enumerated()), id: \.offset) { g, group in
+                if g > 0 { Rectangle().fill(theme.colors.label.opacity(0.08)).frame(height: 8) }
                 ForEach(group) { item in
-                    Button(item.title, systemImage: item.systemImage, role: item.isDestructive ? .destructive : nil) { item.action() }
-                        .disabled(!item.isEnabled)
+                    Button {
+                        closeMenu()
+                        item.action()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: item.systemImage).frame(width: 22)
+                            Text(item.title)
+                            Spacer(minLength: 0)
+                        }
+                        .font(.system(size: 17))
+                        .foregroundStyle(item.isDestructive ? Color.red : theme.colors.label)
+                        .padding(.horizontal, 16)
+                        .frame(height: CardMenuStyle.row)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!item.isEnabled)
                 }
             }
         }
-        Section {
-            Button("Close Tab", systemImage: "xmark", role: .destructive) { Task { _ = await onClose(tab.id) } }
-            if source.tabs.count > 1 {
-                Button("Close Other Tabs", systemImage: "xmark.square", role: .destructive) {
-                    for other in source.tabs.map(\.id) where other != tab.id { Task { _ = await onClose(other) } }
-                }
-            }
-        }
+        .frame(width: width)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .offset(x: x, y: y)
     }
 
     private var topControls: some View {
@@ -358,8 +465,9 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .frame(height: 48)
                 .glassEffect(.regular, in: .capsule)
                 .position(x: layout.size.width / 2, y: bar.midY)
-                .contentTransition(.numericText())
-                .animation(.default, value: count)
+                // Safari swaps the count at once (no crossfade).
+                .contentTransition(.identity)
+                .transaction { $0.animation = nil }
 
             Button(action: onDone) {
                 Image(systemName: "checkmark").font(.system(size: 20, weight: .semibold))
@@ -382,33 +490,12 @@ struct TabOverview<Source: TabsDataSource>: View {
     }
 }
 
-/// Reorders the grid while a card is dragged: the card moves into the slot
-/// under the finger (the others reflow), as in Safari.
-struct CardReorderDrop: DropDelegate {
-    let layout: OverviewLayout
-    let ids: [String]
-    @Binding var dragging: String?
-    @Binding var over: Bool
-    let canMove: Bool
-    let move: (String, Int) -> Void
-
-    func validateDrop(info: DropInfo) -> Bool { canMove && dragging != nil }
-
-    func dropEntered(info: DropInfo) { if canMove, dragging != nil { over = true } }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        if canMove, let key = dragging, let slot = layout.slot(at: info.location), slot < ids.count, ids[slot] != key {
-            move(key, slot)
-        }
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        dragging = nil
-        over = false
-        return true
-    }
-
-    func dropExited(info: DropInfo) { over = false }
+/// Safari's long press on a grid card: the card lifts to × 1.06 and the
+/// other cards dim.
+struct CardMenuStyle: Equatable, Sendable {
+    static let lift: CGFloat = 1.06
+    static let dim = 0.35
+    static let width: CGFloat = 250
+    static let row: CGFloat = 44
 }
 #endif

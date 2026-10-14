@@ -93,6 +93,11 @@ final class DemoTabs: TabsDataSource {
     @ViewBuilder func card(for tab: TabsKitTab) -> some View {
         if let text = notes[tab.id] {
             NotePage(text: .constant(text), context: nil)
+        } else if let page = webPages[tab.id], page.url == nil || page.url == DemoSite.start {
+            // Drawn natively, so a new tab's start page shows from the first
+            // frame of its zoom (the web view draws nothing until it is on
+            // screen and loaded).
+            DemoStartCard()
         } else {
             TabsKitThumbnailCard(tab: tab, image: thumbnails[tab.id])
         }
@@ -174,11 +179,27 @@ final class DemoTabs: TabsDataSource {
         order.insert(id, at: max(0, min(index, order.count)))
     }
 
+    /// A start page loaded ahead, so a new tab shows its page from the first
+    /// frame of the zoom (a fresh web view drew nothing for about 300 ms).
+    @ObservationIgnored private var spareStart: DemoWebPage?
+
+    private func prepareSpareStart() {
+        if spareStart == nil { spareStart = DemoWebPage(url: DemoSite.start, configuration: configuration) }
+    }
+
     @discardableResult
     private func addWebPage(_ url: URL) -> String {
         let id = makeId()
-        let page = DemoWebPage(url: url, configuration: configuration)
+        let page: DemoWebPage
+        if url == DemoSite.start, let spare = spareStart {
+            page = spare
+            spareStart = nil
+        } else {
+            page = DemoWebPage(url: url, configuration: configuration)
+        }
+        defer { prepareSpareStart() }
         page.onLoaded = { [weak self] in self?.refreshThumbnail(id) }
+        if !page.isLoading { DispatchQueue.main.async { [weak self] in self?.refreshThumbnail(id) } }
         webPages[id] = page
         order.append(id)
         return id
@@ -267,5 +288,30 @@ struct NoteAccessory: View {
         .frame(height: 44)
         .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 34)
+    }
+}
+
+/// The start page as the web page draws it: Favorites and the page tiles.
+struct DemoStartCard: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Favorites").font(.system(size: 22, weight: .bold)).foregroundStyle(Color(white: 0.07))
+            HStack(spacing: 12) {
+                ForEach(DemoSite.pages.filter { $0.name != "start" }, id: \.name) { page in
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color(red: Double((page.color >> 16) & 0xFF) / 255, green: Double((page.color >> 8) & 0xFF) / 255,
+                                    blue: Double(page.color & 0xFF) / 255))
+                        .frame(width: 72, height: 72)
+                        .overlay(alignment: .bottom) {
+                            Text(page.title).font(.system(size: 12)).foregroundStyle(.white).padding(.bottom, 6)
+                        }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 62 + 8 + 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(red: 0xF2 / 255, green: 0xF2 / 255, blue: 0xF7 / 255))
     }
 }
