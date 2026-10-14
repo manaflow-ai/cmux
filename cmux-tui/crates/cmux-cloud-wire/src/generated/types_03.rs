@@ -5,6 +5,16 @@
 use super::*;
 
 wire_enum! {
+    TeamIntegrationPolicySource {
+        Default = "default",
+        Admin = "admin",
+        Sso = "sso",
+        Mdm = "mdm",
+        TeamPolicy = "team_policy",
+    }
+}
+
+wire_enum! {
     TeamJournalStream {
         Tasks = "tasks",
         Mail = "mail",

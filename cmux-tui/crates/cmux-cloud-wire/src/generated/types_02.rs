@@ -903,13 +903,3 @@ pub struct TeamIntegrationPolicyGithub {
     pub require_org_admin: bool,
     pub repo_allowlist: Option<Vec<RepoPattern>>,
 }
-
-wire_enum! {
-    TeamIntegrationPolicySource {
-        Default = "default",
-        Admin = "admin",
-        Sso = "sso",
-        Mdm = "mdm",
-        TeamPolicy = "team_policy",
-    }
-}
