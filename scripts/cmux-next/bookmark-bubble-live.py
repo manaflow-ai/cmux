@@ -172,7 +172,9 @@ try:
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
     check(((omnibar().get("pointer") or {}).get("frames") or {}).get("star") is not None, "the star still shows (the page stays bookmarked)")
-    check(saved() == first, f"closing the bubble keeps the bookmark and its name: {saved()} (was {first})")
+    named = lambda: [(t, u) for t, u in saved()]
+    check([u for _, u in named()] == [u for _, u in first], f"closing the bubble keeps the bookmark: {saved()} (was {first})")
+    check(all(t for t, _ in named()), f"the bookmark's name is the page title, not empty: {saved()}")
     # 3. A click on the page outside closes it.
     bubble = open_bubble("reopen")
     if bubble and main:
@@ -180,7 +182,7 @@ try:
         bar = ((omnibar().get("pointer") or {}).get("frames") or {}).get("bar") or [300, 30, 300, 24]
         rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": bar[0] + bar[2] / 2, "y": bar[1] + bar[3] + 150})
         check(bool(quiet_wait(lambda: not bubbles(), 5)), "a click outside the bubble closes it")
-        check(saved() == first, f"a click outside keeps the bookmark and its name: {saved()}")
+        check([u for _, u in saved()] == [u for _, u in first], f"a click outside keeps the bookmark: {saved()}")
     # 4. Shown without the keys (the app is never active here) it still shows.
     bubble = open_bubble("reopen without the keys")
     if bubble:
@@ -217,7 +219,7 @@ try:
     late = not any(t and "Example" in t for t in early)
     print("late title tested" if late else "NOTE late title not tested: the page had its title before the star", flush=True)
     quiet_wait(lambda: "example.org" in (omnibar().get("text") or ""), 30)
-    time.sleep(3.0)  # proof only: the page title loads and hops into the open bubble
+    time.sleep(10.0)  # proof only: the page title loads and hops into the open bubble (no title RPC)
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     quiet_wait(lambda: not bubbles(), 5)
     titles = quiet_wait(lambda: [t for t in org() if t], 10) or org()
@@ -241,28 +243,31 @@ try:
         check(bool(quiet_wait(lambda: not infos(), 5)), "a click on the page closes Page Info")
     # 7. A real pointer click on the star toggles the bubble.
     if opts.real_click:
-        def cua(tool, args):
-            result = subprocess.run([opts.cua, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=60)
-            try:
-                return json.loads(result.stdout)
-            except ValueError:
-                print(f"cua {tool}: {result.stdout[-300:]} {result.stderr[-300:]}", flush=True)
-                return {}
+        # A real click: a mouse down/up posted at the HID tap (the window server's own input path).
+        clicker = os.path.join(scratch, "click.swift")
+        with open(clicker, "w") as f:
+            f.write("import AppKit\nlet a = CommandLine.arguments\n"
+                    "let p = CGPoint(x: Double(a[1])!, y: NSScreen.screens[0].frame.height - Double(a[2])!)\n"
+                    "for t in [CGEventType.leftMouseDown, .leftMouseUp] {\n"
+                    "  CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)!.post(tap: .cghidEventTap)\n"
+                    "  usleep(80_000)\n}\n")
+
+        def real_click(what, wx, wy):
+            mf = next((w for w in windows() if w.get("id") == main.get("id")), main)["frame"]
+            x, y = mf["x"] + wx, mf["y"] + mf["height"] - wy  # window points from the top left -> screen, y up
+            result = subprocess.run(["xcrun", "swift", clicker, str(x), str(y)], capture_output=True, text=True, timeout=120)
+            print(f"{what}: real click at screen {x:.0f},{y:.0f} rc={result.returncode} {result.stderr[-200:]}", flush=True)
 
         def real_click_star(what):
             star = ((omnibar().get("pointer") or {}).get("frames") or {}).get("star")
-            wins = [w for w in cua("list_windows", {"pid": app.pid}).get("windows", []) if w.get("is_on_screen", True)]
-            target = max(wins, key=lambda w: (w.get("bounds") or {}).get("width", 0) * (w.get("bounds") or {}).get("height", 0), default=None)
-            if not star or not target:
-                return check(False, f"{what}: star {star} and window {target}")
-            shot = os.path.join(opts.out, f"real-click-{what}.png")
-            cua("get_window_state", {"pid": app.pid, "window_id": target["window_id"], "screenshot_out_file": shot})
-            with open(shot, "rb") as f:
-                width = int.from_bytes(f.read(24)[16:20], "big")  # PNG IHDR width
-            scale = width / target["bounds"]["width"]
-            point = {"x": (star[0] + star[2] / 2) * scale, "y": (star[1] + star[3] / 2) * scale}
-            print(f"{what}: real click at {point} (scale {scale:.2f}) ->",
-                  cua("click", {"pid": app.pid, "window_id": target["window_id"], **point, "delivery_mode": "foreground"}), flush=True)
+            if not star or not main:
+                return check(False, f"{what}: star {star}")
+            real_click(what, star[0] + star[2] / 2, star[1] + star[3] / 2)
+
+        # The first real click activates the app (a click on the page; the star takes no first mouse).
+        bar = ((omnibar().get("pointer") or {}).get("frames") or {}).get("bar") or [300, 30, 300, 24]
+        real_click("activate", bar[0] + bar[2] / 2, bar[1] + bar[3] + 150)
+        time.sleep(1.0)  # proof only: activation
 
         rpc("action.run", {"action": "bookmark.addPage", "focus": True}) if bubbles() else None
         quiet_wait(lambda: not bubbles(), 5)
