@@ -24,12 +24,12 @@ export const AI_USAGE_CSS = `
 .aiu-row { display: flex; align-items: center; gap: 16px; min-height: 44px; padding: 8px 12px; border-radius: calc(var(--aiu-r) - 6px); }
 .aiu-row + .aiu-row { border-top: 1px solid var(--line); }
 .aiu-row-hover:hover, .aiu-row-hover:focus-within, .aiu-row-hover:focus-visible { background: color-mix(in srgb, var(--fg) 4%, transparent); outline: none; }
-.aiu-default .aiu-name { flex: 0 0 auto; } .aiu-default .aiu-meta { flex: 1; }
+.aiu-default .aiu-name { flex: 0 0 auto; } .aiu-default .aiu-meta { flex: 1; min-width: 0; }
 .aiu-who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .aiu-name { font-weight: 550; overflow-wrap: anywhere; }
-.aiu-spend { flex: 0 0 280px; display: flex; flex-direction: column; gap: 6px; }
-.aiu-amounts { display: flex; align-items: baseline; gap: 8px; font-variant-numeric: tabular-nums; }
-.aiu-flag { font-size: 12px; }
+.aiu-spend { flex: 0 1 300px; min-width: 210px; display: flex; flex-direction: column; gap: 6px; }
+.aiu-amounts { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.aiu-flag { font-size: 12px; white-space: nowrap; }
 .aiu-actions { display: inline-flex; gap: 2px; margin-left: auto; visibility: hidden; }
 .aiu-row-hover:hover .aiu-actions, .aiu-row-hover:focus-within .aiu-actions, .aiu-row-hover:focus-visible .aiu-actions { visibility: visible; }
 .aiu button.aiu-text { border: 0; background: none; color: var(--muted); padding: 2px 6px; border-radius: 6px; font-size: 13px; }

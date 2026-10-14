@@ -182,7 +182,8 @@ const DefaultRow = ({ t, locale, data, actions, variant }: { t: T; locale: Local
 
 const MeterMember = ({ t, locale, m, actions }: { t: T; locale: Locale; m: AiUsageMember; actions: AiUsageActions }) => {
   const ratio = m.limit_usd > 0 ? m.spent_usd / m.limit_usd : m.spent_usd > 0 ? 1 : 0
-  const at = m.spent_usd >= 0 && m.spent_usd >= m.limit_usd
+  // "At limit" only for a real limit; a 0 limit already reads "No AI".
+  const at = m.limit_usd > 0 && m.spent_usd >= m.limit_usd
   return (
     <div className="aiu-row aiu-row-hover aiu-member" tabIndex={0}>
       <span className="aiu-who">
@@ -216,7 +217,7 @@ const LedgerTable = ({ t, locale, members, actions }: { t: T; locale: Locale; me
       {members.map((m) => (
         <tr key={m.user} className="aiu-row-hover" tabIndex={0}>
           <td><span className="aiu-name">{m.display_name}</span> <span className="aiu-meta">{m.role}</span></td>
-          <td className="aiu-num">{m.spent_usd < 0 ? t("spend.unknown") : usd(locale, m.spent_usd)}{m.spent_usd >= 0 && m.spent_usd >= m.limit_usd ? <span className="aiu-flag aiu-warn">{t("usage.member.at_limit")}</span> : null}</td>
+          <td className="aiu-num">{m.spent_usd < 0 ? t("spend.unknown") : usd(locale, m.spent_usd)}{m.limit_usd > 0 && m.spent_usd >= m.limit_usd ? <span className="aiu-flag aiu-warn">{t("usage.member.at_limit")}</span> : null}</td>
           <td>
             <InlineAmount t={t} label={t("usage.input.label", { member: m.display_name })} value={m.source === "personal" ? m.limit_usd : null} onSave={(v) => actions.setMember(m.user, v)}>
               {(edit) => (
