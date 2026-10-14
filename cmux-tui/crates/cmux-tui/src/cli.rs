@@ -237,6 +237,27 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     }
 }
 
+/// The agent-caller refusal of a plan that writes a Chief by the raw or
+/// typed protocol path (`cmux raw operation chief.profile.update`, a
+/// `cmux raw command` frame naming one): the same refusal as
+/// `cmux chief new|edit|delete` (chief/registry.rs).
+#[cfg(unix)]
+fn chief_write_refusal(plan: &CommandPlan) -> Option<serde_json::Value> {
+    let operation = match plan {
+        CommandPlan::Protocol(request) => request.operation.name().ok()?,
+        CommandPlan::RawCommand(command) => {
+            command.request.get("operation").and_then(serde_json::Value::as_str)?.to_owned()
+        }
+        _ => return None,
+    };
+    chief::registry::agent_operation_refusal(&operation)
+}
+
+#[cfg(not(unix))]
+fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
+    None
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     let lifecycle_args;
@@ -263,7 +284,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = run_app_scope(args) {
         return code;
     }
-    match parse(args, surface) {
+    let parsed = parse(args, surface);
+    if let Ok(ParsedCommand::Command { global, plan }) = &parsed
+        && let Some(refusal) = chief_write_refusal(plan)
+    {
+        return wire::print_operation_error(&refusal, global.output);
+    }
+    match parsed {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
                 let mut stdout = io::stdout().lock();
@@ -922,6 +949,8 @@ USAGE
   cmux sidebar plugin use <name-or-id>
   cmux sidebar plugin use --builtin
   cmux sidebar plugin update|remove <name-or-id>
+  cmux sidebar section-scroll <section> fixed|flow
+  cmux sidebar section-max-rows <section> <1-50>|none
 ";
 
 const PAIRING_HELP: &str = "\

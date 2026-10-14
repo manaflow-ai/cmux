@@ -93,7 +93,8 @@ public final class DaemonService {
     /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored public var reopenClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
-    @ObservationIgnored private var lastStartupError: DaemonError?
+    /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
+    @ObservationIgnored private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
@@ -133,6 +134,12 @@ public final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
+        // Before the first connection the retry loop has no socket watch of its own (the connection installs one
+        // after its first handshake): watch the socket the last launch used and its ready marker, so a daemon
+        // that finishes a long restore or handoff wakes a loop past its timed budget (cx-4bd8m).
+        if let socket = launcher.configuration.rememberedSocket {
+            retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
+        }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
@@ -409,7 +416,7 @@ public final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): not connected to cmux-tui"
+            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
         }
         do {
             try await body(connection)

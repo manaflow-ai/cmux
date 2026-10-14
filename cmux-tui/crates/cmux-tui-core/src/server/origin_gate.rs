@@ -229,12 +229,41 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// A WebSocket connection admitted with a page-bound credential
+/// (`page-credential {page}`): fixed at accept, with its page.
+pub(super) fn set_scoped_page(mux: &Mux, client: u64, page: String) {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.page = Some(page);
+        record.origin.scoped_page = true;
+    }
+}
+
+/// The conversation events a page-bound connection of the Channels page
+/// hears; every other page-bound connection hears none.
+static CHANNELS_SCOPED_EVENTS: std::sync::LazyLock<[String; 5]> = std::sync::LazyLock::new(|| {
+    [
+        "conversation-changed",
+        "conversation-typing",
+        "conversation-draft",
+        "conversation-run-changed",
+        "conversation-inbox-changed",
+    ]
+    .map(String::from)
+});
+
 /// The subscribe events a page relay connection hears (page-router.json
-/// `events` of its page; none for a relay without a page), or `None` for
-/// any other connection, whose stream stays as it was.
+/// `events` of its page; none for a relay without a page), a page-bound
+/// connection's (its page's conversation events), or `None` for any other
+/// connection, whose stream stays as it was.
 pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let origin = &state.clients.get(&client)?.origin;
+    if origin.scoped_page {
+        let channels = origin.page.as_deref() == Some("home-channels");
+        return Some(if channels { &CHANNELS_SCOPED_EVENTS[..] } else { &[] });
+    }
     (origin.role == HelloRole::PageRelay).then(|| {
         origin
             .page

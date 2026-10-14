@@ -12,6 +12,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
+    var servesTrust = false
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
@@ -38,25 +40,37 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             }
         }
         let route: AgentPaneRemoteRoute
+        // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
+        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] (cwd: String, level: String?, home: Bool) async throws -> Data in
+            let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
+            let answer: Result<Data, any Error>
+            do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
+            await client.close()
+            return try answer.get()
+        }
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
                 let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session, trust: servesTrust ? ask : nil)
             }
         } else if let start {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [endpoint] in
-                RemoteAcpmuxWire { cwd, harness in
+                RemoteAcpmuxWire(start: { [approvals = approvals] cwd, harness in
+                    // The chat's Allow needs this app's key on that machine's agent daemon
+                    // (cx-oa6ah): an idle daemon gets it before the start; a busy one waits for
+                    // the person's restart click on the Allow notice.
+                    if let prepare = approvals?.prepare { _ = await prepare() }
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await start(cwd, harness)
                     } catch let refusal as AgentRemoteStartRefusal {
-                        throw AgentSessionRemoteError(code: refusal.code, message: refusal.userMessage)
+                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client), started.session)
-                }
+                }, trust: servesTrust ? ask : nil)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -120,7 +134,7 @@ nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     }
 
     /// The daemon's refusal as the pane's error (its `agent_session.*` code reaches the page).
-    private func mapped(_ work: () async throws -> Data) async throws -> Data {
+    func mapped(_ work: () async throws -> Data) async throws -> Data {
         do {
             return try await work()
         } catch let error as AgentSessionAttachError {

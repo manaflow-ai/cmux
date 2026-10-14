@@ -24,11 +24,26 @@
      the neutral focus token; the alpha is applied here so every first-party surface shares it. */
   --cmux-focus-ring-width: 1.5px;
   --cmux-focus-ring-color: color-mix(in srgb, var(--cmux-app-focus-ring, var(--cmux-focus-ring, currentColor)) 48%, transparent);
+  /* A drawn rim is whole device pixels: macOS WebKit snaps an inset shadow's inner edge to device
+     pixels but not its rounded clip, so a thinner rim loses edges and the arcs beside them.
+     `--cmux-hairline` is one device pixel; `--cmux-hairline-ring` is the whole device pixels nearest
+     one CSS pixel (1px at 1x and 2x). desktop.ts sets both from devicePixelRatio, which follows
+     page zoom; the media query below is the value before it runs. */
+  --cmux-hairline: 1px;
+  --cmux-hairline-ring: 1px;
   /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
      hover (the text at about 6%), never a ring and never the accent's selection tint. The left
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One elevation scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
+     low-alpha drop under the surface, while the thin rim carries the edge. `--elevation-1` lifts
+     rows, cards and inline surfaces; `--elevation-2` popovers, menus, the palette, hover cards, the
+     composer, sheets and find bars. The native scale is the same numbers (PopupStyle.swift,
+     `elevation1`/`elevation2`); subtle-elevation.test.ts holds the two in step and fails on any
+     other blurred drop shadow. Dark mode darkens the same geometry a little. */
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
@@ -39,6 +54,23 @@
 html,
 body {
   overscroll-behavior: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+    --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  }
+}
+:root[data-theme="dark"] {
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --cmux-hairline: 0.5px;
+  }
 }
 
 /* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
@@ -73,7 +105,7 @@ select {
   border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
   background: var(--surface-popup);
-  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
@@ -223,6 +255,8 @@ input[type="submit"] {
     --agent-border-strong: var(--agent-text, CanvasText) !important;
     --acpmux-pill-edge: var(--agent-text, CanvasText) !important;
     --cmux-diff-border: var(--cmux-diff-fg, CanvasText) !important;
+    /* A popup's one hairline edge (ui/popupSurface.css) in its own ink. */
+    --ui-popup-edge: currentColor;
   }
 
   :root:not([data-borders="none"]) :is(.acpmux-shell, .ui-positioner) {

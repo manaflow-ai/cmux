@@ -67,6 +67,15 @@ pub enum CloudEvent {
         reason: &'static str,
         expires_at: Option<u64>,
     },
+    /// A Chief's run in a subscribed conversation changed (the owner's
+    /// `conversation-run-changed` frame: the run and the steps that changed;
+    /// ephemeral, never stored by the owner's stream).
+    RunChanged {
+        conversation: String,
+        run: Value,
+        steps: Vec<Value>,
+        account: Option<String>,
+    },
 }
 
 impl CloudEvent {
@@ -79,7 +88,8 @@ impl CloudEvent {
             | Self::InboxReset { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
-            | Self::SubscriptionState { account, .. } => {
+            | Self::SubscriptionState { account, .. }
+            | Self::RunChanged { account, .. } => {
                 *account = socket_account.map(str::to_string);
             }
             Self::SessionNeeded { .. } => {}
@@ -95,7 +105,8 @@ impl CloudEvent {
             | Self::InboxReset { account, .. }
             | Self::MuxWake { account, .. }
             | Self::MuxResynced { account, .. }
-            | Self::SubscriptionState { account, .. } => account.as_deref(),
+            | Self::SubscriptionState { account, .. }
+            | Self::RunChanged { account, .. } => account.as_deref(),
             Self::SessionNeeded { .. } => None,
         }
     }
@@ -155,6 +166,12 @@ impl CloudEvent {
                 }
                 value
             }
+            Self::RunChanged { conversation, run, steps, .. } => json!({
+                "event": "cloud-conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
         };
         if let Some(account) = self.account() {
             value["account"] = json!(account);
@@ -254,6 +271,27 @@ impl StreamState {
             }
             Some("snapshot") => self.on_snapshot(&frame),
             Some("event") => self.on_event(&frame),
+            // A Chief run change for this conversation's members (no seq: it
+            // is never replayed, a page reads the run again after a gap).
+            Some("conversation-run-changed") => match &self.target {
+                Target::Conversation(conversation)
+                    if frame.get("conversation").and_then(Value::as_str)
+                        == Some(conversation.as_str())
+                        && frame.get("run").is_some_and(Value::is_object) =>
+                {
+                    vec![StreamAction::Emit(CloudEvent::RunChanged {
+                        conversation: conversation.clone(),
+                        run: frame["run"].clone(),
+                        steps: frame
+                            .get("steps")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default(),
+                        account: None,
+                    })]
+                }
+                _ => Vec::new(),
+            },
             Some("error") => {
                 let code = frame.get("code").and_then(Value::as_str).unwrap_or_default();
                 if code == "auth.forbidden" { vec![StreamAction::Forbidden] } else { Vec::new() }

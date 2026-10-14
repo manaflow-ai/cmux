@@ -23,7 +23,7 @@ struct AgentChatMuteTests {
     }
 
     static func environment(_ acpmux: TaggingAcpmux) throws -> AcpmuxEnvironment {
-        try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: nil,
+        try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: nil,
                                                environment: ["ACPMUX_SOCKET": acpmux.path, "ACPMUX_HOME": "/tmp"],
                                                isExecutable: { _ in true }))
     }

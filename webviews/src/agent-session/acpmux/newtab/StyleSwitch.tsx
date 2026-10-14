@@ -48,7 +48,7 @@ export function StyleSwitch({
             onPointerDown={() => (pointed.current = performance.now())}
           >
             <input
-              className="ui-sr-only"
+              className="nt-style-input"
               type="radio"
               name="nt-style"
               value={style}

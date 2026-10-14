@@ -12,18 +12,8 @@ enum WorkspaceHandlers {
         registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
-        registry.bind("palette.closeOtherWorkspaces", run: { invocation in
-            let keep = try context.workspace(invocation).model
-            close(context.sidebarOrder.filter { $0 !== keep }, context)
-        })
-        registry.bind("palette.closeWorkspacesBelow", run: { invocation in
-            let (order, index) = try position(context, invocation)
-            close(Array(order[(index + 1)...]), context)
-        })
-        registry.bind("palette.closeWorkspacesAbove", run: { invocation in
-            let (order, index) = try position(context, invocation)
-            close(Array(order[..<index]), context)
-        })
+        WorkspaceBulkClose.bind(into: registry, context: context)
+        WorkspaceSetVerbs.bind(into: registry, context: context)
 
         registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
@@ -139,22 +129,5 @@ enum WorkspaceHandlers {
         let peers = context.sidebarOrder.filter { $0.group == current.group }
         guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
         context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
-    }
-
-    // MARK: Close
-
-    private static func position(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> ([WorkspaceModel], Int) {
-        let target = try context.workspace(invocation).model
-        let order = context.sidebarOrder
-        guard let index = order.firstIndex(where: { $0 === target }) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-        return (order, index)
-    }
-
-    static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
-        for workspace in workspaces {
-            guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: context.services.activeDaemon)
-            context.services.activeDaemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
     }
 }

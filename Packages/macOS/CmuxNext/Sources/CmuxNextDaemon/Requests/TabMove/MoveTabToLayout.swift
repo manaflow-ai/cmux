@@ -20,6 +20,28 @@ public struct MoveTabToSplitRequest: DaemonRequest {
     }
 }
 
+/// `move-tab-to-split` with `keep_focus` (`tab-split-keep-focus-v1`): the new
+/// pane does not take focus. Refused before sending to a daemon without the
+/// capability, which would ignore the field and focus the new pane.
+public struct MoveTabToSplitKeepingFocusRequest: DaemonRequest {
+    public typealias Response = TabMoveResult
+    public static let command = "move-tab-to-split"
+    public static let requiredCapability: String? = DaemonCapabilities.shared.tabSplitKeepFocus
+    public var surface: SurfaceID
+    public var pane: PaneID
+    public var edge: PaneEdge
+    public var ratio: Double?
+    public var keepFocus = true
+    public var transaction: ClientTransactionID?
+    public init(surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, transaction: ClientTransactionID? = nil) {
+        self.surface = surface
+        self.pane = pane
+        self.edge = edge
+        self.ratio = ratio
+        self.transaction = transaction
+    }
+}
+
 /// Destination screen of a column drop: named directly or by any of its panes.
 public enum ColumnDropTarget: Sendable, Hashable {
     case screen(ScreenID)
@@ -39,18 +61,22 @@ public struct MoveTabToColumnRequest: DaemonRequest {
     public var width: Double?
     /// Pins the new column to an edge in the same commit (edge-docks-v1).
     public var dock: DockSnapshot?
+    /// The new column's pane does not take focus (`tab-split-keep-focus-v1`; sent only when true,
+    /// and ``DaemonConnection/moveTabToColumn`` sends true only to a daemon that has it).
+    public var keepFocus: Bool
     public var transaction: ClientTransactionID?
     public init(surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                dock: DockSnapshot? = nil, transaction: ClientTransactionID? = nil) {
+                dock: DockSnapshot? = nil, keepFocus: Bool = false, transaction: ClientTransactionID? = nil) {
         self.surface = surface
         self.target = target
         self.afterColumn = afterColumn
         self.width = width
         self.dock = dock
+        self.keepFocus = keepFocus
         self.transaction = transaction
     }
 
-    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, transaction }
+    enum CodingKeys: String, CodingKey { case surface, pane, screen, afterColumn, width, dock, keepFocus, transaction }
     enum PinKeys: String, CodingKey { case edge, mode, role }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -67,6 +93,7 @@ public struct MoveTabToColumnRequest: DaemonRequest {
             try pin.encode(dock.mode.rawValue, forKey: .mode)
             try pin.encodeIfPresent(dock.role?.rawValue, forKey: .role)
         }
+        if keepFocus { try c.encode(true, forKey: .keepFocus) }
         try c.encodeIfPresent(transaction, forKey: .transaction)
     }
 }

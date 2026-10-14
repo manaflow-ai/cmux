@@ -94,6 +94,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored var screensByHandle: [ScreenID: ScreenModel] = [:]
     @ObservationIgnored var workspacesByHandle: [WorkspaceHandle: WorkspaceModel] = [:]
     @ObservationIgnored var workspacesByKey: [WorkspaceKey: WorkspaceModel] = [:]
+    /// By `WorkspaceModel.id` (`workspace(id:)`).
+    @ObservationIgnored var workspacesByID: [String: WorkspaceModel] = [:]
     @ObservationIgnored var tabGroupsByID: [TabGroupID: TabGroupModel] = [:]
     @ObservationIgnored public internal(set) var agents = AgentRoster()
     @ObservationIgnored var directories = TerminalDirectories()
@@ -264,9 +266,11 @@ public final class DaemonStore: StateResourceQueries {
         var screens: [ScreenID: ScreenModel] = [:]
         var byHandle: [WorkspaceHandle: WorkspaceModel] = [:]
         var byKey: [WorkspaceKey: WorkspaceModel] = [:]
+        var byID: [String: WorkspaceModel] = [:]
         var tabGroups: [TabGroupID: TabGroupModel] = [:]
         for workspace in workspaces {
             byHandle[workspace.handle] = workspace
+            byID[workspace.id] = workspace
             if let key = workspace.key { byKey[key] = workspace }
             for screen in workspace.screens {
                 screens[screen.handle] = screen
@@ -286,6 +290,7 @@ public final class DaemonStore: StateResourceQueries {
         screensByHandle = screens
         workspacesByHandle = byHandle
         workspacesByKey = byKey
+        workspacesByID = byID
         tabGroupsByID = tabGroups
         recomputeSidebar()
         session.overlay(workspaces)

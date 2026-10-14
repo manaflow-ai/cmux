@@ -5,6 +5,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AddChannel } from "./AddChannel";
+import { AttachmentContext } from "./AttachmentViews";
 import { Avatar, ChannelMark } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
@@ -15,7 +16,9 @@ import {
   chiefState,
   chronological,
   conversationName,
+  isUnread,
   lastEditable,
+  listOrder,
   mergeMessages,
   messageLink,
   others,
@@ -26,11 +29,14 @@ import {
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
+import { RunsContext, type RunsContextValue } from "./RunCard";
+import { useRunEntry } from "./runs";
+import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
 import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
-import type { HomeMessage, HomeParticipant } from "./types";
+import type { HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 
 const NOTICE_MS = 1600;
@@ -42,12 +48,27 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
   const [notice, setNotice] = useState<string | undefined>();
+  /** The run the run sheet shows (an agent turn's whole trajectory). */
+  const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  const runs = useMemo<RunsContextValue>(
+    () => ({
+      book: store.runs,
+      strings,
+      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
+      onLoad: (run: HomeRun) => void store.loadRunSteps(run),
+    }),
+    [store, strings],
+  );
+  const runSheet = useRunEntry(store.runs, (book) =>
+    openRun ? book.get(openRun.conversation, openRun.author, openRun.id) : undefined,
+  );
   const noticeTimer = useRef<number | undefined>(undefined);
   /** The status each root was last asked to take, until the owner's event shows it (two quick
    * presses of E resolve, then reopen). */
   const asked = useRef(new Map<string, "open" | "resolved">());
   const { t, format } = strings;
   const stamp = useStamp(strings.language);
+  const column = useRef<HTMLDivElement | null>(null);
   const me = snap.me?.id;
   const open = snap.selected ? snap.conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
@@ -127,13 +148,21 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
-  const copyLink = (message?: HomeMessage) => {
-    if (!snap.selected || !navigator.clipboard) return;
+  const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
+    if (!conversation || !navigator.clipboard) return;
     // The notice only when the copy happened.
-    navigator.clipboard.writeText(messageLink(snap.selected, message?.id)).then(
+    navigator.clipboard.writeText(messageLink(conversation, message?.id)).then(
       () => say(t("notice.linkCopied")),
       () => undefined,
     );
+  };
+  // A list row's menu (right-click, Shift-F10): my pin, my unread mark, the conversation's link.
+  const rowActions = {
+    canPin: snap.inboxState,
+    onPin: (id: string, pinned: boolean) => void store.setPinned(id, pinned),
+    onMarkUnread: (id: string) => void store.setMarkedUnread(id, true),
+    onMarkRead: (id: string) => store.markConversationRead(id),
+    onCopyLink: (id: string) => copyLink(undefined, id),
   };
   const select = (id: string) => {
     setEditing(undefined);
@@ -168,13 +197,15 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
-    const order = chronological(snap.conversations.values());
+    // The order the list shows: my pins first, then newest activity.
+    const { pinned, rest } = listOrder(snap.conversations.values());
+    const order = [...pinned, ...rest];
     const n = order.length;
     const start = order.findIndex((c) => c.id === snap.selected);
     const base = start < 0 ? (delta > 0 ? -1 : n) : start;
     for (let step = 1; step <= n; step += 1) {
       const next = order[(((base + delta * step) % n) + n) % n];
-      if (next && (!unreadOnly || next.unread > 0)) {
+      if (next && (!unreadOnly || isUnread(next))) {
         select(next.id);
         return;
       }
@@ -186,6 +217,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     escape: () => {
       if (palette) setPalette(false);
       else if (editing) setEditing(undefined);
+      else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
       else return false;
@@ -279,6 +311,16 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         mark: <HomeIcon name="check" size={16} />,
         run: () => snap.thread && setOwner(snap.thread, me),
       });
+    const openRow = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+    if (openRow && snap.inboxState)
+      items.push({
+        id: "a:pin",
+        group: "actions",
+        title: t(openRow.pinned ? "action.unpinConversation" : "action.pinConversation"),
+        keywords: ["pin"],
+        mark: <HomeIcon name="pin" size={16} />,
+        run: () => void store.setPinned(openRow.id, !openRow.pinned),
+      });
     if (snap.selected)
       items.push({
         id: "a:copy-conversation",
@@ -307,184 +349,218 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     everyone,
     snap.thread,
     snap.selected,
+    snap.inboxState,
     sheetThread?.status,
     sheetThread?.owner,
     stamp,
   ]);
 
   const empty = snap.conversations.size === 0 && !snap.loading;
+  // Files go to the open conversation when its owner takes them through this host.
+  const takesFiles =
+    open && snap.fileSupport && (open.owner === "cloud" ? snap.fileSupport.cloud : snap.fileSupport.local);
+  const openId = open?.id;
+  const uploads = useMemo(
+    () =>
+      store.attachments && takesFiles && openId ? { service: store.attachments, conversation: openId } : undefined,
+    [store.attachments, takesFiles, openId],
+  );
   return (
-    <div className="lg-page">
-      <ConversationList
-        conversations={snap.conversations}
-        channels={channels}
-        people={people}
-        activity={snap.activity}
-        me={me}
-        selected={snap.selected}
-        strings={strings}
-        onSelect={select}
-        onOpenPalette={() => setPalette(true)}
-        onAddChannel={online && everyone.length > 0 ? (anchor) => setAddChannel(anchor) : undefined}
-      />
-      <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-        {snap.loading ? null : empty || !open ? (
-          <EmptyState
-            strings={strings}
-            noConversations={empty}
-            canCreate={online && everyone.length > 0}
-            onCreate={(anchor) => setAddChannel(anchor)}
-            onPalette={() => setPalette(true)}
-          />
-        ) : (
-          <>
-            <header className="lg-header">
-              <span className="lg-header-mark">
-                {channel ? (
-                  <ChannelMark />
-                ) : (
-                  <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+    <AttachmentContext.Provider value={store.attachments}>
+      <div className="lg-page">
+        <ConversationList
+          conversations={snap.conversations}
+          channels={channels}
+          people={people}
+          activity={snap.activity}
+          me={me}
+          selected={snap.selected}
+          strings={strings}
+          onSelect={select}
+          onOpenPalette={() => setPalette(true)}
+          onAddChannel={online && everyone.length > 0 ? (anchor) => setAddChannel(anchor) : undefined}
+          actions={rowActions}
+        />
+        <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
+          {snap.loading ? null : empty || !open ? (
+            <EmptyState
+              strings={strings}
+              noConversations={empty}
+              canCreate={online && everyone.length > 0}
+              onCreate={(anchor) => setAddChannel(anchor)}
+              onPalette={() => setPalette(true)}
+            />
+          ) : (
+            <>
+              <header className="lg-header">
+                <span className="lg-header-mark">
+                  {channel ? (
+                    <ChannelMark />
+                  ) : (
+                    <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+                  )}
+                </span>
+                <h1 className="lg-header-title">{name}</h1>
+                <p className="lg-header-context">
+                  {state && state !== "idle" ? (
+                    <span className={`lg-state ${state}`}>
+                      {t(state === "working" ? "chief.working" : "chief.waiting")}
+                    </span>
+                  ) : state === "idle" ? (
+                    <span>{t("chief.idle")}</span>
+                  ) : null}
+                  {channel && <span>{format("header.members", String(open.participants.length))}</span>}
+                  {channel && threads.length > 0 && (
+                    <span>
+                      {openThreads === 1
+                        ? t("header.openThread.one")
+                        : format("header.openThreads", String(openThreads))}
+                    </span>
+                  )}
+                </p>
+                <span className="lg-spacer" />
+                {!online && (
+                  <output className="lg-connection">
+                    {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                  </output>
                 )}
-              </span>
-              <h1 className="lg-header-title">{name}</h1>
-              <p className="lg-header-context">
-                {state && state !== "idle" ? (
-                  <span className={`lg-state ${state}`}>
-                    {t(state === "working" ? "chief.working" : "chief.waiting")}
-                  </span>
-                ) : state === "idle" ? (
-                  <span>{t("chief.idle")}</span>
-                ) : null}
-                {channel && <span>{format("header.members", String(open.participants.length))}</span>}
-                {channel && threads.length > 0 && (
-                  <span>
-                    {openThreads === 1 ? t("header.openThread.one") : format("header.openThreads", String(openThreads))}
+                {notice && <output className="lg-notice">{notice}</output>}
+                {channel && (
+                  <span className="lg-faces" aria-hidden="true">
+                    {open.participants.slice(0, 4).map((p) => (
+                      <Avatar key={p.id} participant={p} size={20} />
+                    ))}
                   </span>
                 )}
-              </p>
-              <span className="lg-spacer" />
-              {!online && (
-                <output className="lg-connection">
-                  {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                <button
+                  type="button"
+                  className="hc-icon-button"
+                  aria-label={t("action.copyConversationLink")}
+                  title={t("action.copyConversationLink")}
+                  onClick={() => copyLink()}
+                >
+                  <HomeIcon name="link" size={16} />
+                </button>
+              </header>
+              {snap.error && (
+                <output className="hc-error selectable">
+                  <span>{snap.error}</span>
+                  <button type="button" onClick={() => store.dismissError()}>
+                    {t("error.dismiss")}
+                  </button>
                 </output>
               )}
-              {notice && <output className="lg-notice">{notice}</output>}
-              {channel && (
-                <span className="lg-faces" aria-hidden="true">
-                  {open.participants.slice(0, 4).map((p) => (
-                    <Avatar key={p.id} participant={p} size={20} />
-                  ))}
-                </span>
-              )}
-              <button
-                type="button"
-                className="hc-icon-button"
-                aria-label={t("action.copyConversationLink")}
-                title={t("action.copyConversationLink")}
-                onClick={() => copyLink()}
-              >
-                <HomeIcon name="link" size={16} />
-              </button>
-            </header>
-            {snap.error && (
-              <output className="hc-error selectable">
-                <span>{snap.error}</span>
-                <button type="button" onClick={() => store.dismissError()}>
-                  {t("error.dismiss")}
-                </button>
-              </output>
-            )}
-            <div className="lg-stage">
-              <Timeline
-                conversation={snap.selected}
-                rows={rows}
-                people={people}
-                me={me}
-                strings={strings}
-                loadingOlder={snap.loadingOlder}
-                onLoadOlder={() => void store.loadOlder()}
-                onOpenThread={(root) => openThread(root)}
-                onReact={(message, value) => void store.react(message, value)}
-                onCopyLink={(message) => copyLink(message)}
-                highlight={snap.highlight}
-                threadFor={threadFor}
-                openThread={snap.thread}
-                focused={focused}
-                pendingState={pendingState}
-                onRetry={(key) => store.retry(key)}
-                onDiscard={(key) => store.discard(key)}
-                stamp={stamp}
-                empty={t("timeline.empty")}
-                {...editActions("main")}
-              />
-              <div className="lg-typing" aria-live="polite">
-                {typingNames.length === 1
-                  ? format("typing.one", typingNames[0]!)
-                  : typingNames.length > 1
-                    ? t("typing.many")
-                    : ""}
-              </div>
-              <div className="lg-main-compose">
-                <Composer
-                  key={open.id}
-                  strings={strings}
-                  placeholder={format("composer.placeholder", place)}
-                  label={format("composer.placeholder", name)}
-                  disabled={!online}
-                  people={mentionable}
-                  onEditLast={() => {
-                    const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
-                    if (last) setEditing({ id: last.id, surface: "main" });
-                  }}
-                  onSend={(text) => store.send(text)}
-                />
-              </div>
-              {snap.thread && (
-                <ThreadSheet
-                  key={snap.thread}
-                  root={snap.thread}
-                  thread={sheetThread}
-                  place={place}
-                  messages={threadSource}
-                  stats={snap.threadStats.get(snap.thread)}
-                  hasMore={snap.threadView?.hasMore}
-                  loadingMore={snap.threadView?.loading}
-                  onLoadMore={() => store.loadMoreReplies()}
-                  people={people}
-                  mentionable={mentionable}
-                  me={me}
-                  strings={strings}
-                  canSend={online}
-                  highlight={snap.highlight}
-                  onClose={() => openThread(undefined)}
-                  onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
-                  owners={open.participants}
-                  onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
-                  onRename={(title) => (sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false))}
-                  onSend={(text, parent) => store.send(text, snap.thread, parent)}
-                  onCopyLink={(message) => copyLink(message)}
-                  onReact={(message, value) => void store.react(message, value)}
-                  pendingState={pendingState}
-                  onRetry={(key) => store.retry(key)}
-                  onDiscard={(key) => store.discard(key)}
-                  {...editActions("thread")}
-                />
-              )}
-            </div>
-          </>
+              <RunsContext.Provider value={runs}>
+                <div className="lg-stage" ref={column} data-drop-zone>
+                  <Timeline
+                    conversation={snap.selected}
+                    rows={rows}
+                    people={people}
+                    me={me}
+                    strings={strings}
+                    loadingOlder={snap.loadingOlder}
+                    onLoadOlder={() => void store.loadOlder()}
+                    onOpenThread={(root) => openThread(root)}
+                    onReact={(message, value) => void store.react(message, value)}
+                    onCopyLink={(message) => copyLink(message)}
+                    highlight={snap.highlight}
+                    threadFor={threadFor}
+                    openThread={snap.thread}
+                    focused={focused}
+                    pendingState={pendingState}
+                    onRetry={(key) => store.retry(key)}
+                    onDiscard={(key) => store.discard(key)}
+                    stamp={stamp}
+                    empty={t("timeline.empty")}
+                    {...editActions("main")}
+                  />
+                  <div className="lg-typing" aria-live="polite">
+                    {typingNames.length === 1
+                      ? format("typing.one", typingNames[0]!)
+                      : typingNames.length > 1
+                        ? t("typing.many")
+                        : ""}
+                  </div>
+                  <div className="lg-main-compose">
+                    <Composer
+                      key={open.id}
+                      strings={strings}
+                      placeholder={format("composer.placeholder", place)}
+                      label={format("composer.placeholder", name)}
+                      disabled={!online}
+                      people={mentionable}
+                      onEditLast={() => {
+                        const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
+                        if (last) setEditing({ id: last.id, surface: "main" });
+                      }}
+                      attachments={uploads}
+                      dropZone={column}
+                      onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                    />
+                  </div>
+                  {snap.thread && (
+                    <ThreadSheet
+                      key={snap.thread}
+                      root={snap.thread}
+                      thread={sheetThread}
+                      place={place}
+                      messages={threadSource}
+                      stats={snap.threadStats.get(snap.thread)}
+                      hasMore={snap.threadView?.hasMore}
+                      loadingMore={snap.threadView?.loading}
+                      onLoadMore={() => store.loadMoreReplies()}
+                      people={people}
+                      mentionable={mentionable}
+                      me={me}
+                      strings={strings}
+                      canSend={online}
+                      highlight={snap.highlight}
+                      onClose={() => openThread(undefined)}
+                      onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
+                      owners={open.participants}
+                      onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
+                      onRename={(title) =>
+                        sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
+                      }
+                      onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
+                      attachments={uploads}
+                      onCopyLink={(message) => copyLink(message)}
+                      onReact={(message, value) => void store.react(message, value)}
+                      pendingState={pendingState}
+                      onRetry={(key) => store.retry(key)}
+                      onDiscard={(key) => store.discard(key)}
+                      {...editActions("thread")}
+                    />
+                  )}
+                  {runSheet && runSheet.run.conversation === snap.selected && (
+                    <RunSheet
+                      key={`${runSheet.run.author}:${runSheet.run.id}`}
+                      entry={runSheet}
+                      people={people}
+                      strings={strings}
+                      place={place}
+                      asked={askedLine(runSheet.run.answers[0], threadSource)}
+                      onClose={() => setOpenRun(undefined)}
+                      onLoad={runs.onLoad}
+                    />
+                  )}
+                </div>
+              </RunsContext.Provider>
+            </>
+          )}
+        </section>
+        {addChannel && (
+          <AddChannel
+            anchor={addChannel}
+            people={everyone}
+            strings={strings}
+            onCreate={(title, participants) => store.createChannel(title, participants)}
+            onClose={() => setAddChannel(null)}
+          />
         )}
-      </section>
-      {addChannel && (
-        <AddChannel
-          anchor={addChannel}
-          people={everyone}
-          strings={strings}
-          onCreate={(title, participants) => store.createChannel(title, participants)}
-          onClose={() => setAddChannel(null)}
-        />
-      )}
-      {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
-    </div>
+        {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+      </div>
+    </AttachmentContext.Provider>
   );
 }
 
@@ -519,4 +595,12 @@ function EmptyState({
       </div>
     </div>
   );
+}
+
+/** The first line of the message a run works on (the run sheet's title when the run has none). */
+function askedLine(id: string | undefined, messages: readonly HomeMessage[]): string | undefined {
+  const message = id ? messages.find((entry) => entry.id === id) : undefined;
+  const text = message?.parts.find((part) => part.type === "text");
+  const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
+  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
 }

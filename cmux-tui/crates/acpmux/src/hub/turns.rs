@@ -253,6 +253,7 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            provenance: opts.provenance.as_ref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -292,12 +293,9 @@ impl Hub {
         });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
-        self.append(
-            session,
-            "mux",
-            "user_message",
-            json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-        );
+        let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
+        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        self.append(session, "mux", "user_message", msg);
         if !waiting {
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
@@ -676,9 +674,9 @@ impl Hub {
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
     /// summary), so `wait` can report a failed turn after it resolves.
-    fn record_last_turn(&self, session: &Session, turn_result: &Value) {
+    pub(super) fn record_last_turn(&self, session: &Session, turn_result: &Value) {
         let mut last = serde_json::Map::new();
-        for k in ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource"] {
+        for k in super::views::LAST_TURN_KEYS {
             if let Some(v) = turn_result.get(k) {
                 last.insert(k.to_owned(), v.clone());
             }

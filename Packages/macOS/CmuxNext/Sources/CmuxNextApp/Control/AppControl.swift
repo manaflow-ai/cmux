@@ -4,6 +4,7 @@ import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -75,6 +76,8 @@ final class AppControl {
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
+            .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
             .mainActor("debug.hints") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -339,10 +342,10 @@ final class AppControl {
             .async("debug.agent_pane") { [weak services] call in
                 await DebugAgentPane.handle(call.params, services)
             }.withDeadline(.fixed(DebugAgentPane.deadline)),
-            // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
+            // Instant new tab: spares, opening times, the field (new-tab.md 2.3); new terminal stages (cx-6so.58).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
-            }.withDeadline(.fixed(.seconds(15))),
+            }.withDeadline(.fixed(.seconds(15))), DebugNewTerminalTrace.method(services),
             // R131: hover card retarget timing across the focused strip's tabs.
             .async("debug.hover_sweep") { [weak services] call in
                 guard let services else { return .null }
