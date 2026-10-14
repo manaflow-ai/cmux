@@ -31,17 +31,17 @@ public struct ThemedPicker<ID: Hashable>: NSViewRepresentable {
         self.identifier = identifier
     }
 
-    public func makeCoordinator() -> Coordinator { Coordinator(self) }
+    public func makeCoordinator() -> ThemedPickerCoordinator { ThemedPickerCoordinator(choose: choose) }
 
     public func makeNSView(context: Context) -> ThemedPopUpButton {
         let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
         popup.target = context.coordinator
-        popup.action = #selector(Coordinator.chose(_:))
+        popup.action = #selector(ThemedPickerCoordinator.chose(_:))
         return popup
     }
 
     public func updateNSView(_ popup: ThemedPopUpButton, context: Context) {
-        context.coordinator.parent = self
+        context.coordinator.choose = choose
         let titles = choices.map(\.title)
         if popup.itemTitles != titles {
             popup.removeAllItems()
@@ -53,16 +53,29 @@ public struct ThemedPicker<ID: Hashable>: NSViewRepresentable {
         if let identifier, popup.accessibilityIdentifier() != identifier { popup.setAccessibilityIdentifier(identifier) }
     }
 
-    /// Carries the pop-up's choice to the binding.
-    @MainActor public final class Coordinator: NSObject {
-        fileprivate var parent: ThemedPicker
-
-        fileprivate init(_ parent: ThemedPicker) { self.parent = parent }
-
-        @objc fileprivate func chose(_ popup: NSPopUpButton) {
-            let index = popup.indexOfSelectedItem
-            guard parent.choices.indices.contains(index) else { return }
-            parent.selection = parent.choices[index].id
+    /// Sets the binding to the chosen item's id (an index outside the choices changes nothing).
+    private var choose: (Int) -> Void {
+        let choices = choices
+        let selection = $selection
+        return { index in
+            guard choices.indices.contains(index) else { return }
+            selection.wrappedValue = choices[index].id
         }
+    }
+}
+
+/// Carries a `ThemedPicker`'s choice to its binding.
+///
+/// Not nested in the generic `ThemedPicker`: Swift 6.3.3's EarlyPerfInliner crashed
+/// (`isCallerAndCalleeLayoutConstraintsCompatible`) on the deinit of a generic `NSObject`
+/// subclass here in the Release build, so the coordinator is not generic and holds the
+/// picker's choice as a closure.
+@MainActor public final class ThemedPickerCoordinator: NSObject {
+    fileprivate var choose: (Int) -> Void
+
+    fileprivate init(choose: @escaping (Int) -> Void) { self.choose = choose }
+
+    @objc fileprivate func chose(_ popup: NSPopUpButton) {
+        choose(popup.indexOfSelectedItem)
     }
 }
