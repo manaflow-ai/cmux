@@ -42,7 +42,7 @@ cat > "$src/scripts/ci/upload-r2-object.py" <<PY
 import argparse, pathlib, shutil, sys
 parser = argparse.ArgumentParser()
 parser.add_argument("--write-once", action="store_true")
-parser.add_argument("--conflict-exit-code", type=int)  # like the real one: this code on a write-once conflict
+parser.add_argument("--conflict-exit-code", type=int)
 for name in ("--file", "--endpoint-url", "--bucket", "--key", "--cache-control"):
     parser.add_argument(name)
 args = parser.parse_args()
