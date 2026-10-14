@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AttachmentContext } from "./AttachmentViews";
+import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
@@ -29,7 +30,7 @@ import {
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
-import { conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
+import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { RouteSheets } from "./RouteSheets";
@@ -124,6 +125,7 @@ export function HomeChannelsPage({
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
   }, [conversations, snap.me]);
+  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -193,7 +195,7 @@ export function HomeChannelsPage({
   };
   /** Back to the list (the narrow page's one pane). */
   const back = () => {
-    if (store.routed) setHash("#/");
+    if (store.routed) backToList();
   };
   const canGoBack = narrow && pane === "conversation" && store.routed;
   const listShown = narrow && pane === "list";
@@ -259,8 +261,11 @@ export function HomeChannelsPage({
     openPalette: () => setPalette(true),
     move: moveList,
     escape: (inField) => {
+      // The narrow list pane hides the conversation: its edit, run, thread and focus are not
+      // what Escape closes there.
       if (sheetState.route) store.sheets.close();
       else if (palette) setPalette(false);
+      else if (listShown) return false;
       else if (editing) setEditing(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
@@ -462,6 +467,7 @@ export function HomeChannelsPage({
   );
   return (
     <AttachmentContext.Provider value={store.attachments}>
+      <AvatarContext.Provider value={store.avatars}>
       <PicturesContext.Provider value={sheetState.pictures}>
         <div className="lg-shell" ref={shell}>
           <div className="lg-page" data-pane={pane}>
@@ -579,7 +585,7 @@ export function HomeChannelsPage({
                       </button>
                     </output>
                   )}
-                  <RunsContext.Provider value={runs}>
+                  <RunsContext.Provider value={runsWithPeople}>
                     <div className="lg-stage" ref={column} data-drop-zone>
                       <Timeline
                         conversation={snap.selected}
@@ -693,6 +699,7 @@ export function HomeChannelsPage({
           </div>
         </div>
       </PicturesContext.Provider>
+      </AvatarContext.Provider>
     </AttachmentContext.Provider>
   );
 }

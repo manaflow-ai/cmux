@@ -272,6 +272,8 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
         .optional()?
         .is_some_and(|value| value != 0);
     let mut record = json!({
+        // The closed tab's id: a closed tab group names its tabs by it.
+        "tab_id": tab_id,
         "kind": kind,
         "name": name,
         "cwd": null,
@@ -552,8 +554,8 @@ pub(crate) fn attach_closed_tab_group(
     let found = transaction
         .query_row(
             "SELECT g.closed_id, g.record_json FROM closed_groups AS g
-             WHERE EXISTS (SELECT 1 FROM json_each(g.record_json, '$.members') AS m
-                           WHERE json_extract(m.value, '$.tab_id') = ?1)
+             WHERE EXISTS (SELECT 1 FROM json_tree(g.record_json, '$.members') AS t
+                           WHERE t.key = 'tab_id' AND t.atom = ?1)
              ORDER BY g.seq DESC LIMIT 1",
             [first],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
@@ -561,13 +563,10 @@ pub(crate) fn attach_closed_tab_group(
         .optional()?;
     let Some((closed_id, record)) = found else { return Ok(()) };
     let mut record: Value = serde_json::from_str(&record)?;
-    // Only the group this close recorded holds every one of its tabs.
-    let recorded = record["members"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|member| member["tab_id"].as_str())
-        .collect::<HashSet<_>>();
+    // Only the group this close recorded holds every one of its tabs, as
+    // tab members or inside the screen the close emptied.
+    let mut recorded = HashSet::new();
+    closed_tab_ids(&record["members"], &mut recorded);
     if !archive["tab_ids"]
         .as_array()
         .into_iter()
@@ -582,6 +581,24 @@ pub(crate) fn attach_closed_tab_group(
         params![closed_id, serde_json::to_string(&record)?],
     )?;
     queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
+/// Every closed tab id in `value`, at any depth.
+fn closed_tab_ids<'a>(value: &'a Value, ids: &mut HashSet<&'a str>) {
+    match value {
+        Value::Array(items) => items.iter().for_each(|item| closed_tab_ids(item, ids)),
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                match field.as_str() {
+                    Some(id) if key == "tab_id" => {
+                        ids.insert(id);
+                    }
+                    _ => closed_tab_ids(field, ids),
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// A new closed group id.

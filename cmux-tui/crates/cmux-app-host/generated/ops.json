@@ -249,6 +249,8 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "participant.avatar.get",
+    "participant.avatar.set",
     "participants.add",
     "project.add",
     "project.list",

@@ -184,6 +184,7 @@ export class MockAcpmuxSocket {
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
+  private bookmarks = new Map<string, Set<number>>();
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -450,6 +451,16 @@ export class MockAcpmuxSocket {
           throw Object.assign(new Error("no such session"), { code: -32001 });
         this.touch(target, { unread: true }, false);
         return {};
+      // Prompt bookmarks, as acpmux keeps them (hub/bookmarks.rs), without its seq check.
+      case "_acpmux/bookmark_get":
+      case "_acpmux/bookmark_set": {
+        const marks = this.bookmarks.get(target) ?? new Set<number>();
+        if (method === "_acpmux/bookmark_set")
+          if (params.bookmarked === true) marks.add(Number(params.seq));
+          else marks.delete(Number(params.seq));
+        this.bookmarks.set(target, marks);
+        return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/permission_respond":

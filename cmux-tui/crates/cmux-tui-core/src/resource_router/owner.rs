@@ -305,6 +305,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefProfileDelete
         | ResourceOperation::ChiefProfileAvatarSet
         | ResourceOperation::ChiefProfileAvatarGet
+        | ResourceOperation::ParticipantAvatarSet
+        | ResourceOperation::ParticipantAvatarGet
         | ResourceOperation::ConversationList
         | ResourceOperation::ConversationGet
         | ResourceOperation::ConversationHistory

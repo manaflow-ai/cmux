@@ -1078,7 +1078,6 @@
 .lg-run-toggle {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
   align-items: center;
   column-gap: 8px;
   min-width: 0;
@@ -1102,8 +1101,8 @@
 }
 .lg-run-metas {
   display: flex;
+  flex: none;
   gap: 8px;
-  min-width: 0;
   order: 1;
 }
 .lg-run-meta {
@@ -1225,15 +1224,19 @@
   color: var(--page-text-3);
 }
 /* A narrow card (its own width): "Worked for Ns" and Open stay on the first line; the step count
-   and the cost wrap under it, never under Open. */
-@container lg-run (max-width: 360px) {
+   and the cost move under it as one line, never under Open. Above this width the first line holds
+   all of them (it never wraps), so a "·" never starts a line. */
+@container lg-run (max-width: 480px) {
+  .lg-run-toggle {
+    flex-wrap: wrap;
+  }
   .lg-run-chevron {
     order: 1;
   }
   .lg-run-metas {
     order: 2;
     flex-basis: 100%;
-    flex-wrap: wrap;
+    overflow: hidden;
     padding: 0 0 6px 16px;
   }
   .lg-run-metas > .lg-run-meta:first-child::before {
@@ -1561,6 +1564,16 @@
 }
 .hc-lightbox-body {
   display: contents;
+}
+
+/* A run's author picture (participant-avatars-v1) next to its name. */
+.lg-run-author {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.lg-run-toggle > .hc-avatar {
+  margin-inline-end: 2px;
 }
 
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */

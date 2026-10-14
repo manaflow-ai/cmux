@@ -179,6 +179,7 @@ pub(super) fn advertised_capabilities(
         conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::CONVERSATION_PERSON_CREDENTIALS_CAPABILITY,
+        participant_avatars::PARTICIPANT_AVATARS_CAPABILITY,
         conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         conversation_attachments::WS_ATTACHMENTS_CAPABILITY,

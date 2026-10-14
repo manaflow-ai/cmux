@@ -124,6 +124,8 @@
     "pane.swap",
     "pane.viewport_width.set",
     "pane.zoom",
+    "participant.avatar.get",
+    "participant.avatar.set",
     "project.add",
     "project.list",
     "project.observe",
@@ -556,6 +558,7 @@
       "cloud-conversation-thread",
       "cloud-conversation-runs",
       "cloud-conversation-run",
+      "cloud-participant-avatar-get",
       "cloud-conversation-op",
       "cloud-inbox-op",
       "cloud-inbox-subscribe",
@@ -801,6 +804,12 @@
       "name": "pane-closed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "participant-avatar-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {
