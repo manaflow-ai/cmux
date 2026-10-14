@@ -54,12 +54,32 @@ pub(crate) struct RemoteSidebarDoc {
     next_id: AtomicU64,
 }
 
+/// A poisoned lock still holds a usable read model: a panic elsewhere must
+/// not take the TUI down with it.
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl RemoteSidebarDoc {
+    fn model(&self) -> std::sync::MutexGuard<'_, SidebarDocModel> {
+        lock(&self.model)
+    }
+
+    fn stream(&self) -> std::sync::MutexGuard<'_, Option<String>> {
+        lock(&self.stream)
+    }
+
+    fn pending(&self) -> std::sync::MutexGuard<'_, HashMap<String, Sender<Value>>> {
+        lock(&self.pending)
+    }
+}
+
 impl RemoteSession {
     /// Whether the TUI draws and edits the daemon's sidebar document.
     pub(crate) fn sidebar_doc_active(&self) -> bool {
         self.supports_capability(SIDEBAR_DOC_CAPABILITY)
             && !self.sidebar_doc.unavailable.load(Ordering::Acquire)
-            && self.sidebar_doc.model.lock().unwrap().is_loaded()
+            && self.sidebar_doc.model().is_loaded()
     }
 
     fn sidebar_doc_wanted(&self) -> bool {
@@ -84,9 +104,7 @@ impl RemoteSession {
         }
         if force {
             self.sidebar_doc.dirty.store(true, Ordering::Release);
-        } else if self.sidebar_doc.stream.lock().unwrap().is_some()
-            && self.sidebar_doc.model.lock().unwrap().is_loaded()
-        {
+        } else if self.sidebar_doc.stream().is_some() && self.sidebar_doc.model().is_loaded() {
             return;
         }
         // A running worker reads `dirty` again before it ends.
@@ -140,22 +158,22 @@ impl RemoteSession {
     }
 
     fn load_sidebar_doc(&self) -> anyhow::Result<bool> {
-        if self.sidebar_doc.stream.lock().unwrap().is_none() {
+        if self.sidebar_doc.stream().is_none() {
             let stream_id = StreamPublicId::random()
                 .map_err(|error| anyhow::anyhow!("cannot allocate a stream id: {error:?}"))?
                 .as_str()
                 .to_string();
             // Register first: the first items can follow the response at once.
-            *self.sidebar_doc.stream.lock().unwrap() = Some(stream_id.clone());
+            *self.sidebar_doc.stream() = Some(stream_id.clone());
             let mut fields = Map::new();
             fields.insert("stream_id".into(), Value::String(stream_id));
             if let Err(error) = self.protocol2_request("session.events", fields, false) {
-                *self.sidebar_doc.stream.lock().unwrap() = None;
+                *self.sidebar_doc.stream() = None;
                 return Err(error);
             }
         }
         let doc = self.protocol2_request("sidebar.get", Map::new(), false)?;
-        self.sidebar_doc.model.lock().unwrap().load(&doc)
+        self.sidebar_doc.model().load(&doc)
     }
 
     /// Order `tree`'s workspaces as the document draws them.
@@ -163,7 +181,7 @@ impl RemoteSession {
         if !self.sidebar_doc_active() {
             return;
         }
-        let ranks = self.sidebar_doc.model.lock().unwrap().workspace_ranks();
+        let ranks = self.sidebar_doc.model().workspace_ranks();
         if ranks.is_empty() {
             return;
         }
@@ -178,7 +196,7 @@ impl RemoteSession {
         if !self.sidebar_doc_active() {
             return None;
         }
-        let model = self.sidebar_doc.model.lock().unwrap();
+        let model = self.sidebar_doc.model();
         model.workspace_item(workspace).map(|item| item.section == PINNED_SECTION_ID)
     }
 
@@ -189,14 +207,9 @@ impl RemoteSession {
         pinned: bool,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.sidebar_doc_active(), "the sidebar document is not available");
-        let item = self
-            .sidebar_doc
-            .model
-            .lock()
-            .unwrap()
-            .workspace_item(workspace)
-            .map(|item| item.id.clone())
-            .ok_or_else(|| anyhow::anyhow!("the sidebar does not place this workspace yet"))?;
+        let item = self.sidebar_doc.model().workspace_item(workspace).map(|item| item.id.clone());
+        let item =
+            item.ok_or_else(|| anyhow::anyhow!("the sidebar does not place this workspace yet"))?;
         let mut fields = Map::new();
         fields.insert("items".into(), json!([item]));
         let operation = if pinned { "sidebar.pin" } else { "sidebar.unpin" };
@@ -212,7 +225,7 @@ impl RemoteSession {
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.sidebar_doc_active(), "the sidebar document is not available");
         let (item, to) = {
-            let model = self.sidebar_doc.model.lock().unwrap();
+            let model = self.sidebar_doc.model();
             let item = model
                 .workspace_item(workspace)
                 .map(|item| item.id.clone())
@@ -275,9 +288,9 @@ impl RemoteSession {
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();
-        self.sidebar_doc.pending.lock().unwrap().insert(id.clone(), tx);
+        self.sidebar_doc.pending().insert(id.clone(), tx);
         let forget = || {
-            self.sidebar_doc.pending.lock().unwrap().remove(&id);
+            self.sidebar_doc.pending().remove(&id);
         };
         let sequence = match self.interactive_writer.enqueue(message, false) {
             Ok(sequence) => sequence,
@@ -316,14 +329,14 @@ impl RemoteSession {
         match value.get("type").and_then(Value::as_str) {
             Some("response") => {
                 let Some(id) = value.get("id").and_then(Value::as_str) else { return };
-                if let Some(sender) = self.sidebar_doc.pending.lock().unwrap().remove(id) {
+                if let Some(sender) = self.sidebar_doc.pending().remove(id) {
                     let _ = sender.send(value);
                 }
             }
             Some(kind @ ("stream_item" | "stream_end")) => {
                 let stream_id = value.get("stream_id").and_then(Value::as_str);
                 let ours = {
-                    let stream = self.sidebar_doc.stream.lock().unwrap();
+                    let stream = self.sidebar_doc.stream();
                     stream.is_some() && stream.as_deref() == stream_id
                 };
                 if !ours {
@@ -332,7 +345,7 @@ impl RemoteSession {
                 if kind == "stream_end" {
                     // A gap or a closed stream: open it again and read the
                     // document; the held one stays drawn meanwhile.
-                    *self.sidebar_doc.stream.lock().unwrap() = None;
+                    *self.sidebar_doc.stream() = None;
                     if self.sidebar_doc.stream_restarts.fetch_add(1, Ordering::AcqRel)
                         < MAX_STREAM_RESTARTS
                     {
@@ -349,7 +362,7 @@ impl RemoteSession {
                     .and_then(Value::as_array)
                     .map(Vec::as_slice)
                     .unwrap_or_default();
-                let outcome = self.sidebar_doc.model.lock().unwrap().apply_batch(changes);
+                let outcome = self.sidebar_doc.model().apply_batch(changes);
                 if outcome != BatchOutcome::Stale {
                     self.sidebar_doc.stream_restarts.store(0, Ordering::Release);
                 }
