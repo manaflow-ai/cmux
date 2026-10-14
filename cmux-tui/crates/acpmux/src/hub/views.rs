@@ -104,7 +104,7 @@ impl Hub {
             name: m.name.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
-            cwd: m.cwd.clone(),
+            cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
             agent_session_id: m.agent_session_id.clone(),
             created_at: m.created_at,
@@ -166,6 +166,7 @@ impl Hub {
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),
             indicator: None,
+            peer: None,
         };
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary["indicator"] = status_indicator(&summary)

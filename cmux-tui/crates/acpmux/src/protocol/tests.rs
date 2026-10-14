@@ -62,6 +62,8 @@ fn protocol_registry_names_every_served_method() {
         include_str!("../server/secrets.rs"),
         include_str!("../server/peer_forward.rs"),
         include_str!("../server/remote_guard.rs"),
+        include_str!("../server/redact.rs"),
+        include_str!("../server/requests/composer.rs"),
     ];
     // Prefixes the dispatcher matches on, not method names.
     let prefixes = ["_acpmux/chat", "_acpmux/transfer_"];

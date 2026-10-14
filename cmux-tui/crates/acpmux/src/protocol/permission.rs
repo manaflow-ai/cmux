@@ -13,6 +13,7 @@ use super::require_all;
 /// relays, and a peer forwarding for its Web client says `via: "web"`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct AnswerMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decision_nonce: Option<String>,
@@ -27,19 +28,27 @@ pub struct AnswerMeta {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct AnsweredBy {
     pub device: String,
     pub feed_item: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct RequestMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acpmux: Option<AnswerMeta>,
+    /// The app's gesture ticket for this exact pick (`transport.gesture`);
+    /// the app's relay reads it, acpmux does not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cmux_gesture: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct PermissionRespondParams {
     pub session_id: String,
     pub permission_id: String,
@@ -124,26 +133,44 @@ pub struct PermissionGroup {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct PermissionGroupsParams {
     pub session_id: String,
-    /// One group; absent lists them all.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// One group; absent lists them all. Never null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "String")]
     pub group_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChatAllowance {
     pub active: bool,
-    /// Always `session_stop_or_daemon_restart`.
-    pub expires: String,
+    pub expires: AllowanceExpiry,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AllowanceExpiry {
+    SessionStopOrDaemonRestart,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CoverageLabel {
+    AcpRequestsOnly,
+}
+
+/// acpmux never claims host isolation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Isolation {
+    Unverified,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PermissionCoverage {
-    /// Always `acp_requests_only`.
-    pub label: String,
-    /// Always `unverified`.
-    pub isolation: String,
+    pub label: CoverageLabel,
+    pub isolation: Isolation,
     pub detail: String,
 }
 
@@ -167,6 +194,7 @@ pub struct PermissionGroupList {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct PermissionGroupRespondParams {
     pub session_id: String,
     pub group_id: String,
@@ -188,6 +216,7 @@ pub struct PermissionGroupReceipt {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+#[schemars(deny_unknown_fields)]
 pub struct PermissionChatRevokeParams {
     pub session_id: String,
 }
@@ -208,6 +237,21 @@ pub struct PermissionPending {
     pub seq: u64,
     /// `attach` or `watch`.
     pub via: String,
+    pub permission_id: String,
+    /// The agent's `session/request_permission` params.
+    #[schemars(with = "Map<String, Value>")]
+    pub request: Value,
+    /// Signs an allow relayed for the person (`hub/person.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision_nonce: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_instance: Option<String>,
+    /// The batch it joined, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Anything else the log record holds.
     #[serde(flatten)]
     pub record: Map<String, Value>,
 }

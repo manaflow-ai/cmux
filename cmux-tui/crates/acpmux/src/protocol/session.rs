@@ -1,7 +1,6 @@
 //! Session shapes: `_acpmux/sessions` and `_acpmux/session_changed`.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -10,17 +9,18 @@ use serde_json::Value;
 use super::require_all;
 
 /// One session as every list shows it (`Hub::session_summary`). A peer's
-/// session arrives as the peer daemon's own summary, with `status`
-/// `unreachable` while the peer is gone.
+/// session arrives as the peer daemon's own summary plus `peer`, with
+/// `status` `unreachable` while the peer is gone; a peer on an older
+/// acpmux may lack newer fields, so nullable ones are optional here.
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
-#[schemars(transform = require_all)]
 pub struct SessionSummary {
     pub session_id: String,
     pub name: String,
     pub harness: String,
     pub family: Option<String>,
-    pub cwd: PathBuf,
+    /// Lossy when the path is not UTF-8.
+    pub cwd: String,
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
@@ -69,6 +69,9 @@ pub struct SessionSummary {
     pub shown: bool,
     /// The status dot every client draws (`status_indicator`); null for none.
     pub indicator: Option<Indicator>,
+    /// The peer daemon a remote session runs on; absent for this daemon's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -141,8 +144,9 @@ pub struct Enforcement {
     /// The acpmux permission policy (the session's own, else the daemon
     /// default), or `unknown`.
     pub policy: String,
+    /// Always `native_policy`.
     pub label: String,
-    pub isolation: String,
+    pub isolation: super::permission::Isolation,
     pub detail: String,
 }
 
@@ -162,6 +166,7 @@ pub struct LastTurn {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
 pub struct SessionsParams {}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
