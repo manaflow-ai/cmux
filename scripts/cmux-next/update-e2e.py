@@ -37,8 +37,8 @@ BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
 APP_NAME = "cmux NEXT.app"
 SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
 HOME = os.path.expanduser("~")
-# cmux NEXT's acpmux (tag cmux-next): its home, socket and config.
-ACPMUX_HOME = os.path.join(HOME, ".acpmux", "tags", "cmux-next")
+# cmux NEXT's acpmux (its build's home, BuildIdentity): its home, socket and config.
+ACPMUX_HOME = os.path.join(HOME, ".acpmux", "builds", BUNDLE_ID)
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
