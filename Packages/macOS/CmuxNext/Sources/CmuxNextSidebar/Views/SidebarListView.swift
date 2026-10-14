@@ -239,6 +239,8 @@ final class SidebarListView: NSView {
                     }
                 }
             }
+            // A parked view (`recycle`) keeps its old place in the stack: put it at the bottom of the rows,
+            // as a new one, so it never draws over a block that a move raised (scroll realization skips this).
             if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
             if suppressed.contains(row.key) {
                 view.frame = target
@@ -350,7 +352,7 @@ final class SidebarListView: NSView {
             let view = dequeue(row.key, rebinding: !opening)
             view.targetSize = target.size
             configure(view, row: row, animated: false)
-            addSubview(view, positioned: .above, relativeTo: decorations)
+            if view.superview !== self { addSubview(view, positioned: .above, relativeTo: decorations) } // a parked view is still here (`recycle`)
             RowMotion.place(view, at: target, opening: opening, hidden: suppressed.contains(row.key), in: self)
             rowViews[row.key] = view
         }

@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
-use crate::parse;
 use crate::run::{
     DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
 };
@@ -210,7 +209,15 @@ impl Repository {
                 if found > MAX_SUBMODULES {
                     return Err(GitFailure::Exit("too many submodules".to_string()));
                 }
-                blanked.extend(filter_overrides_within(&checkout, remaining(self.deadline))?);
+                match filter_overrides_within(&checkout, remaining(self.deadline)) {
+                    Ok(drivers) => blanked.extend(drivers),
+                    // A `.git` file pointing nowhere: git cannot read this
+                    // submodule either, so it runs nothing there.
+                    Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
+                        continue;
+                    }
+                    Err(failure) => return Err(failure),
+                }
                 pending.push(checkout);
             }
         }
@@ -262,9 +269,13 @@ pub fn main_root(common_dir: &Path) -> Option<&Path> {
 }
 
 /// A filter driver runs a program on file contents (`clean`, `smudge`,
-/// `process`), and diffing the working tree would run it. A read never needs
-/// one, so every configured driver is blanked: an empty command is no filter,
-/// and nothing is required.
+/// `process`), and diffing the working tree would run it. A read never
+/// needs one, so every configured driver is blanked, from any config file:
+/// an empty command is no filter, and nothing is required. That includes
+/// the user's global ones, since a global driver such as git-lfs reads the
+/// repository's own config, where `lfs.extension.<name>.clean` names a
+/// program for it to run. A driver name that is not UTF-8 cannot be named
+/// in an override, so the read is refused.
 pub fn filter_overrides(root: &Path) -> Result<Vec<Override>, GitFailure> {
     filter_overrides_within(root, DEADLINE)
 }
@@ -287,13 +298,17 @@ fn filter_overrides_within(root: &Path, deadline: Duration) -> Result<Vec<Overri
         Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
         Err(failure) => return Err(failure),
     };
-    let drivers = parse::file_list(&output.stdout)
-        .into_iter()
-        .filter_map(|key| {
-            let (driver, _) = key.strip_prefix("filter.")?.rsplit_once('.')?;
-            Some(driver.to_string())
-        })
-        .collect::<BTreeSet<_>>();
+    let mut drivers = BTreeSet::new();
+    for key in output.stdout.split(|byte| *byte == 0).filter(|key| !key.is_empty()) {
+        // A lossy copy would blank some other driver and leave this one.
+        let Ok(key) = std::str::from_utf8(key) else {
+            return Err(GitFailure::Exit("a filter driver name is not UTF-8".to_string()));
+        };
+        if let Some((driver, _)) = key.strip_prefix("filter.").and_then(|key| key.rsplit_once('.'))
+        {
+            drivers.insert(driver.to_string());
+        }
+    }
     Ok(drivers
         .into_iter()
         .flat_map(|driver| {

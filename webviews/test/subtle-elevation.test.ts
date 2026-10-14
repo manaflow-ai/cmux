@@ -67,6 +67,18 @@ const lengths = (layer: string) => {
 // A layer that is only `var(--token[, fallback])`.
 const tokenCall = (layer: string) => layer.match(/^var\(\s*(--[\w-]+)\s*(?:,\s*([\s\S]*))?\)(\s*!important)?$/);
 
+// The preludes of the at-rule blocks still open at `index`.
+const atRules = (text: string, index: number) => {
+  const open: string[] = [];
+  let start = 0;
+  for (let i = 0; i < index; i++) {
+    if (text[i] === "{") open.push(text.slice(start, i).trim().replace(/\s+/g, " "));
+    else if (text[i] === "}") open.pop();
+    if (text[i] === "{" || text[i] === "}" || text[i] === ";") start = i + 1;
+  }
+  return open.filter((prelude) => prelude.startsWith("@"));
+};
+
 // Every declaration of a shadow: `box-shadow`, and a custom property that holds one.
 const declarations = css.flatMap(({ file, text }) =>
   [...text.matchAll(/(box-shadow|--[\w-]*(?:shadow|elevation|-drop)[\w-]*)\s*:\s*([^;{}]+)/g)].map((match) => {
@@ -77,6 +89,8 @@ const declarations = css.flatMap(({ file, text }) =>
       property: match[1],
       selector: text.slice(start, open).trim().replace(/\s+/g, " "),
       value: match[2].trim().replace(/\s*!important$/, ""),
+      // The at-rules (`@media`, `@container`) the rule sits in, outermost first.
+      at: () => atRules(text, open),
     };
   }),
 );
@@ -219,7 +233,6 @@ describe("one subtle elevation scale", () => {
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).
     ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box", "--elevation-1"],
-    ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box:focus-within", "--elevation-1"],
     [
       "agent-session/acpmux/composerLocation.css",
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",
@@ -242,6 +255,14 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/composerControls.css", ".acpmux-effort-thumb", "--elevation-1"],
   ];
 
+  // A surface that drops its shadow on purpose inside one at-rule, and only there.
+  const flat: [file: string, selector: string, at: string][] = [
+    // Lawrence, e111f3fcb3a4: below 720 px the ledger shows one pane and the sheet fills it edge to edge.
+    ["pages/home-channels/ledger.css", ".lg-sheet", "@container lg-page (max-width: 719.98px)"],
+  ];
+  const isFlat = (file: string, selector: string, at: string[]) =>
+    flat.some((entry) => entry[0] === file && entry[1] === selector && at.includes(entry[2]));
+
   // Follows a value's tokens and collects the elevation steps it reaches.
   const steps = (value: string, seen: string[] = []): string[] =>
     layers(value).flatMap((layer) => {
@@ -263,6 +284,10 @@ describe("one subtle elevation scale", () => {
       );
       expect({ selector, rules: found.length > 0 }).toEqual({ selector, rules: true });
       for (const declaration of found) {
+        if (isFlat(file, selector, declaration.at())) {
+          expect({ selector, value: declaration.value }).toEqual({ selector, value: "none" });
+          continue;
+        }
         expect({ selector, steps: [...new Set(steps(declaration.value))] }).toEqual({ selector, steps: [token] });
       }
     });

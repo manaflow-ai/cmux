@@ -94,12 +94,32 @@ public struct LaunchIdentity: Sendable, Equatable {
         return ControlSocketPath.shared.sanitize(String(name.dropFirst("cmux DEV ".count)))
     }
 
+    /// Variables only another cmux sets in its terminals and agents: when one
+    /// of them is inherited (not from this bundle's `LSEnvironment`), another
+    /// cmux started this process.
+    public static let otherCmuxMarkers = ["CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE"]
+
+    /// The `CMUX_NEXT_*` knobs that name a state root (Chief home, acpmux
+    /// home, control socket, settings file). A test harness or a person sets
+    /// them on purpose; inherited from another cmux they are that build's
+    /// roots (per-build isolation S4, cx-is1kf.5).
+    public static let stateRootKnobs = ["CHIEF_HOME", "CHIEF_ROOT", "CHIEF_BUILD_ID", "CHIEF_ACCOUNT",
+                                        "MUX_HOME", "ACPMUX_ROOT", "SOCKET_PATH", "CONFIG_FILE"].map { "CMUX_NEXT_" + $0 }
+
     /// Keys of cmux variables this process inherited rather than received
-    /// from its own bundle. `CMUX_NEXT_*` launch knobs stay.
+    /// from its own bundle: every `CMUX*` but the `CMUX_NEXT_*` launch knobs.
+    /// When another cmux started this process (``otherCmuxMarkers``), also
+    /// the ``stateRootKnobs``, every `MUX_*` but `MUX_HARNESS`, and every
+    /// `OPTCHAT_*`: that build's Chief, brain and acpmux roots.
     public static func inheritedKeys(processEnvironment: [String: String], bundledEnvironment: [String: String]) -> [String] {
-        processEnvironment.compactMap { key, value in
-            guard key.hasPrefix("CMUX"), !key.hasPrefix("CMUX_NEXT_") else { return nil }
-            return bundledEnvironment[key] == value ? nil : key
+        let inherited = { (key: String) in processEnvironment[key].map { bundledEnvironment[key] != $0 } ?? false }
+        let fromOtherCmux = otherCmuxMarkers.contains(where: inherited)
+        return processEnvironment.keys.filter { key in
+            guard inherited(key) else { return false }
+            if key.hasPrefix("CMUX_NEXT_") { return fromOtherCmux && stateRootKnobs.contains(key) }
+            if key.hasPrefix("CMUX") { return true }
+            guard fromOtherCmux else { return false }
+            return (key.hasPrefix("MUX_") && key != "MUX_HARNESS") || key.hasPrefix("OPTCHAT_")
         }
     }
 

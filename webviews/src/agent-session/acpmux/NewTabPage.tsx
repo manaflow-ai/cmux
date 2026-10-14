@@ -44,6 +44,7 @@ export const NEW_TAB_LABELS = {
   /// `{kind}` is a tab kind's name, `{keys}` its shortcut.
   editShortcut: "newTabPage.editShortcut",
   open: "newTabPage.open",
+  openFailed: "newTabPage.openFailed",
   suggestions: "newTabPage.suggestions",
   rows: {
     tab: "newTabPage.row.tab",
@@ -194,8 +195,9 @@ type Props = {
   location?: string;
   /// Recent projects are offered inline before Browse is needed.
   projects?: Project[];
-  /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
-  onSubmit(kind: TabKind, text: string, cwd?: string): void;
+  /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it. A promise that rejects is a
+  /// refused open: the page says so under the field and keeps what was typed.
+  onSubmit(kind: TabKind, text: string, cwd?: string): void | Promise<unknown>;
   /// Go to an open tab or workspace instead of opening a duplicate.
   onJump?(target: "tab" | "workspace", id: string): void;
   onOpenSession(sessionId: string): void;
@@ -232,6 +234,18 @@ export function NewTabPage({
   const [kind, setKind] = useState<TabKind>(initialKind);
   const [projectCwd, setProjectCwd] = useState(cwd);
   const [text, setText] = useState(location ?? "");
+  /// The last open was refused (the host made no tab): a note under the field until the next edit.
+  const [openFailed, setOpenFailed] = useState(false);
+  const make = (next: TabKind, value: string, folder?: string) => {
+    setOpenFailed(false);
+    const result = onSubmit(next, value, folder);
+    // The suggestions float over the note: they close until the next edit, so it shows.
+    if (result)
+      void result.catch(() => {
+        setOpenFailed(true);
+        setDismissed(queryRef.current);
+      });
+  };
   // The location stays a suggestion until edited: the rows are the empty bar's.
   const [touched, setTouched] = useState(false);
   const query = touched ? text : "";
@@ -319,17 +333,17 @@ export function NewTabPage({
       case "session":
         return onOpenSession(row.id);
       case "folder":
-        return onSubmit("terminal", "", row.path);
+        return make("terminal", "", row.path);
       case "command":
-        return onSubmit("terminal", row.command, projectCwd);
+        return make("terminal", row.command, projectCwd);
       case "history":
-        return onSubmit("browser", row.url);
+        return make("browser", row.url);
       case "run":
-        return onSubmit("terminal", row.text, projectCwd);
+        return make("terminal", row.text, projectCwd);
       case "open":
-        return onSubmit("browser", row.text);
+        return make("browser", row.text);
       case "ask":
-        return onSubmit("agent", row.text, projectCwd);
+        return make("agent", row.text, projectCwd);
     }
   };
   // The row is the field's text area (the I-beam shows over all of it): a press beside the
@@ -347,7 +361,7 @@ export function NewTabPage({
     if (row) return activate(row);
     // An empty terminal or agent opens as it is; an empty page has nothing to load.
     if (kind === "browser" && !query.trim()) return;
-    onSubmit(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
+    make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -375,6 +389,7 @@ export function NewTabPage({
   };
   const edit = (next: string) => {
     setTouched(true);
+    setOpenFailed(false);
     const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : text, next);
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {
@@ -529,6 +544,11 @@ export function NewTabPage({
           </div>
         )}
       </div>
+      {openFailed && (
+        <p className="acpmux-newtab-failed" role="alert">
+          {t(NEW_TAB_LABELS.openFailed)}
+        </p>
+      )}
       <div className="acpmux-newtab-actions ui-ghost-row">
         <button type="button" className="acpmux-newtab-all ui-ghost" onClick={onShowAll}>
           <span>{t(NEW_TAB_LABELS.allSessions)}</span>
