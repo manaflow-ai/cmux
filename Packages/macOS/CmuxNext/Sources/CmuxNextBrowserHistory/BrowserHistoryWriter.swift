@@ -31,9 +31,10 @@ public final class BrowserHistoryWriter {
     /// Whether the page engine's own history goes with the entries (this
     /// Mac's daemon only: it holds form data and every entry's state).
     private let keepsEngineState: Bool
-    /// The page showed a password field: its engine state is never saved again (WebKit leaves
-    /// password values out of the form state it keeps; this keeps such pages out entirely).
-    private var showedPasswordField = false
+    /// The page showed a password field or a file field with chosen files: its engine state is
+    /// never saved again (WebKit leaves password values out of the form state it keeps, and
+    /// Chromium grants a restored entry read access to the files its form state names).
+    private var showedPrivateField = false
     /// Whether the last write carried engine state (`debug.browser.page_status`).
     public private(set) var savedEngineState = false
     private var observation: Task<Void, Never>?
@@ -117,12 +118,15 @@ public final class BrowserHistoryWriter {
     private func write(_ session: BrowserSavedSession) async {
         guard var history = Self.history(session) else { return }
         if keepsEngineState, let page {
-            if !showedPasswordField, case .bool(true)? = try? await page.evaluate(Self.hasPasswordField, world: .isolated) {
-                showedPasswordField = true
+            if !showedPrivateField, case .bool(true)? = try? await page.evaluate(Self.hasPrivateField, world: .isolated) {
+                showedPrivateField = true
             }
-            // Only state taken from the page the entries were saved at (the page may have moved on).
-            let list = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.compactMap(\.url) ?? []
-            if !showedPasswordField, let shown = page.state.url, shown == session.entries[session.current].url,
+            // Only state taken from the page the entries were saved at (the page may have moved on),
+            // with every engine entry known and no form post (a post body can name uploaded files).
+            let native = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.map(\.url)
+            let list = native?.compactMap { $0 }
+            if !showedPrivateField, let list, list.count == native?.count, !session.entries.contains(where: \.formPost),
+               let shown = page.state.url, shown == session.entries[session.current].url,
                Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
                 history = history.with(engineState: Self.engineState(of: page))
             }
@@ -139,7 +143,10 @@ public final class BrowserHistoryWriter {
         }, index: session.current).bounded()
     }
 
-    static let hasPasswordField = "!!document.querySelector('input[type=password]')"
+    static let hasPrivateField = """
+        !!document.querySelector('input[type=password]') || Array.prototype.some.call(\
+        document.querySelectorAll('input[type=file]'), function (i) { return !!(i.files && i.files.length) })
+        """
 
     /// Whether an engine's own history over `urls` restores without wider file access than a load
     /// of `shown` grants: no local files, or only local files in `shown`'s folder. WebKit reads a
@@ -156,6 +163,18 @@ public final class BrowserHistoryWriter {
         let folder = shown.standardizedFileURL.deletingLastPathComponent().path
         let prefix = folder.hasSuffix("/") ? folder : folder + "/"
         return urls.allSatisfy { $0.isFileURL && $0.standardizedFileURL.path.hasPrefix(prefix) }
+    }
+
+    /// Whether `history`'s entries restore without wider file access than a load of `shown`
+    /// (``keepsFileAccess(_:shown:)``); false when an entry's address does not parse.
+    ///
+    /// - Parameters:
+    ///   - history: The saved history to restore.
+    ///   - shown: The page the history shows.
+    /// - Returns: True when restoring reads no file outside `shown`'s folder.
+    public static func keepsFileAccess(of history: FrontendBrowserHistory?, shown: URL) -> Bool {
+        let entries = history?.entries.compactMap { URL(string: $0.url) } ?? []
+        return entries.count == history?.entries.count && keepsFileAccess(entries, shown: shown)
     }
 
     /// The page engine's own history as the daemon stores it.

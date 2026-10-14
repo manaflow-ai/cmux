@@ -1182,10 +1182,12 @@ def load_rows(variant, launched):
                     f"history_start {status.get('history_start')!r}, engine_state_saved {status.get('engine_state_saved')!r}, "
                     f"can_go_back {status.get('can_go_back')!r}" + ("" if "history_start" in status else f"; {json.dumps(status)[:160]}"), "browser"))
     if opts.hist_file:
-        ext = (REPORTS.get("hist") or {}).get("ext")
+        # Only a report the reopened page sent counts (a pre-quit one would pass falsely).
+        fresh = REPORTS.get("hist") if (REPORTS.get("hist") or {}).get("at", 0) > launched else {}
+        ext = fresh.get("ext")
         RESULTS.append((f"{variant}: page[hist] cannot show a file outside its folder", ext == 0,
                         f"probe {ext} (1 shown, 0 refused, -1 no probe)", "browser"))
-        read = (REPORTS.get("hist") or {}).get("read")
+        read = fresh.get("read")
         RESULTS.append((f"{variant}: page[hist] reads no more outside its folder than a fresh load",
                         read is not None and 0 <= read <= max(LIVE_READ.get("hist") or 0, 0),
                         f"read {read} after the reopen, {LIVE_READ.get('hist')} on the page loaded fresh (1 read, 0 refused, -1 no probe)", "browser"))
