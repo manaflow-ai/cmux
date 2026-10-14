@@ -9,7 +9,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import type { ServerWebSocket } from "bun";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
@@ -82,7 +81,7 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
   );
   const [PICKED, OTHER] = [...chats.keys()];
   const calls: { method: string; params: Record<string, any> }[] = [];
-  const sockets = new Set<ServerWebSocket<unknown>>();
+  const sockets = new Set<Bun.ServerWebSocket<unknown>>();
 
   /// The answer to one request; `undefined` holds it (a new chat acpmux has not started yet).
   function answer(method: string, params: Record<string, any>): unknown {
