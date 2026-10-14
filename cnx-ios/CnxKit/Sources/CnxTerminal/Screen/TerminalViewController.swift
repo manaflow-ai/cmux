@@ -1019,7 +1019,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI else { return }
         if scrollView.isTracking, !pinningDrag {
             dragPin.moved(fingerY: scrollView.panGestureRecognizer.location(in: view).y,
-                          keyboardTop: view.keyboardLayoutGuide.layoutFrame.minY, following: following)
+                          keyboardTop: view.keyboardLayoutGuide.layoutFrame.minY)
+            // The keyboard now follows the finger: back on the prompt (M6).
+            if dragPinsToComposer { following = true }
         }
         if dragPinsToComposer, scrollView.isTracking, !pinningDrag,
            scrollView.panGestureRecognizer.translation(in: view).y > 0 {

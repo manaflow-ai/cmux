@@ -7,38 +7,44 @@ import Testing
     @Test func aDragAboveTheKeyboardScrolls() {
         var pin = KeyboardDragPin()
         pin.began(following: true, keyboardUp: true, isTUI: false)
-        pin.moved(fingerY: 150, keyboardTop: 560, following: true)
-        pin.moved(fingerY: 400, keyboardTop: 560, following: true)
+        pin.moved(fingerY: 150, keyboardTop: 560)
+        pin.moved(fingerY: 400, keyboardTop: 560)
         #expect(!pin.pinning)
     }
 
     @Test func reachingTheKeyboardPinsTheFollowingReader() {
         var pin = KeyboardDragPin()
         pin.began(following: true, keyboardUp: true, isTUI: false)
-        pin.moved(fingerY: 300, keyboardTop: 560, following: true)
-        pin.moved(fingerY: 562, keyboardTop: 560, following: true)
+        pin.moved(fingerY: 300, keyboardTop: 560)
+        pin.moved(fingerY: 562, keyboardTop: 560)
         #expect(pin.pinning)
         pin.ended()
         #expect(!pin.pinning)
     }
 
-    @Test func aReaderWhoScrolledUpOnTheWayIsNotPinned() {
+    @Test func aDragThatScrolledThenReachedTheKeyboardEndsOnThePrompt() {
         var pin = KeyboardDragPin()
         pin.began(following: true, keyboardUp: true, isTUI: false)
-        // The pull-down above the keyboard scrolled into history: no longer following.
-        pin.moved(fingerY: 570, keyboardTop: 560, following: false)
+        pin.moved(fingerY: 300, keyboardTop: 560)
         #expect(!pin.pinning)
-        pin.moved(fingerY: 700, keyboardTop: 690, following: true)
+        pin.moved(fingerY: 570, keyboardTop: 560)
+        #expect(pin.pinning)
+    }
+
+    @Test func aReaderAlreadyScrolledUpIsNeverPinned() {
+        var pin = KeyboardDragPin()
+        pin.began(following: false, keyboardUp: true, isTUI: false)
+        pin.moved(fingerY: 700, keyboardTop: 560)
         #expect(!pin.pinning)
     }
 
     @Test func noKeyboardOrATUINeverPins() {
         var pin = KeyboardDragPin()
         pin.began(following: true, keyboardUp: false, isTUI: false)
-        pin.moved(fingerY: 800, keyboardTop: 874, following: true)
+        pin.moved(fingerY: 800, keyboardTop: 874)
         #expect(!pin.pinning)
         pin.began(following: true, keyboardUp: true, isTUI: true)
-        pin.moved(fingerY: 800, keyboardTop: 560, following: true)
+        pin.moved(fingerY: 800, keyboardTop: 560)
         #expect(!pin.pinning)
     }
 }
