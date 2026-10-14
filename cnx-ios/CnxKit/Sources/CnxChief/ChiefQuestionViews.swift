@@ -108,7 +108,7 @@ struct ChiefQuestionBar: View {
                     Text("Chief is asking").font(.footnote.weight(.semibold)).lineLimit(1)
                 }
                 detail
-                if !flow.isBusy { Text("Answer").font(.footnote.weight(.semibold)) }
+                if offersAnswer(flow) { Text("Answer").font(.footnote.weight(.semibold)) }
             }
         } else {
             HStack(spacing: 10) {
@@ -118,11 +118,17 @@ struct ChiefQuestionBar: View {
                     detail
                 }
                 Spacer(minLength: 4)
-                if !flow.isBusy {
+                if offersAnswer(flow) {
                     Text("Answer").font(.footnote.weight(.semibold))
                 }
             }
         }
+    }
+
+    /// "Answer" only while there is something to do: not in flight, and not
+    /// on a sent answer while the bar fades out.
+    private func offersAnswer(_ flow: ChiefAnswerFlow) -> Bool {
+        !flow.isBusy && flow.state != .sent
     }
 
     private func isFailed(_ flow: ChiefAnswerFlow) -> Bool {
