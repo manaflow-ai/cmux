@@ -29,7 +29,9 @@ public final class MacScreenShareHost {
         case sourceFailed(String)
     }
 
-    public private(set) var status = Status.off
+    public private(set) var status = Status.off {
+        didSet { indicator.setVisible(status == .viewing) }
+    }
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
     /// This Mac's pairing link while sharing is on.
@@ -38,6 +40,7 @@ public final class MacScreenShareHost {
     @ObservationIgnored private var host: ScreenStreamHost?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
+    @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-host")
     /// Permission checks; tests replace them.
     @ObservationIgnored public var checkScreenRecording: () -> Bool = { CGPreflightScreenCaptureAccess() }
@@ -45,6 +48,8 @@ public final class MacScreenShareHost {
 
     public init(store: MacScreenStore) {
         self.store = store
+        indicator.disconnect = { [weak self] in self?.disconnectViewer() }
+        indicator.stopSharing = { [weak self] in self?.setEnabled(false) }
     }
 
     /// At launch: starts sharing if the person left it on, and rechecks
