@@ -288,6 +288,8 @@ struct ChiefQuestionSheet: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         .background(.bar)
+        // Pinned under a scrolling question: large, but never most of the sheet.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 
     private func statusRow(_ text: String) -> some View {
