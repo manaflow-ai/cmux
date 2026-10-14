@@ -41,6 +41,9 @@ public final class StatusIndicatorLayer {
                    accent: Palette.textPrimary.cgColor)
         }
 
+        /// Codex's unread dot, sampled from the Codex app (rgb 57 130 245).
+        static let unread = CGColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1)
+
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
             switch tint {
@@ -49,6 +52,8 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
+            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .unread: Self.unread
             }
         }
     }

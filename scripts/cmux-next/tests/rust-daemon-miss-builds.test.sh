@@ -55,6 +55,26 @@ run "$src/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path >/dev/nu
 run NX_JOB_ID=1008-1-x "$src/scripts/cmux-next/build-optchat-chief.sh" >/dev/null 2>"$TMP/err" || fail "an nx-remote job did not build optchat-chief: $(cat "$TMP/err")"
 run "$src/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path >/dev/null || fail "the built optchat-chief is not cached"
 
+# A developer Mac whose tree fetch brought acpmux (pin-cmux-tui.sh fetch puts
+# the same-tree companion next to cmux-tui) reuses it for any commit of that
+# tree, including a local merge commit no workflow published, instead of
+# stopping with "no cached acpmux". A binary missing an architecture is not used.
+dev="$TMP/dev"
+mkdir -p "$dev/scripts/cmux-next" "$dev/cmux-tui/crates/acpmux" "$dev/tree"
+cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$dev/scripts/cmux-next/"
+echo '[package]' > "$dev/cmux-tui/crates/acpmux/Cargo.toml"
+printf '#!/usr/bin/env bash\n[[ "$1" == acpmux-path ]] && echo %q\n' "$dev/tree/acpmux" > "$dev/scripts/cmux-next/pin-cmux-tui.sh"
+printf '#!/bin/sh\necho "$FAKE_ARCHS"\n' > "$TMP/bin/lipo"
+printf '#!/bin/sh\n' > "$dev/tree/acpmux"
+chmod 755 "$dev/scripts/cmux-next/pin-cmux-tui.sh" "$TMP/bin/lipo" "$dev/tree/acpmux"
+git_q init "$dev"; git_q -C "$dev" add -A; git_q -C "$dev" commit -m local-merge
+if run FAKE_ARCHS=x86_64 CMUX_NEXT_ACPMUX_ARCHS=arm64 "$dev/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path >/dev/null 2>&1; then
+  fail "a same-tree acpmux without the requested architecture was used"
+fi
+got=$(run FAKE_ARCHS="arm64 x86_64" CMUX_NEXT_ACPMUX_ARCHS=arm64 "$dev/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>"$TMP/err") ||
+  fail "a developer Mac did not reuse the fetched same-tree acpmux: $(cat "$TMP/err")"
+cmp -s "$got" "$dev/tree/acpmux" || fail "the cached acpmux is not the same-tree binary: $got"
+
 # The next commit of the same tree builds in the same target dir (warm).
 echo '// two' >> "$src/cmux-tui/crates/acpmux/Cargo.toml"; git_q -C "$src" commit -am two
 run CMUX_FLEET_BUILD_TAG=x "$src/scripts/cmux-next/build-acpmux.sh" >/dev/null 2>&1 || fail "a fleet build did not build acpmux"
