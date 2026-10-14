@@ -47,6 +47,7 @@ struct WorkspaceRemoteConfigurationFileTransferTests {
 
         #expect(configuration.sshOptions == ["ControlMaster=auto", "ControlPersist=600"])
         #expect(configuration.routeSensitiveIdentifier == digest)
+        #expect(configuration.routeSensitivity == .identified(digest))
     }
 
     @Test("scp, ssh and sftp never see the marker", arguments: [
@@ -116,6 +117,28 @@ struct WorkspaceRemoteConfigurationFileTransferTests {
             == sharing.mergingDefaults(into: []))
     }
 
+    @Test("a sensitive route without a digest never shares a master", arguments: [
+        "__cmux_route_sensitive=true",
+        "__CMUX_ROUTE_SENSITIVE=true",
+        "__cmux_route_sensitive true",
+    ])
+    func unidentifiedSensitiveRouteStaysUnshared(marker: String) throws {
+        let configuration = configuration(sshOptions: ["ProxyJump=bastion", marker])
+
+        #expect(configuration.routeSensitivity == .unidentified)
+        #expect(configuration.routeSensitiveIdentifier == nil)
+        #expect(configuration.sshOptions == ["ProxyJump=bastion"])
+        let merged = configuration.mergingConnectionSharingDefaults(sharing)
+        #expect(merged == sharing.mergingDefaults(into: ["ProxyJump=bastion", marker]))
+        #expect(merged.contains("ControlPath=none"))
+        #expect(!merged.contains { $0.hasSuffix("/%C") })
+
+        // Saving and restoring keeps the route unshared.
+        let snapshot = try #require(configuration.sessionSnapshot())
+        #expect(self.configuration(sshOptions: snapshot.sshOptions).routeSensitivity == .unidentified)
+        #expect(configuration != self.configuration(sshOptions: ["ProxyJump=bastion"]))
+    }
+
     @Test("a saved workspace keeps its route across save and restore")
     func snapshotRoundTripKeepsTheRoute() throws {
         let configuration = configuration(sshOptions: ["ProxyJump=bastion", routeMarker])
@@ -140,7 +163,7 @@ struct WorkspaceRemoteConfigurationFileTransferTests {
             configuration.withSSHControlMasterLeaseGeneration(UUID()),
             configuration.withResolvedSSHControlPath("/tmp/cmux-route-marker-tests/abc"),
         ] {
-            #expect(copy.routeSensitiveIdentifier == digest)
+            #expect(copy.routeSensitivity == .identified(digest))
         }
     }
 
