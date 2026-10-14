@@ -92,35 +92,35 @@ try {
   if (process.env.CMUX_CHANGELOG_CAPTURE_ONLY === "1") {
     console.log("Captured the unchanged page through the same bridge fixture");
   } else {
-  assert.deepEqual(await span.locator(".cl-group h3").allTextContents(), ["Browser", "Sidebar"]);
-  assert.equal(await span.locator(".cl-row-title").count(), 2, "Related PRs appear once across the update span");
-  assert.equal(
-    await span
-      .locator(".cl-row-title")
-      .first()
-      .evaluate((el) => getComputedStyle(el).fontWeight),
-    "400",
-  );
-  assert.equal(await span.locator(".cl-group svg").count(), 2, "Each area has a glyph");
-  assert.match(await span.innerText(), /Oct 14 · 5:20 AM/);
-  assert.doesNotMatch(
-    await page.locator("body").innerText(),
-    /nightly\.|Inject the clock|Opaque overlays|Skills\/cmux-browser/,
-  );
-  assert.match(await span.locator(".cl-build").last().getAttribute("title"), /1\.0\.0-nightly/);
-  const first = span.locator(".cl-row-title").first();
-  await first.hover();
-  assert.equal(await first.getAttribute("href"), "https://github.com/manaflow-ai/cmux/pull/101");
-  const box = await page.locator(".clj > main").boundingBox();
-  assert.ok(box.width <= 720 && Math.abs(box.x + box.width / 2 - 550) < 2, JSON.stringify(box));
-  await span.locator(".cl-changes summary").click();
-  assert.match(await span.locator(".cl-changes").innerText(), /Inject the clock/);
-  await page.setViewportSize({ width: 560, height: 850 });
-  assert.ok(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
-    "Narrow pages do not overflow",
-  );
-  console.log("PASS: What's New real page bridge, filtering, dedup, labels, weight, links and layout");
+    assert.deepEqual(await span.locator(".cl-group h3").allTextContents(), ["Browser", "Sidebar"]);
+    assert.equal(await span.locator(".cl-row-title").count(), 2, "Related PRs appear once across the update span");
+    assert.equal(
+      await span
+        .locator(".cl-row-title")
+        .first()
+        .evaluate((el) => getComputedStyle(el).fontWeight),
+      "400",
+    );
+    assert.equal(await span.locator(".cl-group svg").count(), 2, "Each area has a glyph");
+    assert.match(await span.innerText(), /Oct 14 · 5:20 AM/);
+    assert.doesNotMatch(
+      await page.locator("body").innerText(),
+      /nightly\.|Inject the clock|Opaque overlays|Skills\/cmux-browser/,
+    );
+    assert.match(await span.locator(".cl-build").last().getAttribute("title"), /1\.0\.0-nightly/);
+    const first = span.locator(".cl-row-title").first();
+    await first.hover();
+    assert.equal(await first.getAttribute("href"), "https://github.com/manaflow-ai/cmux/pull/101");
+    const box = await page.locator(".clj > main").boundingBox();
+    assert.ok(box.width <= 720 && Math.abs(box.x + box.width / 2 - 550) < 2, JSON.stringify(box));
+    await span.locator(".cl-changes summary").click();
+    assert.match(await span.locator(".cl-changes").innerText(), /Inject the clock/);
+    await page.setViewportSize({ width: 560, height: 850 });
+    assert.ok(
+      await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      "Narrow pages do not overflow",
+    );
+    console.log("PASS: What's New real page bridge, filtering, dedup, labels, weight, links and layout");
   }
 } finally {
   await browser?.close();
