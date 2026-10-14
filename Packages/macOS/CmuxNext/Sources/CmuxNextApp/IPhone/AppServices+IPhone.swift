@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextMobile
 import CmuxNextSettings
 import Foundation
