@@ -56,6 +56,23 @@ extension SSHService {
         }
     }
 
+    /// cx-oa6ah: the keyed restart before a new chat starts on `session`, only when its acpmux
+    /// runs no live agent (or none runs): nothing is handed off, so nothing can be lost. A daemon
+    /// with live agents (another app's, another window's) is left as it is; true once this app's
+    /// key is bound to the daemon that will run the chat.
+    func restartWithApprovalsIfIdle(_ session: SSHMachineSession) async -> Bool {
+        if AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID) != nil { return true }
+        let status = try? await SSHProcessRunner.run(
+            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) acp --json daemon status </dev/null"),
+            environment: await Self.environment(), deadline: .seconds(30), label: "acpmux status \(session.host.destination)")
+        // No daemon answers (exit non-zero): the start would launch one without a key.
+        if let status, status.status == 0 {
+            let object = (try? JSONSerialization.jsonObject(with: Data(status.stdout.utf8))) as? [String: Any]
+            guard let live = object?["liveAgents"] as? Int, live == 0 else { return false }
+        }
+        return await restartWithApprovals(session) == nil
+    }
+
     private static func lastLine(_ text: String) -> String? {
         text.split(separator: "\n").last.map(String.init)
     }
