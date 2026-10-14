@@ -3,8 +3,10 @@
 use serde_json::{Map, Value, json};
 
 use super::{NameSource, NameUpdate, WorkspaceNameUpdate};
-use crate::resource::{ResourceError, WorkspacePublicId};
-use crate::workspace_registry::RegistryWorkspace;
+use crate::resource::{
+    ContentPublicId, PanePublicId, ResourceError, TabPublicId, TerminalPublicId, WorkspacePublicId,
+};
+use crate::workspace_registry::{RegistryTab, RegistryWorkspace};
 
 const GENERATION: &str = "generation-a";
 
@@ -115,4 +117,49 @@ fn workspace_name_source_stored_spelling_round_trips() {
         assert_eq!(serde_json::to_value(source).unwrap(), json!(source.as_str()));
     }
     assert_eq!(NameSource::from_stored("unknown"), NameSource::User);
+}
+
+fn tab(name: Option<&str>, source: NameSource, revision: u64) -> RegistryTab {
+    RegistryTab {
+        public_id: TabPublicId::parse(format!("tab_{:032x}", 1)).unwrap(),
+        pane_id: PanePublicId::parse(format!("pane_{:032x}", 1)).unwrap(),
+        position: 0,
+        content_id: ContentPublicId::Terminal(
+            TerminalPublicId::parse(format!("term_{:032x}", 1)).unwrap(),
+        ),
+        name: name.map(str::to_string),
+        name_source: source,
+        name_revision: revision,
+        browser_url: None,
+        terminal_id: None,
+    }
+}
+
+fn refusal_reason(error: anyhow::Error) -> (String, Value) {
+    let error = error.downcast::<ResourceError>().expect("a typed resource error");
+    (error.code, error.details["extra"]["reason_code"].clone())
+}
+
+#[test]
+fn name_source_refusals_are_typed_operation_failures() {
+    let pinned_workspace = auto(7)
+        .apply_workspace(
+            &mut workspace("Billing", NameSource::User, 7),
+            "Fix Login".into(),
+            GENERATION,
+        )
+        .unwrap_err();
+    assert_eq!(refusal_reason(pinned_workspace), ("operation.failed".into(), json!("name_pinned")));
+    let empty_workspace = auto(0)
+        .apply_workspace(&mut workspace("workspace-1", NameSource::Auto, 0), " ".into(), GENERATION)
+        .unwrap_err();
+    assert_eq!(refusal_reason(empty_workspace), ("operation.failed".into(), json!("name_empty")));
+
+    let pinned_tab = auto(2)
+        .apply(&mut tab(Some("Logs"), NameSource::User, 2), Some("Build".into()), GENERATION, 2)
+        .unwrap_err();
+    assert_eq!(refusal_reason(pinned_tab), ("operation.failed".into(), json!("name_pinned")));
+    let empty_tab =
+        auto(2).apply(&mut tab(None, NameSource::Auto, 2), None, GENERATION, 2).unwrap_err();
+    assert_eq!(refusal_reason(empty_tab), ("operation.failed".into(), json!("name_empty")));
 }
