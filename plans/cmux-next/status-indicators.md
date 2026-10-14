@@ -192,6 +192,12 @@ Supersedes "one indicator for every tab loading state" (section 8) for agent wor
   `working`). Drawn as three dots in the neutral accent (theme foreground) that dim one after another
   (`Glyph.dots`, `Animation.wave`: one `CAReplicatorLayer`, render-server animation); with progress, a still
   accent ring. No loading style changes it (also `none`). Reduce Motion: three still dots.
+- Update 2026-10-14 (Lawrence: "left sidebar needs to be a spinner instead of flash"; "all spinners need to
+  be synced"; cx-qtgj2): with a status icon set chosen (default `symbols`), agent work is the rotating arc in
+  the muted loading color in sidebar rows, group headers, tabs and hover cards, not a pulsing mark; the
+  `current` (dots), `bars` and `signs` sets keep their wave. Every indicator loop starts at one shared epoch
+  (`StatusIndicatorLayer.phaseEpoch`), so all spinners turn in the same phase, also one that shows later.
+  Tab indicators pause while the strip's window is occluded or minimized, as sidebar rows do.
 - Page and command loading keep the loading style (thin ring by default). Needs input (`waiting`) is a still
   attention dot everywhere.
 - Sources: acpmux turn state through the app's single `_acpmux/watch` feed (`AgentTurnStateStore`, local
