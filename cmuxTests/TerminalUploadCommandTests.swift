@@ -417,6 +417,18 @@ import Testing
         )
     }
 
+    @Test func customRemotePathBoundsLongExtensionByUTF8Bytes() {
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        let longExtension = String(repeating: "x", count: 300)
+        let path = TerminalUploadCommand.customRemotePath(
+            for: URL(fileURLWithPath: "/tmp/file.\(longExtension)"),
+            uuid: uuid
+        )
+
+        #expect(path == "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.\(String(repeating: "x", count: 16))")
+        #expect(path.utf8.count < 255)
+    }
+
     @Test func nonZeroExitFailsClosed() {
         let result = runner { _, _, _, _ in (1, "", "boom") }.runSync(
             fileURLs: [URL(fileURLWithPath: "/tmp/a.png")],
