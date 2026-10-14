@@ -198,6 +198,10 @@ struct CloudPrivateRouteSelectionTests {
         defer { try? FileManager.default.removeItem(at: home) }
         let paths = CloudTuiClientPaths(home: home)
         let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.1:7070/old/link", for: "vm-test"
+        )
         let oldSnapshot = await links.persistedDeviceRecords()
         paths.saveAttachState(
             deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
@@ -205,15 +209,30 @@ struct CloudPrivateRouteSelectionTests {
         )
         let freshSnapshot = await links.persistedDeviceRecords()
         await links.setPrivateAddresses(
-            ["10.16.0.3"], for: "vm-test", persistedDevice: freshSnapshot["vm-test"]
+            ["10.16.0.3"], for: "vm-test", persistedDevice: oldSnapshot["vm-test"]
         )
-        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8080/custom/link")
+        // A CLI update after the snapshot is reconciled before a real dial.
+        let route = try await links.resolvedPrivateRoute(
+            machineID: "vm-test", through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(route == "ws://10.16.0.3:8080/custom/link")
+        paths.saveAttachState(route: "ws://10.16.0.2:8181/custom/link", for: "vm-test")
+        let nextSnapshot = await links.persistedDeviceRecords()
+        await links.setPrivateAddresses(
+            ["10.16.0.3"], for: "vm-test", persistedDevice: nextSnapshot["vm-test"]
+        )
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8181/custom/link")
 
         await links.setPrivateRoute("ws://10.16.0.3:9090/new/link", for: "vm-test")
         await links.setPrivateAddresses(
-            ["10.16.0.4"], for: "vm-test", persistedDevice: oldSnapshot["vm-test"]
+            ["10.16.0.4"], for: "vm-test", persistedDevice: freshSnapshot["vm-test"]
         )
         #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.3:9090/new/link")
+        paths.saveAttachState(route: "ws://10.16.0.2:8080/cli/link", for: "vm-test")
+        let liveRoute = try await links.resolvedPrivateRoute(
+            machineID: "vm-test", through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(liveRoute == "ws://10.16.0.4:9090/new/link")
     }
 
     @Test("Partial attach addresses retain the other discovered family", arguments: [false, true])

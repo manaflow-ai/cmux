@@ -61,6 +61,9 @@ public actor CloudMachineLinkManager {
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
     private var privateRoutes: [String: String] = [:]
+    /// Discovery snapshots may seed a route, but must not pin it over a later
+    /// CLI update. Routes learned directly from attach remain authoritative.
+    private var discoverySeededRoutes: Set<String> = []
     private var privateAddressCandidates: [String: [String]] = [:]
     /// Create receipts can name a non-default daemon session. Keep that
     /// contract for native links after the trusted-carrier marker is saved.
@@ -222,7 +225,8 @@ public actor CloudMachineLinkManager {
     }
 
     public func setPrivateAddresses(_ addresses: [String], for machineID: String) {
-        let persistedDevice = privateRoutes[machineID] == nil ? paths.loadDevices()[machineID] : nil
+        let needsPersistedRoute = privateRoutes[machineID] == nil || discoverySeededRoutes.contains(machineID)
+        let persistedDevice = needsPersistedRoute ? paths.loadDevices()[machineID] : nil
         setPrivateAddresses(addresses, for: machineID, persistedDevice: persistedDevice)
     }
 
@@ -235,7 +239,8 @@ public actor CloudMachineLinkManager {
 
     /// Updates addresses using a record from the current discovery snapshot.
     /// A nil record means the machine was absent from that snapshot; it does not
-    /// trigger another file read. Routes learned in memory take precedence.
+    /// trigger another file read. Routes learned directly from attach take
+    /// precedence; discovery-seeded routes can follow newer shared records.
     public func setPrivateAddresses(
         _ addresses: [String],
         for machineID: String,
@@ -245,15 +250,17 @@ public actor CloudMachineLinkManager {
         let addresses = addresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0).inserted }
         privateAddressCandidates[machineID] = addresses
-        if privateRoutes[machineID] == nil {
+        if privateRoutes[machineID] == nil || discoverySeededRoutes.contains(machineID) {
             // A route learned from an attach response is durable shared state.
             // Older records have no route, so retain the one explicit migration
             // fallback needed for already-enrolled machines.
             if let route = persistedDevice?.route {
                 privateRoutes[machineID] = route
+                discoverySeededRoutes.insert(machineID)
             } else if persistedDevice != nil,
                       let address = addresses.first {
                 privateRoutes[machineID] = Self.route(host: address, port: Self.legacyPrivateRoutePort)
+                discoverySeededRoutes.insert(machineID)
             }
         }
     }
@@ -263,7 +270,16 @@ public actor CloudMachineLinkManager {
     public func setPrivateRoute(_ route: String?, for machineID: String) {
         guard let route, Self.isUsableRoute(route) else { return }
         privateRoutes[machineID] = route
+        discoverySeededRoutes.remove(machineID)
         paths.saveAttachState(route: route, for: machineID)
+    }
+
+    /// Reconciles discovery state with current CLI writes before a real connect.
+    /// This bounded read also handles enrollment after a batch snapshot was taken.
+    func refreshPersistedRoute(for machineID: String) -> CloudTuiClientPaths.DeviceRecord? {
+        let record = paths.loadDevices()[machineID]
+        setPrivateAddresses(privateAddressCandidates[machineID] ?? [], for: machineID, persistedDevice: record)
+        return record
     }
 
     /// Records the team that owns `machineID`; nil clears it (selected team).
@@ -333,12 +349,13 @@ public actor CloudMachineLinkManager {
         if let inFlight = connecting[machineID] {
             return try await inFlight.value
         }
+        let persistedDevice = refreshPersistedRoute(for: machineID)
         let correlationID = UUID().uuidString.lowercased()
         breadcrumb(
             "cloud.link.start",
             [
                 "machine": machineID,
-                "knownDevice": paths.deviceFingerprint(for: machineID) == nil ? "0" : "1",
+                "knownDevice": persistedDevice == nil ? "0" : "1",
                 "correlation": correlationID,
                 "outcome": "started"
             ]
@@ -352,7 +369,7 @@ public actor CloudMachineLinkManager {
             throw ManagerError.clientMissing
         }
         let canPrepareRoute = Self.canPrepareFirstAttachRoute(
-            deviceFingerprint: paths.deviceFingerprint(for: machineID),
+            deviceFingerprint: persistedDevice?.deviceFingerprint,
             privateAddresses: privateAddresses(for: machineID)
         )
         guard privateRoutes[machineID] != nil || canPrepareRoute else {
@@ -367,7 +384,7 @@ public actor CloudMachineLinkManager {
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
             let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
-            let knownFingerprint = paths.deviceFingerprint(for: machineID)
+            let knownFingerprint = self.refreshPersistedRoute(for: machineID)?.deviceFingerprint
             var session = self.session(for: machineID)
             // The machine's daemon serves a trusted listener inside the private
             // network, so a link needs no enrollment: the first use asks the
@@ -533,8 +550,9 @@ public actor CloudMachineLinkManager {
     public func browserProxy(machineID: String, remoteNetwork: Bool = false) async throws -> CloudBrowserProxyEndpoint {
         let key = BrowserProxyKey(machineID: machineID, remoteNetwork: remoteNetwork)
         try Task.checkCancellation()
+        let persistedDevice = refreshPersistedRoute(for: machineID)
         let canPrepareRoute = Self.canPrepareFirstAttachRoute(
-            deviceFingerprint: paths.deviceFingerprint(for: machineID),
+            deviceFingerprint: persistedDevice?.deviceFingerprint,
             privateAddresses: privateAddresses(for: machineID)
         )
         guard isCloudEnabled(), privateRoutes[machineID] != nil || canPrepareRoute else {
@@ -557,7 +575,7 @@ public actor CloudMachineLinkManager {
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
         browserProxies[key] = proxy
         let task = Task<CloudBrowserProxyEndpoint, Error> {
-            let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
+            let knownFingerprint = self.refreshPersistedRoute(for: machineID)?.deviceFingerprint
             let carrier: Bool
             if Self.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: knownFingerprint) {
                 // Prepare the trusted listener through the control plane without
@@ -714,6 +732,7 @@ public actor CloudMachineLinkManager {
     /// each removed machine's asynchronous link/forward teardown separately.
     public func retainAddresses(machineIDs: Set<String>) {
         privateRoutes = privateRoutes.filter { machineIDs.contains($0.key) }
+        discoverySeededRoutes.formIntersection(machineIDs)
         privateAddressCandidates = privateAddressCandidates.filter { machineIDs.contains($0.key) }
         machineStatuses = machineStatuses.filter { machineIDs.contains($0.key) }
         localStatusChanges = localStatusChanges.filter { machineIDs.contains($0.key) }
