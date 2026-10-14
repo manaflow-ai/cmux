@@ -1,6 +1,6 @@
 // Prompts waiting for the running turn, as compact rows attached to the composer's top edge. The
-// list is laid over the transcript's foot, not in the layout, so a prompt being queued, sent or
-// removed never moves the composer or the transcript.
+// list sits in space reserved above the composer, keeping every preceding status and permission
+// row clear while the composer remains anchored at the bottom of the pane.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
 // past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
@@ -53,8 +53,8 @@ export function ComposerQueue({
   // The row a move keeps focus on, once the new order draws.
   const refocus = useRef<string>(undefined);
   const list = useRef<HTMLOListElement>(null);
-  // Laid over the transcript's foot, but never over a question waiting for an answer: the list's
-  // height is the chat's --acpmux-queue-space, which the permission panel keeps clear (hq #1893).
+  // Reserve space on the composer itself, not just a permission panel: PR rows, notices and
+  // the transcript must all stay above the queue, even when no permission is pending.
   const reserve = useCallback((node: HTMLOListElement | null) => {
     list.current = node;
   }, []);
@@ -72,9 +72,9 @@ export function ComposerQueue({
   }, [queue, editing, onLost]);
   useLayoutEffect(() => {
     const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-main");
+    const chat = node?.closest<HTMLElement>(".acpmux-composer");
     if (!node || !chat) return;
-    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
+    const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight + 4}px`);
     const observer = new ResizeObserver(update);
     observer.observe(node);
     update();

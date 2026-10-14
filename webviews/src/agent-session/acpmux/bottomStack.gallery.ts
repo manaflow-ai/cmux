@@ -119,6 +119,8 @@ const checkPrQueue: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-dock"));
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
+  await ctx.click({ selector: ".acpmux-queued" });
+  geometry(ctx);
   const scope = ctx.find({ selector: ".acpmux-composer-context" });
   const style = ctx.document.defaultView!.getComputedStyle(scope);
   if (
