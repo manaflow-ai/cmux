@@ -9,7 +9,7 @@ import CoreGraphics
 /// rests. cmux-motion's `motion_trajectories` example prints the same
 /// document; scripts/cmux-next/motion-parity.py compares them.
 enum MotionParityCorpus {
-    private static let tokens: [MotionSpring] = [.move, .appear, .disappear, .settle, .scroll, .screen, .track, .selection, .panel]
+    private static let tokens = MotionSpring.allCases
 
     static var document: JSONValue {
         var tokenRows: [JSONValue] = []

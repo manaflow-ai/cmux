@@ -83,10 +83,18 @@ pub enum MotionSpring {
     /// `CASpringAnimation` mass 1, stiffness 320, damping 30). Overshoots
     /// about 1.6 pt on 200 pt.
     PinDrag,
+    /// A pane zooming to fill its screen: it owns the motion, its content
+    /// takes the full size once and the spring rect reveals it (Leo
+    /// 2026-10-13).
+    Zoom,
+    /// The panes a zoom leaves fading out, faster than anything arrives
+    /// (macOS `Motion.exit(nearness:)` lengthens it up to 25% for the
+    /// panes nearer the zoomed one, so the farthest is gone first).
+    Exit,
 }
 
 impl MotionSpring {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 12] = [
         Self::Move,
         Self::Appear,
         Self::Disappear,
@@ -97,6 +105,8 @@ impl MotionSpring {
         Self::Selection,
         Self::Panel,
         Self::PinDrag,
+        Self::Zoom,
+        Self::Exit,
     ];
 
     /// The token's tuning at speed `fast` (design-tokens.json

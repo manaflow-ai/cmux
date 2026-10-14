@@ -13,7 +13,7 @@ use cmux_motion::{
 };
 
 /// Tokens both ports have, by their spec name.
-const TOKENS: [(&str, MotionSpring); 9] = [
+const TOKENS: [(&str, MotionSpring); 12] = [
     ("move", MotionSpring::Move),
     ("appear", MotionSpring::Appear),
     ("disappear", MotionSpring::Disappear),
@@ -23,6 +23,9 @@ const TOKENS: [(&str, MotionSpring); 9] = [
     ("track", MotionSpring::Track),
     ("selection", MotionSpring::Selection),
     ("panel", MotionSpring::Panel),
+    ("pinDrag", MotionSpring::PinDrag),
+    ("zoom", MotionSpring::Zoom),
+    ("exit", MotionSpring::Exit),
 ];
 
 /// Frames until rest (at most 3 s) from 0 toward 200, retargeting to

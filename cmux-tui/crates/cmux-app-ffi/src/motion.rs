@@ -78,7 +78,8 @@ pub extern "C" fn cmux_motion_ffi_abi_version() -> u32 {
 
 /// The spring token `token` (`MotionSpring` order: 0 move, 1 appear, 2
 /// disappear, 3 settle, 4 scroll, 5 screen, 6 track, 7 selection, 8 panel,
-/// 9 pinDrag) at speed `fast` from the spec, before the policy. Returns
+/// 9 pinDrag, 10 zoom, 11 exit; the macOS `MotionSpring` declares its
+/// cases in this order) at speed `fast` from the spec, before the policy. Returns
 /// false for an unknown token.
 ///
 /// # Safety
