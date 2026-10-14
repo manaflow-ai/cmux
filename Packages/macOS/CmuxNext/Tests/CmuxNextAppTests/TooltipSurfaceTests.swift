@@ -80,6 +80,10 @@ import Testing
         window.orderFrontRegardless()
         let presenter = TooltipPresenter(clock: clock)
         presenter.timing = .standard
+        // The surface's animations hold still, as the hover delay does on the manual clock: the
+        // test reads the fade the tooltip starts, however long a loaded host takes to get to it
+        // (the macOS 27 lane, 2026-10-14, read it after it had finished and been removed).
+        presenter.panel.surface.layer?.speed = 0
         return (window, buttons, presenter, scope)
     }
 
