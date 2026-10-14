@@ -187,6 +187,21 @@ export default agentPaneEntry({
       snapshot: withControls(chat(finished)),
       play: check,
     },
+    permission: {
+      note: "A chat allowed to act without asking: the lock chip sits in the composer bar beside the pickers.",
+      snapshot: {
+        ...withControls(chat(finished)),
+        permissionGroups: {
+          supported: true,
+          ready: true,
+          busy: false,
+          loading: false,
+          chatAllowance: true,
+          groups: [],
+        },
+      },
+      play: check,
+    },
     "model-menu": {
       note: "Play: open the model picker from the icon-only chip; it stays inside the pane, unclipped.",
       checks: {

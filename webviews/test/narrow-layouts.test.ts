@@ -10,7 +10,17 @@ import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("narrow-layouts.test.ts", async () => {
-  const VARIANTS = ["controls", "working", "pull-requests", "new-tab", "code", "model-menu", "access-menu", "summary"];
+  const VARIANTS = [
+    "controls",
+    "working",
+    "pull-requests",
+    "new-tab",
+    "code",
+    "permission",
+    "model-menu",
+    "access-menu",
+    "summary",
+  ];
   const SIZES = [
     { width: 280, scale: 1 },
     { width: 360, scale: 1 },
