@@ -883,7 +883,7 @@ struct WorkspaceRow: View {
         let line = StatusLine.words(workspace, status: status, macName: macName)
         parts.append(contentsOf: line)
         if workspace.hasActivityTime, status != .creating {
-            parts.append(RelativeDateTimeFormatter().localizedString(for: workspace.lastActivityAt, relativeTo: Date()))
+            parts.append(RelativeDateTimeFormatter().localizedString(for: workspace.lastActivityAt, relativeTo: MinuteClock.shared.now))
         }
         return parts.joined(separator: ", ")
     }

@@ -60,6 +60,9 @@ struct DevicesPage: View {
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
     @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
+    @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
+    @ScaledMetric(relativeTo: .body) private var iconColumn: CGFloat = 22
 
     var body: some View {
         List {
@@ -204,14 +207,17 @@ struct DevicesPage: View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
             Group {
                 if device.kind == .mac {
-                    StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)))
+                    // 8 pt at Large, growing with the text up to 16 pt.
+                    StatusDot(Self.dot(status(device)?.dot ?? (device.online == true ? .connected : .offline)),
+                              size: min(dotSize, 16))
                 } else {
                     SettingsIcon("iphone")
                 }
             }
-            .frame(width: theme.metrics.settingsIconFrame)
-            // Centered on the name's line, not the two-line block.
-            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
+            .frame(width: min(iconColumn, theme.metrics.settingsIconFrame * 2))
+            // Centered on the name's line, not the two-line block (the offset
+            // from the baseline is about half the text's cap height).
+            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + dotLift }
             VStack(alignment: .leading, spacing: 2) {
                 let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
                 if typeSize.isAccessibilitySize {
