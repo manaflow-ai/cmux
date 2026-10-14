@@ -27,6 +27,31 @@ struct StashTests {
         }
     }
 
+    /// A group of the first and last page draws them together in the strip, [p0, p3, p1, p2],
+    /// while the daemon keeps [p0, p1, p2, p3]: right of p1 is p2 alone.
+    @Test func stashTabsToTheRightFollowsTheStripNotTheDaemonOrder() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let (ids, urls) = try await Self.openPages(4, services, connection)
+            let store = services.daemon.store
+            let pane = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let controller = try #require(services.paneController(for: pane))
+            let resources = try ids.map { try #require(Self.tab($0, store)?.resourceID) }
+            _ = try await connection.state.createTabGroup(tabs: [resources[0], resources[3]], name: nil, color: nil)
+            try await PinnedPageTests.until({
+                controller.orderedIDs.map(\.rawValue).filter(ids.contains) == [ids[0], ids[3], ids[1], ids[2]]
+            }, report: { "strip: \(controller.orderedIDs)" })
+            #expect(pane.tabs.map(\.id).filter(ids.contains) == ids, "the daemon keeps its own order")
+
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: ids[1]), origin: .user)
+            #expect(services.registry.perform("tab.stashToRight", invocation: invocation))
+            let model = services.historyPage.stash.model
+            try await PinnedPageTests.until({ model.groups.count == 1 }, report: { "groups: \(model.groups)" })
+            #expect(model.groups[0].tabs.map(\.url) == [urls[2]], "only the page right of it in the strip")
+            try await PinnedPageTests.until({ Self.tab(ids[2], store) == nil })
+            #expect(Self.tab(ids[3], store) != nil, "the grouped page left of it in the strip stays open")
+        }
+    }
+
     @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let (ids, urls) = try await Self.openPages(3, services, connection)
@@ -76,17 +101,21 @@ struct StashTests {
             https://a.example/two | Two | with a bar
 
             https://b.example/ | B
+            https://e.example/ |\u{20}
             not a page
             """
             await model.importPasted()
             #expect(!model.showsImport, "the paste box closes once the import went through")
             let groups = model.groups.map { $0.tabs.map(\.url) }
-            #expect(Set(groups) == [["https://a.example/one", "https://a.example/two"], ["https://b.example/"]])
-            let a = try #require(model.groups.first { $0.tabs.count == 2 })
+            #expect(Set(groups) == [
+                ["https://a.example/one", "https://a.example/two"], ["https://b.example/", "https://e.example/"],
+            ], "a `url | ` line is that page with no title")
+            let a = try #require(model.groups.first { $0.tabs.first?.url == "https://a.example/one" })
             #expect(a.tabs.map(\.title) == ["One", "Two | with a bar"])
 
             // An imported page reopens in the app's browser engine.
-            let b = try #require(model.groups.first { $0.tabs.count == 1 })
+            let b = try #require(model.groups.first { $0.tabs.first?.url == "https://b.example/" })
+            #expect(b.tabs.map(\.title) == ["B", nil])
             await model.restore(b)
             let store = services.daemon.store
             try await PinnedPageTests.until({ Self.tab(url: "https://b.example/", store) != nil })
