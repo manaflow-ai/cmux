@@ -106,6 +106,31 @@ final class CmuxWebViewKeyDownReentryTests {
 
     @Test
     @MainActor
+    func browserReturnDoesNotRouteToPageWhenWebInspectorResponderIsFocused() throws {
+        try withHookedBrowserKeyDownWindow { window, keyDownEvents in
+            let webView = try #require(window.firstResponder as? CmuxWebView)
+            let inspectorView = FakeWKInspectorUndoResponderView(
+                frame: NSRect(x: 0, y: 0, width: 32, height: 20)
+            )
+            webView.addSubview(inspectorView)
+            #expect(window.makeFirstResponder(inspectorView))
+
+            let event = try #require(makeKeyDownEvent(
+                key: "\r",
+                modifiers: [],
+                keyCode: 36,
+                windowNumber: window.windowNumber
+            ))
+
+            _ = window.performKeyEquivalent(with: event)
+
+            #expect(keyDownEvents().isEmpty)
+            #expect(window.firstResponder === inspectorView)
+        }
+    }
+
+    @Test
+    @MainActor
     func browserReturnConsumesOnlyItsOwnSynchronousReplay() throws {
         try withHookedBrowserKeyDownWindow { window, _ in
             let webView = try #require(window.firstResponder as? CmuxWebView)
