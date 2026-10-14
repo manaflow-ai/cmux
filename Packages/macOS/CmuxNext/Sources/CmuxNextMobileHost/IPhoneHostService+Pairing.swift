@@ -68,7 +68,8 @@ extension IPhoneHostService {
     }
 
     private func ask(_ request: CnxPairRequest) {
-        guard let list = paired else { return }
+        // A request hostd sent before connections were turned off asks nothing.
+        guard allowed, let list = paired else { return }
         switch list.decision(for: request) {
         case .trusted, .denied:
             // hostd may hold an older list: send the current one again.
@@ -118,7 +119,8 @@ extension IPhoneHostService {
             guard !answer.isDismissal else { return }
             decide(request, allow: answer.button == Self.allowButton)
         }
-        pairDialog = (dialogID, request)
+        // A dialog that ended at once (no place to show it) is not open.
+        if CmuxDialogCenter.shared.record(dialogID) != nil { pairDialog = (dialogID, request) }
     }
 
     private func decide(_ request: CnxPairRequest, allow: Bool) {
@@ -142,7 +144,9 @@ extension IPhoneHostService {
         var body = [account?.email ?? account?.userID ?? ""].filter { !$0.isEmpty }.map(IPhoneHostStrings.signedInAs)
         if let registered = request.registeredAt { body.append(IPhoneHostStrings.deviceRegistered(registered)) }
         pairNotices?.post(IPhoneHostStrings.noticeTitle(Self.displayName(request)), body.joined(separator: " · "))
-        if attentionRequest == nil, let app = NSApp, !app.isActive, !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment) {
+        // The system ends a bounce once cmux comes to the front; a later request bounces again.
+        if let app = NSApp, !app.isActive, !WindowDrawPolicy.isAutomationLaunch(ProcessInfo.processInfo.environment) {
+            if let attentionRequest { app.cancelUserAttentionRequest(attentionRequest) }
             attentionRequest = app.requestUserAttention(.criticalRequest)
         }
     }

@@ -6,12 +6,12 @@ public import UserNotifications
 /// notification center (the center's delegate routes the click). The banner answers nothing.
 public struct IPhonePairNotices {
     /// The banner's identifier: a newer request replaces the older banner.
-    public static let id = "cmux.iphone.pair"
+    public nonisolated static let id = "cmux.iphone.pair"
     /// The banner's category, with Review.
-    public static let category = "cmux.iphone.pair"
-    public static let reviewAction = "cmux.iphone.pair.review"
+    public nonisolated static let category = "cmux.iphone.pair"
+    public nonisolated static let reviewAction = "cmux.iphone.pair.review"
     /// Settings > Mobile, where the waiting requests are.
-    public static let settingsRoute = "#/settings/mobile"
+    public nonisolated static let settingsRoute = "#/settings/mobile"
 
     /// Posts (or replaces) the banner: its title and body.
     public var post: @MainActor (_ title: String, _ body: String) -> Void
