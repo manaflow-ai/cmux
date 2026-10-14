@@ -50,8 +50,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         var hidesStrip = false // PaneTabBar: the pane's choice, its kind's tabs.tabBar, else ChatDockChrome
     }
 
-    init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState) {
+    /// `workspace` is set before the first apply: the chat's no-strip rule reads its layout, and
+    /// a strip shown on the first frame and hidden a turn later moves the whole page.
+    init(pane: PaneModel, daemon: DaemonService, layoutPaneID: LayoutPaneID, services: AppServices, state: WindowState,
+         workspace: WorkspaceContentController? = nil) {
         self.pane = pane
+        self.workspace = workspace
         self.daemon = daemon
         paneKey = pane.id
         self.layoutPaneID = layoutPaneID
