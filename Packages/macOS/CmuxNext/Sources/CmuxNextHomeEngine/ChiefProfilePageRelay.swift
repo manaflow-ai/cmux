@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import Foundation
+import os
 
 /// The home-channels page's Chief profile calls (`cmux.chief.profile.*`, hq-ec's New Chief, edit
 /// and archive sheets; chief-profile-ws-v1) go to this build's Chief OWNER, where the Chiefs live,
@@ -39,6 +40,7 @@ public final class ChiefProfilePageRelay {
     private weak var owner: ChiefConversationOwner?
     private let identity = PageRelayIdentity(page: "home-channels")
     private let wake = RetryWake(owner: "ChiefProfilePageRelay")
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief-profile-relay")
     private var relay: (connection: DaemonConnection, socket: String)?
     private var starting: (task: Task<DaemonConnection, any Error>, socket: String)?
     /// The event uptime of the last gesture a call spent.
@@ -62,16 +64,28 @@ public final class ChiefProfilePageRelay {
     public func send(operation: String, params: [String: JSONValue], idempotencyKey: String?,
                      gestureEvent: TimeInterval?) async throws -> JSONValue {
         guard Self.operations.contains(operation) else { throw DaemonError.command(cmd: operation, message: "not a Chief profile operation", code: "unknown_op") }
-        guard let owner, let main = owner.connection, let socket = await owner.socketPath() else { throw DaemonError.notConnected }
-        let relay = try await relayConnection(socket: socket)
-        var origin = JSONValue.object(["claim": .string("page")])
-        if Self.needsGesture(operation, params: params), let event = gestureEvent, event != spentGesture {
-            spentGesture = event
-            let token = try await confirmationToken(main: main, operation: operation, params: params)
-            origin = .object(["claim": .string("user"), "confirmation": .string(token)])
+        let started = ContinuousClock.now
+        let ms = { Int((ContinuousClock.now - started) / .milliseconds(1)) }
+        logger.info("\(operation, privacy: .public): start gesture=\(gestureEvent != nil)")
+        do {
+            guard let owner, let main = owner.connection, let socket = await owner.socketPath() else { throw DaemonError.notConnected }
+            let relay = try await relayConnection(socket: socket)
+            logger.info("\(operation, privacy: .public): relay ready at \(ms()) ms")
+            var origin = JSONValue.object(["claim": .string("page")])
+            if Self.needsGesture(operation, params: params), let event = gestureEvent, event != spentGesture {
+                spentGesture = event
+                let token = try await confirmationToken(main: main, operation: operation, params: params)
+                logger.info("\(operation, privacy: .public): confirmation at \(ms()) ms")
+                origin = .object(["claim": .string("user"), "confirmation": .string(token)])
+            }
+            let result = try await ResourceRelayClient(connection: relay).send(
+                operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
+            logger.info("\(operation, privacy: .public): answered at \(ms()) ms")
+            return result
+        } catch {
+            logger.info("\(operation, privacy: .public): failed at \(ms()) ms: \(String(describing: error), privacy: .public)")
+            throw error
         }
-        return try await ResourceRelayClient(connection: relay).send(
-            operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
     }
 
     /// The page relay connection to the owner at `socket`; a new one when the owner moved.
