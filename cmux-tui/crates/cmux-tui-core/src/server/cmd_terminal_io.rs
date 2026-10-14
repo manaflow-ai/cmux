@@ -9,8 +9,8 @@ use super::styled_run_json;
 use base64::Engine;
 
 use super::ConnectionCancellation;
-use super::MessageWriter;
 use super::DeliveryClassifiedError;
+use super::MessageWriter;
 use super::ProtocolKeyInput;
 use super::get_surface;
 use super::image_paste;
@@ -79,7 +79,15 @@ pub(super) fn send(
     let surface = match (surface, terminal_id) {
         (Some(surface), None) => surface,
         (None, Some(terminal_id)) => {
-            return super::creating_input::send_to_terminal(mux, client, writer, &terminal_id, text, bytes, paste);
+            return super::creating_input::send_to_terminal(
+                mux,
+                client,
+                writer,
+                &terminal_id,
+                text,
+                bytes,
+                paste,
+            );
         }
         _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
     };

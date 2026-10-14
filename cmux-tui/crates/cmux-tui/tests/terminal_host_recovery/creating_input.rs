@@ -83,10 +83,7 @@ fn queue(connection: &mut Connection, id: u64, terminal_id: &str, text: &str) ->
         if reply["ok"] == true {
             return reply;
         }
-        assert!(
-            reply["error"].as_str().is_some_and(|e| e.contains("unknown terminal")),
-            "{reply}"
-        );
+        assert!(reply["error"].as_str().is_some_and(|e| e.contains("unknown terminal")), "{reply}");
         assert!(Instant::now() < deadline, "the split never registered {terminal_id}");
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -184,7 +181,10 @@ fn a_refused_creation_takes_no_input() {
     }));
     assert_eq!(sent["ok"], false, "{sent}");
     assert!(sent["error"].as_str().unwrap().contains("unknown terminal"), "{sent}");
-    let screen = request(&harness.socket, serde_json::json!({"id": 21, "cmd": "read-screen", "surface": taken_surface}));
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 21, "cmd": "read-screen", "surface": taken_surface}),
+    );
     assert!(!screen["text"].as_str().unwrap().contains("REFUSED-INPUT"), "{screen}");
 }
 

@@ -64,7 +64,11 @@ pub(crate) struct InputOverflow {
 
 impl fmt::Display for InputOverflow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "the creating terminal already holds {} queued bytes (limit {CREATING_INPUT_LIMIT})", self.queued)
+        write!(
+            f,
+            "the creating terminal already holds {} queued bytes (limit {CREATING_INPUT_LIMIT})",
+            self.queued
+        )
     }
 }
 
@@ -84,9 +88,17 @@ impl Mux {
         }
         let inputs = &self.creating_inputs;
         let generation = inputs.next_generation.fetch_add(1, Ordering::Relaxed);
-        inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner).entry(terminal_id.to_string()).or_insert(
-            CreatingTerminal { generation, queued: Vec::new(), bytes: 0, expiry_started: false },
-        );
+        inputs
+            .terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(terminal_id.to_string())
+            .or_insert(CreatingTerminal {
+                generation,
+                queued: Vec::new(),
+                bytes: 0,
+                expiry_started: false,
+            });
     }
 
     /// Write input to the terminal with host id `terminal_id`: queued while it is being created,
@@ -99,7 +111,8 @@ impl Mux {
         paste: bool,
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
-        let mut terminals = self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut terminals =
+            self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(creating) = terminals.get_mut(terminal_id) {
             if creating.bytes + bytes.len() > CREATING_INPUT_LIMIT {
                 return Err(InputOverflow { queued: creating.bytes }.into());
@@ -129,18 +142,23 @@ impl Mux {
     /// The creation of `terminal_id` ended. Its queue goes to the live terminal in order, or back
     /// to its senders (`failure` names why; also when no live terminal has the id).
     pub(crate) fn finish_creating_input(&self, terminal_id: &str, failure: Option<&str>) {
-        let mut terminals = self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut terminals =
+            self.creating_inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(creating) = terminals.remove(terminal_id) else { return };
         self.creating_inputs.ended.notify_all();
-        let live = if failure.is_none() { self.live_surface_for_terminal(terminal_id) } else { None };
+        let live =
+            if failure.is_none() { self.live_surface_for_terminal(terminal_id) } else { None };
         let Some(surface) = live else {
             drop(terminals);
             return give_back(terminal_id, creating.queued, failure.unwrap_or("failed"));
         };
         let mut clients = Vec::new();
         for (index, input) in creating.queued.iter().enumerate() {
-            let written =
-                if input.paste { surface.write_paste(&input.bytes) } else { surface.write_bytes(&input.bytes) };
+            let written = if input.paste {
+                surface.write_paste(&input.bytes)
+            } else {
+                surface.write_bytes(&input.bytes)
+            };
             if let Err(error) = written {
                 // The terminal took the earlier bytes; the rest go back to their senders.
                 drop(terminals);
@@ -167,28 +185,32 @@ impl Mux {
         let deadline = Instant::now() + expiry;
         let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
-        let spawned = std::thread::Builder::new().name("creating-input-expiry".into()).spawn(move || {
-            let Some(mux) = mux.upgrade() else { return };
-            let inputs = &mux.creating_inputs;
-            let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-            // Wakes when any creation ends, or at the deadline: a bounded wait, not a poll.
-            loop {
-                if terminals.get(&terminal_id).is_none_or(|creating| creating.generation != generation) {
-                    return;
+        let spawned =
+            std::thread::Builder::new().name("creating-input-expiry".into()).spawn(move || {
+                let Some(mux) = mux.upgrade() else { return };
+                let inputs = &mux.creating_inputs;
+                let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
+                // Wakes when any creation ends, or at the deadline: a bounded wait, not a poll.
+                loop {
+                    if terminals
+                        .get(&terminal_id)
+                        .is_none_or(|creating| creating.generation != generation)
+                    {
+                        return;
+                    }
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+                    terminals = inputs
+                        .ended
+                        .wait_timeout(terminals, deadline - now)
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
                 }
-                let now = Instant::now();
-                if now >= deadline {
-                    break;
-                }
-                terminals = inputs
-                    .ended
-                    .wait_timeout(terminals, deadline - now)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
-            }
-            drop(terminals);
-            mux.finish_creating_input(&terminal_id, Some("expired"));
-        });
+                drop(terminals);
+                mux.finish_creating_input(&terminal_id, Some("expired"));
+            });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no expiry for creating terminal input: {error}");
         }
@@ -200,7 +222,11 @@ impl Mux {
         state
             .surfaces
             .values()
-            .find(|surface| surface.terminal_host_identity().is_some_and(|identity| identity.terminal_id == terminal_id))
+            .find(|surface| {
+                surface
+                    .terminal_host_identity()
+                    .is_some_and(|identity| identity.terminal_id == terminal_id)
+            })
             .cloned()
     }
 }

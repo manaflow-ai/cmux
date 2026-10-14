@@ -9,13 +9,16 @@ use crate::mux::creating_input::{TerminalInputTarget, UnclaimedNotice};
 use base64::Engine as _;
 
 /// `terminal-input-while-creating-v1`.
-pub(super) const TERMINAL_INPUT_WHILE_CREATING_CAPABILITY: &str = "terminal-input-while-creating-v1";
+pub(super) const TERMINAL_INPUT_WHILE_CREATING_CAPABILITY: &str =
+    "terminal-input-while-creating-v1";
 
 impl Command {
     /// The caller-minted host terminal id of a pane or tab creation, normalized to lowercase hex.
     pub(super) fn created_terminal_id(&self) -> Option<String> {
         let id = match self {
-            Self::NewTab { terminal_id, .. } | Self::NewPane { terminal_id, .. } => terminal_id.as_deref(),
+            Self::NewTab { terminal_id, .. } | Self::NewPane { terminal_id, .. } => {
+                terminal_id.as_deref()
+            }
             Self::Split(params) => params.terminal_id(),
             Self::NewPaneRight(params) => params.terminal_id(),
             _ => None,
