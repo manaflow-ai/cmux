@@ -38,7 +38,9 @@ export interface UiAnchorOptions {
   direction?: "ltr" | "rtl";
   /** The shortest the overlay will be once its content is in (the model picker's floor). The side
    * is chosen for this height, not only the measured one, so an overlay that opens before its
-   * content (and measures short) still opens on the side it will fit. */
+   * content (and measures short) still opens on the side it will fit. When neither side has it,
+   * the overlay opens below and runs past the visible box, where its scroller can scroll to it
+   * (above, it would run off the top, out of reach). */
   minHeight?: number;
 }
 
@@ -98,11 +100,11 @@ export function resolveUiOverlayPosition(
   const direction = options.direction ?? "ltr";
   const spaceBelow = Math.max(0, viewport.height - anchor.bottom - gap - margin);
   const spaceAbove = Math.max(0, anchor.top - gap - margin);
-  const resolvedSide = resolveUiSide(anchor, Math.max(overlay.height, options.minHeight ?? 0), viewport.height, {
-    side,
-    gap,
-    margin,
-  });
+  const floor = options.minHeight ?? 0;
+  const resolvedSide =
+    floor > 0 && spaceAbove < floor && spaceBelow < floor
+      ? "below"
+      : resolveUiSide(anchor, Math.max(overlay.height, floor), viewport.height, { side, gap, margin });
   const available = resolvedSide === "below" ? spaceBelow : spaceAbove;
   const idealLeft =
     align === "start"
