@@ -437,9 +437,20 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
-        try await CloudOperationContext.phase(.process) {
-            let channel = try await self.controlConnection()
-            return try await channel.request(arguments, timeout: timeout)
+        do {
+            return try await CloudOperationContext.phase(.process) {
+                let channel = try await self.controlConnection()
+                return try await channel.request(arguments, timeout: timeout)
+            }
+        } catch LinkError.timedOut {
+            // A request deadline means the daemon stopped servicing this
+            // transport, not merely that one read was slow. Drop the local
+            // process and socket so the manager can establish a fresh link on
+            // the next refresh. Mutations are never replayed here: the remote
+            // side may have committed them, and durable cursor/idempotency
+            // state remains authoritative for the next connection.
+            await disconnect()
+            throw LinkError.timedOut
         }
     }
 

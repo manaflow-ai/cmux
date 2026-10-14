@@ -1816,7 +1816,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The admission decision is kept separate so stale-inventory behavior can
     /// be exercised without constructing AppKit panes in a unit test.
     static func shouldReprojectRestoredPanes(observation: CloudVMStateObservation) -> Bool {
-        true
+        observation.freshness == .current
     }
 
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {

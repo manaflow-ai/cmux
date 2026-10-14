@@ -637,6 +637,44 @@ describe("devbox image template", () => {
     }
   });
 
+  test("the daemon supervisor replaces a live but unresponsive cmux-tui", () => {
+    // Process liveness alone misses the incident this image is meant to
+    // recover from: cmux-tui can consume a vCPU while never answering its
+    // local lifecycle socket. Keep this contract close to the image source so
+    // a future supervisor edit cannot silently remove the recovery fence.
+    expect(devboxBoot).toContain("server status --session cloud");
+    expect(devboxBoot).toContain('timeout --signal=TERM --kill-after=1s');
+    expect(devboxBoot).toContain("DAEMON_HEALTH_FAILURE_LIMIT=3");
+    expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=6");
+    expect(devboxBoot).toContain("daemon_health_failures=$((daemon_health_failures + 1))");
+    expect(devboxBoot).toContain("health probe failed $DAEMON_HEALTH_FAILURE_LIMIT times");
+    expect(devboxBoot).toContain("stop_daemon\n  start_daemon");
+    // Recovery uses the existing lifecycle functions, which do not delete the
+    // daemon's state directory or its remote terminal hosts.
+    expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
+    expect(devboxBoot).toContain("daemon_pid=$!");
+  });
+
+  test("the health fence waits through startup and then restarts after consecutive failures", async () => {
+    // Exercise the actual POSIX functions from the image in isolation. The
+    // fixture replaces only process start/stop and the probe, so this proves
+    // the startup grace and consecutive-failure state machine without booting
+    // a VM or touching the host daemon.
+    const prefix = devboxBoot.slice(0, devboxBoot.indexOf("\nannounce_loop &"));
+    const fixture = `${prefix}
+daemon_pid=fixture
+restart_count=0
+daemon_health_probe() { return 1; }
+stop_daemon() { daemon_pid=""; }
+start_daemon() { restart_count=$((restart_count + 1)); daemon_pid=fixture; daemon_health_ticks=0; daemon_health_failures=0; daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE; }
+for i in $(seq 1 44); do check_daemon_health; done
+test "$restart_count" = 1
+test "$daemon_pid" = fixture
+`;
+    const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 20_000 });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+  });
+
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");

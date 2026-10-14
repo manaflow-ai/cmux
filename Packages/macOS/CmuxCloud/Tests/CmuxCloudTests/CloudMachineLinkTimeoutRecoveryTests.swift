@@ -1,0 +1,120 @@
+@testable import CmuxCloud
+import Darwin
+import Foundation
+import Testing
+
+@Suite("Cloud machine link timeout recovery")
+struct CloudMachineLinkTimeoutRecoveryTests {
+    @Test("a timed out control request drops the wedged link for replacement")
+    func timeoutDisconnectsLink() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-link-timeout-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = "/tmp/cmux-link-timeout-\(UUID().uuidString.lowercased()).sock"
+        let listener = try Self.makeListener(at: socketPath)
+        defer {
+            Darwin.close(listener)
+            unlink(socketPath)
+        }
+
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        printf '%s\\n' '{"event":"connection-snapshot","local_socket":"\(socketPath)"}'
+        exec tail -f /dev/null
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+
+        let server = Task.detached(priority: .userInitiated) {
+            Self.serve(listener: listener)
+        }
+        let link = CloudMachineLink(
+            machineID: "timeout-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        _ = try await link.connect(
+            route: "ws://127.0.0.1:1337/v1/link",
+            session: "cloud",
+            carrier: true,
+            timeout: .seconds(2)
+        )
+
+        do {
+            _ = try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .milliseconds(100))
+            Issue.record("the unresponsive control request must time out")
+        } catch CloudMachineLink.LinkError.timedOut {
+            // Expected: the timeout is the health boundary for this local link.
+        }
+        #expect(await link.isConnected == false)
+        #expect(await link.state == .unavailable)
+
+        server.cancel()
+        await server.value
+    }
+
+    private static func makeListener(at path: String) throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw POSIXError(.EIO) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let bytes = Array(path.utf8CString)
+        guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            Darwin.close(fd)
+            throw POSIXError(.ENAMETOOLONG)
+        }
+        withUnsafeMutableBytes(of: &address.sun_path) { destination in
+            bytes.withUnsafeBytes { source in destination.copyBytes(from: source) }
+        }
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard result == 0, listen(fd, 1) == 0 else {
+            Darwin.close(fd)
+            throw POSIXError(.EADDRINUSE)
+        }
+        return fd
+    }
+
+    private static func serve(listener: Int32) {
+        let peer = accept(listener, nil, nil)
+        guard peer >= 0 else { return }
+        defer { Darwin.close(peer) }
+        var line = Data()
+        var byte: UInt8 = 0
+        while !Task.isCancelled {
+            let count = withUnsafeMutableBytes(of: &byte) { Darwin.read(peer, $0.baseAddress, 1) }
+            guard count == 1 else { return }
+            if byte == 0x0A {
+                guard
+                    let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                    let id = object["id"] as? String
+                else {
+                    line.removeAll(keepingCapacity: true)
+                    continue
+                }
+                if object["operation"] as? String == "session.events",
+                   let params = object["params"] as? [String: Any],
+                   let streamID = params["stream_id"] as? String
+                {
+                    let response: [String: Any] = [
+                        "protocol": "cmux.protocol/2", "type": "response", "id": id,
+                        "ok": true, "result": ["stream_id": streamID],
+                    ]
+                    if let data = try? JSONSerialization.data(withJSONObject: response) {
+                        _ = data.withUnsafeBytes { Darwin.write(peer, $0.baseAddress, data.count) }
+                        var newline = UInt8(0x0A)
+                        _ = withUnsafeBytes(of: &newline) { Darwin.write(peer, $0.baseAddress, 1) }
+                    }
+                }
+                line.removeAll(keepingCapacity: true)
+            } else {
+                line.append(byte)
+            }
+        }
+    }
+}
