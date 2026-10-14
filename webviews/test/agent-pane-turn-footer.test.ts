@@ -83,8 +83,13 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
   };
-  const open = async (): Promise<Page> => {
+  const open = async (experiments?: Record<string, string>): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    if (experiments) {
+      await page.addInitScript((arms) => {
+        (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = arms;
+      }, experiments);
+    }
     await page.goto(url());
     await page.getByText("Meanwhile the PR checks").waitFor();
     await page.mouse.move(0, 0);
@@ -150,16 +155,17 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
   });
 
   test("the footer is one row at the column's right edge: muted Worked for and time, then the actions", async () => {
-    const page = await open();
+    // The `hover-actions` experiment's "all" arm keeps a plain prompt's Copy, so the prompt has a
+    // last button to line the reply's actions up with.
+    const page = await open({ "hover-actions": "all" });
     const footer = await page.evaluate(() => {
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
       const row = actions.closest(".acpmux-row")!.getBoundingClientRect();
       const box = (selector: string) => actions.querySelector(selector)!.getBoundingClientRect();
-      // The last button of each row of actions: a prompt's and the reply's. A plain prompt shows
-      // no hover actions (Copy and Edit are in its context menu), so it may have none.
+      // The last button of each row of actions: a prompt's (Copy, Edit) and the reply's.
       const prompt = [...document.querySelectorAll<HTMLElement>(".cv-user__actions button")]
-        .at(-1)
-        ?.getBoundingClientRect();
+        .at(-1)!
+        .getBoundingClientRect();
       const summary = box(".cv-turn-summary");
       const time = box(".cv-turn-time");
       const group = box(".cv-turn-action-group");
@@ -167,18 +173,18 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
       return {
         // The actions end where a prompt's do, at the column's right edge.
         actionsRight: Math.round(row.right - last.right),
-        promptRight: prompt ? Math.round(row.right - prompt.right) : null,
+        promptRight: Math.round(row.right - prompt.right),
         order: summary.right <= time.left && time.right <= group.left,
         oneRow: Math.abs(summary.top + summary.height / 2 - (group.top + group.height / 2)) <= 2,
       };
     });
     expect(footer).toEqual({
-      actionsRight: footer.promptRight ?? footer.actionsRight,
+      actionsRight: footer.promptRight,
       promptRight: footer.promptRight,
       order: true,
       oneRow: true,
     });
-    expect(footer.actionsRight).toBeLessThanOrEqual(2);
+    expect(footer.promptRight).toBeLessThanOrEqual(2);
     await page.close();
   });
 });
