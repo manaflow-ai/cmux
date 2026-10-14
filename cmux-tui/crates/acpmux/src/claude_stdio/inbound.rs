@@ -273,6 +273,10 @@ impl Translator {
                         let n = self.next_control.fetch_add(1, Ordering::SeqCst);
                         let acp_id = Value::from(1_000_000 + n);
                         self.control_out.lock().await.insert(rid.clone(), acp_id.clone());
+                        // "Allow for this session" is offered only with a
+                        // rule Claude can keep (with #20407): without one it
+                        // would be Allow once under another name.
+                        let lasting = req.get("permission_suggestions").and_then(session_rules);
                         let interactive = req
                             .get("requires_user_interaction")
                             .and_then(Value::as_bool)
@@ -280,7 +284,8 @@ impl Translator {
                         let mut options = vec![
                             json!({"optionId": "allow_once", "name": if interactive { "Answer" } else { "Allow" }, "kind": "allow_once"}),
                         ];
-                        if !interactive {
+                        if !interactive && let Some(rules) = lasting {
+                            self.suggestions.lock().await.insert(rid.clone(), rules);
                             options.push(json!({"optionId": "allow_always", "name": "Allow for this session", "kind": "allow_always"}));
                         }
                         options.push(json!({"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}));

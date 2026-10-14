@@ -110,6 +110,8 @@ public nonisolated struct BrowserToolbarButtonState: Hashable, Sendable {
     public var isEnabled: Bool
     /// Drawn in the accent color (design mode on, DevTools open).
     public var isActive: Bool
+    /// Hover shows `label` as a tooltip (`BrowserToolbarPolicy.toolTipInforms`).
+    public var showsToolTip = true
 
     public init(icon: IconName, label: String, isEnabled: Bool = true, isActive: Bool = false) {
         self.icon = icon

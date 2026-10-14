@@ -73,7 +73,8 @@ extension SidebarView {
         for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
-                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
+                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
+                                      fontSize: SidebarStyle.titleFont.pointSize)
         }
         aboveRegion.update(content(shownAbove), width: width)
         // No bottom-left sections (Lawrence 2026-10-10, cx-n0i9: "no more bottom left stuff"): the
@@ -108,8 +109,8 @@ extension SidebarView {
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,
-            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: Metrics.sidebarRowHeight * 3,
-            bandFloor: Metrics.sidebarRowHeight + Metrics.space2)
+            preferences: SidebarAppHeights.preferences(below: belowRegion), minimumList: SidebarDensityTokens.rowHeight * 3,
+            bandFloor: SidebarDensityTokens.rowHeight + Metrics.space2)
         aboveFade.frame = NSRect(x: 0, y: y, width: b.width, height: aboveHeight)
         size(aboveRegion, in: aboveScroll, width: b.width)
         // The band below sits on the footer section; the dots and cards go above it.

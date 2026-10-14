@@ -9,7 +9,7 @@ import CmuxNextSettings
 /// fronting the app or moving the pointer. Events posted to a background
 /// app from outside never reach it.
 ///
-/// Params: `x`, `y` (window points from the top left), `dy`, `dx` (lines for
+/// Params: `x`, `y` (content view points from the top left), `dy`, `dx` (lines for
 /// a wheel, points per event for a trackpad), `count` (events, default 1),
 /// `trackpad` (one gesture: began, changed..., ended), `window`.
 /// `interval_ms` (default 16, a trackpad's event rate) spaces the events'
@@ -21,7 +21,10 @@ import CmuxNextSettings
         guard let window = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })?.window else {
             return .object(["error": .string("no window")])
         }
-        let point = NSPoint(x: params["x"]?.doubleValue ?? 100, y: window.frame.height - (params["y"]?.doubleValue ?? 300))
+        // `x`, `y` are from the top left of the content view, as `debug.sidebar_rows` reports
+        // `window_frame` (a window with a title bar is taller than its content view).
+        let contentHeight = window.contentView?.bounds.height ?? window.frame.height
+        let point = NSPoint(x: params["x"]?.doubleValue ?? 100, y: contentHeight - (params["y"]?.doubleValue ?? 300))
         let screen = window.convertPoint(toScreen: point)
         let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
         let dy = Int32(params["dy"]?.intValue ?? 0), dx = Int32(params["dx"]?.intValue ?? 0)

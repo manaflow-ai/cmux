@@ -192,6 +192,7 @@ pub(super) fn app_method(
     mut params: Value,
     timeout: Duration,
     idempotency_key: Option<&str>,
+    mutation: bool,
 ) -> Result<Value, CallFailure> {
     let socket = app::socket_path(global)
         .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.not_found", error))?;
@@ -208,10 +209,16 @@ pub(super) fn app_method(
     match app::request_with_retry(&mut stream, method, &params, timeout) {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
-        // Once sent, a run's outcome is unknown; a read changed nothing.
+        // Once sent, a change's outcome is unknown; a read changed nothing.
+        // Only a read or a keyed run is safe to send again.
         Err(message) => Err(failure(
-            if key.is_some() { FailureKind::InProgress } else { FailureKind::NotRun },
-            json!({"code": "app.transport", "message": message, "details": {}, "retryable": true}),
+            if key.is_some() || mutation { FailureKind::InProgress } else { FailureKind::NotRun },
+            json!({
+                "code": "app.transport",
+                "message": message,
+                "details": {},
+                "retryable": key.is_some() || !mutation,
+            }),
         )),
     }
 }

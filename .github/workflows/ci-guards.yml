@@ -369,6 +369,14 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
 
+      - name: Test the cmux NEXT nightly reel builder
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_reel.py
+
+      - name: Test the cmux NEXT media tour's app window capture
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_tour.py
+
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
@@ -743,6 +751,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py
 
+      - name: Validate cmux-tui macOS routes avoid the nightly label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
+
       - name: Validate the tui publish dispatch budget
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py
@@ -1031,6 +1043,10 @@ jobs:
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
+
+      - name: Validate lane-branch cmux-tui publishes without the daemon tests
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}

@@ -335,6 +335,15 @@ export function NewTabPage({
         return onSubmit("agent", row.text, projectCwd);
     }
   };
+  // The row is the field's text area (the I-beam shows over all of it): a press beside the
+  // field focuses it; the field and the kind switch keep their own presses. Pointer only, so the
+  // row is presentation: keys reach the field itself.
+  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as Element;
+    if (target === field.current || target.closest("fieldset, button")) return;
+    event.preventDefault();
+    field.current?.focus();
+  };
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
     const row = rows[selected];
@@ -385,7 +394,7 @@ export function NewTabPage({
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
         <form className="acpmux-newtab-box" onSubmit={submit}>
-          <div className="acpmux-newtab-row">
+          <div className="acpmux-newtab-row" role="presentation" onMouseDown={focusFromRow}>
             <KindIcon kind={kind} />
             <input
               ref={field}

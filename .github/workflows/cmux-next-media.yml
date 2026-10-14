@@ -2,7 +2,7 @@ name: cmux-next media
 
 # Screenshots and a short video of each cmux-next UI pull request, posted in
 # one sticky comment (scripts/cmux-next/media/publish.py). The tour builds the
-# exact base and head as separate tagged dev apps on an owned Mac's gui runner,
+# merge base and head as separate tagged dev apps on an owned Mac's gui runner,
 # launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
 # mapping selects New Tab, agent-pane, or core interactions from the changed
@@ -71,7 +71,10 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.runs_on != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.route.outputs.runs_on }}
-    timeout-minutes: 60
+    # Cold, one PR's first tour builds base and head from scratch: the base
+    # alone took 35 min to reach its web bundles (job 115856352658). Later
+    # tours of the PR reuse its per-tag DerivedData.
+    timeout-minutes: 120
     permissions:
       contents: read
     env:
@@ -101,11 +104,22 @@ jobs:
       - name: Check the tours
         run: python3 scripts/cmux-next/media/tour.py --check scripts/cmux-next/media/tours
 
+      # BASE_SHA is the base branch tip when the event fired, which can be
+      # ahead of where the pull request branched. The before app and the path
+      # map use the merge base, so neither carries base changes the pull
+      # request never touched. A dispatch run has BASE_SHA == HEAD_SHA.
+      - name: Find the merge base
+        run: |
+          set -euo pipefail
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          echo "MERGE_BASE=$merge_base" >> "$GITHUB_ENV"
+          echo "merge base of $BASE_SHA and $HEAD_SHA: $merge_base"
+
       - name: Map changed UI paths to tours
         id: scope
         run: |
           set -euo pipefail
-          git diff --name-only "$BASE_SHA" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths.txt"
+          git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed-paths.txt"
           python3 scripts/cmux-next/media/path_map.py --json \
             --paths-file "$RUNNER_TEMP/changed-paths.txt" > "$RUNNER_TEMP/tour-scope.json"
           python3 - "$RUNNER_TEMP/tour-scope.json" "$GITHUB_OUTPUT" <<'PY'
@@ -137,12 +151,39 @@ jobs:
           sudo -n sqlite3 "$tcc" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" \
             || echo "::warning::could not grant screen capture in the system TCC database"
 
+      # reload.sh builds the web bundles from source (cx-vn5) with the bun
+      # webviews/package.json pins; the owned Macs' shared ~/.bun holds another
+      # one, so the build stopped at "the cmux-next web bundles need bun".
+      - name: Setup Bun
+        if: steps.scope.outputs.is_ui == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # The minis share ~/.bun with workflows that install another bun; this
+      # job runs on its own copy of the pinned one (private-bun.sh).
+      - name: Give this job its own bun
+        if: steps.scope.outputs.is_ui == 'true'
+        run: scripts/cmux-next/private-bun.sh
+
+      # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Setup Node
+        if: steps.scope.outputs.is_ui == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
       - name: Download pre-built GhosttyKit.xcframework for both revisions
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse "$HEAD_SHA:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
-          git worktree add --detach "$RUNNER_TEMP/cmux-next-base" "$BASE_SHA"
+          # The runner wipes RUNNER_TEMP between jobs but keeps the checkout's
+          # .git, so the last run's base worktree stays registered and a plain
+          # add fails ("missing but already registered worktree"). A job killed
+          # mid-add leaves the entry locked, which prune skips: -f -f takes it.
+          git worktree prune
+          git worktree add -f -f --detach "$RUNNER_TEMP/cmux-next-base" "$MERGE_BASE"
           git -C "$RUNNER_TEMP/cmux-next-base" submodule update --init --recursive
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
@@ -199,6 +240,12 @@ jobs:
           path: ${{ runner.temp }}/media
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Unregister the base worktree
+        if: ${{ always() }}
+        run: |
+          git worktree remove -f -f "$RUNNER_TEMP/cmux-next-base" 2>/dev/null || true
+          git worktree prune || true
 
   publish:
     name: Post the tour media

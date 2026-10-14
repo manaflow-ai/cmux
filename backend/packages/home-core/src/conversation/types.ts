@@ -270,6 +270,12 @@ export interface ConversationHead {
    */
   readonly agent_text_streak?: number
   readonly last_agent_text_at?: string
+  /**
+   * The same streak per thread (key: the root message id; the top level is
+   * `agent_text_streak`). Only threads whose streak is above 0; absent when
+   * none is. Agents in two threads do not spend each other's budget.
+   */
+  readonly thread_agent_streaks?: Readonly<Record<string, number>>
   /** Provenance of a conversation promoted from a Mac (`conversation.import`). */
   readonly import?: ImportSource & { readonly by: string }
 }
@@ -390,6 +396,6 @@ export const INVITE_TTL_MS = 14 * 24 * 3600_000
 
 export const DEFAULT_SETTINGS: ConversationSettings = {
   wake_policy: "auto",
-  agent_budget: { turns: 4, gap_ms: 2_000 },
+  agent_budget: { turns: 6, gap_ms: 2_000 }, // budget.ts MAX_AGENT_TURNS (per thread), MIN_AGENT_GAP_MS
   history_visible: "all"
 }

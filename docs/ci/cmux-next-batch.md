@@ -16,7 +16,7 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
 
 ## One batch
 
-1. **Trigger.** A PR event or a feat-cmux-next push starts `debounce`. Each new event cancels the waiting run. The batch is dispatched after 2 minutes of quiet, and never later than 10 minutes after the first event. A running batch is never cancelled. A newer dispatch waits for it.
+1. **Trigger.** A PR event or a feat-cmux-next push starts `debounce`. While `CMUX_NEXT_BATCH_ENABLED` is not 1 the job is skipped. Each event's run waits; one that sees a newer event's run exits 0, so no debounce check is cancelled or reads red on a PR. The batch is dispatched after 2 minutes of quiet, and never later than 10 minutes after the first event. A running batch is never cancelled. A newer dispatch waits for it.
 2. **Stack.** Starting from the feat-cmux-next head, the batch merges up to 12 eligible PRs in PR-number order.
    - A conflict in a generated file keeps the stack's copy, and the generator rebuilds it once after the stack is pushed:
      - Web bundles: `scripts/cmux-next/regenerate-web-bundles.sh`, on Linux (`regen-linux`).

@@ -37,6 +37,42 @@ and render-server field animation, blurred header and native scrolling.
     divider drag (decision hq-6d, 2026-10-14). The flag is one static per
     process, and Home has a window view per pane: one pane's resize end
     would redraw only its own kept rows.
+- Per-view render scale (258b385, cx-3cb view-scale; our `appliedRenderScale`
+  patch is gone): each pane's `MessagesWindowView` renders at its own
+  `renderScale` (rows, masks, snaps, compose bar, header, morph, overlays,
+  long-text tiles, text balloon widths). Home calls `setRenderScale` with the
+  pane's `window.backingScaleFactor` when the pane goes into a window, when
+  its window view is installed, when it is shown again and on every backing
+  scale change (`Cmux/PaneHost+Scale.swift`, `followWindowScale`), never
+  skipped by a compare with `Fixture.renderScale`. `ScaleKeeper` walks each
+  pane's layer trees at that pane's `renderScale`.
+  Known limits for Home's one-view-per-pane model (still process-wide
+  upstream): `Fixture.inactive` and `Fixture.lightAppearance` (one key state
+  and one light/dark palette for every pane), `Metrics.current`,
+  `LongTextCenter.handler` (the last view made gets the long-text height
+  changes), `DisplayScale.colorSpace` (two displays of different colour
+  spaces share one), and the appkit-native screen-change handler
+  (`ChatController.windowDidChangeScreen`, `Cmux/PaneHost+Scale.swift`, sets
+  the shared colour space and keeps the row bitmap cache: no `removeAll`, no
+  `setInactive` toggle; a cached bitmap keeps its own colour space. Residual
+  limit: a second pane on another display still changes the one process-wide
+  colour space, and every pane's next row drawings use that space).
+  Known limit (upstream, measured 2026-10-14 on cmux-lawrence-2): after a
+  move to a 1x screen, the visible rows keep their 2x bitmaps for up to
+  0.32 s. `RowCell.configureScoped` (vendored Transcript.swift, about lines
+  744-870) keeps a shown row's bitmap on a scale repaint until the off-main
+  `RowBitmaps.request` delivers the new one, and the cache has no 1x bitmap
+  yet. `scripts/cmux-next/home-scale-change.py` records it and fails when it
+  lasts longer than 0.5 s; the return to 2x keeps the one-frame rule (no
+  old-scale bitmap one frame after the change).
+- Soft copies (7924f00, cx-3cb soft-copies): a just-sent balloon keeps a
+  crisp edge in flight and after it lands, and takes the soft edge when its
+  status becomes delivered, read or failed (`MessagesWindowView.crispSends`,
+  at most 64 rows). Home sends those statuses from HomeDiff
+  (`HomeMapping.status`: a committed message with a sequence is delivered;
+  a committed message without one stays `.sent`, so it stays crisp until its
+  sequence comes). The context menu's highlight on my text balloon has the
+  soft edge too (`Cmux/PaneMenu.swift` MenuHighlight, as Host.swift).
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
@@ -83,7 +119,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
-| WindowView | `setRenderScale` guards on the view's own `appliedRenderScale` as well as the shared `Fixture.renderScale`: Home has a window view per pane, and a second pane (or a tab shown again) must still re-rasterize and re-snap (82ccac1) after the first pane set the shared scale. Two windows on displays of different scales still share one `Fixture.renderScale` (upstream) |
+| WindowView | a crisp send (7924f00 `crispSends`) also takes the soft edge when its message is delivered, read or failed in the new state, whatever the action (newest 256 messages read): Home sends one status per update (`HomeDiff.keepNewestStatus`) and a rebuild's `replaceWindow` carries statuses with no status action, so a send delivered together with a newer one, or in a rebuild, stayed crisp. Upstream ask (hq-34) |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
 | TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners), with 267d218's half-circle ends of a 1-line text (`RowDraw.circularEnds`) |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |

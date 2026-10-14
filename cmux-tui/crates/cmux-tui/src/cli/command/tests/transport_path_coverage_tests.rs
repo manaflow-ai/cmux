@@ -171,7 +171,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "palette_usage.forget"
                         | "sidebar_layout.update"
                         // The sidebar document (sidebar-doc-v1) is the app's
-                        // too; the CLI has no sidebar verbs yet.
+                        // too; the CLI sets only a section's scroll and row
+                        // limit (`sidebar section-scroll`, `section-max-rows`,
+                        // both sidebar.section.update with a partial patch).
                         | "sidebar.adopt"
                         | "sidebar.apply"
                         | "sidebar.get"
@@ -180,9 +182,11 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "sidebar.group.update"
                         | "sidebar.item.add"
                         | "sidebar.item.remove"
+                        | "sidebar.item.remove_ref"
                         | "sidebar.item.update"
                         | "sidebar.move"
                         | "sidebar.pin"
+                        | "sidebar.reset"
                         | "sidebar.section.add"
                         | "sidebar.section.move"
                         | "sidebar.section.remove"

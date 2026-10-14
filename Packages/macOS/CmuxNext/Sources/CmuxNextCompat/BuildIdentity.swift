@@ -153,8 +153,12 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// The acpmux home (`ACPMUX_HOME`): `~/.acpmux` for NIGHTLY and a
     /// standalone process, else `~/.acpmux/builds/<key>`.
     public func acpmuxHome(userHome: URL) -> URL {
-        let base = userHome.appendingPathComponent(".acpmux", isDirectory: true)
-        return ownsRoots ? base.appendingPathComponent("builds/\(key)", isDirectory: true) : base
+        acpmuxHome(root: userHome.appendingPathComponent(".acpmux", isDirectory: true))
+    }
+
+    /// ``acpmuxHome(userHome:)`` with `root` standing for `~/.acpmux` (a test root).
+    public func acpmuxHome(root: URL) -> URL {
+        ownsRoots ? root.appendingPathComponent("builds/\(key)", isDirectory: true) : root
     }
 
     /// This build's directory under `~/Library/Application Support/cmux`

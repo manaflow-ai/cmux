@@ -1856,7 +1856,7 @@ pre.cv-math-source {
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
   /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
+  box-shadow: var(--ui-popup-drop, var(--elevation-2));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
@@ -1951,8 +1951,7 @@ pre.cv-math-source {
   backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   box-shadow:
     inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
-    0 4px 14px color-mix(in srgb, black 14%, transparent),
-    0 1px 2px color-mix(in srgb, black 10%, transparent);
+    var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
@@ -2014,6 +2013,50 @@ pre.cv-math-source {
   30% {
     opacity: 1;
   }
+}
+/* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
+   has left the start, and out above the composer while more lies below, instead of a hard cut. A
+   mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the
+   wallpaper) and nothing moves; at either end the edge is plain, so the first and last rows sit in
+   full ink. Reduce Transparency keeps plain edges. */
+.acpmux-scroll[data-fade-top] {
+  --acpmux-fade-top: 18px;
+}
+.acpmux-scroll[data-fade-bottom] {
+  --acpmux-fade-bottom: 18px;
+}
+/* Find in Chat's bar sits in the top band: it keeps full ink, and rows pass under it. */
+.acpmux-scroll[data-fade-top]:has(> .acpmux-find) {
+  --acpmux-fade-top: 0px;
+}
+.acpmux-scroll[data-fade-top],
+.acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--acpmux-fade-top, 0px),
+    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
+    transparent
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-scroll[data-fade-top],
+  .acpmux-scroll[data-fade-bottom] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-top],
+:root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-jump-latest {

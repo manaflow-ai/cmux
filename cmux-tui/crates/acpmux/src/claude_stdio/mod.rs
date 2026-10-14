@@ -266,6 +266,10 @@ pub struct Translator {
     pending: Mutex<HashMap<String, Pending>>,
     /// claude control request_id -> ACP request id we issued to the hub.
     control_out: Mutex<HashMap<String, Id>>,
+    /// claude control request_id -> the session rules made from what Claude
+    /// suggested with its permission ask (`session_rules`), held until the
+    /// answer: an "Allow for this session" hands them back.
+    suggestions: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -355,6 +359,7 @@ impl Translator {
         Arc::new(Self {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
+            suggestions: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -510,4 +515,23 @@ fn tool_title(name: &str, input: &Value) -> String {
         "ExitPlanMode" => "Approve plan".into(),
         _ => name.to_owned(),
     }
+}
+
+/// Claude's permission suggestions as session-only permission updates: each
+/// allow rule kept, its destination `session`. None when none is an allow.
+pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
+    let rules: Vec<Value> = suggestions
+        .as_array()?
+        .iter()
+        .filter(|s| {
+            s.get("type").and_then(Value::as_str) == Some("addRules")
+                && s.get("behavior").and_then(Value::as_str) == Some("allow")
+        })
+        .map(|s| {
+            let mut s = s.clone();
+            s["destination"] = json!("session");
+            s
+        })
+        .collect();
+    (!rules.is_empty()).then_some(Value::Array(rules))
 }

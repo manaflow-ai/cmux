@@ -119,8 +119,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-a47e5ed8489913eacb4d2d1bcf1f5ca22bf62166/CCmuxAppFFI.xcframework.zip",
-    checksum: "d9982704358010068020d2b69ab10843644f6e1251939e490117043491952245"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-579db042d5b697448d83dc7b7e973776cb235183/CCmuxAppFFI.xcframework.zip",
+    checksum: "2d23efb8b5e47b37295acaa112bcf14b62fce4fdc9fc3c1c5b21441fbd912be4"
 )
 
 let package = Package(
@@ -235,6 +235,8 @@ let package = Package(
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
                 "CmuxNextNowPlaying",
+                // The window focus rules (cmux-focus-core) run in-process over the app FFI.
+                "CCmuxAppFFI",
             ],
             resources: [
                 .process("Resources"),

@@ -12,15 +12,18 @@ import UniformTypeIdentifiers
 @MainActor
 final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     static let prefix = "backdrop"
-    private let allowed: Set<String>
+    private var allowed: Set<String>
+    /// The catalog now, for a choice that arrived after the page opened (a newly downloaded aerial).
+    private let currentChoices: (@MainActor () -> [BackdropSelection])?
     private let userImages: BackdropUserImages?
     private let museum: MuseumArtSession?
     private let iconPNG: ((String) async -> Data?)?
     private var cache: [String: Data] = [:]
 
-    init(choices: [BackdropSelection], userImages: BackdropUserImages?, museum: MuseumArtSession? = nil,
-         iconPNG: ((String) async -> Data?)? = nil) {
+    init(choices: [BackdropSelection], currentChoices: (@MainActor () -> [BackdropSelection])? = nil,
+         userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil) {
         allowed = Set(choices.map(\.id))
+        self.currentChoices = currentChoices
         self.userImages = userImages
         self.museum = museum
         self.iconPNG = iconPNG
@@ -43,7 +46,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         }
         guard request.prefix == Self.prefix, request.path.count == 1,
               let id = request.path[0].removingPercentEncoding, let selection = BackdropSelection(id: id),
-              allowed.contains(id) || userImages?.contains(selection) == true else { return nil }
+              allowed.contains(id) || refreshedAllowed(id) || userImages?.contains(selection) == true else { return nil }
         if let data = cache[id] { return PageResource(data: data, mimeType: "image/png") }
         // Art reads its bundled thumbnail, so works that are not downloaded yet still show. A file
         // (a photo can be tens of megabytes) decodes off the main actor; the desktop picture,
@@ -59,12 +62,20 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         return PageResource(data: data, mimeType: "image/png")
     }
 
-    /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size.
+    /// Re-reads the catalog for an id it did not have when the page opened.
+    private func refreshedAllowed(_ id: String) -> Bool {
+        guard let currentChoices else { return false }
+        allowed = Set(currentChoices().map(\.id))
+        return allowed.contains(id)
+    }
+
+    /// A PNG at most 240 pixels wide of the image file at `url`, decoded by ImageIO at that size;
+    /// a video's first frame.
     nonisolated static func thumbnail(at url: URL) -> Data? {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
+            : CGImageSourceCreateWithURL(url as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)

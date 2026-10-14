@@ -23,6 +23,7 @@ pub mod first_party_dir;
 mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
+pub mod chief_brains;
 mod chief_registry;
 mod conversation_drafts;
 mod conversation_search;

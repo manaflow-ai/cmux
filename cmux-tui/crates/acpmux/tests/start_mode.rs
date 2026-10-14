@@ -1,9 +1,10 @@
 //! A new agent chat starts in the harness's full-access mode (Claude Code
-//! `bypassPermissions`, the Codex bridge `agent-full-access`); the person
-//! can switch a chat back, and that pick is saved and used for the next new
-//! chat after a daemon restart; the setting `defaultPermissionMode` chooses
-//! the start mode otherwise; a Web chat never starts in full access and an
-//! unauthenticated connection gets no chat (cx-wx93i; Lawrence 2026-10-14).
+//! `bypassPermissions`, the Codex bridge `agent-full-access`); the person's
+//! latest mode pick in any chat is the start mode of every new chat on every
+//! harness, also after a daemon restart, and chats that exist keep theirs;
+//! the setting `defaultPermissionMode` chooses the start mode otherwise; a
+//! Web chat never starts in full access, and an unauthenticated connection
+//! gets nothing (cx-wx93i; Lawrence 2026-10-14).
 //! Driven through the protocol handler, as the app pane, the unix socket and
 //! the Web connect.
 
@@ -134,10 +135,11 @@ impl Client {
     }
 }
 
-fn saved_mode(dir: &Path, harness: &str) -> Value {
+/// The level of the person's latest mode pick, as config.json holds it.
+fn last_pick(dir: &Path) -> Value {
     let config: Value =
         serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
-    config["defaults"][harness]["mode"].clone()
+    config["lastPermissionMode"].clone()
 }
 
 #[tokio::test]
@@ -163,61 +165,61 @@ async fn a_new_chat_starts_in_each_harness_full_access_mode() {
     let (_, mode) = app.chat(&dir, "plain").await;
     assert_eq!(mode, "normal");
     // The daemon set it: nothing was saved as a pick.
-    assert_eq!(saved_mode(&dir, "claude"), Value::Null);
-    assert_eq!(saved_mode(&dir, "codex"), Value::Null);
+    assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
-async fn the_persons_switch_back_is_saved_and_used_after_a_restart() {
+async fn the_latest_pick_is_the_start_mode_of_every_new_chat_after_a_restart() {
     let dir = home("pick", json!({"defaultPermissionMode": "fullAccess"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     let (claude, _) = app.chat(&dir, "claude").await;
     let (codex, _) = app.chat(&dir, "codex").await;
 
-    // The person switches both chats back to a mode that asks.
+    // The person switches the Claude chat back to a mode that asks: every new
+    // chat, on every harness, now starts asking; the Codex chat keeps its mode.
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    let r = app.call("session/set_mode", json!({"sessionId": codex, "modeId": "agent"})).await;
-    assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(app.mode(&claude).await, "default");
-    assert_eq!(saved_mode(&dir, "claude"), json!("default"));
-    assert_eq!(saved_mode(&dir, "codex"), json!("agent"));
-    // Plan is a toggle, never the saved start mode.
+    assert_eq!(last_pick(&dir), json!("ask"));
+    assert_eq!(app.mode(&codex).await, "agent-full-access");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Plan is a toggle, never the start mode.
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(saved_mode(&dir, "claude"), json!("default"));
+    assert_eq!(last_pick(&dir), json!("ask"));
+    // The latest pick wins: Codex's own mode (agent) is "standard".
+    let r = app.call("session/set_mode", json!({"sessionId": codex, "modeId": "agent"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&dir), json!("standard"));
     drop(app);
     drop(daemon);
 
-    // After a restart (config.json read again) new chats start in the picks.
+    // After a restart (config.json read again) new chats follow the pick.
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     let (claude, mode) = app.chat(&dir, "claude").await;
     assert_eq!(mode, "default");
-    // Switching back to full access, what the setting gives, removes the
-    // saved mode: the setting decides again.
+    // Back to full access: every new chat starts there again.
     let r = app
         .call("session/set_mode", json!({"sessionId": claude, "modeId": "bypassPermissions"}))
         .await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(saved_mode(&dir, "claude"), Value::Null);
-    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
-    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    assert_eq!(last_pick(&dir), json!("fullAccess"));
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
 
-    // A unix socket client (an agent, a script) cannot clear the saved mode,
-    // which would let the next chat start in full access.
+    // A unix socket client (an agent, a script) is no pick, and cannot widen
+    // a chat to full access.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
-    let r = agent.call("_acpmux/defaults", json!({"family": "codex", "clear": true})).await;
+    let (chat, _) = agent.chat(&dir, "claude").await;
+    let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&dir), json!("fullAccess"));
+    let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    assert_eq!(saved_mode(&dir, "codex"), json!("agent"));
-    // Nor widen a chat to full access.
-    let (chat, _) = agent.chat(&dir, "codex").await;
-    let r = agent
-        .call("session/set_mode", json!({"sessionId": chat, "modeId": "agent-full-access"}))
-        .await;
-    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    assert_eq!(last_pick(&dir), json!("fullAccess"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -249,5 +251,6 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
     let mut none = Client::new(&daemon, Origin::Web, ConnAuth::None);
     let r = none.new_chat(&dir, "codex").await;
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
+
     let _ = std::fs::remove_dir_all(&dir);
 }

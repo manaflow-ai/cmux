@@ -386,6 +386,27 @@ try:
         report["subagents"] = {"spawned": text.count("subagent_spawned"), "children": len(children)}
         wire_dump("subagents")
         raise SystemExit(0 if children else 1)
+    # Real key events at the window server, as a keyboard posts them (args: pid, text, keys/s).
+    SP_TYPER = r"""
+import AppKit
+let args = CommandLine.arguments
+let pid = pid_t(args[1])!, text = args[2], rate = Double(args[3])!
+let codes: [Character: UInt16] = ["a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,"q":12,"w":13,
+    "e":14,"r":15,"y":16,"t":17,"o":31,"u":32,"i":34,"p":35,"l":37,"j":38,"k":40,"n":45,"m":46]
+guard CGPreflightPostEventAccess() || CGRequestPostEventAccess() else { print("no post-event access"); exit(3) }
+NSRunningApplication(processIdentifier: pid)?.activate()
+let until = Date().addingTimeInterval(5)
+while NSWorkspace.shared.frontmostApplication?.processIdentifier != pid, Date() < until {
+    RunLoop.current.run(until: Date().addingTimeInterval(0.02))  // harness: wait for the front app
+}
+let source = CGEventSource(stateID: .hidSystemState)
+for character in text {
+    guard let code = codes[character] else { continue }
+    for down in [true, false] { CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)?.post(tap: .cghidEventTap) }
+    usleep(UInt32(1_000_000 / rate))  // harness: key pacing, as a person types
+}
+print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.processIdentifier == pid)
+"""
     if STAGE == "subagent-panes":
         # cx-1933q: a turn that starts two subagents opens two agent panes right of the chat (stacked),
         # focus stays in the chat; the summary card lists both with live status, stays after a click
@@ -434,6 +455,17 @@ try:
             "and reports it. Wait for both, then reply with one line combining their answers."))))
         time.sleep(4)
         trust()
+        # cx-3hw0i: with CMUX_LIVE_TYPE_KEYS=1 (nx-remote --needs input) real keys go to the window
+        # server while the subagent panes open; every one must land in the chat's composer.
+        typer, typed = None, ""
+        if os.environ.get("CMUX_LIVE_TYPE_KEYS") == "1":
+            say("sp composer focus", json.dumps(pane("click", pane=PANE, selector=".acpmux-composer-prompt"))[:200])
+            say("sp reset typing", json.dumps(pane("reset_typing", pane=PANE)))
+            typed = "abcdefghijklmnopqrstuvwxyz" * 5
+            with open(os.path.join(OUT, "sp-typer.swift"), "w") as f:
+                f.write(SP_TYPER)
+            typer = subprocess.Popen(["swift", os.path.join(OUT, "sp-typer.swift"), str(app.pid), typed, "3"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # The daemon's focus over time while the subagent panes open (the chat should keep it).
         timeline, last = [], None
         deadline = time.time() + 240
@@ -448,6 +480,16 @@ try:
                 break
             time.sleep(0.3)
         report["focus_timeline"] = timeline
+        if typer:
+            try:
+                out_, _ = typer.communicate(timeout=180)
+            except subprocess.TimeoutExpired:
+                typer.kill()  # our own child, by its Popen handle
+                out_, _ = typer.communicate()
+            say("SP typer", typer.returncode, out_[-300:])
+            stats = {p_: (pane("typing_stats", pane=p_) or {}).get("keys") for p_ in conversation_panes()}
+            say("SP keys per pane", json.dumps(stats), "typed:", len(typed))
+            report["keys_in_chat"] = stats.get(PANE) == len(typed) and typer.returncode == 0
         opened = len(conversation_panes()) >= len(before) + 2 or None
         panes_now = conversation_panes()
         say("SP panes after spawn", panes_now, "opened two:", bool(opened))
@@ -504,7 +546,8 @@ try:
         report["subagent_panes"] = {"opened": len(children), "card": live, "kept_after_outside_click": bool(kept),
                                     "focused_child": focused_child, "done": bool(done)}
         say("SP REPORT", json.dumps(report["subagent_panes"]))
-        raise SystemExit(0 if len(children) >= 2 and kept and live and report["focus_kept"] and focused_child else 1)
+        raise SystemExit(0 if len(children) >= 2 and kept and live and report["focus_kept"] and focused_child
+                         and report.get("keys_in_chat", not typer) else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))

@@ -1,5 +1,6 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
+import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import {
@@ -252,7 +253,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onKeyDown?.(event);
                 if (event.defaultPrevented) return true;
                 const submit = latest.current.onSubmit;
-                if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !event.isComposing) {
+                if (submit && event.key === "Enter" && !event.shiftKey && !event.altKey && !isImeKeyEvent(event)) {
                   event.preventDefault();
                   submit(known.current, { cmd: event.metaKey || event.ctrlKey });
                   return true;

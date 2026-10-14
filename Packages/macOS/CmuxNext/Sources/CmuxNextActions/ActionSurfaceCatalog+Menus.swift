@@ -94,6 +94,8 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.moveDown": [p(.workspaceGroup, .move, 301, folder: .move)],
         "workspaceGroup.moveToWindow": [p(.workspaceGroup, .move, 303, folder: .move)],
         "workspaceGroup.closeWorkspaces": [p(.workspaceGroup, .close, 501, folder: .close)],
+        "workspaceGroup.closeOthers": [p(.workspaceGroup, .close, 503, folder: .close)],
+        "workspaceGroup.duplicate": [p(.workspaceGroup, .create, 1)],
         "workspaceGroup.moveToNewWindow": [p(.workspaceGroup, .move, 302, folder: .move)],
         "workspaceGroup.color.grey": [p(.workspaceGroup, .identity, 0, in: "workspaceGroup.setColor")],
         "workspaceGroup.color.blue": [p(.workspaceGroup, .identity, 1, in: "workspaceGroup.setColor")],

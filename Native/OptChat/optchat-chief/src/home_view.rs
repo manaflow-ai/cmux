@@ -10,14 +10,15 @@
 //! reads a new one. `chief workspace` prints the same block, so a turn can read it again after it
 //! acts.
 //!
-//! The reads are the `cmux` CLI's own (`session current snapshot`, `terminal <id> screen read`)
-//! on the app's daemon: the same ids and the same trust as the Chief's own `cmux` calls. Without
-//! a home workspace (no app: `cmux chief` started the brain) there is no block. A read that fails
-//! gives one line that says so; a turn never fails because of it.
+//! The reads are the bundled CLI's own (`session current snapshot`, `terminal <id> screen read`),
+//! run by its `cmux-tui` name (`HomeView::cli_for`), on the app's daemon: the same ids and the
+//! same trust as the Chief's own `cmux` calls. Without a home workspace (no app: `cmux chief`
+//! started the brain) there is no block. A read that fails gives one line that says so; a turn
+//! never fails because of it.
 
 use std::collections::BTreeMap;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -50,15 +51,27 @@ pub struct HomeView {
 
 impl HomeView {
     /// From this process's own env (a turn's `chief workspace`): the bundled CLI the host
-    /// pinned (`CMUX_BUNDLED_CLI_PATH`), else `cmux` on PATH; the env is inherited.
+    /// pinned (`CMUX_BUNDLED_CLI_PATH`, `cli_for`); the env is inherited.
     pub fn from_env() -> HomeView {
-        let cli = crate::cli::env(crate::cmux_env::BUNDLED_CLI_KEY)
-            .filter(|path| !path.is_empty())
-            .map_or_else(|| PathBuf::from("cmux"), PathBuf::from);
+        let bundled = crate::cli::env(crate::cmux_env::BUNDLED_CLI_KEY).filter(|p| !p.is_empty());
         HomeView {
-            cli,
+            cli: Self::cli_for(bundled.as_deref().map(Path::new)),
             env: BTreeMap::new(),
         }
+    }
+
+    /// The CLI the reads run: the `cmux-tui` beside the bundled `cmux` (the same binary of the
+    /// same build). The `cmux` name is the curated CLI, which refuses the `session` scope
+    /// (`"session" is not part of cmux`); the `cmux-tui` name keeps the full grammar that the
+    /// app's own tooling uses. Without a bundled CLI, or with no `cmux-tui` beside it:
+    /// `cmux-tui` on PATH.
+    pub fn cli_for(bundled_cmux: Option<&Path>) -> PathBuf {
+        let name = format!("cmux-tui{}", std::env::consts::EXE_SUFFIX);
+        bundled_cmux
+            .and_then(Path::parent)
+            .map(|dir| dir.join(&name))
+            .filter(|beside| beside.is_file())
+            .unwrap_or_else(|| PathBuf::from(name))
     }
 
     /// The block for this turn: None when the daemon has no home workspace.
