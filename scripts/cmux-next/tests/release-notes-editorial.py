@@ -10,9 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import threading
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 SCRIPT = Path(__file__).resolve().parents[1] / "release-notes.py"
@@ -36,7 +35,7 @@ def main():
             (103, "Inject the clock into the daily background so next-day art is deterministic", "## Summary\nRefactor the clock injection for test determinism.", "Packages/macOS/CmuxNext/Sources/Clock.swift"),
             (104, "Terminal cursor update", "Release note: none", "Packages/macOS/CmuxNext/Sources/Terminal.swift"),
             (105, "Opaque overlays draw the separator hairline", "## Summary\nFix a missing separator below the sidebar header.", "webviews/src/sidebar/header.tsx"),
-            (106, "Browser profile deletion permission", "Release note: Browser: Browser profiles can only be deleted by you.", "webviews/src/browser/Profiles.tsx"),
+            (106, "Browser profile deletion permission", "Release note: Browser: Only you can delete a browser profile.", "webviews/src/browser/Profiles.tsx"),
             (107, "test: browser profile deletion", "", "tests/test_profiles.py"),
             (108, "Blank note regression", "Release note:\n## Summary\nThis line must stay out of news.", "webviews/src/browser/Profiles.tsx"),
         ]
@@ -95,12 +94,19 @@ def main():
             assert {pr["number"] for pr in inputs} == {103, 105}, inputs
             assert all(line["title"] not in notes["changes"] for line in notes["summary"])
             assert 108 not in {pr for note in digest for pr in note["prs"]}, digest
-            from editorial_notes import deduplicate
-            equivalent = deduplicate([
-                {"area": "browser", "title": "Browser profiles can only be deleted by you.", "prs": [201]},
-                {"area": "browser", "title": "Only you can delete a browser profile.", "prs": [202]},
-            ])
-            assert len(equivalent) == 1 and equivalent[0]["prs"] == [201, 202], equivalent
+            # Appcast is a separate publishing CLI and must not leak the raw titles
+            # while the signed notes are still being generated.
+            feeds = root / "feeds"
+            feeds.mkdir()
+            feed = feeds / "appcast-arm64.xml"
+            feed.write_text('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel>'
+                            '<item><sparkle:version>7</sparkle:version></item></channel></rss>')
+            subprocess.run([sys.executable, str(SCRIPT), "appcast", "--head", git("rev-parse", "HEAD"),
+                            "--since", base, "--appcasts", str(feeds), "--build", "7",
+                            "--feeds", feed.name], cwd=root, env=env, check=True)
+            description = ET.parse(feed).findtext("./channel/item/description")
+            assert description == "Changed: Browser profiles can only be deleted by you.", description
+            assert len(requests) == 1, "Appcast must not run the model a second time"
             # Model failure/unavailability never resurrects raw titles.
             offline = publish("offline", {**env, "CMUX_RELEASE_NOTES_MODEL_URL": "http://127.0.0.1:1"})
             assert offline["userNotes"] == digest[:1], offline["userNotes"]
