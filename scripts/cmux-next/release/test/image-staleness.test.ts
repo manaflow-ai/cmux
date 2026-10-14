@@ -59,6 +59,7 @@ const WRANGLER = (dev: Record<string, string>) =>
 interface Fixture {
   capabilities?: Array<string>
   extraSource?: Array<string>
+  files?: Record<string, string>
   imageCommittedAt?: string
   tipDate?: string
   team?: boolean
@@ -72,7 +73,7 @@ const repo = (f: Fixture = {}) => {
     mkdirSync(dirname(join(root, path)), { recursive: true })
     writeFileSync(join(root, path), text)
   }
-  for (const [path, text] of Object.entries(SOURCES)) write(path, text)
+  for (const [path, text] of Object.entries({ ...SOURCES, ...f.files })) write(path, text)
   write(CAPS_RS, capabilitiesRs(f.extraSource))
   const record = (snapshot: string, id: string) => ({
     snapshot,
@@ -97,6 +98,15 @@ describe("image staleness guard", () => {
     const tip = tipCapabilities(treeReader(repo()))
     expect(tip.always).toEqual(TIP_ALWAYS)
     expect(tip.conditional).toEqual(["cloud-conversations-v1"])
+  })
+
+  it("follows a re-export of a child module's constant (`use open_url::CAPABILITY as OPEN_URL_CAPABILITY;`)", () => {
+    const files = {
+      "cmux-tui/crates/cmux-tui-core/src/resource_router.rs": `mod open_url;\npub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;\n`,
+      "cmux-tui/crates/cmux-tui-core/src/resource_router/open_url.rs": `pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";\n`,
+    }
+    const tip = tipCapabilities(treeReader(repo({ files, extraSource: ["crate::resource_router::OPEN_URL_CAPABILITY"] })))
+    expect(tip.always).toEqual([...TIP_ALWAYS, "workspace-open-url-v1"].sort())
   })
 
   it("passes when every channel image serves every capability the tip always serves", () => {
