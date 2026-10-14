@@ -2971,7 +2971,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>The text of the workspace's newest unread notification.</string>
 			<key>pfm_name</key>
