@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d";
+inline constexpr std::string_view kProtocolIrSha256 = "8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -681,6 +681,7 @@ enum class AgentState {
 struct AgentChangedEvent {
     Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -711,7 +712,9 @@ struct AgentPresenceChangedEvent {
 };
 
 struct AgentRecord {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
