@@ -120,9 +120,10 @@ enum SoftBalloon {
 
     /// The mask for an outgoing text part with body frame `f` (row coordinates, whole device px), or nil (the crisp
     /// shape mask): a row without the inset (RowDraw.insetApplies) or a height that is not 30, 46 or 62+ pt.
-    static func mask(frame f: CGRect, row p: PartRow) -> Mask? {
+    /// `scale`: the cell's (its window view's renderScale); the templates are cached per scale.
+    static func mask(frame f: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> Mask? {
         guard RowDraw.insetApplies(p) else { return nil }
-        let s = Fixture.renderScale
+        let s = scale
         let k: Kind
         let h = f.height
         if abs(h - templateHeight(.one)) < 0.01 { k = .one }
@@ -163,7 +164,7 @@ enum SoftBalloon {
         ctx.scaleBy(x: s, y: -s)
         ctx.translateBy(x: pad - d / s, y: pad - d / s)
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.addPath(BubblePath.make(body: RowDraw.insetBalloon(frame), outgoing: true, tail: tail, cornersOf: frame.size,
+        ctx.addPath(BubblePath.make(body: RowDraw.insetBalloon(frame, scale: s), outgoing: true, tail: tail, cornersOf: frame.size,
                                     circularEnds: circularEnds).cgPath)
         ctx.fillPath()
         // Moved back by d with linear filtering, separable: out = (1 - |d|) src + |d| src moved one whole device px
