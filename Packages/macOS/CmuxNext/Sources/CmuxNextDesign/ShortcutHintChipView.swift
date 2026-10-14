@@ -3,8 +3,8 @@ import CmuxTheme
 
 /// One modifier-hold shortcut hint (Cmd, Ctrl or Option held): a Liquid
 /// Glass capsule (`NSGlassEffectView` through ``GlassPanelView``) with the
-/// theme's glass tint, so the chip takes the theme's cast and the theme's
-/// primary text stays legible over it (Lawrence 2026-10-14: "liquid
+/// theme's glass tint (half again as strong as a panel's), so the chip takes
+/// the theme's cast and the theme's primary text stays legible over it (Lawrence 2026-10-14: "liquid
 /// glassy"). The material follows ``OverlayMaterial``: before macOS 26 the
 /// same panel draws a blur with the tint and a hairline; under Reduce
 /// Transparency the chip is the theme's opaque popup surface with a hairline
@@ -103,9 +103,8 @@ public final class ShortcutHintChipView: NSView {
                 fill.isHidden = false
                 fill.frame = bounds
                 fill.layer?.cornerRadius = radius
-                fill.layer?.cornerCurve = .continuous
                 fill.layer?.backgroundColor = Palette.popupSurface.cgColor
-                fill.layer?.borderColor = Borders.color(Palette.separator).cgColor
+                fill.layer?.borderColor = Palette.separator.cgColor
                 fill.layer?.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
                 layer?.shadowOpacity = 1
                 layer?.shadowColor = Palette.shadow.withAlphaComponent(0.22).cgColor
@@ -116,7 +115,9 @@ public final class ShortcutHintChipView: NSView {
                 glass.isHidden = false
                 glass.frame = bounds
                 glass.cornerRadius = radius
-                glass.tintColor = Palette.glassTint
+                // The theme tint at 1.5 times its alpha: see-through, yet the 10 pt text keeps its contrast over bright content.
+                let tint = Palette.glassTint
+                glass.tintColor = tint.withAlphaComponent(min(tint.alphaComponent * 1.5, 1))
                 fill.isHidden = true
                 layer?.shadowOpacity = 0
                 layer?.shadowPath = nil

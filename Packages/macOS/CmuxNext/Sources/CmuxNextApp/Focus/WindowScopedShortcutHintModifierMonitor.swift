@@ -1,6 +1,6 @@
 import AppKit
 
-/// Watches only the host window's intentional Command/Control/Option holds. It never consumes input.
+/// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 @MainActor
 final class WindowScopedShortcutHintModifierMonitor {
     private weak var window: NSWindow?
@@ -37,7 +37,7 @@ final class WindowScopedShortcutHintModifierMonitor {
             self?.receive(event)
             return event
         }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             guard let self, eligible else { return event }
             keyDown()
             return event

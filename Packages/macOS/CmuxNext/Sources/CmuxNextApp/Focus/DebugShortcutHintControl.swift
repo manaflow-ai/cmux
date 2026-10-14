@@ -15,7 +15,7 @@ struct DebugShortcutHintControl {
         // "cmd", "ctrl", "opt", "shift" joined by "+" (for example "ctrl+opt"), or "release".
         let names: [String: NSEvent.ModifierFlags] = ["cmd": .command, "ctrl": .control, "opt": .option, "shift": .shift, "release": []]
         let parts = (params["modifier"]?.stringValue ?? "").split(separator: "+").map { names[String($0)] }
-        guard !parts.isEmpty, !parts.contains(nil) else { return .object(["error": .string("modifier must be cmd, ctrl, opt, shift joined by +, or release")]) }
+        guard !parts.isEmpty, !parts.contains(nil), parts.count == 1 || !parts.contains(where: { $0?.isEmpty == true }) else { return .object(["error": .string("modifier must be cmd, ctrl, opt, shift joined by +, or release")]) }
         let flags = parts.reduce(into: NSEvent.ModifierFlags()) { $0.formUnion($1 ?? []) }
         let ready = await hints.debugHold(flags)
         return .object(["ready": .bool(ready), "released": .bool(flags.isEmpty),
