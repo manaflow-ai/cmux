@@ -73,6 +73,11 @@ pub struct Paths {
     /// The user's own instructions file, the end of every turn's system
     /// prompt (section 7.2); read once per host start.
     pub instructions: PathBuf,
+    /// The person profile (`optchat/person.md`): who the user is and how
+    /// they want work done, short and user-editable; it heads the user's
+    /// part of every system prompt, before `instructions` (prompt.rs
+    /// `chief_instructions`). Not `profile.json`, the app's avatar file.
+    pub person: PathBuf,
     /// Every subagent's working directory (section 9): its MCP servers
     /// (zoom and date only), project settings, and instructions file.
     pub subagent: PathBuf,
@@ -102,6 +107,7 @@ impl Paths {
             compactor_codex: root.join("compactor-codex"),
             codex_bin: root.join("codex").join("bin").join("codex"),
             instructions: root.join("AGENTS.md"),
+            person: root.join("person.md"),
             subagent: root.join("subagent"),
             turn_codex: root.join("turn-codex"),
             traces: root.join("traces"),
