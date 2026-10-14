@@ -727,7 +727,8 @@ export class DaemonHomeClient implements PageClient {
   /** My own list state of one conversation, on its owner: the local owner keeps it beside the
    * conversation, a Cloud owner in my UserDO inbox (through the daemon). */
   private async inboxOp(conversationId: string, key: string, op: Json): Promise<unknown> {
-    if (!(await this.capable(INBOX_STATE_CAPABILITY)))
+    const owner = this.cloud.owns(conversationId) ? this.daemon : this.local;
+    if (!(await this.capable(INBOX_STATE_CAPABILITY, owner)))
       throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
     if (this.cloud.owns(conversationId)) {
       await this.daemon.request("cloud-inbox-op", { conversation: conversationId, idempotency_key: key, op });
