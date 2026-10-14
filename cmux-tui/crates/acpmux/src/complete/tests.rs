@@ -560,7 +560,7 @@ fn finish_trims_and_cuts_to_max_tokens() {
 
 #[test]
 fn finish_tells_signed_out_empty_and_failed() {
-    let out = ran("Invalid API key · Please run /login", "", false);
+    let out = ran("", "Invalid API key · Please run /login", false);
     assert_eq!(
         finish("claude", &out, &out.stdout, 16),
         Err(CompleteError::SignedOut { harness: "claude".into() })
@@ -573,6 +573,18 @@ fn finish_tells_signed_out_empty_and_failed() {
         "complete.empty_output"
     );
     let out = ran("", "model not found", false);
+    assert_eq!(finish("claude", &out, &out.stdout, 16).unwrap_err().reason(), "complete.failed");
+}
+
+#[test]
+fn sign_in_is_read_from_a_failed_runs_stderr_only() {
+    // The model's own answer names logging in: never a sign-in failure.
+    let out = ran("Login Page Redesign", "", true);
+    assert_eq!(finish("claude", &out, &out.stdout, 16).unwrap(), "Login Page Redesign");
+    let out = ran("Fix Login", "warning: please log in again soon", true);
+    assert_eq!(finish("claude", &out, &out.stdout, 16).unwrap(), "Fix Login");
+    // A failed run whose stdout (not stderr) mentions login is just failed.
+    let out = ran("Sign in flow broken", "rate limited", false);
     assert_eq!(finish("claude", &out, &out.stdout, 16).unwrap_err().reason(), "complete.failed");
 }
 
@@ -612,6 +624,29 @@ async fn run_kills_the_whole_group_on_timeout() {
         alive != 0
     });
     assert!(gone, "the background sleep {pid} outlived the timeout");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_finished_answer_is_not_held_by_a_grandchild() {
+    let dir = RunDir::new().unwrap();
+    let pid_file = dir.path().join("bg.pid");
+    // The CLI answers and exits, but left a background process holding stdout.
+    let script = format!("sleep 30 & echo $! > '{}'; echo answer", pid_file.display());
+    let started = Instant::now();
+    let out = run::run(sh(&script), None, Duration::from_secs(10)).await.expect("the answer");
+    assert!(started.elapsed() < Duration::from_secs(5), "waited on the grandchild");
+    assert!(out.success);
+    assert_eq!(out.stdout, b"answer\n");
+    // Its whole group is killed once the leader exited.
+    let pid: i32 = std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap();
+    let gone = (0..50).any(|_| {
+        std::thread::sleep(Duration::from_millis(20));
+        // SAFETY: signal 0 only checks that the process exists.
+        let alive = unsafe { libc::kill(pid, 0) };
+        alive != 0
+    });
+    assert!(gone, "the background sleep {pid} outlived the run");
 }
 
 #[tokio::test]
