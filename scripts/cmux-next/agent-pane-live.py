@@ -434,7 +434,21 @@ try:
             "and reports it. Wait for both, then reply with one line combining their answers."))))
         time.sleep(4)
         trust()
-        opened = wait(lambda: (lambda ps: ps if len(ps) >= len(before) + 2 else None)(conversation_panes()), 240, 1)
+        # The daemon's focus over time while the subagent panes open (the chat should keep it).
+        timeline, last = [], None
+        deadline = time.time() + 240
+        while time.time() < deadline:
+            focus_now = (topo().get("focus") or {}).get("pane")
+            count = len(conversation_panes())
+            if (focus_now, count) != last:
+                last = (focus_now, count)
+                timeline.append((round(time.time(), 2), focus_now, count))
+                say("SP focus timeline", timeline[-1])
+            if count >= len(before) + 2 and len(timeline) and time.time() > timeline[-1][0] + 8:
+                break
+            time.sleep(0.3)
+        report["focus_timeline"] = timeline
+        opened = len(conversation_panes()) >= len(before) + 2 or None
         panes_now = conversation_panes()
         say("SP panes after spawn", panes_now, "opened two:", bool(opened))
         snap_after = rpc("snapshot.get")
@@ -470,6 +484,16 @@ try:
             json.dump(snap_click, f)
         focus_row = (topo().get("focus") or {}).get("pane")
         focused_child = focus_row if focus_row in children else None
+        # The other row focuses the other pane: each row shows its own subagent's pane.
+        r2 = None
+        try:
+            r2 = rpc("debug.agent_pane", {"action": "click", "pane": PANE, "text": (live or {}).get("agents", [{}, {}])[1].get("name")}, timeout=40)
+        except Exception as error:  # noqa: BLE001 - a proof script logs and goes on
+            say("SP second row click failed", error)
+        time.sleep(2)
+        focus_row2 = (topo().get("focus") or {}).get("pane")
+        say("SP second row", json.dumps(r2)[:200], "focus:", focus_row2, "first:", focus_row, "distinct:", focus_row2 != focus_row and focus_row2 in children)
+        report["rows_focus_distinct"] = focus_row2 != focus_row and focus_row2 in children
         if focused_child:
             say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentOf"))
         say("SP focused child after row click:", focused_child)
