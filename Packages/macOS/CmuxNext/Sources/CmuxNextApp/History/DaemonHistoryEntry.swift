@@ -25,7 +25,7 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
     var provider: String?
     /// Location rows: the window of the step and the place as recorded (cx-hnmbt.12).
     var window: String?
-    var location: DaemonTrailLocation?
+    var location: HistoryTrailLocation?
 
     enum CodingKeys: String, CodingKey {
         case id, kind, title, detail, machine, workspace, available, current, running, url, profile, cwd, command, provider
@@ -59,7 +59,7 @@ nonisolated struct DaemonHistoryEntry: Decodable, Sendable, Equatable {
         sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
         provider = try c.decodeIfPresent(String.self, forKey: .provider)
         window = try c.decodeIfPresent(String.self, forKey: .window)
-        location = try c.decodeIfPresent(DaemonTrailLocation.self, forKey: .location)
+        location = try c.decodeIfPresent(HistoryTrailLocation.self, forKey: .location)
     }
 
     init(id: String, kind: HistoryEntry.Kind, atMS: Double, title: String, available: Bool) {
