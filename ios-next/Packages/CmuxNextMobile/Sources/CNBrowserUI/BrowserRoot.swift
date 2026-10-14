@@ -119,8 +119,18 @@ struct BrowserScreen: View {
     @State private var gridScroll = GridScrollTracker()
     private var gridContentOrigin: CGPoint? { gridScroll.contentOrigin }
     private var overviewScroll: CGFloat { gridScroll.offset }
-    /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
-    @State private var newTabPending = false
+    /// (+) pressed and the tab not created yet: the grid shows a placeholder
+    /// card until the host lists the new tab (NewTabSlot).
+    @State private var newTabSlot: NewTabSlot?
+    private var newTabPending: Bool { newTabSlot != nil }
+    /// The host refused the (+) create: the start page zooms back into its
+    /// slot, and the slot leaves the grid once the grid settles.
+    @State private var newTabFailed = false
+    /// The host created the (+) tab while its start page was still zooming:
+    /// the screen switches to it when the zoom settles, so the reply does not
+    /// re-lay out the page and toolbar mid-zoom (a dropped frame).
+    @State private var newTabCreated: String?
+    private var itemIds: [String] { tabs.items.map(\.id) }
     /// The pending (+) item is a terminal.
     @State private var newTabIsTerminal = false
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
@@ -208,7 +218,7 @@ struct BrowserScreen: View {
     private func zoomEndpoint() -> CGRect {
         let index: Int
         if zoomTabId == Self.newTabMarker {
-            index = tabs.items.count
+            index = newTabSlot?.zoomIndex(in: itemIds) ?? tabs.items.count
         } else {
             index = zoomTabId.flatMap { id in tabs.items.firstIndex { $0.id == id } } ?? (tabs.activeIndex ?? 0)
         }
@@ -232,8 +242,8 @@ struct BrowserScreen: View {
     var body: some View {
         let layout = ToolbarLayout.make(size: size, safeBottom: pageBottom, keyboard: keyboard, bar: chrome.bar,
                                         pillBottom: hostedInTabBar ? pageBottom : nil,
-                                        editing: chrome.editing, splitBack: model.activeTab?.canGoForward == true, labelWidth: 69,
-                                        noBack: tabs.activeTerminalKey != nil)
+                                        editing: chrome.editing, splitBack: !creatingTab && model.activeTab?.canGoForward == true, labelWidth: 69,
+                                        noBack: !creatingTab && tabs.activeTerminalKey != nil)
         ZStack(alignment: .topLeading) {
             pageLayer
                 .frame(width: size.width, height: size.height)
@@ -265,7 +275,7 @@ struct BrowserScreen: View {
                             onNewTerminal: tabs.includesTerminals ? { newTerminalFromOverview() } : nil,
                             onDone: { closeOverview(selecting: tabs.activeKey) },
                             onCloseAll: closeAll,
-                            placeholderId: newTabPending ? Self.newTabMarker : nil,
+                            placeholderId: newTabSlot?.showsPlaceholder(in: itemIds) == true ? Self.newTabMarker : nil,
                             placeholderTerminal: newTabIsTerminal,
                             onScrolling: { tabs.setGridScrolling($0) })
                     .opacity(overviewVisible ? 1 : 0)
@@ -276,7 +286,8 @@ struct BrowserScreen: View {
             // On the settled grid only the terminal the grid opened from keeps
             // its (hidden) live view; one that became active there (a close,
             // a new tab) is just its card until it is opened.
-            if let terminal = tabs.activeTerminal, let key = tabs.activeKey,
+            // A (+) start page in flight covers the active terminal.
+            if let terminal = tabs.activeTerminal, let key = tabs.activeKey, !(creatingTab && zoomState.phase == .page),
                zoomState.phase != .overview || gridSettledKey == nil || gridSettledKey == key {
                 terminalLayer(terminal.id, key: key)
             }
@@ -304,7 +315,7 @@ struct BrowserScreen: View {
                     // The card's close button rides its corner at full size
                     // and fades in with the zoom's progress (CardChrome).
                     .overlay(alignment: .topTrailing) {
-                        if zoomTabId != Self.newTabMarker, !(content.terminal && zoomTabId == tabs.activeKey) {
+                        if zoomTabId != Self.newTabMarker, !creatingTab, !(content.terminal && zoomTabId == tabs.activeKey) {
                             CardCloseGlyph()
                                 .padding(4)
                                 .opacity(CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: zoomState.phase == .interactive || zoomState.headingToOverview))
@@ -323,7 +334,7 @@ struct BrowserScreen: View {
                     .allowsHitTesting(false)
             }
 
-            if case .terminal(let t)? = tabs.activeItem, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
+            if case .terminal(let t)? = tabs.activeItem, zoomState.phase == .page, !creatingTab, !chrome.swiping, !chrome.editing {
                 // Above the toolbar, riding the keyboard while it is up.
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
@@ -337,7 +348,8 @@ struct BrowserScreen: View {
             // Out of the hierarchy on the settled grid (it is invisible there,
             // and accessibility tools list hidden views too).
             if zoomState.phase != .overview {
-            BrowserToolbar(chrome: chrome, tab: model.activeTab, local: activeLocalTitle,
+            // A (+) start page in flight: a new tab's toolbar, not the old tab's.
+            BrowserToolbar(chrome: chrome, tab: creatingTab ? nil : model.activeTab, local: creatingTab ? nil : activeLocalTitle,
                            showsStartPage: showsStartPage, size: size, safeBottom: pageBottom,
                            pillBottom: hostedInTabBar ? pageBottom : nil,
                            keyboard: keyboard,
@@ -352,7 +364,7 @@ struct BrowserScreen: View {
                 .accessibilityHidden(overviewVisible)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
-                .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+                .allowsHitTesting(!chrome.menuOpen && !creatingTab && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
             }
 
             // Kept mounted (transparent) so the droplet starts growing on
@@ -445,14 +457,34 @@ struct BrowserScreen: View {
         }
         // A terminal that becomes active on the settled grid (its active tab
         // was closed) stays a card: no live view is created for it there.
+        // The host listed the (+) tab (its event can beat the create reply)
+        // while the start page zooms: the zoom carries on as that tab, so its
+        // real card stays hidden under the zoom like the placeholder was.
+        .onChange(of: itemIds) { _, ids in
+            if zoomTabId == Self.newTabMarker, !newTabFailed, let created = newTabSlot?.created(in: ids) {
+                zoomTabId = created
+            }
+        }
         .onChange(of: tabs.activeKey) { _, _ in
             if zoomState.phase == .overview { pauseActiveTerminalForGrid() }
         }
         .onAppear {
             zoomDriver.onSettle = { phase in
+                if let id = newTabCreated {
+                    newTabCreated = nil
+                    newTabSlot = nil
+                    creatingTab = false
+                    Task { await tabs.browser.attach(id) }
+                }
                 if phase == .page {
                     zoomTabId = nil
                     chrome.expand(tap: true)
+                }
+                if phase == .overview, newTabFailed {
+                    // The refused (+) start page is back in its slot: the slot leaves.
+                    newTabFailed = false
+                    creatingTab = false
+                    withAnimation(motion.resolve(motion.reflow)) { newTabSlot = nil }
                 }
                 if phase == .overview, let key = pendingCardRemoval {
                     pendingCardRemoval = nil
@@ -577,13 +609,13 @@ struct BrowserScreen: View {
     }
 
     @ViewBuilder private var pageLayer: some View {
-        if case .macOnly(let t)? = tabs.activeItem, !chrome.swiping {
+        if case .macOnly(let t)? = tabs.activeItem, !chrome.swiping, !creatingTab {
             if zoomState.phase == .page {
                 MacOnlyPage(tab: t, status: tabs.browserAccess, hostName: hostName, safeTop: safeTop, safeBottom: pageBottom)
             } else {
                 style.colors.startBackground
             }
-        } else if tabs.activeTerminal != nil, !chrome.swiping {
+        } else if tabs.activeTerminal != nil, !chrome.swiping, !creatingTab {
             // A terminal tab: `terminalLayer` (above the grid) draws the live
             // terminal in every phase.
             Color.cn(\.terminalBackground)
@@ -614,7 +646,9 @@ struct BrowserScreen: View {
                     .transition(.opacity.animation(.easeOut(duration: 0.2)))
             }
             if showsStartPage && !chrome.swiping {
+                // Not tappable until the new tab exists (it would navigate the old one).
                 StartPageView(tabs: model.tabs, safeTop: safeTop, onOpen: { model.navigate($0) })
+                    .allowsHitTesting(!creatingTab)
             }
             if chrome.swiping {
                 swipeCards(current: frame, topColor: topColor)
@@ -797,7 +831,7 @@ struct BrowserScreen: View {
     // MARK: Tab overview
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: tabs.items.count + (newTabPending ? 1 : 0))
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: pageBottom, count: newTabSlot?.cardCount(in: itemIds) ?? tabs.items.count)
     }
 
     /// What the zooming rect shows: the same image the card shows (or the
@@ -811,7 +845,9 @@ struct BrowserScreen: View {
         }
         let frame = model.frames[id]
         let image = id == model.activeTabId ? (frame?.uiImage ?? overviewImages[id]) : (overviewImages[id] ?? tabs.cardImage(id))
-        return (image, Color(uiColor: frame?.topColor ?? .white), tabs.showsStartPage(id) || (creatingTab && id == tabs.activeKey), false)
+        // The (+) tab the host listed mid-zoom: still its start page.
+        let created = creatingTab && (id == tabs.activeKey || id == newTabSlot?.created(in: itemIds))
+        return (image, Color(uiColor: frame?.topColor ?? .white), tabs.showsStartPage(id) || created, false)
     }
 
     /// Prepares the grid when it is about to appear from the page.
@@ -834,6 +870,8 @@ struct BrowserScreen: View {
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
     private func openOverview() {
+        // A (+) start page in flight has no tab to zoom out of yet.
+        guard !creatingTab || zoomState.phase != .page else { return }
         if zoomState.phase == .page {
             zoomTabId = tabs.activeKey
             prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
@@ -861,22 +899,45 @@ struct BrowserScreen: View {
         zoomDriver.go(toOverview: false)
     }
 
-    /// (+): the new tab's start page grows from the grid slot its card will
-    /// take (index = tab count). The grid first scrolls so that slot is on
-    /// screen, as the overview does for the active card.
+    /// (+): the new tab's card goes into the grid (placeholder in the slot
+    /// its tab will take) and its start page grows from that slot at once on
+    /// Safari's new-tab spring; the host's create runs meanwhile. When the
+    /// host lists the tab its card takes the placeholder's slot in place
+    /// (NewTabSlot), and the open start page becomes that tab's. A refused
+    /// create zooms the start page back into its slot, which then leaves the
+    /// grid, with a toast; it never opens some other tab instead.
     private func newTabFromOverview() {
         guard zoomState.phase == .overview, !newTabPending else { return }
-        // The new tab's card goes into the grid at once (placeholder in its
-        // slot); the zoom starts only once the host created the tab, from
-        // that slot. A refused create leaves the grid as it was, with a
-        // toast; it never opens some other tab instead.
         newTabIsTerminal = false
-        newTabPending = true
+        newTabFailed = false
+        newTabCreated = nil
+        newTabSlot = NewTabSlot(baseline: itemIds)
+        creatingTab = true
+        zoomTabId = Self.newTabMarker
+        zoomDriver.openNewTab()
         Task {
-            let id = await tabs.newBrowserTab()
-            withAnimation(motion.resolve(motion.reflow)) { newTabPending = false }
-            guard let id else { return }
-            openCreated(id)
+            let id = await tabs.newBrowserTab(attach: false)
+            guard let id else {
+                if zoomState.phase == .overview {
+                    creatingTab = false
+                    withAnimation(motion.resolve(motion.reflow)) { newTabSlot = nil }
+                } else {
+                    newTabFailed = true
+                    zoomTabId = Self.newTabMarker
+                    zoomDriver.go(toOverview: true)
+                }
+                return
+            }
+            if zoomState.phase == .animating || zoomState.phase == .interactive {
+                // Still zooming: the zoom now shows the created tab (same
+                // slot); the rest switches over when it settles.
+                zoomTabId = id
+                newTabCreated = id
+            } else {
+                newTabSlot = nil
+                creatingTab = false
+                await tabs.browser.attach(id)
+            }
         }
     }
 
@@ -887,15 +948,16 @@ struct BrowserScreen: View {
         zoomDriver.go(toOverview: false)
     }
 
-    /// (+) > New Terminal: the terminal's card goes into the grid at once and
-    /// the zoom grows from it into the terminal.
+    /// (+) > New Terminal: the terminal's card goes into the grid at once
+    /// (the placeholder until the host lists the terminal, NewTabSlot) and
+    /// the zoom grows from it into the terminal once it exists.
     private func newTerminalFromOverview() {
         guard zoomState.phase == .overview, !newTabPending else { return }
         newTabIsTerminal = true
-        newTabPending = true
+        newTabSlot = NewTabSlot(baseline: itemIds)
         Task {
             let key = await tabs.newTerminal()
-            withAnimation(motion.resolve(motion.reflow)) { newTabPending = false }
+            withAnimation(motion.resolve(motion.reflow)) { newTabSlot = nil }
             newTabIsTerminal = false
             guard let key else { return }
             openCreated(key)

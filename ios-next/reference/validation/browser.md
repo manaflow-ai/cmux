@@ -965,3 +965,51 @@ In the kit demo, which has no baked bitmaps, it grows smoothly. This suggests
 the grid's static card bitmaps (`CardBitmaps`, re-baked at the new size),
 which the perf owner is working on. I've handed it over with
 `lone-trans.mp4` versus `kit-lone.mp4`.
+
+## Round 18: New Tab, one card and Safari's speed
+
+**One card.** On device (`newtab-dup-device.mp4`, Release 5f38241a49be) the
+host's `browser.tab` event listed the new tab before the create reply, the
+real card took the placeholder's index, and the placeholder moved one slot
+on: two new cards for about 100 ms (5.45–5.55 s). The placeholder now stands
+in only until an item that was not in the grid at (+) is listed, and that
+item takes the same slot in place (`NewTabSlot`, unit tested). The zoom
+carries on as that tab, so its card stays hidden under the zoom.
+
+Mock, 4 tabs (the event lands before the reply there too), the bottom row
+frame by frame:
+
+| | Frames with two new cards | First zoom frame |
+|---|---|---|
+| Before (HEAD 586de4ea3529, `dup-before.mp4`) | f9–f13 (2.420–2.473 s): placeholder at row 3 left and the real card at row 3 right | f14, 2.485 s |
+| After (`dup-after.mp4`) | none: one card at row 3 left (f7–f9), then the zoom | f10, 2.475 s |
+
+**Speed.** Safari (`vid/newtab.mp4`, simulator, real frame times; the left
+edge and y of the start page's blue button, the only edge that is sharp
+through the blur) moves 50% / 85% / 99% of the way 66 / 157 / 300 ms after
+its first frame of motion, which comes one or two frames after the tap. Ours
+on device waited for the host (tap 5.37 s, zoom 5.59 s, ≈ 225 ms of nothing)
+and then ran `toPage`: 50% / 85% / 99% at 70 / 172 / 355 ms (the label's
+track on device), which matches `toPage`'s 69 / 167 / 360. Changes:
+
+- (+) zooms at once: the start page grows while the host creates the tab.
+  The created tab takes over the open page in place. A refused create zooms
+  the start page back into its slot, the slot leaves the grid and the toast
+  shows (mock `CMUX_NEXT_MOCK_CREATE_FAIL=browser`, `fail-after.mp4`).
+- New spring `ZoomSpring.newTab` 0.41 / 0.92, launch 8.5: 67 / 156 / 301 ms,
+  within one 60 Hz frame of Safari at all three points (unit tested). The
+  zoom trace (`CMUX_NEXT_BROWSER_ZOOM_TRACE=1`, cmux15) follows that spring
+  within 0.003 progress at every frame.
+- The (+) menu dismisses before its action runs: on the simulator the zoom's
+  first frame is about 75 ms after the menu starts to fade (Safari's (+) is
+  a plain button).
+
+**Open.** On the mock the frame after the host lists the tab is long once
+(26–31 ms instead of 16.7) in 2 of 3 runs. Deferring the new tab's stream
+attach to the zoom's settle removed the larger stall (33–80 ms before).
+HEAD shows no long frame because it starts zooming after all of that work.
+The cmux15 simulator paces at about 30 Hz under load, so it cannot settle
+this; it needs a device check.
+
+New Terminal keeps waiting for the host (a terminal has no page to show
+before it exists) but uses the same one-card slot.
