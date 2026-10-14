@@ -138,7 +138,7 @@ struct TerminalUploadCommand: Sendable, Equatable {
         for scalar in extensionValue.unicodeScalars {
             let scalarText = String(scalar)
             guard boundedExtension.utf8.count + scalarText.utf8.count <= 16 else { break }
-            boundedExtension.append(scalar)
+            boundedExtension.unicodeScalars.append(scalar)
         }
         let suffix = boundedExtension.isEmpty ? "" : "." + boundedExtension
         return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(suffix)"
