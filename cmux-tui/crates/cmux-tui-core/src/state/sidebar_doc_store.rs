@@ -226,6 +226,14 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     create_sidebar_doc_schema(&tx)?;
     super::sidebar_doc_sync::create_triggers(&tx)?;
     if is_migrated(&tx)? {
+        // A stored document that breaks an invariant (an older binary's
+        // migration, a row edited by hand) would refuse every op: repair it.
+        let before = read_doc(&tx)?;
+        let mut repaired = before.clone();
+        if cmux_layout_reducer::sidebar_doc::reduce::repair(&mut repaired) {
+            eprintln!("cmux-tui: repaired the stored sidebar document");
+            super::sidebar_doc_sync::commit_derived(&tx, &before, &repaired)?;
+        }
         // Old writes (also an older binary's) since the last open.
         super::sidebar_doc_sync::sync_from_legacy(&tx)?;
         tx.commit()?;
@@ -234,8 +242,6 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     let input = super::sidebar_doc_legacy::legacy_input(&tx)?;
     let doc = migrate::migrate(&input);
     if let Err(refusal) = cmux_layout_reducer::sidebar_doc::reduce::check(&doc) {
-        // Stored anyway (the old tables stay the source of truth for old
-        // clients); the first op that fixes the row clears it.
         eprintln!("cmux-tui: the migrated sidebar document breaks an invariant ({refusal})");
     }
     let changes = Changes {

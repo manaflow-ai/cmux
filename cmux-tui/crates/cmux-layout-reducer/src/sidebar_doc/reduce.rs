@@ -375,6 +375,144 @@ pub fn check(doc: &Doc) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// Whether a client-sent `ops` list turns an app section into another kind
+/// or another kind into an app section (raw `section.put`, `sidebar.apply`):
+/// that would make a provider's section take drops. Echoes and inverses
+/// never do it, so only the daemon's ingress checks it, not [`apply_one`]
+/// (the client mirror applies echoed rows with it).
+pub fn changes_app_kind(doc: &Doc, ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::SectionPut { section } => doc.section(&section.id).is_some_and(|existing| {
+            existing.kind != section.kind
+                && (matches!(existing.kind, SectionKind::App { .. })
+                    || matches!(section.kind, SectionKind::App { .. }))
+        }),
+        _ => false,
+    })
+}
+
+/// `title` cut to the document limit (old stores allow longer names).
+pub fn fit_title(title: &str) -> String {
+    title.trim().chars().take(MAX_TITLE_CHARS).collect::<String>().trim_end().to_string()
+}
+
+/// Make a document read from old or stored data pass [`check`], so one bad
+/// row cannot refuse every later op: titles are cut, numbers out of range
+/// are cleared, bad order keys are respread, and rows that cannot be kept
+/// (a duplicate id or ref, an unknown section, an item in an app section, a
+/// workspace in another machine's section) are dropped. A dropped
+/// workspace is unplaced, and adoption puts it back into its machine
+/// section. Returns whether anything changed.
+pub fn repair(doc: &mut Doc) -> bool {
+    if check(doc).is_ok() {
+        return false;
+    }
+    let mut ids: HashSet<String> = HashSet::new();
+    let mut machines: HashSet<String> = HashSet::new();
+    doc.sections.retain(|section| {
+        if !ids.insert(section.id.clone()) {
+            return false;
+        }
+        if let Some(session) = section.kind.machine()
+            && (section.id != machine_section_id(session) || !machines.insert(session.to_string()))
+        {
+            return false;
+        }
+        !(matches!(section.kind, SectionKind::Pinned) && section.id != PINNED_SECTION_ID)
+    });
+    for section in &mut doc.sections {
+        if let Some(title) = &section.title {
+            let fitted = fit_title(title);
+            section.title = (!fitted.is_empty()).then_some(fitted);
+        }
+        if section.columns.is_some_and(|c| !(1..=12).contains(&c)) {
+            section.columns = None;
+        }
+        if section.max_rows.is_some_and(|r| !(1..=50).contains(&r)) {
+            section.max_rows = None;
+        }
+    }
+    if doc.sections.iter().any(|section| !order_key::is_valid(&section.order)) {
+        let keys = order_key::spread(doc.sections.len());
+        for (section, key) in doc.sections.iter_mut().zip(keys) {
+            section.order = key;
+        }
+    }
+    let kinds: HashMap<String, SectionKind> =
+        doc.sections.iter().map(|s| (s.id.clone(), s.kind.clone())).collect();
+    let mut refs: HashSet<(String, String)> = HashSet::new();
+    doc.items.retain(|item| {
+        let Some(kind) = kinds.get(&item.section) else { return false };
+        if matches!(kind, SectionKind::App { .. }) || !ids.insert(item.id.clone()) {
+            return false;
+        }
+        match item.body.workspace() {
+            Some(reference) => {
+                kind.machine().is_none_or(|machine| machine == reference.session_id)
+                    && refs.insert((reference.session_id.clone(), reference.workspace_id.clone()))
+            }
+            None => true,
+        }
+    });
+    doc.items.truncate(MAX_ITEMS);
+    let groups: HashMap<String, String> = doc
+        .items
+        .iter()
+        .filter(|item| item.body.is_group() && item.parent.is_none())
+        .map(|item| (item.id.clone(), item.section.clone()))
+        .collect();
+    let mut group_machine: HashMap<String, String> = HashMap::new();
+    for item in &mut doc.items {
+        if let Body::Group { name, .. } = &mut item.body {
+            let fitted = fit_title(name);
+            *name = if fitted.is_empty() { "Group".into() } else { fitted };
+        }
+        if item.span.is_some_and(|span| !(1..=12).contains(&span)) {
+            item.span = None;
+        }
+        let Some(parent) = item.parent.clone() else { continue };
+        let fits = !item.body.is_group() && groups.get(&parent) == Some(&item.section);
+        let fits = fits
+            && match item.body.workspace() {
+                Some(reference) => {
+                    *group_machine.entry(parent).or_insert_with(|| reference.session_id.clone())
+                        == reference.session_id
+                }
+                None => true,
+            };
+        if !fits {
+            item.parent = None;
+        }
+    }
+    // A group whose workspaces belong to another machine than its section.
+    doc.items.retain(|item| {
+        let Some(machine) = group_machine.get(&item.id) else { return true };
+        kinds
+            .get(&item.section)
+            .and_then(|kind| kind.machine())
+            .is_none_or(|owner| owner == machine)
+    });
+    let kept: HashSet<String> = doc.items.iter().map(|item| item.id.clone()).collect();
+    for item in &mut doc.items {
+        if item.parent.as_ref().is_some_and(|parent| !kept.contains(parent)) {
+            item.parent = None;
+        }
+    }
+    let mut lists: HashMap<(String, Option<String>), Vec<usize>> = HashMap::new();
+    for (index, item) in doc.items.iter().enumerate() {
+        lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
+    }
+    for indexes in lists.values() {
+        if indexes.iter().any(|&index| !order_key::is_valid(&doc.items[index].order)) {
+            for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
+                doc.items[index].order = key;
+            }
+        }
+    }
+    doc.normalize();
+    true
+}
+
 fn validate_title(title: &str) -> Result<(), Refusal> {
     if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS {
         return Err(Refusal::InvalidTitle);

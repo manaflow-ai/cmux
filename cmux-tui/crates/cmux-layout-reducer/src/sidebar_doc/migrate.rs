@@ -413,5 +413,8 @@ pub fn migrate(input: &LegacyInput) -> Doc {
         }
     }
     doc.normalize();
+    // Old stores allow values the document refuses (group names up to 256
+    // characters, for one); a document that fails `check` refuses every op.
+    super::reduce::repair(&mut doc);
     doc
 }

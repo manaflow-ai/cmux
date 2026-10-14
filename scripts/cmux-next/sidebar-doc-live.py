@@ -234,6 +234,8 @@ def seed(daemon: Daemon) -> dict:
     daemon.ok("workspace.place", {"workspace": ids["w4"], "group": saved}, mutate=True)
     daemon.ok("workspace_group.update", {"workspace_group": saved, "pinned": True}, mutate=True)
     daemon.raw({"cmd": "set-workspace-metadata", "key": keys["w5"], "pinned": True})
+    # An old group name longer than the document's title limit (80).
+    daemon.ok("workspace_group.create", {"name": "Long " + "n" * 115}, mutate=True)
     custom = {"id": "sec_work", "title": "Work", "region": "middle", "look": "list", "content": "items",
               "items": [{"id": "itm_docs", "ref": {"kind": "url", "value": "https://example.com/docs"}}]}
     daemon.ok("sidebar_layout.update", {"op": {"kind": "section.add", "section": custom, "index": 99}}, mutate=True)
@@ -295,7 +297,7 @@ def main() -> int:
         rows = db.execute("SELECT COUNT(*) FROM personal_workspaces").fetchone()[0]
         groups = db.execute("SELECT COUNT(*) FROM personal_groups").fetchone()[0]
         no_doc = not db.execute("SELECT 1 FROM sqlite_master WHERE name='sidebar_items'").fetchone()
-    check("seed copy holds old rows and no sidebar document", rows >= 11 and groups == 3 and no_doc,
+    check("seed copy holds old rows and no sidebar document", rows >= 11 and groups == 4 and no_doc,
           {"rows": rows, "groups": groups})
 
     daemon = Daemon(args.binary.resolve(), state, sock)
@@ -320,6 +322,10 @@ def main() -> int:
         check("pinned group migrated into Pinned with its member",
               saved is not None and saved["section"] == "sec_pinned"
               and [c["body"]["ref"]["workspace_id"] for c in children(doc, saved["id"])] == [ids["w4"]], saved)
+        long_group = next((i for i in doc["items"] if i["body"].get("type") == "group"
+                           and i["body"]["name"].startswith("Long ")), None)
+        check("an old group name over the title limit is migrated cut to 80 characters",
+              long_group is not None and len(long_group["body"]["name"]) == 80, long_group)
         tile_ids = [ws_item(doc, local, workspace)["id"] for workspace in old_tiles]
         flag_ids = [w5["id"]] if ids["w5"] not in old_tiles else []
         check("Pinned order: the old tiles, then pin flags, then the pinned group",
@@ -345,9 +351,25 @@ def main() -> int:
                 for i in doc["items"] if i["body"].get("type") == "workspace"]
         check("each workspace placed once", len(refs) == len(set(refs)), refs)
 
+        # The current app clears a pin flag after it shows the tile: that is
+        # not an unpin.
+        daemon.raw({"cmd": "set-workspace-metadata", "key": seeded["keys"]["w5"], "pinned": False})
+        cleared = ws_item(daemon.ok("sidebar.get"), local, ids["w5"])
+        check("a cleared pin flag leaves the workspace in Pinned",
+              cleared is not None and cleared["section"] == "sec_pinned", cleared)
+
         # Move a workspace into Pinned (between nothing: at the end).
+        def personal_row(key: str) -> dict:
+            listed = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            return next(r for r in listed if r["session_id"] == local and r["workspace_key"] == key)
+
+        w1_row = personal_row(seeded["keys"]["w1"])
         moved = daemon.ok("sidebar.move", {"items": [w1["id"]], "to": {"section": "sec_pinned"}}, mutate=True)
         after_pin = daemon.ok("sidebar.get")
+        w1_pinned_row = personal_row(seeded["keys"]["w1"])
+        check("write-back: a pin keeps the old row's group and place",
+              (w1_pinned_row.get("group"), w1_pinned_row["index"]) == (w1_row.get("group"), w1_row["index"]),
+              {"before": w1_row, "after": w1_pinned_row})
         check("sidebar.move puts w1 into Pinned at the end",
               [i["id"] for i in top(after_pin, "sec_pinned")][-1] == w1["id"], top(after_pin, "sec_pinned"))
         check("sidebar.move returns revision and inverse",
@@ -355,6 +377,14 @@ def main() -> int:
         layout = daemon.ok("sidebar_layout.get")
         tiles = next((s for s in layout["sections"] if s["id"] == "sec_pinned"), {"items": []})["items"]
         tile_values = [t["ref"]["value"] for t in tiles]
+        # The old app drags the custom section's url tile into Pinned, then back.
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "item.move", "id": "itm_docs",
+                                                   "section": "sec_pinned", "index": 0}}, mutate=True)
+        url_moved = items_by_id(daemon.ok("sidebar.get")).get("itm_docs")
+        check("old item.move of a custom-section tile into Pinned moves the document item",
+              url_moved is not None and url_moved["section"] == "sec_pinned", url_moved)
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "item.move", "id": "itm_docs",
+                                                   "section": "sec_work", "index": 0}}, mutate=True)
         check("old sidebar_layout.get shows the moved workspace as a sec_pinned tile",
               f"{local}:{ids['w1']}" in tile_values, tile_values)
 

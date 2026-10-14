@@ -51,14 +51,18 @@ impl Mux {
                 // The client reduced on the projection (its sec_pinned tiles
                 // are the sidebar document's Pinned items, sidebar-doc-v1).
                 let stored = store::document(transaction)?;
+                // An unmigrated store (its migration failed at open and is
+                // retried at the next) keeps the old behavior: the stored
+                // tiles, no document ops.
+                let migrated = doc_store::is_migrated(transaction)?;
                 let doc = doc_store::read_doc(transaction)?;
-                let current = project_layout(&stored, &doc);
+                let current = if migrated { project_layout(&stored, &doc) } else { stored.clone() };
                 let reduced = sidebar_layout::reduce(&current, &parsed)
                     .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;
                 if reduced.revision == current.revision {
                     return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                 }
-                let ops = pinned_ops(&current, &reduced, &doc);
+                let ops = if migrated { pinned_ops(&current, &reduced, &doc) } else { Vec::new() };
                 let mut events = Vec::new();
                 let mut next_doc = doc.clone();
                 if !ops.is_empty() {
@@ -86,7 +90,8 @@ impl Mux {
                 let mut next = reduced;
                 next.revision = stored.revision + 1;
                 store::write_document(transaction, &next)?;
-                let value = store::snapshot_value(&project_layout(&next, &next_doc))?;
+                let shown = if migrated { project_layout(&next, &next_doc) } else { next.clone() };
+                let value = store::snapshot_value(&shown)?;
                 // Raw-protocol clients (the Mac app) follow personal state
                 // through `personal-changed`; bump `personal_revision` so they
                 // refetch the layout (v2 clients read the state_upsert).

@@ -29,7 +29,7 @@ use cmux_layout_reducer::sidebar_layout::{self, Document};
 
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
-use crate::workspace_registry::personal_store::{read_groups, read_sessions, read_workspaces};
+use crate::workspace_registry::personal_store::{read_groups, read_workspaces};
 
 /// A random item id (`itm_<uuid>`).
 pub(crate) fn mint_item_id() -> ItemId {
@@ -47,14 +47,18 @@ struct LegacyState {
 fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
     let local = local_registry_id(connection)?;
     let mut machines = vec![LegacyMachine { session_id: local.clone(), title: None }];
-    for session in read_sessions(connection)? {
-        if session.session_id == local {
-            machines[0].title = session.machine_name.clone();
+    // Only the id and name: the full reader fails on a bad transport or
+    // capabilities blob, and this runs at registry open.
+    let sessions: Vec<(String, Option<String>)> = {
+        let mut statement = connection
+            .prepare("SELECT session_id, machine_name FROM sessions ORDER BY session_id")?;
+        statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?
+    };
+    for (session_id, machine_name) in sessions {
+        if session_id == local {
+            machines[0].title = machine_name;
         } else {
-            machines.push(LegacyMachine {
-                session_id: session.session_id.clone(),
-                title: session.machine_name.clone(),
-            });
+            machines.push(LegacyMachine { session_id, title: machine_name });
         }
     }
     let rows = read_workspaces(connection)?;
@@ -236,7 +240,26 @@ pub(crate) fn pinned_ops(before: &Document, after: &Document, doc: &Doc) -> Vec<
     let mut ops = Vec::new();
     for tile in old.iter().filter(|tile| !new_ids.contains(tile.id.as_str())) {
         let Some(item) = doc.item(&tile.id) else { continue };
-        if item.body.workspace().is_some() || item.body.is_group() {
+        // A tile dragged out of Pinned into a document section moves there;
+        // a tile removed from the layout leaves the document.
+        let landed = after
+            .sections
+            .iter()
+            .filter(|section| {
+                section.id != PINNED_SECTION_ID
+                    && doc.section(&section.id).is_some_and(|s| s.kind.machine().is_none())
+            })
+            .find_map(|section| {
+                let index = section.items.iter().position(|other| other.id == tile.id)?;
+                Some(Target {
+                    section: section.id.clone(),
+                    index: i64::try_from(index).ok(),
+                    ..Target::default()
+                })
+            });
+        if let Some(to) = landed {
+            ops.push(Op::Move { items: vec![item.id.clone()], to });
+        } else if item.body.workspace().is_some() || item.body.is_group() {
             ops.push(Op::Unpin { items: vec![item.id.clone()] });
         } else {
             ops.push(Op::ItemRemove { id: item.id.clone() });
@@ -269,6 +292,13 @@ pub(crate) fn pinned_ops(before: &Document, after: &Document, doc: &Doc) -> Vec<
                     previous = Some(id.clone());
                     order.push(id);
                     continue;
+                }
+                // A tile that already sits in another section (a custom
+                // one, after the migration) moves; adding it again would
+                // fail with `duplicate_id`.
+                _ if doc.item(&tile.id).is_some() => {
+                    ops.push(Op::Move { items: vec![tile.id.clone()], to });
+                    tile.id.clone()
                 }
                 body => {
                     ops.push(Op::ItemAdd {
