@@ -36,6 +36,7 @@ function App() {
     if (action.type === "scrub") void native.request("scrub", { seq: action.seq ?? null }).catch(() => undefined);
     if (action.type === "filter") void native.request("filter", { value: action.value }).catch(() => undefined);
     if (action.type === "layout") void native.request("layout", { value: action.value }).catch(() => undefined);
+    if (action.type === "jump") void native.request("jump", { id: action.id }).catch(() => undefined);
   };
   return <ActivityView state={state} dispatch={dispatch} error={error} />;
 }
