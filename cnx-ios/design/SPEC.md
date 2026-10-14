@@ -1110,8 +1110,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CnxWorkspaces/WorkspacesLi
   filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
   "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
   filter (only with 2+ Macs) and New Workspace.
-- Mac filter: a toolbar `Menu` with an inline `Picker`: All Macs, then each Mac (online
-  first, `desktopcomputer`; the model has no Mac kind). Filtered fills the symbol
+- Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
+  each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
+  and subtitled with its presence ("Online" / "Last seen 2h ago", plus the link line in live
+  mode). Not an inline `Picker`: it drops the subtitles. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
   (`cnx.workspaces.macFilter.<team>`). In live mode, picking an online Mac the phone is not
   linked to links it.
@@ -1122,41 +1124,52 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CnxWorkspaces/WorkspacesLi
   filtered Mac is offline. No Mac: "Connect your Mac" steps.
 - Search: `.searchable` in the navigation bar drawer, tucked under the bar at launch,
   revealed by a pull-down. Matches name, branch, directory, Mac name and agent tabs' titles
-  and tasks. Results keep the rows and sections; offline matches show unfolded.
+  and tasks. Results keep the rows; a lone Recent section has no title (as in Mail); offline
+  matches show unfolded.
 - `List` `.plain` on `bg`, section spacing 4. Section titles are rows that scroll (`meta`
-  semibold `label2`, 14 pt above): **Needs You** (only when not empty; `lastActivityAt`
-  descending), **Recent** (every other online workspace, newest activity first; title
-  omitted when it is the only section), then **one folded line per offline Mac** ("`moon.zzz`
-  MacBook Pro · Last seen 2h ago", count, `chevron.right` rotating 90° when open) that
-  unfolds its rows in place (`smooth`, per session). Filtered to that Mac, a search, or every
-  Mac asleep: always open, no chevron. A workspace on an offline Mac never appears in Needs
-  You or Recent. Working and done rows do not jump; only needing you moves a row.
+  semibold `label2`, 14 pt above): **Needs You** (only when not empty; newest activity
+  first, like Recent and Mail), **Recent** (every other online workspace, newest activity
+  first; title omitted when it is the only section), then **one folded line per offline
+  Mac** ("`moon.zzz` MacBook Pro · Last seen 2h ago", count, `chevron.right` rotating 90°
+  when open) that unfolds its rows in place (`smooth`, per session) and, when the first new
+  row would open below the visible area, scrolls it into view (`smooth`, anchor bottom). A
+  search or every Mac asleep: always open, no chevron. Filtered to that Mac: no line, only
+  its rows (the navigation subtitle says when it was last seen). A workspace on an offline
+  Mac never appears in Needs You or Recent. Working and done rows do not jump; only needing
+  you moves a row.
 - Rows with no known activity time (live: no event since the phone connected) sort after
   every timed row, in the Mac's focus order (`focused_at`), and show no time.
-- Workspace row (Mail anatomy): insets 0 / 20, vertical 10. A 32 pt status gutter centered
-  on line 1: `warning` 10 pt disc (needs you), mini spinner (working or creating), 8 pt
-  `label` disc (done), else empty. Line 1: the name `rowTitle` semibold (`label3` offline)
-  and a trailing `meta` time (`RelativeStamp`, `label` when it needs you). Line 2
-  `rowSubtitle` `label2`: "**Claude is waiting** · <task>", "Codex is working · <task>"
-  (one shimmering text, static with Reduce Motion), "**Done** · Claude: <task>", else the
-  branch or directory (+ " · <Mac>" when Recent mixes Macs and no filter is set); offline at
-  60 % opacity. The agent and task come from the tab the state is about (`agentTab(for:)`:
-  the waiting or working tab, else the first agent tab); with no agent tab: "Needs you",
-  "Working", "Done". Separators start at the text (32 pt). Press: the system highlight. At
-  accessibility sizes the name wraps to 2 lines, the time moves under it, line 2 takes 2 lines.
+- Workspace row (Mail anatomy): insets 0 / 20, vertical 10. A status gutter centered on
+  line 1, 32 pt at Large and scaled with Dynamic Type (`@ScaledMetric`, as are the discs):
+  `warning` 10 pt disc (needs you), mini spinner (working or creating), 8 pt `label` disc
+  (done), else empty. Line 1: the name `rowTitle` semibold (`label3` offline) and a trailing
+  `meta` time (`RelativeStamp`, `label` when it needs you). Line 2 `rowSubtitle` `label2`:
+  "**Claude is waiting** · <task>", "Codex is working · <task>" (one text, `label2` at rest
+  with a `label` highlight sweeping across; static `label2` with Reduce Motion), "**Done** ·
+  Claude: <task>", else the branch or directory (the home directory reads "Home"; +
+  " · <Mac>" when Recent mixes Macs and no filter is set); offline at 60 % opacity. The
+  agent and task come from the tab the state is about (`agentTab(for:)`: the waiting or
+  working tab, else the first agent tab); with no agent tab: "Needs you", "Working", "Done".
+  Separators start at the text (the gutter). Press: the system highlight. At accessibility
+  sizes the name wraps to 2 lines with the time still trailing beside it (no line of its
+  own), and line 2 takes 2 lines.
 - Status priority: Creating > Offline > Needs you > Working > Done > Idle. Done is the Mac's
   unread flags (`unread_count`, `marked_unread`), cleared on this device when the workspace
   is opened until it has newer activity. Copy says "is waiting": the Mac does not say
   whether it is a permission or a question.
-- Tap: a needs-you workspace opens on its waiting tab; otherwise the last tab used on this
-  device, else the Mac's active tab (`Workspace.activeTabID`), else the first. Offline: no
-  push; an alert "<Mac> is offline" with last seen.
+- Tap: a needs-you workspace opens on its waiting tab, which shows the pending permission or
+  question card; otherwise the last tab used on this device, else the Mac's active tab
+  (`Workspace.activeTabID`), else the first. Offline: no push; an alert "<Mac> is offline"
+  with last seen.
 - Hold a row: a menu headed "<Mac> · <branch or directory>" ("· Offline"): one item per tab
-  (opens that tab), then Rename and Close Workspace (destructive, confirmed), hidden when the
+  (opens that tab; an agent tab is titled with its task, as on the row, with the agent as
+  the subtitle), then Rename and Close Workspace (destructive, confirmed), hidden when the
   backend cannot manage the workspace. Offline: the header and "Show <Mac>" (filters).
-- Swipe left: Close (system destructive role with `.tint(nil)`, confirmed) and Rename
-  (`gray`). No full swipe, no leading swipe (the team drawer owns it). Rename and close apply
-  at once and are undone if the Mac refuses (toast).
+- Swipe left: Close (system destructive role with `.tint(nil)`) and Rename (`gray`). Close
+  is confirmed in a popover pointing at the row (Mail), anchored to a view over the list at
+  the row's frame: a row's own presentation is dropped while its swipe actions close. No
+  full swipe, no leading swipe (the team drawer owns it). Rename and close apply at once
+  and are undone if the Mac refuses (toast).
 - States: team loading with no cache, or the linked Mac's first list pending → `SkeletonList`;
   cached rows stay at full opacity while refreshing. Failed → "Couldn't load workspaces" +
   Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered

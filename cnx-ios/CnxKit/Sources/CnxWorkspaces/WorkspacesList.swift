@@ -1,5 +1,4 @@
 #if os(iOS)
-import CnxAgentChat
 import CnxDesign
 import CnxModel
 import SwiftUI
@@ -46,6 +45,15 @@ public struct WorkspacesList: View {
     @State private var renaming: Workspace?
     @State private var renameText = ""
     @State private var closing: Workspace?
+    /// The rows' status gutter (32 pt at Large), for the separator inset.
+    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = WorkspaceRow.gutter
+    /// Where each offline Mac's line ends in the list's visible area, and
+    /// where that area ends (above the tab bar): unfolding scrolls when needed.
+    @State private var foldBottoms: [String: CGFloat] = [:]
+    @State private var visibleBottom: CGFloat = .infinity
+    /// Each row's frame in the list (read on demand, never drawn from).
+    @State private var rowFrames = RowFrames()
+    @State private var closingFrame: CGRect = .zero
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
@@ -113,15 +121,6 @@ public struct WorkspacesList: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.rename(ws, to: renameText) }
                     .disabled(renameText.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            .confirmationDialog(closing.map { "Close \u{201C}\($0.title)\u{201D}?" } ?? "", isPresented: isPresented($closing),
-                                titleVisibility: .visible, presenting: closing) { ws in
-                Button("Close Workspace", role: .destructive) {
-                    theme.haptics.impactLight()
-                    withAnimation(theme.motion.smooth.animation) { creator.close(ws) }
-                }
-            } message: { ws in
-                Text("Its tabs close on \(mac(ws.macID)?.name ?? "the Mac").")
             }
     }
 
@@ -223,6 +222,12 @@ public struct WorkspacesList: View {
     }
 
     private func list(_ inbox: WorkspaceInbox) -> some View {
+        ScrollViewReader { proxy in
+            inboxList(inbox, proxy: proxy)
+        }
+    }
+
+    private func inboxList(_ inbox: WorkspaceInbox, proxy: ScrollViewProxy) -> some View {
         List {
             if inbox.allAsleep && query.isEmpty {
                 asleepHeader
@@ -243,7 +248,11 @@ public struct WorkspacesList: View {
             }
             ForEach(inbox.folds) { fold in
                 Section {
-                    foldLine(fold)
+                    // Filtered to this Mac: its rows alone; the navigation
+                    // subtitle already says when it was last seen.
+                    if scope.macID != fold.mac.id {
+                        foldLine(fold, proxy: proxy)
+                    }
                     if fold.isForcedOpen || unfolded.contains(fold.mac.id) {
                         ForEach(fold.workspaces) { row($0, inbox) }
                     }
@@ -251,9 +260,13 @@ public struct WorkspacesList: View {
             }
         }
         .listStyle(.plain)
+        .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height - $0.contentInsets.bottom } action: { _, height in
+            visibleBottom = height
+        }
         .listSectionSpacing(4)
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, 0)
+        .overlay(alignment: .topLeading) { closeAnchor }
         .overlay {
             if inbox.isLoading {
                 skeleton
@@ -284,12 +297,12 @@ public struct WorkspacesList: View {
         }
         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
         .listRowBackground(theme.colors.bg.color)
-        .alignmentGuide(.listRowSeparatorLeading) { _ in WorkspaceRow.gutter }
+        .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
         // Trailing only: a rightward swipe from the leading edge belongs to
         // the team sidebar.
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if canManage {
-                Button("Close", systemImage: "xmark", role: .destructive) { closing = ws }
+                Button("Close", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
                     // The app tints controls with the foreground color
                     // (white in dark mode), which turned this into a blank
                     // white pill. Back to the system tint: red for the role.
@@ -301,13 +314,52 @@ public struct WorkspacesList: View {
             }
         }
         .contextMenu { menu(ws, status: status, canManage: canManage) }
+        // Where the row is, so the close popover can point at it.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrames.byID[ws.id] = $0 }
         .accessibilityActions {
             if canManage {
                 Button("Rename") { startRename(ws) }
-                Button("Close") { closing = ws }
+                Button("Close") { confirmClose(ws) }
             }
         }
         .accessibilityIdentifier("workspace.row.\(ws.id)")
+    }
+
+    /// Asks before closing, in a popover pointing at the row (Mail).
+    private func confirmClose(_ ws: Workspace) {
+        let row = rowFrames.byID[ws.id] ?? .zero
+        closingFrame = row.offsetBy(dx: -rowFrames.origin.x, dy: -rowFrames.origin.y)
+        closing = ws
+    }
+
+    /// The close popover's anchor: a view over the list at the row's place.
+    /// Not on the row itself: a row's own presentation is dropped while its
+    /// swipe actions close.
+    private var closeAnchor: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { rowFrames.origin = $0 }
+            .overlay(alignment: .topLeading) { anchor }
+            .allowsHitTesting(false)
+    }
+
+    private var anchor: some View {
+        Color.clear
+            .frame(width: max(closingFrame.width, 1), height: max(closingFrame.height, 1))
+            // Padding, not an offset: the popover points at the layout frame.
+            .padding(.leading, max(closingFrame.minX, 0))
+            .padding(.top, max(closingFrame.minY, 0))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .confirmationDialog(closing.map { "Close \u{201C}\($0.title)\u{201D}?" } ?? "", isPresented: isPresented($closing),
+                                titleVisibility: .visible, presenting: closing) { ws in
+                Button("Close Workspace", role: .destructive) {
+                    theme.haptics.impactLight()
+                    withAnimation(theme.motion.smooth.animation) { creator.close(ws) }
+                }
+            } message: { ws in
+                Text("Its tabs close on \(mac(ws.macID)?.name ?? "the Mac").")
+            }
     }
 
     private func startRename(_ ws: Workspace) {
@@ -326,14 +378,23 @@ public struct WorkspacesList: View {
                 }
             } else {
                 ForEach(ws.tabs) { tab in
-                    Button(tab.title, systemImage: tab.systemImage) { openWorkspace(ws, status: status, tab: tab) }
+                    Button { openWorkspace(ws, status: status, tab: tab) } label: {
+                        // An agent tab by its task (as on the row), the agent as the subtitle.
+                        if tab.isAgent, let task = tab.task {
+                            Text(task)
+                            Text(tab.agentName)
+                            Image(systemName: tab.systemImage)
+                        } else {
+                            Label(tab.title, systemImage: tab.systemImage)
+                        }
+                    }
                 }
             }
         }
         if canManage {
             Section {
                 Button("Rename", systemImage: "pencil") { startRename(ws) }
-                Button("Close Workspace", systemImage: "xmark", role: .destructive) { closing = ws }
+                Button("Close Workspace", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
             }
         }
     }
@@ -349,7 +410,7 @@ public struct WorkspacesList: View {
     /// One line for an offline Mac ("MacBook Pro · Last seen 2h ago  3 ›"),
     /// unfolding its rows in place; or for an online Mac the phone is not
     /// linked to (live), linking it on a tap.
-    private func foldLine(_ fold: WorkspaceInbox.Fold) -> some View {
+    private func foldLine(_ fold: WorkspaceInbox.Fold, proxy: ScrollViewProxy) -> some View {
         let isOpen = fold.isForcedOpen || unfolded.contains(fold.mac.id)
         let detail = fold.reason == .offline
             ? RelativeStamp().presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
@@ -358,8 +419,17 @@ public struct WorkspacesList: View {
             switch fold.reason {
             case .offline:
                 theme.haptics.selection()
+                let opening = !unfolded.contains(fold.mac.id)
                 withAnimation(theme.motion.smooth.animation) {
-                    if unfolded.contains(fold.mac.id) { unfolded.remove(fold.mac.id) } else { unfolded.insert(fold.mac.id) }
+                    if opening { unfolded.insert(fold.mac.id) } else { unfolded.remove(fold.mac.id) }
+                }
+                // Rows opening below the visible area: bring the first into view.
+                if opening, let first = fold.workspaces.first,
+                   (foldBottoms[fold.mac.id] ?? 0) + WorkspaceRow.minHeight > visibleBottom {
+                    Task { @MainActor in
+                        await Task.yield()
+                        withAnimation(theme.motion.smooth.animation) { proxy.scrollTo(first.id, anchor: .bottom) }
+                    }
                 }
             case .notConnected:
                 reconnect?(fold.mac.id)
@@ -394,6 +464,7 @@ public struct WorkspacesList: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .accessibilityValue(fold.reason == .offline && !fold.isForcedOpen ? (isOpen ? "Expanded" : "Collapsed") : "")
+        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).maxY } action: { foldBottoms[fold.mac.id] = $0 }
         .accessibilityIdentifier("workspaces.fold.\(fold.mac.id)")
     }
 
@@ -474,25 +545,33 @@ public struct WorkspacesList: View {
     /// presence (and the live link line) as the subtitle.
     private var filterMenu: some View {
         Menu {
-            Picker("Show", selection: Binding(get: { scope }, set: { select($0) })) {
-                Label("All Macs", systemImage: "square.stack.3d.up").tag(MacScope.all)
-                ForEach(MacScope.menuOrder(macs)) { mac in
-                    Label {
-                        Text(mac.name)
-                        Text(macDetail(mac))
-                    } icon: {
-                        // The model has no Mac kind (laptop or desktop) yet.
-                        Image(systemName: "desktopcomputer")
-                    }
-                    .tag(MacScope.mac(mac.id))
-                }
+            // Toggles, not an inline Picker: a Picker drops each Mac's
+            // presence subtitle. The chosen row shows the checkmark.
+            Toggle(isOn: chosen(.all)) {
+                Label("All Macs", systemImage: "square.stack.3d.up")
             }
-            .pickerStyle(.inline)
+            .accessibilityIdentifier("workspaces.filter.all")
+            ForEach(MacScope.menuOrder(macs)) { mac in
+                // A title and a subtitle Text directly in the label: a menu
+                // shows the second as the subtitle (not inside a Label).
+                Toggle(isOn: chosen(.mac(mac.id))) {
+                    Text(mac.name)
+                    Text(macDetail(mac))
+                    // The model has no Mac kind (laptop or desktop) yet.
+                    Image(systemName: "desktopcomputer")
+                }
+                .accessibilityIdentifier("workspaces.filter.\(mac.id)")
+            }
         } label: {
             Label("Filter", systemImage: scope == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
         }
         .accessibilityIdentifier("workspaces.filter")
         .accessibilityValue(scopedMac?.name ?? "All Macs")
+    }
+
+    /// On for the chosen scope; turning one on chooses it (turning the chosen one off does nothing).
+    private func chosen(_ value: MacScope) -> Binding<Bool> {
+        Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
     private func macDetail(_ mac: MacDevice) -> String {
@@ -508,6 +587,14 @@ public struct WorkspacesList: View {
             isRetrying = false
         }
     }
+}
+
+/// Row frames for the close popover's anchor. A plain reference, so
+/// scrolling (which updates it) does not re-render the list.
+final class RowFrames {
+    var byID: [String: CGRect] = [:]
+    /// The list's own origin, in the same (global) space.
+    var origin: CGPoint = .zero
 }
 
 /// A section title as a row that scrolls with the list (not a pinned
@@ -527,8 +614,9 @@ struct SectionTitle: View {
     }
 }
 
-/// SPEC 11.1 workspace row, Mail anatomy: a 32 pt status gutter, then the
-/// name and its time, then the status sentence.
+/// SPEC 11.1 workspace row, Mail anatomy: a status gutter (32 pt at Large,
+/// scaling with Dynamic Type), then the name and its time, then the status
+/// sentence.
 struct WorkspaceRow: View {
     let workspace: Workspace
     let status: WorkspaceStatus
@@ -537,26 +625,29 @@ struct WorkspaceRow: View {
     /// The offline Mac, for the VoiceOver hint.
     var offlineMacName: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-
     /// The status gutter; separators start at the text.
+    @ScaledMetric(relativeTo: .body) private var gutter: CGFloat = Self.gutter
+    @ScaledMetric(relativeTo: .body) private var needsYouDisc: CGFloat = 10
+    @ScaledMetric(relativeTo: .body) private var doneDisc: CGFloat = 8
+
+    /// The gutter at Large; the list scales it the same way for separators.
     static let gutter: CGFloat = 32
+    /// About one row: unfolding scrolls when the first new row would not fit.
+    static let minHeight: CGFloat = 60
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             mark
-                .frame(width: Self.gutter)
-                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 5 }
+                .frame(width: gutter)
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation, value: status)
             VStack(alignment: .leading, spacing: 3) {
-                if typeSize.isAccessibilitySize {
-                    name.lineLimit(2)
+                // The time stays trailing on line 1, beside a name that wraps
+                // to two lines at accessibility sizes (no line of its own).
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    name.lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                    Spacer(minLength: 8)
                     time
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        name.lineLimit(1)
-                        Spacer(minLength: 8)
-                        time
-                    }
                 }
                 StatusLine(workspace: workspace, status: status, macName: macName)
                     .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
@@ -586,22 +677,23 @@ struct WorkspaceRow: View {
                 .font(theme.type.meta)
                 .monospacedDigit()
                 .foregroundStyle(status == .needsYou ? theme.colors.label : theme.colors.label2)
+                .fixedSize()
         }
     }
 
     @ViewBuilder private var mark: some View {
         switch status {
         case .needsYou:
-            Circle().fill(theme.colors.warning.color).frame(width: 10, height: 10)
+            Circle().fill(theme.colors.warning.color).frame(width: needsYouDisc, height: needsYouDisc)
                 .accessibilityIdentifier("workspace.needs-you")
         case .working, .creating:
             ProgressView().controlSize(.mini)
                 .accessibilityIdentifier(status == .working ? "workspace.working" : "workspace.creating")
         case .done:
-            Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
+            Circle().fill(theme.colors.label.color).frame(width: doneDisc, height: doneDisc)
                 .accessibilityIdentifier("workspace.done")
         case .idle, .offline:
-            Color.clear.frame(width: 8, height: 8)
+            Color.clear.frame(width: doneDisc, height: doneDisc)
         }
     }
 
@@ -631,11 +723,11 @@ struct StatusLine: View {
                 if let task { Text("\(emphasis(waiting)) · \(task)") } else { emphasis(waiting) }
             case .working:
                 // One text under the shimmer, so it truncates as one line.
-                WorkingLabel([working, task].compactMap(\.self).joined(separator: " · "), font: theme.type.rowSubtitle)
+                ShimmerText(text: [working, task].compactMap(\.self).joined(separator: " · "))
             case .done:
                 if let task { Text("\(emphasis("Done")) · \(agentName ?? "Agent"): \(task)") } else { emphasis("Done") }
             case .creating:
-                Text(workspace.directory.isEmpty ? "Creating…" : workspace.directory)
+                Text(workspace.directory.isEmpty ? "Creating…" : Self.directoryName(workspace.directory))
             case .idle, .offline:
                 Text(Self.place(workspace, macName: macName))
             }
@@ -655,8 +747,14 @@ struct StatusLine: View {
         Text(word).foregroundStyle(theme.colors.label).fontWeight(.semibold)
     }
 
+    /// "Home" for the home directory, as the New Workspace menu says.
+    static func directoryName(_ directory: String) -> String {
+        directory == "~" ? "Home" : directory
+    }
+
     static func place(_ workspace: Workspace, macName: String?) -> String {
-        [workspace.place.isEmpty ? nil : workspace.place, macName].compactMap(\.self).joined(separator: " · ")
+        let place = workspace.branch ?? (workspace.directory.isEmpty ? nil : directoryName(workspace.directory))
+        return [place, macName].compactMap(\.self).joined(separator: " · ")
     }
 
     /// The same line for VoiceOver.
@@ -669,6 +767,39 @@ struct StatusLine: View {
         case .creating: return ["Creating"]
         case .idle: return ["idle", place(workspace, macName: macName)]
         case .offline: return ["offline", place(workspace, macName: nil)]
+        }
+    }
+}
+
+/// SPEC 4.5's shimmer for a row's "is working" line: `label2` at rest (never
+/// fainter than the rest of line 2), a `label` highlight sweeping across.
+/// Static `label2` with Reduce Motion.
+struct ShimmerText: View {
+    let text: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Text(text).foregroundStyle(theme.colors.label2)
+        } else {
+            TimelineView(.animation) { context in
+                let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                Text(text)
+                    .foregroundStyle(theme.colors.label2)
+                    .overlay {
+                        Text(text)
+                            .foregroundStyle(theme.colors.label)
+                            .mask {
+                                GeometryReader { proxy in
+                                    let width = proxy.size.width
+                                    LinearGradient(colors: [.clear, .white, .clear], startPoint: .leading, endPoint: .trailing)
+                                        .frame(width: max(width * 0.4, 30))
+                                        .offset(x: -width * 0.4 + width * 1.4 * phase)
+                                }
+                            }
+                            .accessibilityHidden(true)
+                    }
+            }
         }
     }
 }

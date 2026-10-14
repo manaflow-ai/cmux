@@ -39,11 +39,12 @@ reveal() {
   where "$1"
 }
 top() { axe swipe --start-x 200 --start-y 300 --end-x 200 --end-y 750 --duration 0.3 --udid "$udid" >/dev/null; sleep 0.6; }
-filter() { sleep 0.5; tap --id workspaces.filter; sleep 1.5; read -r x y < <(where "$1" AXLabel); at "$x" "$y"; }
+# Picks a Mac (or "all") in the filter menu by accessibility id.
+filter() { sleep 0.5; tap --id workspaces.filter; sleep 1.5; read -r x y < <(where "workspaces.filter.$1"); at "$x" "$y"; }
 
 xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
 SIMCTL_CHILD_CNX_MOCK_AUTH=1 xcrun simctl launch "$udid" dev.cmux.cnx \
-  -cnx.setupComplete YES -cnx-tab workspaces -cnx.workspaces.macFilter.team-manaflow "" >/dev/null
+  -cnx.setupComplete YES -cnx-tab workspaces -cnx.workspaces.macFilter.team-manaflow "" -cnx-mock-create-delay 8 >/dev/null
 sleep 4
 log=$(mktemp)
 xcrun simctl io "$udid" recordVideo --codec h264 --force "$dir/walk.mp4" >"$log" 2>&1 &
@@ -52,11 +53,11 @@ trap 'kill -INT $rec 2>/dev/null || true' EXIT
 until grep -q "Recording started" "$log"; do sleep 0.1; done
 shot 01-list 0.5
 tap --id workspaces.filter; shot 02-filter-menu
-read -r x y < <(where "Aziz's Mac Studio" AXLabel); at "$x" "$y"; shot 03-filter-studio
-filter "MacBook Pro"; shot 04-filter-offline-mac
+read -r x y < <(where workspaces.filter.mac-studio); at "$x" "$y"; shot 03-filter-studio
+filter mbp; shot 04-filter-offline-mac
 read -r x y < <(where workspace.row.ws-notes); at "$x" "$y"; shot 05-offline-explained
 tap --label OK
-filter "All Macs"; shot 06-filter-all
+filter all; shot 06-filter-all
 read -r x y < <(reveal workspaces.fold.mbp); at "$x" "$y"; shot 07-offline-expanded
 read -r x y < <(reveal workspace.row.ws-zed); at "$x" "$y"; shot 08-offline-row-tapped
 tap --label OK
@@ -80,8 +81,10 @@ shot 12-swipe-close
 tap --id workspace.swipe.close; shot 13-close-confirm
 tap --label "Close Workspace" --element-type Button; shot 14-closed 1.2
 top
+# Creations take 8 s here (-cnx-mock-create-delay): the pending row shows its spinner.
 tap --id workspaces.new; shot 15-new-pushed 1.5
-back; shot 16-new-in-list 1.5
+back; shot 16-new-pending 1.2
+shot 16b-new-confirmed 6
 read -r x y < <(where workspaces.new); hold "$x" "$y"; shot 17-new-options
 # Dismiss the menu (Escape; a tap can land on a full-height AX menu).
 axe key 41 --udid "$udid" >/dev/null; sleep 0.8

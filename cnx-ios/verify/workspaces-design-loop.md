@@ -467,3 +467,127 @@ on its second tab "Resolve merge…" (Codex), back.
 - Live mode was not exercised against a real cmux-next Mac in this round (mock only).
 - At accessibility sizes the context menu fills the screen (system behavior); line 2 at
   AX sizes truncates long tasks at two lines.
+
+### Round 1 — design review
+
+Reviewed every step screenshot of the five runs (`round1/{ios26-dark,ios26-light,ios26-ax,ios27-dark,ios27-light}/01…19`)
+and the 2 fps frames of `ios26-dark` (`frames/f001…f263`) for the transitions. Paths below are
+under `verify/evidence/2026-10-13/wsdesign/round1/`.
+
+The list matches the spec closely. Hierarchy, status words, folds, the toolbar menus,
+the swipe tints and the opening of the waiting tab are right. iOS 26 and iOS 27 render the
+same list; the only differences are on other screens (the terminal key bar). Dark and light
+tints are correct, including the red Close and the gray Rename.
+
+**Major**
+
+1. **The waiting tab does not show what it waits for.** The list says "Codex is waiting ·
+   Resolve merge conflicts". A tap opens that tab (`18-opened-waiting-tab.png`), but the
+   transcript shows a finished answer with no permission or question card. During the push
+   it briefly shows "Working" (`ios26-dark/frames/f248.png`). The list and the screen it
+   opens disagree, so the feature is unproven. Fix: give the mock session behind the waiting
+   tab (`ws-ghostty`'s Codex tab, and `t-claude`) a pending permission or question, so the
+   card is on screen when it opens. Re-record step 18 with the card visible.
+
+**Minor**
+
+2. **Filter menu has no presence** (known): `02-filter-menu.png`. Fix: replace the inline
+   `Picker` with `Button`s (a checkmark on the chosen one), each labeled with a `Text` title
+   and a `Text` subtitle ("Online" / "Last seen 2h ago", and the link line in live mode).
+   Keep the "All Macs" row first.
+3. **Filtered to an offline Mac, the fold line repeats the subtitle** (known):
+   `04-filter-offline-mac.png`. Fix: when the filter is that Mac, drop the fold line and show
+   its rows directly. The navigation subtitle already says "Last seen 2h ago".
+4. **Expanding a fold below the viewport shows no change except the chevron**:
+   `ios26-dark/frames/f088.png` to `f098.png`. The rows appear off screen. Fix: after the
+   expand, `ScrollViewReader.scrollTo` the fold's first row (anchor `.bottom`, `smooth`) when
+   it is below the visible area.
+5. **The close confirmation points at the wrong place**: `13-close-confirm.png`. The popover
+   anchors near the top of the list, not the "design system" row. Fix: attach the
+   `confirmationDialog` to the row (or present it from the swipe action's row) so the arrow
+   points at it, as Mail does.
+6. **Row menu tab names disagree with the row**: `11-row-menu.png`. The row says "Codex is
+   working · Fix pricing page layout"; the menu item says "Codex". Fix: title an agent tab
+   item with its task title (the same text as line 2) and give it the harness as a subtitle
+   ("Codex"); terminals and browser tabs stay as they are.
+7. **Working text is too faint**, worst in light mode: `ios26-light/01-list.png`
+   ("Codex is working" reads near `label3`). Fix: shimmer from a `label2` base to a `label`
+   highlight, so at rest it is never fainter than the rest of line 2.
+8. **AX sizes: the time takes a whole line**, between the name and the status:
+   `ios26-ax/01-list.png`. The first screen shows only 2.5 workspaces. Fix: at accessibility
+   sizes, append the time to the end of line 2 ("… · 1m") instead of its own line. Keep it
+   trailing on line 1 when it fits (`ViewThatFits`).
+9. **AX sizes: the gutter marks do not scale**. The spinner touches "cmux.com" and the dots
+   read as tiny bullets: `ios26-ax/01-list.png`. Fix: `@ScaledMetric(relativeTo: .body)` for
+   the gutter width (32 at Large) and the disc sizes (10 and 8).
+10. **New workspace line 2 is a bare "~"**: `16-new-in-list.png`. Fix: show the home
+    directory as "Home" (the same word as the Recent Directories menu).
+
+**Nits**
+
+11. Needs You sorts newest first (`01-list.png`: cmux 1m above ghostty 25m). Accepted:
+    it matches Recent and Mail. My spec contradicted itself ("longest waiting first" and
+    "descending"); read it as newest first.
+12. Search results have no section titles (`10-search-results.png`). Accepted: Mail and
+    ChatGPT drop sections in results. Amend the spec.
+13. The pending spinner never appears in the evidence (`15`→`16`: the mock confirms at
+    once). Add a mock delay behind a debug flag and capture one frame of it.
+14. Swiping hides the row's name and leaves only "2h" next to the actions
+    (`12-swipe-close.png`). This is system behavior; leave it.
+15. `MacBook Pro` uses `desktopcomputer` (`02-filter-menu.png`). Known: no Mac kind in the
+    model.
+16. `verify/record-wslist.sh` (known) drives chips that no longer exist. Delete it, or
+    point it at `record-wsdesign.sh`.
+
+**Checked and right**
+
+- Honest states: offline rows explain on tap (`05`, `08`); New is disabled while filtered
+  to the offline Mac (`04`); the tab badge (2) matches Needs You.
+- No dead controls on the list, its menus or swipes.
+- Motion: menu open and close, the filter change, swipe, push and pop and the search
+  drawer are all system transitions with no jumps (`frames/f012`–`f019`, `f175`–`f196`,
+  `f208`–`f216`). The search field appearing after a scroll back to the top is the
+  standard drawer behavior.
+
+**Verdict: not yet.** Fix 1 (major) and 2 to 10, then re-record. Everything else can ship
+as is.
+
+### Round 2 — implementation
+
+Every finding of the round 1 review is fixed. Evidence is under
+`verify/evidence/2026-10-13/wsdesign/round2/{ios26-dark,ios26-light,ios26-ax,ios27-dark,ios27-light}/`
+(20 step screenshots each, `walk.mp4`, 2 fps `frames/`), recorded with real HID touches by
+`verify/record-wsdesign.sh` on one headless simulator at a time (iPhone 17 Pro, iOS 26.5,
+then iOS 27.0), deleted afterwards.
+
+| # | Defect | Fix | Evidence |
+| --- | --- | --- | --- |
+| 1 | The waiting tab showed a finished answer, and "Working" flashed during the push. | The tab's `agentStatus` reaches the session (`AgentSessionDirectory` sets `summary.status` to `.waiting` / `.running`). A waiting `MockAgentSession` opens with a turn on the tab's task blocked on the person: Claude asks the transport question, other agents ask to run `git add -A && git merge --continue`; answering finishes the turn. The flash was a half-replayed history (a past turn still running between stream events): the mock now sends its history and the waiting turn's opening as one `AgentSessionEvent.batch`, applied in one change by `AgentChatStore`. | `ios26-dark/18-opened-waiting-tab.png` ("Codex wants to run a command", Allow once / Deny); `ios26-dark/frames/f183`–`f195` (push: the card is there from the first frame, no "Working"); same step in every run. |
+| 2 | Filter menu had no presence. | `Toggle`s with a title `Text`, a subtitle `Text` and the icon directly in the label (a `Label` or an inline `Picker` drops the subtitle); the chosen one has the checkmark. Ids `workspaces.filter.<mac>`. | `*/02-filter-menu.png` ("Online", "Last seen 2h ago") |
+| 3 | Filtered to the offline Mac, the fold line repeated the subtitle. | No line when the filter is that Mac; its rows only. | `*/04-filter-offline-mac.png` |
+| 4 | Unfolding below the viewport showed nothing new. | The line records its bottom in the list (`onGeometryChange`, `.scrollView`) and the list its visible bottom (`onScrollGeometryChange`); when the first new row would not fit, `ScrollViewReader.scrollTo(first, anchor: .bottom)` with `smooth`. | `ios26-ax/07-offline-expanded.png` (the line was at the bottom; `zed` scrolled into view), `ios26-dark/07` |
+| 5 | The close popover pointed near the top of the list. | Anchored at the row: a dialog on the row itself is dropped while its swipe actions close, so the dialog sits on an anchor view over the list, sized and placed (padding, not offset: the popover uses the layout frame) at the row's frame. Row frames go into a plain reference box, so scrolling does not re-render the list. The row menu's Close uses the same anchor. | `*/13-close-confirm.png` (arrow on "design system") |
+| 6 | Row menu said "Codex" where the row says the task. | An agent tab item is titled with its task, the agent as the subtitle; terminals and browsers unchanged. | `*/11-row-menu.png` ("Fix pricing page layout" / "Codex") |
+| 7 | "is working" too faint, worst in light. | `ShimmerText`: `label2` at rest with a `label` highlight sweeping across (static `label2` with Reduce Motion), replacing `WorkingLabel`'s `.secondary` base on a `label2` foreground. | `ios26-light/01-list.png`, `ios27-light/01-list.png` |
+| 8 | At AX sizes the time took a whole line. | The time stays trailing on line 1 beside a name that wraps to two lines (`fixedSize` time); no line of its own. The first AX screen shows 3.5 workspaces instead of 2.5. | `ios26-ax/01-list.png` |
+| 9 | AX gutter marks did not scale; the spinner touched the name. | `@ScaledMetric(relativeTo: .body)` gutter (32 at Large) and discs (10, 8); the separator inset uses the same scaled gutter. | `ios26-ax/01-list.png` |
+| 10 | New workspace line 2 was "~". | The home directory reads "Home" on idle and creating rows. | `*/16-new-pending.png`, `*/16b-new-confirmed.png` |
+| 13 | The pending spinner was never captured. | DEBUG launch argument `-cnx-mock-create-delay <seconds>` (`ShellModel`) holds mock creations open; the script uses 8 s. | `*/16-new-pending.png` (spinner in the gutter, "New Workspace · Home · now"), then `16b-new-confirmed.png` |
+| 16 | Stale `verify/record-wslist.sh`. | Deleted (`git rm`); `verify/workspaces-list.md` notes it was replaced by `record-wsdesign.sh`. | — |
+
+Nits 11, 12, 14 and 15 are accepted as the review says; SPEC 11.1 now says Needs You sorts
+newest first and a lone Recent section has no title in search results.
+
+**Tests**: `swift test` in `CnxKit` passes every suite: CnxWorkspacesTests 23,
+CnxModelTests 40, CnxLiveTests 46, and the AgentChat store suite 38 tests in 14 suites (new
+`waitingMockSessionsOpenOnTheirCard`: the history and the waiting turn arrive as one change
+with every past turn completed, the Codex permission and the Claude question are pending,
+and answering finishes the turn).
+
+**Script changes** (`verify/record-wsdesign.sh`): the filter menu is driven by ids, the
+app launches with `-cnx-mock-create-delay 8`, and step 16 is split into `16-new-pending`
+and `16b-new-confirmed`.
+
+**Known**: one frame during the New Workspace menu dismissal (`ios26-dark/frames/f188`)
+shows the list shifted by the search drawer for 0.5 s (the drawer collapses as Escape
+dismisses the menu); this is a script artifact of the hardware Escape key.

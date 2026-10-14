@@ -40,7 +40,8 @@ public final class AgentSessionDirectory {
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,
-            cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch
+            cwd: workspace.directory, workspaceTitle: workspace.title, macName: macName, branch: workspace.branch,
+            status: tab.agentStatus.map { $0 == .waiting ? .waiting : .running } ?? .idle
         ))
     }
 }
