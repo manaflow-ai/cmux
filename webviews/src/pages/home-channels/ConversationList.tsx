@@ -200,8 +200,8 @@ function ListRow({
           {name}
           {unread && badge === 0 && (
             <span className="lg-visually-hidden">
-            , {row.unread > 0 ? format("unread.messages", String(row.unread)) : t("unread.marked")}
-          </span>
+              , {row.unread > 0 ? format("unread.messages", String(row.unread)) : t("unread.marked")}
+            </span>
           )}
         </span>
         <time className="lg-row-time">{stamp(activityAt(row))}</time>

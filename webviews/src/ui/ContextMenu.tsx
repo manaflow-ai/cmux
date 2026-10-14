@@ -146,6 +146,8 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
     }
   };
   return (
+    // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className={cx("ui-context-menu-host", className)}
       onKeyDown={(event) => {

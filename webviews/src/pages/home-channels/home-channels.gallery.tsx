@@ -26,7 +26,14 @@ type Props = {
   refuseInbox?: boolean;
 };
 
-function HomeChannelsGallery({ select, thread, offline = false, draft, longThread = false, refuseInbox = false }: Props) {
+function HomeChannelsGallery({
+  select,
+  thread,
+  offline = false,
+  draft,
+  longThread = false,
+  refuseInbox = false,
+}: Props) {
   const [store] = useState(() => {
     const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, refuseInbox));
     if (select)
@@ -185,7 +192,8 @@ export default componentEntry<Props>({
       },
       play: async (ctx) => {
         const row = (id: string) => ctx.document.querySelector<HTMLElement>(`[data-list-row="${id}"]`);
-        const order = () => [...ctx.document.querySelectorAll("[data-list-row]")].map((node) => node.getAttribute("data-list-row"));
+        const order = () =>
+          [...ctx.document.querySelectorAll("[data-list-row]")].map((node) => node.getAttribute("data-list-row"));
         await ctx.waitFor(() => row("c-design"));
         await ctx.focus({ selector: '[data-list-row="c-design"]' });
         await ctx.press("Shift+F10");
