@@ -304,6 +304,23 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
+    test("a Claude Code variant's chat keeps /permissions in the composer too", async () => {
+      summary.harness = "claude-sr";
+      try {
+        const page = await openChat();
+        const before = prompts.length;
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/permissions");
+        await page.keyboard.press("Escape");
+        await page.keyboard.press("Enter");
+        await page.locator(".acpmux-attachment-note", { hasText: "access menu" }).waitFor({ timeout: 5_000 });
+        expect(prompts.length).toBe(before);
+        await page.close();
+      } finally {
+        summary.harness = "claude";
+      }
+    });
+
     test("Esc on an empty composer stops the turn", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
