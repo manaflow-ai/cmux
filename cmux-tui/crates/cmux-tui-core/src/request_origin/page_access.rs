@@ -118,7 +118,8 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectAdd
         | Op::ProjectUpdate
         | Op::ProjectRemove
-        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSync
+        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove
@@ -251,6 +252,22 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::SidebarGet
+        | Op::SidebarMove
+        | Op::SidebarPin
+        | Op::SidebarUnpin
+        | Op::SidebarItemAdd
+        | Op::SidebarItemRemove
+        | Op::SidebarItemUpdate
+        | Op::SidebarSectionAdd
+        | Op::SidebarSectionUpdate
+        | Op::SidebarSectionMove
+        | Op::SidebarSectionRemove
+        | Op::SidebarGroupCreate
+        | Op::SidebarGroupUpdate
+        | Op::SidebarGroupUngroup
+        | Op::SidebarAdopt
+        | Op::SidebarApply
         | Op::BrowserDevicesList
         | Op::BrowserDevicesAddCustom
         | Op::BrowserDevicesRemoveCustom
@@ -300,6 +317,8 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
+        // Page home-channels opens a clicked web link on the person's gesture.
+        | Op::WorkspaceOpenUrl
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList

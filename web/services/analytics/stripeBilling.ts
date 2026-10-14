@@ -12,6 +12,7 @@ import {
   firstPaidCheckoutPersonProperties,
   type CheckoutAttribution,
 } from "./checkoutAttribution";
+import { planItem } from "../billing/subscriptionItems";
 
 const CAPTURE_TIMEOUT_MS = 2_000;
 
@@ -224,7 +225,7 @@ function subscriptionEvent(
     properties: {
       ...common,
       plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription),
-      billing_interval: subscription.items?.data?.[0]?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
+      billing_interval: planItem(subscription)?.price?.recurring?.interval ?? metadataString(subscription.metadata, "billingInterval"),
       ...(action === "deleted" ? {} : { $set: { billing_plan: subscription.metadata?.plan === "team" ? "team" : personalPlanIdForSubscription(subscription) } }),
       subscription_status: subscription.status,
       cancel_at_period_end: subscription.cancel_at_period_end,

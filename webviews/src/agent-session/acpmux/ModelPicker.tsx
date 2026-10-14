@@ -14,7 +14,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
-import { MODEL_PICKER_MAX_HEIGHT, type ModelPickerProps } from "./modelPickerLayout";
+import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
@@ -342,7 +342,13 @@ export function ModelPicker(props: ModelPickerProps) {
     // the local promise state from the previous click.
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
-  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  // Opens on the side that has room for the picker's floor, not only for what it measures before its
+  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  const menuStyle = useUiAnchor(trigger, menu, open, {
+    side: "above",
+    align: "start",
+    minHeight: MODEL_PICKER_MIN_HEIGHT,
+  });
   useLayoutEffect(() => {
     if (!open) {
       setOpenHeight(undefined);
@@ -659,18 +665,12 @@ export function ModelPicker(props: ModelPickerProps) {
         <PickerDialog
           ref={menu}
           id={menuId}
-          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex max-h-[480px] w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
+          className="ui-popup ui-picker-popup acpmux-mp z-[3] flex w-[min(310px,calc(100vw-24px))] overflow-hidden rounded-[var(--ui-popup-radius,8px)] text-control text-fg"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the popover is positioned by the shared anchor helper.
           aria-label={modelText}
-          // The anchor's room above or below the chip, never more than MODEL_PICKER_MAX_HEIGHT.
-          style={{
-            ...menuStyle,
-            maxHeight: Math.min(
-              typeof menuStyle.maxHeight === "number" ? menuStyle.maxHeight : MODEL_PICKER_MAX_HEIGHT,
-              MODEL_PICKER_MAX_HEIGHT,
-            ),
-            ...(openHeight == null ? {} : { height: openHeight }),
-          }}
+          // The anchor's room above or below the chip, between the picker's minimum and maximum
+          // heights; a fixed height here collapsed a menu that opened before its models loaded.
+          style={{ ...menuStyle, ...pickerHeightBounds(menuStyle.maxHeight, openHeight) }}
         >
           {/* The rail: Starred, then one icon per harness; a click or arrow key shows its models. */}
           <ScrollArea

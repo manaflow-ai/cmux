@@ -73,3 +73,32 @@ export function hasAuthRateLimitSignal(
       .slice(0, MAX_AUTH_ERROR_METADATA_NODES)
       .some((error) => hasAuthRateLimitSignal(error, state, depth + 1)));
 }
+
+const TRANSIENT_ERROR_NAMES = new Set([
+  "SubrouterAuthorizationTimeoutError",
+  "TimeoutError",
+  "AbortError",
+  // The Stack SDK's answer when every API host failed (outage).
+  "ApiUrlsFailedError",
+]);
+
+/**
+ * Whether a Stack failure is transient: a throttle (429), a Stack 5xx, a
+ * timeout, an unreachable host, or our own overload gate behind a slow Stack.
+ * Anything else (configuration, a refused session, a bug) is not, and keeps
+ * its real handling. Walks a bounded cause chain.
+ */
+export function isTransientStackFailure(error: unknown): boolean {
+  if (hasAuthRateLimitSignal(error)) return true;
+  let current: unknown = error;
+  for (let depth = 0; depth < MAX_AUTH_ERROR_METADATA_DEPTH && current; depth++) {
+    if (typeof current !== "object") return false;
+    const candidate = current as { name?: unknown; message?: unknown; status?: unknown; transient?: unknown; cause?: unknown };
+    if (candidate.transient === true) return true;
+    if (typeof candidate.status === "number" && candidate.status >= 500) return true;
+    if (typeof candidate.name === "string" && TRANSIENT_ERROR_NAMES.has(candidate.name)) return true;
+    if (candidate.name === "TypeError" && candidate.message === "fetch failed") return true;
+    current = candidate.cause;
+  }
+  return false;
+}
