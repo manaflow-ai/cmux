@@ -142,15 +142,7 @@ function ImageTile({
   );
 }
 
-function VideoPlayer({
-  conversation,
-  part,
-  strings,
-}: {
-  conversation: string;
-  part: HomeAttachment;
-  strings: Strings;
-}) {
+function VideoPlayer({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
   const service = useContext(AttachmentContext);
   const [src, setSrc] = useState<string>();
   const posterSrc = usePoster(conversation, part);
@@ -202,12 +194,7 @@ function VideoPlayer({
             .join(" · ")}
         </span>
         {src && (
-          <a
-            className="hc-att-download"
-            href={src}
-            download={part.name}
-            aria-label={strings.format("attachment.download", part.name)}
-          >
+          <a className="hc-att-download" href={src} download={part.name} aria-label={strings.format("attachment.download", part.name)}>
             <HomeIcon name="download" />
           </a>
         )}
@@ -321,23 +308,13 @@ function Lightbox({
       </header>
       <div className="hc-lightbox-stage">
         {images.length > 1 && (
-          <button
-            type="button"
-            className="hc-lightbox-step prev"
-            aria-label={strings.t("lightbox.previous")}
-            onClick={() => step(-1)}
-          >
+          <button type="button" className="hc-lightbox-step prev" aria-label={strings.t("lightbox.previous")} onClick={() => step(-1)}>
             <HomeIcon name="chevronLeft" />
           </button>
         )}
         {(src ?? preview) && <img src={src ?? preview} alt={part.name} />}
         {images.length > 1 && (
-          <button
-            type="button"
-            className="hc-lightbox-step next"
-            aria-label={strings.t("lightbox.next")}
-            onClick={() => step(1)}
-          >
+          <button type="button" className="hc-lightbox-step next" aria-label={strings.t("lightbox.next")} onClick={() => step(1)}>
             <HomeIcon name="chevronRight" />
           </button>
         )}
@@ -401,22 +378,11 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
         </span>
       </span>
       {state === "uploading" && (
-        <span
-          className="hc-tray-bar"
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(fraction * 100)}
-        >
+        <span className="hc-tray-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(fraction * 100)}>
           <span style={{ width: percent }} />
         </span>
       )}
-      <button
-        type="button"
-        className="hc-tray-remove"
-        aria-label={strings.format("attach.remove", item.file.name)}
-        onClick={onRemove}
-      >
+      <button type="button" className="hc-tray-remove" aria-label={strings.format("attach.remove", item.file.name)} onClick={onRemove}>
         <HomeIcon name="close" />
       </button>
     </li>
