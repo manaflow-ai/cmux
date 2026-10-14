@@ -76,18 +76,6 @@ extension KeyRouter {
         !decided.contains(event)
     }
 
-    /// Whether the dispatcher decided `event` and its chord is the user's
-    /// own Ghostty keybind: a key their config claims from a cmux default
-    /// (`ghosttyClaims`) or a `.ghostty` entry, never a `.ghosttyFallback`
-    /// default (`TerminalKeyEquivalent.userKeybindOwns`).
-    func deliveredForUserGhosttyKeybind(_ event: NSEvent) -> Bool {
-        guard decided.contains(event) else { return false }
-        let layers = registry.keyBindingLayers
-        return ActionRegistry.shortcuts(for: event).contains { key in
-            layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
-        }
-    }
-
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
         let allowed = menuGate(id)
         trace?("menu gate \(id.rawValue): \(allowed ? "allowed" : "refused")")

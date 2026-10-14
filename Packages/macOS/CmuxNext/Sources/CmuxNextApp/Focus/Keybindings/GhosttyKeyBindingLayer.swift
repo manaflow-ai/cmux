@@ -69,6 +69,15 @@ struct GhosttyKeyBindingLayer {
         }
     }
 
+    /// Whether `event`'s chord is the user's own Ghostty keybind: a key their
+    /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
+    /// entry, never a `.ghosttyFallback` default.
+    static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
+        ActionRegistry.shortcuts(for: event).contains { key in
+            layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
+        }
+    }
+
     /// The table key of a trigger: its codepoint, or the physical key's name.
     func shortcut(for bind: GhosttyHostKeybind) -> Shortcut? {
         switch bind.key {

@@ -9,6 +9,10 @@ struct TerminalHooks {
     func install() {
         GhosttyRuntime.shared.appActionHandler = { [weak services] in services?.terminalDelegate.performAppAction($0) ?? false }
         TerminalKeyEquivalent.menuMayClaim = { [weak services] in services?.keyRouter.menuMayClaim($0) ?? true }
-        TerminalKeyEquivalent.userKeybindOwns = { [weak services] in services?.keyRouter.deliveredForUserGhosttyKeybind($0) ?? false }
+        // A key the dispatcher delivered for the user's own Ghostty keybind.
+        TerminalKeyEquivalent.userKeybindOwns = { [weak services] event in
+            guard let services, services.keyRouter.decided.contains(event) else { return false }
+            return GhosttyKeyBindingLayer.isUsersKeybind(event, layers: services.registry.keyBindingLayers)
+        }
     }
 }
