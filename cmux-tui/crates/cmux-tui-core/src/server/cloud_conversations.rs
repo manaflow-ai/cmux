@@ -236,7 +236,7 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
 /// app holds the lease, it is the human's: only the app may read, send or
 /// subscribe with it (cmux#13742). `cloud-session-status` and the
 /// unsubscribes use no lease and stay open.
-fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
+pub(super) fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     let service = service(mux, client)?;
     // A page uses only the human's lease (the app's), never another one.
     if is_websocket_person(mux, client) {
@@ -423,6 +423,11 @@ pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
 
 /// Whether `cmd` calls the cloud and should leave the request loop.
 pub(super) fn is_network(cmd: &Command) -> bool {
+    // An upload's chunks and cancel stay local (the store only); begin and
+    // commit call the cloud.
+    if let Command::CloudAttachmentUpload(params) = cmd {
+        return params.op == "begin" || params.op == "commit";
+    }
     matches!(
         cmd,
         Command::CloudInboxList(_)
@@ -434,6 +439,8 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationOp(_)
             | Command::CloudInboxOp(_)
             | Command::CloudMuxAck(_)
+            | Command::CloudAttachmentRead(_)
+            | Command::CloudAttachmentLink(_)
     )
 }
 
