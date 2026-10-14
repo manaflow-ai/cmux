@@ -9,7 +9,7 @@
 //! (`ToolInventory::off`) and every start of its Claude Code gets
 //! `--disallowedTools mcp__<server>` for each server that is off
 //! (`spawn.rs`). An idle chat restarts now and resumes; a running turn keeps
-//! its process, and the choice applies at the next start. Claude Code's own
+//! its process, which restarts when the turn ends. Claude Code's own
 //! `mcp_toggle` is never sent: it writes `disabledMcpServers` into the
 //! folder's entry of `~/.claude.json`, which turns the server off for every
 //! Claude session in that folder and outlives the chat. Anything else is
@@ -140,13 +140,17 @@ impl Hub {
         self.append(session, "mux", "tools", json!({"id": id, "enabled": enabled}));
         self.save_meta(session);
         // The route switch's restart: the process ends, and a new one resumes
-        // the same conversation now (`route_switch.rs`).
-        let live = session.child.lock().await.is_some();
-        let applied = if live && session.turn().is_none() {
+        // the same conversation (`route_switch.rs`). Holding the turn lock, no
+        // prompt starts on the process being stopped; a turn that holds it
+        // restarts the process when it ends (`turns.rs`).
+        let applied = if session.child.lock().await.is_none() {
+            "nextStart"
+        } else if let Ok(_turn) = session.turn_lock.try_lock() {
             self.restart_on_route(session).await?;
             "now"
         } else {
-            "nextStart"
+            session.route_switch.store(true, Ordering::SeqCst);
+            "afterTurn"
         };
         let tools = session.meta().tools;
         Ok(json!({
@@ -159,15 +163,25 @@ impl Hub {
 }
 
 /// `--disallowedTools mcp__<server>` for each server the chat turned off, in
-/// Claude Code's spelling of a server name (other than `[A-Za-z0-9_-]`
-/// becomes `_`).
+/// Claude Code's spelling of a server name: other than `[A-Za-z0-9_-]`
+/// becomes `_`, and for a `claude.ai ` connector runs of `_` collapse and
+/// the ends trim (Claude Code 2.1.299).
 pub(super) fn disallowed_args(tools: &ToolInventory) -> Vec<String> {
     let mut args = Vec::new();
     for server in tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")) {
-        let name: String = server
+        let mut name: String = server
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
             .collect();
+        if server.starts_with("claude.ai ") {
+            let mut collapsed = String::with_capacity(name.len());
+            for c in name.chars() {
+                if !(c == '_' && collapsed.ends_with('_')) {
+                    collapsed.push(c);
+                }
+            }
+            name = collapsed.trim_matches('_').to_owned();
+        }
         args.push("--disallowedTools".to_owned());
         args.push(format!("mcp__{name}"));
     }

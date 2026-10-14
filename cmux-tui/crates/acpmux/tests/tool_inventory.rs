@@ -350,7 +350,11 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     let said = local.reply(900).await;
     assert_eq!(disallowed(&argv(&said)), ["mcp__github"], "the turn's process ran on: {said}");
     let args = argv(&local.ask(&claude, "hi").await);
-    assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__github"], "the next turn restarted: {args:?}");
+    assert_eq!(
+        disallowed(&args),
+        ["mcp__cmux", "mcp__github"],
+        "the next turn restarted: {args:?}"
+    );
 
     // Both choices survive a respawn.
     local.call("session/close", json!({"sessionId": claude})).await.expect("close");
@@ -375,11 +379,12 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
 
     // A claude.ai connector, in Claude Code's spelling of its name: other
     // characters become `_`, then runs of `_` collapse and the ends trim.
-    let connector = json!({"sessionId": claude, "id": "mcp:claude.ai Foo  (Beta)", "enabled": false});
+    let connector =
+        json!({"sessionId": claude, "id": "mcp:claude.ai Foo  (Beta)", "enabled": false});
     let set = app.call("_acpmux/set_tools", connector).await.expect("turn the connector off");
     assert_eq!(set["applied"], json!("now"), "{set}");
     let args = argv(&local.ask(&claude, "hi").await);
-    assert_eq!(disallowed(&args), ["mcp__cmux", "mcp__claude_ai_Foo_Beta"], "{args:?}");
+    assert_eq!(disallowed(&args), ["mcp__claude_ai_Foo_Beta", "mcp__cmux"], "{args:?}");
 
     // Claude Code was never sent mcp_toggle (it persists to ~/.claude.json).
     let controls = std::fs::read_to_string(&control_log).unwrap();
