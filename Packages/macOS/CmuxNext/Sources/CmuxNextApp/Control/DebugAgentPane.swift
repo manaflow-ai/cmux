@@ -169,7 +169,7 @@ enum DebugAgentPane {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
         if action == "hover" {
-            return DebugAgentPaneClick.hover(params, pane: pane, view: view)
+            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
         }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)

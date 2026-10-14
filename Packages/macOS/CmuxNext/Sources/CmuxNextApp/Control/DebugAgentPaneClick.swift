@@ -135,24 +135,46 @@ enum DebugAgentPaneClick {
         ])
     }
 
-    /// `debug.agent_pane {action: "hover", x, y}`: the pointer moves to window point `x`,`y`
-    /// (top-left origin, as `debug.mouse`) over the agent page, as a real move there: a mouse
-    /// moved event straight to the web view, which takes it also in a window that is not key
-    /// (AppKit sends a posted move to no view there, and WebKit's tracking area owner is no
-    /// responder). Recordings of the page's hovers on a capture slot.
-    static func hover(_ params: [String: JSONValue], pane: String, view: AgentPaneView) -> JSONValue {
+    /// Moves the page's pointer to `x`,`y` in CSS pixels: pointer and mouse out of the element it
+    /// leaves, over the one it enters, and a move, as the page sees a real pointer (untrusted).
+    private static let hoverScript = """
+        const now = document.elementFromPoint(x, y);
+        const was = window.__cmuxDebugHover ?? null;
+        const fire = (target, type, related) => {
+            if (!target) return;
+            const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, relatedTarget: related };
+            target.dispatchEvent(type.startsWith('pointer') ? new PointerEvent(type, { ...init, pointerType: 'mouse', isPrimary: true }) : new MouseEvent(type, init));
+        };
+        if (was !== now) {
+            fire(was, 'pointerout', now); fire(was, 'mouseout', now);
+            fire(now, 'pointerover', was); fire(now, 'mouseover', was);
+            window.__cmuxDebugHover = now;
+        }
+        fire(now, 'pointermove', null); fire(now, 'mousemove', null);
+        return now ? now.tagName.toLowerCase() + (now.getAttribute('title') ? ' title=' + now.getAttribute('title') : '') : '';
+        """
+
+    /// `debug.agent_pane {action: "hover", x, y}`: the page's pointer moves to window point `x`,`y`
+    /// (top-left origin, as `debug.mouse`): the page gets the pointer events a real move there
+    /// fires (untrusted, and no CSS `:hover`). WebKit takes no mouse moves in a window that is not
+    /// key, and a capture slot's never is: recordings of the page's tooltips and hints there.
+    static func hover(_ params: [String: JSONValue], pane: String, view: AgentPaneView) async -> JSONValue {
         guard let window = view.window, let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
             return .object(["pane": .string(pane), "error": .string("pass x and y; the pane must be in a window")])
         }
+        let webView = view.webView
         let height = window.contentView?.bounds.height ?? window.frame.height
-        let point = NSPoint(x: x, y: height - y)
-        guard let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
-                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                                             context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else {
-            return .object(["pane": .string(pane), "error": .string("could not synthesize the move")])
+        let local = webView.convert(NSPoint(x: x, y: height - y), from: nil)
+        let scale = max(webView.pageZoom * webView.magnification, 0.01)
+        let cssX = local.x / scale
+        let cssY = (webView.isFlipped ? local.y : webView.bounds.height - local.y) / scale
+        do {
+            let hit = try await webView.callAsyncJavaScript(
+                hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY)], in: nil, contentWorld: .page) as? String
+            return .object(["pane": .string(pane), "x": .number(x), "y": .number(y), "element": .string(hit ?? "")])
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }
-        view.webView.mouseMoved(with: event)
-        return .object(["pane": .string(pane), "x": .number(x), "y": .number(y)])
     }
 }
 #endif
