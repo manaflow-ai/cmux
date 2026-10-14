@@ -173,7 +173,7 @@
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
-  border-radius: 7px;
+  border-radius: 6px;
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
   font-size: var(--text-caption);
