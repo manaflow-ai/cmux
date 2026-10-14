@@ -22,6 +22,13 @@ extension TerminalSurface {
         if workspace.isRemoteTerminalSurface(id) {
             return .remote(.workspaceRemote)
         }
+        // A restored `cmux ssh` pane keeps its remote PTY binding while it
+        // waits for the remote to report the session connected. That stored
+        // binding, not the `ssh` running on its TTY, makes it remote.
+        if workspace.remoteConfiguration?.transport == .ssh,
+           workspace.remotePTYSessionIDsByPanelId[id] != nil {
+            return .remote(.workspaceRemote)
+        }
         // Manual tmux mirrors have no local TTY for the SSH process detector.
         if let target = AppDelegate.shared?.remoteTmuxController.remoteUploadTarget(forSurfaceId: id) {
             return .remote(target)
