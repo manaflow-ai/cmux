@@ -443,6 +443,9 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// `placement-shift-v1`: an echoing connection gets no `workspace_placement`
+/// restatement on `session.events` (state/placement_shift.rs).
+pub use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 /// Per-terminal themes in the home session's personal state:
 /// `set-personal-terminal` and `list-personal.terminals`.
 pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
