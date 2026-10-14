@@ -149,6 +149,9 @@ struct BrowserScreen: View {
     @State private var overviewImages: [String: UIImage] = [:]
     /// Swipe-to-close offsets of the grid's cards.
     @State private var cardSwipes = CardSwipeState()
+    /// A card to remove once the zoom back to the grid settles (an ended
+    /// terminal's "Back to Terminals").
+    @State private var pendingCardRemoval: String?
     @Environment(\.cnLeadingBarItem) private var leadingItem
     @Environment(\.cnShellRoute) private var shellRoute
     @Environment(\.displayScale) private var displayScale
@@ -450,6 +453,19 @@ struct BrowserScreen: View {
                 if phase == .page {
                     zoomTabId = nil
                     chrome.expand(tap: true)
+                }
+                if phase == .overview, let key = pendingCardRemoval {
+                    pendingCardRemoval = nil
+                    tabs.removeEndedTerminal(key, animation: motion.resolve(motion.reflow))
+                }
+            }
+            tabs.backToGridRemoving = { key in
+                pendingCardRemoval = key
+                if zoomState.phase == .overview {
+                    pendingCardRemoval = nil
+                    tabs.removeEndedTerminal(key, animation: motion.resolve(motion.reflow))
+                } else {
+                    openOverview()
                 }
             }
         }

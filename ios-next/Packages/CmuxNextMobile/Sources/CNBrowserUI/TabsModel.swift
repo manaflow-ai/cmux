@@ -87,6 +87,16 @@ final class TabsModel {
     @ObservationIgnored var terminalImage: ((String) -> UIImage?)?
     /// Asks for live thumbnails of these terminal ids (the grid is about to show).
     @ObservationIgnored var showTerminalCards: (([String]) -> Void)?
+    /// Set by the screen: zoom out to the grid, then remove `key`'s card
+    /// (a terminal that ended on the Mac; "Back to Terminals").
+    @ObservationIgnored var backToGridRemoving: ((String) -> Void)?
+
+    /// A terminal that ended on the Mac (its PTY is gone): drop its card.
+    /// No `term.close` (there is nothing left to close on the host).
+    func removeEndedTerminal(_ key: String, animation: Animation? = nil) {
+        guard let id = TabItem.terminalId(fromKey: key) else { return }
+        withAnimation(animation) { removeTerminalLocally(key, id: id) }
+    }
     /// Holds (true) or resumes (false) the terminal cards' live refresh.
     @ObservationIgnored var pauseTerminalCards: ((Bool) -> Void)?
     /// The open terminal's live view becomes its static card (true when it

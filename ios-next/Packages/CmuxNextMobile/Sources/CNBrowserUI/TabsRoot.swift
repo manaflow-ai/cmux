@@ -31,7 +31,11 @@ public struct TabsRoot: View {
         TabsScreenHost(
             tabs: tabs, connection: connection,
             terminalContent: { id, size in
-                AnyView(TerminalContent(handle: terminals.handle(id), layoutSize: size))
+                // "Back to Terminals" on an ended terminal: back to the grid,
+                // where its card goes away.
+                AnyView(TerminalContent(handle: terminals.handle(id), layoutSize: size) {
+                    tabs.backToGridRemoving?(TabItem.terminalPrefix + id)
+                })
             },
             terminalFontStep: { step in
                 guard let id = tabs.activeTerminal?.id else { return }
