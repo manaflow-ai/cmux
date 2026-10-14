@@ -71,6 +71,10 @@ export function mountDaemonHomeChannelsPage(
 /** One store per daemon connection (a render never makes a second one). */
 function DaemonHome({ daemon, strings }: { daemon: DaemonSocket; strings: Strings }) {
   const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon)));
+  // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
+  // from a page only with the person's confirmation (page-router gesture list), which this
+  // WebSocket cannot present yet. Until the host relays the click with a confirmation
+  // (cx-ebm.59.6), the page leaves link clicks to the host.
   return <HomeChannelsPage store={store} strings={strings} />;
 }
 

@@ -23,7 +23,8 @@ final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private var toggle: (() -> Void)?
     private let box = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
-    private let spinner = NSProgressIndicator()
+    /// The shared themed spinner, in phase with every other one (cx-qtgj2).
+    private let spinner = StatusIndicatorView.spinner()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
     private let icon = NSImageView()
@@ -57,9 +58,7 @@ final class ImportProfileRow: NSView {
         box.action = #selector(boxPressed)
         accessButton.target = self
         accessButton.controlSize = .small
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
+        NSLayoutConstraint.activate([spinner.widthAnchor.constraint(equalToConstant: 16), spinner.heightAnchor.constraint(equalToConstant: 16)])
         detail.alignment = .right
         let spinnerSlot = Self.slot(width: 18, containing: spinner)
         let markSlot = Self.slot(width: 18, containing: mark)
@@ -146,7 +145,7 @@ final class ImportProfileRow: NSView {
         accessButton.alphaValue = 0
         spinner.alphaValue = 0
         mark.alphaValue = 0
-        spinner.stopAnimation(nil)
+        spinner.spin(false)
     }
 
     /// The installed browser's own icon. Resolve the bundle again for rows
@@ -231,7 +230,7 @@ final class ImportProfileRow: NSView {
             detail.themedToolTip = reason
         }
         box.alphaValue = showsBox ? 1 : 0
-        if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(spins)
         spinner.alphaValue = spins ? 1 : 0
         mark.image = markIcon.map { NSImage.icon($0, size: 14) }
         mark.contentTintColor = Palette.textSecondary
