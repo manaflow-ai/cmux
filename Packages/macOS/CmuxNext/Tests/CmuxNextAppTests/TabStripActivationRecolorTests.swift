@@ -1,0 +1,46 @@
+import AppKit
+@testable import CmuxNextTabs
+import Testing
+
+/// A window becoming or leaving main changes one thing in its tab strip: whether the selected
+/// tab shows its fill. A DEV build hung 10 s in that path on activation (watchdog, cosmic-gray
+/// 2026-10-14) while every tab of every strip re-resolved its theme and recolored itself, so
+/// activation now repaints the selected tab only, however many tabs the strip holds.
+@MainActor @Suite(.serialized) struct TabStripActivationRecolorTests {
+    static let tabs = 300
+
+    /// Marks every unselected tab's title with a color no theme draws: a tab that repaints
+    /// replaces it.
+    static let sentinel = CGColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+
+    @Test func activationRepaintsOnlyTheSelectedTab() throws {
+        let model = TabStripModel(tabs: (0..<Self.tabs).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") },
+                                  selectedID: TabID("tab1"))
+        let strip = TabStripView(model: model)
+        strip.dragsWindowFromEmptySpace = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: TabStripView.preferredHeight),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        strip.layoutSubtreeIfNeeded()
+        #expect(strip.cells.count == Self.tabs)
+        let selected = try #require(strip.cells[TabID("tab1")])
+        let others = strip.cells.filter { $0.key != TabID("tab1") }.map(\.value)
+
+        // What AppKit posts when the window comes to the front.
+        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window)
+        #expect(selected.backgroundLayer.backgroundColor != nil, "the main window's selected tab is filled")
+
+        for cell in others { cell.titleLayer.foregroundColor = Self.sentinel }
+        let clock = ContinuousClock()
+        let resign = clock.measure { NotificationCenter.default.post(name: NSWindow.didResignMainNotification, object: window) }
+        #expect(selected.backgroundLayer.backgroundColor == nil, "a window in back fills no tab")
+        let become = clock.measure { NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window) }
+        #expect(selected.backgroundLayer.backgroundColor != nil, "the fill is back when the window is main again")
+
+        let repainted = others.filter { $0.titleLayer.foregroundColor != Self.sentinel }.count
+        print("activation recolor, \(Self.tabs) tabs: resign \(resign), become \(become), \(repainted) unselected tabs repainted")
+        #expect(repainted == 0, "\(repainted) of \(others.count) unselected tabs repainted for a window-main change")
+    }
+}
