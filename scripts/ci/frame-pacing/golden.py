@@ -5,7 +5,9 @@
     golden.py judge OUT_DIR          judge those files; prints markdown, exits 1 on a failure
 
 #20216 turned the New Tab tab-grow animation off and nothing noticed; #20365 brought it
-back. Each scenario here records the animated property itself, once per display frame,
+back. Since b235e5f5d752 a new tab is there at once at full width by design, so the New Tab
+rows now check that it lands in one step and its neighbors make room in the same frame.
+Each scenario here records the animated property itself, once per display frame,
 through DEBUG-only socket probes: a tab cell's width and x and the sidebar width
 (`debug.motion` `trace_start`/`trace_stop`), the transcript's scrollTop (`debug.agent_pane` `stream` with
 `trace`) and the window and pane content size during a live resize. The judge then checks
@@ -32,11 +34,13 @@ EPS = 0.75  # points: a value this close to its start or end counts as there
 # Per scenario: `min_intermediate` frames strictly between the start and end values,
 # `max_step` the largest share of the travel one frame may carry, `p95_frames` and
 # `max_frames` the frame interval budget during the motion in refresh periods. Reduce
-# Motion scenarios instead allow at most `max_intermediate` frames between the ends, over a
-# trace of at least `min_frames` frames (two frames would pass by having no room to move).
+# Motion scenarios and the New Tab rows instead allow at most `max_intermediate` frames between
+# the ends, over a trace of at least `min_frames` frames (two frames would pass by having no
+# room to move). A new tab is there at once at its slot and full width, and the strip makes
+# room in the same frame (b235e5f5d752, Lawrence 10-14): no grow-in by default.
 THRESHOLDS: dict[str, dict[str, float]] = {
-    "new_tab_cold": {"min_intermediate": 8, "max_step": 0.5, "p95_frames": 2.5, "max_frames": 8},
-    "new_tab_warm": {"min_intermediate": 8, "max_step": 0.5, "p95_frames": 2.5, "max_frames": 8},
+    "new_tab_cold": {"max_intermediate": 1, "min_frames": 20},
+    "new_tab_warm": {"max_intermediate": 1, "min_frames": 20},
     "sidebar_collapse": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
     "sidebar_expand": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
     "transcript_follow": {"min_intermediate": 60, "max_step": 0.2, "p95_frames": 2.5, "max_frames": 12, "max_trail": 0.9, "end_trail": 0.2},
@@ -329,7 +333,8 @@ def judge_motion(name: str, result: dict, refresh: float) -> dict:
         if result["frames"] < limits["min_frames"]:
             problems.append(f"only {result['frames']} frames traced (< {limits['min_frames']:g})")
         if result["intermediate"] > limits["max_intermediate"]:
-            problems.append(f"{result['intermediate']} intermediate frames under Reduce Motion (> {limits['max_intermediate']:g})")
+            why = "under Reduce Motion" if name.startswith("reduce_") else "; a new tab should land at once (b235e5f5d752)"
+            problems.append(f"{result['intermediate']} intermediate frames {why} (> {limits['max_intermediate']:g})")
         return {"ok": not problems, "problems": problems, **result}
     if result["travel"] <= EPS:
         problems.append("nothing moved")
@@ -376,7 +381,8 @@ def judge(out: Path) -> dict[str, dict]:
                     verdict["problems"].append(f"{len(slow)} neighbor(s) jumped instead of moving")
                     verdict["ok"] = False
             elif any(n["intermediate"] > THRESHOLDS[name]["max_intermediate"] for n in neighbors):
-                verdict["problems"].append("a neighbor animated under Reduce Motion")
+                verdict["problems"].append("a neighbor animated under Reduce Motion" if name.startswith("reduce_")
+                                           else "a neighbor moved over frames instead of making room at once")
                 verdict["ok"] = False
             verdict["opening"] = data.get("opening")
             if data.get("spare_ready") is False:
