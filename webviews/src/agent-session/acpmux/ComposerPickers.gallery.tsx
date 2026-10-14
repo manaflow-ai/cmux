@@ -84,7 +84,7 @@ function GalleryComposerPickers() {
   const [fast, setFast] = useState("off");
   const [grants, setGrants] = useState<ComposerPermissionGrant[]>([
     { id: "folder", label: "Trusted cmux-tui", onRemove: () => setGrants((current) => current.slice(1)) },
-    { id: "git-grep", label: "Always allow git grep in cmux", onRemove: () => setGrants([]) },
+    { id: "git-grep", label: "Allow git grep in cmux for this session", onRemove: () => setGrants([]) },
   ]);
   const snapshot = useMemo<AcpmuxSnapshot>(
     () => ({

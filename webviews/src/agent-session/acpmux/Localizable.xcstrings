@@ -21122,127 +21122,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "السماح دائمًا بـ {rules}"
+            "value": "السماح بـ {rules} لهذه الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uvijek dozvoli {rules}"
+            "value": "Dozvoli {rules} za ovu sesiju"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillad altid {rules}"
+            "value": "Tillad {rules} i denne session"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{rules} immer erlauben"
+            "value": "{rules} für diese Sitzung erlauben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Always allow {rules}"
+            "value": "Allow {rules} for this session"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir siempre {rules}"
+            "value": "Permitir {rules} en esta sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Toujours autoriser {rules}"
+            "value": "Autoriser {rules} pour cette session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consenti sempre {rules}"
+            "value": "Consenti {rules} per questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{rules} を常に許可"
+            "value": "このセッションで {rules} を許可"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាត {rules} ជានិច្ច"
+            "value": "អនុញ្ញាត {rules} សម្រាប់វគ្គនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{rules} 항상 허용"
+            "value": "이 세션에서 {rules} 허용"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tillat alltid {rules}"
+            "value": "Tillat {rules} i denne økten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zawsze zezwalaj na {rules}"
+            "value": "Zezwól na {rules} w tej sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sempre permitir {rules}"
+            "value": "Permitir {rules} nesta sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Всегда разрешать {rules}"
+            "value": "Разрешить {rules} в этом сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาต {rules} เสมอ"
+            "value": "อนุญาต {rules} สำหรับเซสชั่นนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{rules} için her zaman izin ver"
+            "value": "Bu oturum için {rules} izni ver"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Завжди дозволяти {rules}"
+            "value": "Дозволити {rules} у цьому сеансі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Luôn cho phép {rules}"
+            "value": "Cho phép {rules} trong phiên này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "始终允许 {rules}"
+            "value": "在本次会话中允许 {rules}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一律允許 {rules}"
+            "value": "在本次工作階段允許 {rules}"
           }
         }
       }
@@ -21254,127 +21254,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نعم، ولا تسأل مرة أخرى"
+            "value": "نعم، ولا تسأل مرة أخرى في هذه الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Da, i ne pitaj ponovo"
+            "value": "Da, i ne pitaj ponovo u ovoj sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ja, og spørg ikke igen"
+            "value": "Ja, og spørg ikke igen i denne session"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ja, und nicht mehr fragen"
+            "value": "Ja, und in dieser Sitzung nicht mehr fragen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yes, and don't ask again"
+            "value": "Yes, and don't ask again this session"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sí, y no volver a preguntar"
+            "value": "Sí, y no volver a preguntar en esta sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oui, et ne plus demander"
+            "value": "Oui, et ne plus demander pendant cette session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sì, e non chiedere più"
+            "value": "Sì, e non chiedere più in questa sessione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "はい、今後は確認しない"
+            "value": "はい、このセッションでは今後確認しない"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បាទ/ចាស ហើយកុំសួរម្តងទៀត"
+            "value": "បាទ/ចាស ហើយកុំសួរម្ដងទៀតក្នុងវគ្គនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "예, 다시 묻지 않음"
+            "value": "예, 이 세션에서는 다시 묻지 않음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ja, og ikke spør igjen"
+            "value": "Ja, og ikke spør igjen i denne økten"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tak, i nie pytaj ponownie"
+            "value": "Tak, i nie pytaj ponownie w tej sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sim, e não perguntar novamente"
+            "value": "Sim, e não perguntar de novo nesta sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Да, и больше не спрашивать"
+            "value": "Да, и больше не спрашивать в этом сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ใช่ และไม่ต้องถามอีก"
+            "value": "ใช่ และไม่ต้องถามอีกในเซสชั่นนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Evet, bir daha sorma"
+            "value": "Evet, bu oturumda bir daha sorma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Так, і більше не питати"
+            "value": "Так, і більше не питати в цьому сеансі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Có, và không hỏi lại"
+            "value": "Có, và không hỏi lại trong phiên này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "是，且不再询问"
+            "value": "是，本次会话中不再询问"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "是，且不再詢問"
+            "value": "是，本次工作階段不再詢問"
           }
         }
       }
