@@ -1,6 +1,7 @@
 import CmuxNextActions
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 
 /// An agent tab's content in `pane`, with its changed files opening beside
@@ -84,19 +85,27 @@ struct AgentTabContent {
         }
     }
 
-    /// `view`'s first frame, once it paints in this pane, when there is no New Tab frame for the
-    /// pane's size and appearance yet: what the next New Tab page draws until it paints (cx-ec99).
+    /// `view` as it settled in this pane (its chats and chips in), each time a New Tab page shows
+    /// here: what the next New Tab page draws until it paints (cx-ec99). The page's own snapshot,
+    /// its clear areas left clear, as the pane paints the window's background under it. Kept from
+    /// the first page's first paint, flattened onto the theme's background, it showed under every
+    /// later Cmd-T for a frame or two: another color, "No chats yet", no model (Leo 2026-10-13).
     private func rememberNewTabFrame(of view: AgentPaneView) {
         let images = pane.services.agentTabs.launchImages
         view.model.whenPainted { [weak view, weak paneView = pane.view] in
-            guard let view, let paneView, view.model.newTab != nil, view.window != nil else { return }
-            let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
-            guard size != .zero, images.newTabFrame(size: size, appearance: appearance) == nil else { return }
-            Task { @MainActor in
-                if let image = await view.pageImage() { images.rememberNewTabFrame(image, size: size, appearance: appearance) }
+            let settle = DemandTimer(owner: "newTab.frame.settle")
+            settle.schedule(after: Self.newTabFrameSettle) { @MainActor in
+                withExtendedLifetime(settle) {}
+                guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost) else { return }
+                let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
+                guard size != .zero, let image = try? await view.webView.takeSnapshot(configuration: nil) else { return }
+                images.rememberNewTabFrame(image, size: size, appearance: appearance)
             }
         }
     }
+
+    /// How long a shown New Tab page draws before its frame is kept: its rows and chips are in.
+    private static let newTabFrameSettle: Duration = .milliseconds(400)
 
     private static func appearance(of view: NSView) -> NSAppearance.Name? {
         view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
