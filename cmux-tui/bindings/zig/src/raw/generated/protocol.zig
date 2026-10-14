@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85";
+pub const ir_sha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3703,6 +3703,8 @@ pub const CloseWorkspaceRequest = struct {
     end_terminals: ?bool = null,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    if_empty: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
@@ -3712,6 +3714,7 @@ pub const CloseWorkspaceRequest = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
+        "if_empty",
     };
 };
 
@@ -3729,6 +3732,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
                 .{ .name = "expected_generation", .since = 7, .capability = null },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
+                .{ .name = "if_empty", .since = null, .capability = "close-workspace-if-empty-v1" },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
