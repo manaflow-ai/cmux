@@ -107,6 +107,26 @@ describe("vm health alert", () => {
     expect(state.clears).toBe(1);
   });
 
+  test("a failed delivery releases its lease so the next sweep retries", async () => {
+    const released: string[] = [];
+    const claims: string[] = [];
+    const store: VmAlertStateStore = {
+      claim: async () => {
+        claims.push("claim");
+        return released.length >= claims.length - 1 ? `lease-${claims.length}` : null;
+      },
+      acknowledge: async () => undefined,
+      clear: async () => undefined,
+      release: async (key, leaseId) => {
+        released.push(`${key}:${leaseId}`);
+      },
+    };
+    const failing = async () => ({ sent: false, configured: true, status: 500 });
+    expect(await deliverVmHealthAlert(hungReport, { store, send: failing, lastSentAt: async () => null })).toBe("failed");
+    expect(released).toEqual([`${VM_HEALTH_ALERT_KEY}:lease-1`]);
+    expect(await deliverVmHealthAlert(hungReport, { store, send: failing, lastSentAt: async () => null })).toBe("failed");
+  });
+
   test("a failing alert path never fails the sweep", async () => {
     const { store } = memoryStore();
     const outcome = await deliverVmHealthAlert(hungReport, {

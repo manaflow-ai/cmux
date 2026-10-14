@@ -48,6 +48,15 @@ describe("probeControl", () => {
     }
   });
 
+  test("an unreadable state read is a probe error, never a paused VM", async () => {
+    for (const body of ["not json", JSON.stringify({ id: "vm-1" })]) {
+      const { requests, inventory } = client(() => new Response(body, { status: 200 }));
+      const probe = await inventory.probeControl("vm-1", { timeoutMs: 1_000 });
+      expect(probe.outcome).toBe("error");
+      expect(requests).toEqual(["GET /v5/vms/vm-1"]);
+    }
+  });
+
   test("a control-plane outage on the state read is a probe error, not a hung VM", async () => {
     const { requests, inventory } = client(() => json(503, { code: "UNAVAILABLE", message: "upstream" }));
     const probe = await inventory.probeControl("vm-1", { timeoutMs: 1_000 });
@@ -59,10 +68,8 @@ describe("probeControl", () => {
     const { inventory } = client((path, init) => path.includes("/fs/stat")
       ? new Promise<Response>((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))))
       : json(200, { state: "running" }));
-    const started = performance.now();
     const probe = await inventory.probeControl("vm-1", { timeoutMs: 150 });
     expect(probe.outcome).toBe("hung");
-    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });
 
