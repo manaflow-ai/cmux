@@ -129,6 +129,36 @@ import Testing
         #expect(h.video.isPlaying, "a translucent window or the Dock rested the video")
     }
 
+    /// The window's own overlay panel (a clear, full-size child window over any browser page or
+    /// toast) and floating windows hide nothing, and a window brought to the front plays at once.
+    @Test func theWindowsOwnPanelsAndFloatingWindowsNeverRestTheVideo() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let panel = NSPanel(contentRect: h.window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        h.window.addChildWindow(panel, ordered: .above)
+        defer { h.window.removeChildWindow(panel); panel.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = [.init(bounds: frame, number: panel.windowNumber)]
+        h.video.windowsAboveOverride = { above }
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "the window's own overlay panel rested its video")
+        above = [.init(bounds: frame, layer: Int(CGWindowLevelForKey(.floatingWindow)))]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a floating window rested the video")
+        above = [.init(bounds: frame, owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        try #require(!h.video.isPlaying, "a browser over the whole window did not rest the video")
+        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: h.window)
+        #expect(h.video.isPlaying, "a window brought to the front waits for coverage samples to play")
+    }
+
     @Test func turningAnimationsOffHoldsTheVideoAtOnce() async throws {
         let clip = try await Self.clip()
         let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
