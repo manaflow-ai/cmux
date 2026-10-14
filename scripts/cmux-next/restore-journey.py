@@ -1197,7 +1197,11 @@ def seeded(before):
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
         "web": [("history page at /hist-c after two link clicks", before.get("page[hist].path") == "/hist-c"),
-                ("both link clicks were posted mouse clicks", len(HIST.get("clicks", [])) == 2 and "script" not in HIST["clicks"]),
+                # Chromium's Back needs it. A capture slot's window is never key, so a posted
+                # window-level click does not reach a WebKit page there; WebKit's Back keeps
+                # script-added entries, so its seed falls back to the script click.
+                *([("both link clicks were posted mouse clicks", len(HIST.get("clicks", [])) == 2 and "script" not in HIST["clicks"])]
+                  if (rpc("settings.get", {"path": "browser.defaultEngine"}) or {}).get("value") == "chromium" else []),
                 ("history page has three entries", before.get("page[hist].history_length") == 3),
                 ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
