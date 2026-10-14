@@ -53,6 +53,12 @@ transport or models.
 - **Notices.** Set `notice` on your data source (for example when
   `createTab` returns nil) and the kit shows it as a glass toast at the top;
   a refused New Tab never opens another tab instead.
+- **New Tab.** (+) puts one placeholder card in the grid. If your source
+  lists the new tab before `createTab` returns, that tab takes the
+  placeholder's slot in place, so the grid never shows two new cards. The
+  new tab then opens on Safari's new-tab spring (0.41 / 0.92: 50% / 85% /
+  99% of the way at 67 / 156 / 301 ms, within a frame of Safari), faster
+  than opening an existing tab.
 - **Swipe to close.** Swipe a card left to close it, as in Safari (measured
   on an iPhone 17 Pro Max): horizontal drags only; the card lifts (scale 1.09)
   while dragged, follows the finger 1:1 to the left and resists to the right

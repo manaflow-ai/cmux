@@ -18,10 +18,16 @@ final class CardSwipeState {
     func offset(_ key: String) -> CGFloat { offsets[key] ?? 0 }
     func opacity(_ key: String) -> Double { opacities[key] ?? 1 }
     func scale(_ key: String) -> CGFloat { scales[key] ?? 1 }
+    /// Cards above every other card: from touch-down until their spring back
+    /// or exit has finished (a lowered card slid under its neighbour while
+    /// still springing back).
+    private(set) var raised: Set<String> = []
+    func isRaised(_ key: String) -> Bool { raised.contains(key) }
 
     private func spring(_ s: ZoomSpring) -> Animation { .spring(response: s.response, dampingFraction: s.damping) }
 
     func track(_ key: String, translation: CGFloat, reduceMotion: Bool) {
+        if !raised.contains(key) { raised.insert(key) }
         if !reduceMotion, scales[key] == nil {
             withAnimation(spring(CardSwipe.lift)) { scales[key] = CardSwipe.liftScale }
         }
@@ -56,6 +62,7 @@ final class CardSwipeState {
                     self.offsets[key] = nil
                     self.opacities[key] = nil
                     self.scales[key] = nil
+                    self.raised.remove(key)
                 } else {
                     self.comeBack(key, reduceMotion: reduceMotion)
                 }
@@ -78,11 +85,17 @@ final class CardSwipeState {
                 scales[key] = nil
                 opacities[key] = 0
             }
-            withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade)) { opacities[key] = 1 }
+            withAnimation(.easeInOut(duration: CardSwipe.reduceMotionFade), completionCriteria: .removed) { opacities[key] = 1 } completion: { [weak self] in
+                if self?.offsets[key] == 0 { self?.raised.remove(key) }
+            }
         } else {
-            withAnimation(spring(CardSwipe.snapBack)) {
+            withAnimation(spring(CardSwipe.snapBack), completionCriteria: .removed) {
                 offsets[key] = 0
                 opacities[key] = 1
+            } completion: { [weak self] in
+                // Lowered only once it is back in its slot (a new drag may
+                // have started meanwhile: then it stays raised).
+                if self?.offsets[key] == 0 { self?.raised.remove(key) }
             }
             withAnimation(spring(CardSwipe.settle)) { scales[key] = 1 } completion: { [weak self] in
                 if self?.offsets[key] == 0 { self?.scales[key] = nil }

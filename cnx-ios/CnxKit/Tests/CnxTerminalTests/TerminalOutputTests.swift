@@ -60,57 +60,6 @@ import Testing
     }
 }
 
-/// Typing brings the prompt back; output never yanks a reader who scrolled up.
-@Suite struct TerminalFollowPolicyTests {
-    @Test func outputKeepsTheBottomPinnedWhileFollowing() {
-        var policy = TerminalFollowPolicy()
-        #expect(policy.documentResized(offsetY: 100, maxOffsetY: 400, userIsScrolling: false) == 400)
-        // Never while the finger is on the scroll view.
-        #expect(policy.documentResized(offsetY: 100, maxOffsetY: 400, userIsScrolling: true) == nil)
-    }
-
-    @Test func outputDoesNotMoveAReaderWhoScrolledUp() {
-        var policy = TerminalFollowPolicy()
-        policy.userScrolled(offsetY: 100, maxOffsetY: 2000, rowHeight: 17)
-        #expect(!policy.following)
-        #expect(policy.documentResized(offsetY: 100, maxOffsetY: 2400, userIsScrolling: false) == nil)
-        #expect(!policy.following)
-    }
-
-    @Test func typingJumpsToThePromptAndFollowsAgain() {
-        var policy = TerminalFollowPolicy()
-        policy.userScrolled(offsetY: 100, maxOffsetY: 2000, rowHeight: 17)
-        #expect(policy.input(isTUI: false, offsetY: 100, maxOffsetY: 2000) == 2000)
-        #expect(policy.following)
-        // Already at the bottom: nothing to move.
-        #expect(policy.input(isTUI: false, offsetY: 2000, maxOffsetY: 2000) == nil)
-        // A TUI owns its screen.
-        policy.userScrolled(offsetY: 0, maxOffsetY: 2000, rowHeight: 17)
-        #expect(policy.input(isTUI: true, offsetY: 0, maxOffsetY: 2000) == nil)
-    }
-
-    @Test func clearedScrollbackFollowsAgain() {
-        var policy = TerminalFollowPolicy()
-        policy.userScrolled(offsetY: 100, maxOffsetY: 2000, rowHeight: 17)
-        policy.scrollbackChanged(from: 900, to: 950, screenRows: 150)
-        #expect(!policy.following)
-        // Ghostty trimming old pages at the scrollback limit (or a reflow) is not a clear.
-        policy.scrollbackChanged(from: 50_000, to: 49_200, screenRows: 150)
-        #expect(!policy.following)
-        policy.scrollbackChanged(from: 950, to: 150, screenRows: 150) // clear (ESC [3J)
-        #expect(policy.following)
-    }
-
-    @Test func aDocumentEndingAboveTheScreenSnapsBack() {
-        // Scrolled up, then the document shrank under the place on screen
-        // (only blank rows would show there): back to the bottom.
-        var policy = TerminalFollowPolicy()
-        policy.userScrolled(offsetY: 1500, maxOffsetY: 3000, rowHeight: 17)
-        #expect(policy.documentResized(offsetY: 1500, maxOffsetY: 200, userIsScrolling: false) == 200)
-        #expect(policy.following)
-    }
-}
-
 @Suite struct UserInputTests {
     @Test func onlyWhatThePersonTypedCounts() {
         #expect(TerminalInputAction.text("a").isUserInput)

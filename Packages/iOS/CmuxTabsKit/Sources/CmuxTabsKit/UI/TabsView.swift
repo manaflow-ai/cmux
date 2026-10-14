@@ -67,8 +67,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The active tab shown on the settled grid by its static card
     /// (`TabsDataSource.showStaticCard(for:)`).
     @State private var staticCardID: String?
-    /// (+) pressed and the tab not created yet: the grid shows a placeholder card.
+    /// (+) pressed and the tab not created yet: the grid shows a placeholder
+    /// card until the source lists the new tab (NewTabSlot).
     @State private var pendingNewTab: TabsKitNewTabOption?
+    @State private var newTabSlot: NewTabSlot?
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
@@ -91,7 +93,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Card titles and close buttons appear over the last fifth of the way.
 
     private var overviewLayout: OverviewLayout {
-        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: tabs.count + (pendingNewTab == nil ? 0 : 1))
+        OverviewLayout(size: size, safeTop: safeTop, safeBottom: safeBottom, count: newTabSlot?.cardCount(in: tabs.map(\.id)) ?? tabs.count)
     }
 
     private var toolbarLayout: ToolbarLayout {
@@ -117,7 +119,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
                         onCloseAll: closeAll,
-                        pending: pendingNewTab,
+                        pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
                         onScrolling: { source.overviewScrollingChanged($0) })
                 .opacity(overviewVisible ? 1 : 0)
                 .allowsHitTesting(overviewVisible)
@@ -494,14 +496,20 @@ struct TabsScreen<Source: TabsDataSource>: View {
     }
 
     /// (+): the new tab's card goes into the grid at once (placeholder in
-    /// its slot); the zoom grows from that slot once the client created the
-    /// tab. A refused create leaves the grid as it was.
+    /// its slot, until the source lists the tab, which then takes that slot
+    /// in place); the zoom grows from that slot once the client created the
+    /// tab, on Safari's new-tab spring. A refused create leaves the grid as
+    /// it was.
     private func newTabFromOverview(_ option: TabsKitNewTabOption) {
         guard zoomState.phase == .overview, pendingNewTab == nil else { return }
         pendingNewTab = option
+        newTabSlot = NewTabSlot(baseline: tabs.map(\.id))
         Task {
             let id = await source.createTab(option)
-            withAnimation(theme.motion.resolve(theme.motion.reflow)) { pendingNewTab = nil }
+            withAnimation(theme.motion.resolve(theme.motion.reflow)) {
+                pendingNewTab = nil
+                newTabSlot = nil
+            }
             guard let id else { return }
             openCreated(id)
         }
@@ -512,7 +520,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         guard zoomState.phase == .overview, tabs.contains(where: { $0.id == id }) else { return }
         if activeID != id { source.activate(id) }
         zoomTabId = id
-        zoomDriver.go(toOverview: false)
+        zoomDriver.openNewTab()
     }
 
     private func closeAll() {
