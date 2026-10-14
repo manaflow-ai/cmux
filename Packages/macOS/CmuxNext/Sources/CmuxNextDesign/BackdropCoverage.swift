@@ -9,19 +9,26 @@ public import Foundation
 ///
 /// - sampled every 3 s while the video is seen (a ``DemandTimer`` deadline, re-armed after each);
 /// - rest at 95% covered, resume at 85% or less, each only after two samples in a row agree;
-/// - only opaque windows count (alpha 0.98 or more); the menu bar, Dock, Control Center and other
-///   system chrome never do.
+/// - only opaque app windows count (alpha 0.98 or more, at the normal window layer); the window's
+///   own child windows (its clear overlay panel, a browser page's window), floating panels, the
+///   menu bar, Dock, Control Center and other system chrome never do.
 public nonisolated struct BackdropCoverage: Sendable, Equatable {
     /// One window above the one measured, in global screen coordinates.
     public struct Window: Sendable, Equatable {
         public var bounds: CGRect
         public var alpha: Double
         public var owner: String
+        /// The window server's number for it, 0 when unknown.
+        public var number: Int
+        /// Its window layer; 0 is a normal app window.
+        public var layer: Int
 
-        public init(bounds: CGRect, alpha: Double = 1, owner: String = "") {
+        public init(bounds: CGRect, alpha: Double = 1, owner: String = "", number: Int = 0, layer: Int = 0) {
             self.bounds = bounds
             self.alpha = alpha
             self.owner = owner
+            self.number = number
+            self.layer = layer
         }
     }
 
@@ -39,9 +46,11 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
 
     public init() {}
 
-    /// The fraction of `frame` that `above` hides, 0...1.
-    public static func covered(_ frame: CGRect, by above: [Window]) -> Double {
-        let covers = above.filter { $0.alpha >= 0.98 && !chrome.contains($0.owner) && $0.bounds.intersects(frame) }
+    /// The fraction of `frame` that `above` hides, 0...1, leaving out the windows numbered `own`.
+    public static func covered(_ frame: CGRect, by above: [Window], ignoring own: Set<Int> = []) -> Double {
+        let covers = above.filter {
+            $0.layer == 0 && $0.alpha >= 0.98 && !chrome.contains($0.owner) && !own.contains($0.number) && $0.bounds.intersects(frame)
+        }
         guard !frame.isEmpty, !covers.isEmpty else { return 0 }
         var hidden = 0
         for row in 0..<grid {
@@ -72,17 +81,18 @@ public nonisolated struct BackdropCoverage: Sendable, Equatable {
         streak = 0
     }
 
-    /// The opaque windows above window `number` on screen now, in global coordinates with the
+    /// The windows above window `number` on screen now, in global coordinates with the
     /// origin at the top left of the main display (CGWindowList's space).
     public static func windows(above number: Int) -> [Window] {
         guard number > 0,
               let list = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], CGWindowID(number)) as? [[String: Any]]
         else { return [] }
         return list.compactMap { info in
-            guard let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) }),
-                  (info[kCGWindowLayer as String] as? Int ?? 0) >= 0 else { return nil }
+            guard let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0 as CFDictionary) })
+            else { return nil }
             return Window(bounds: bounds, alpha: info[kCGWindowAlpha as String] as? Double ?? 1,
-                          owner: info[kCGWindowOwnerName as String] as? String ?? "")
+                          owner: info[kCGWindowOwnerName as String] as? String ?? "",
+                          number: info[kCGWindowNumber as String] as? Int ?? 0, layer: info[kCGWindowLayer as String] as? Int ?? 0)
         }
     }
 }

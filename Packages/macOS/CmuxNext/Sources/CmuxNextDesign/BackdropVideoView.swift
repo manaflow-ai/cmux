@@ -142,8 +142,19 @@ public final class BackdropVideoView: NSView {
         guard let window else { return }
         let above = windowsAboveOverride?() ?? BackdropCoverage.windows(above: window.windowNumber)
         let resting = coverage.resting
-        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above))
+        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
         if coverage.resting != resting { update() }
+    }
+
+    /// The numbers of a window's child windows, theirs, and so on: its overlay panel and page windows.
+    static func descendants(of window: NSWindow) -> Set<Int> {
+        var numbers: Set<Int> = []
+        var pending = window.childWindows ?? []
+        while let child = pending.popLast() {
+            numbers.insert(child.windowNumber)
+            pending += child.childWindows ?? []
+        }
+        return numbers
     }
 
     /// A window frame in CGWindowList's space: origin at the top left of the main display.
@@ -179,7 +190,8 @@ public final class BackdropVideoView: NSView {
         let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
-            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSApplication.didHideNotification, nil),
+            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
+            (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
             (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
             (app, Motion.speedDidChange, nil),
@@ -201,6 +213,8 @@ public final class BackdropVideoView: NSView {
         switch name {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
         case NSWindow.willCloseNotification: return detach()
+        // A window brought to the front shows: play now; the next samples rest it again if needed.
+        case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
         case NSWorkspace.screensDidSleepNotification: screensAsleep = true
         case NSWorkspace.screensDidWakeNotification: screensAsleep = false
         case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true
