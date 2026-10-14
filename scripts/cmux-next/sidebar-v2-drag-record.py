@@ -135,7 +135,7 @@ class Target:
 
     @classmethod
     def find(cls):
-        pid = int(subprocess.run(["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")], capture_output=True, text=True).stdout.split()[0])
+        pid = app_pid()
         windows = [w for w in (cua("list_windows", {"pid": pid}).get("windows") or []) if w.get("is_on_screen")]
         main = max(windows, key=lambda w: w["bounds"]["width"] * w["bounds"]["height"])
         shot = os.path.join(SCRATCH, "window.png")
@@ -267,7 +267,14 @@ def trace_stop(handle):
 
 
 def app_pid():
-    return int(subprocess.run(["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")], capture_output=True, text=True).stdout.split()[0])
+    """The tagged app's pid: the process that holds its debug socket (an `open -n` launch's command line need
+    not name the bundle path pgrep looks for), else the newest process running the bundle's binary."""
+    for command in (["lsof", "-t", SOCKET], ["pgrep", "-n", "-f", os.path.join(os.path.realpath(APP), "Contents/MacOS")],
+                    ["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")]):
+        found = [int(pid) for pid in subprocess.run(command, capture_output=True, text=True).stdout.split() if int(pid) != os.getpid()]
+        if found:
+            return found[0]
+    sys.exit(f"FAIL no process for the tagged app (socket {SOCKET}, bundle {APP})")
 
 
 def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
