@@ -442,6 +442,7 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         mux.start_journal_maintenance()?;
+        crate::state::project_watch::start(&mux);
         Ok(mux)
     }
 
