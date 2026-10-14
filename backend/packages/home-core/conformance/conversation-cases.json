@@ -3271,7 +3271,7 @@
    }
   },
   {
-   "name": "thread: an unknown root",
+   "name": "thread: a reply to a thread reply with no root joins the parent's thread",
    "head": {
     "id": "conv_TEST",
     "title": "mux",
@@ -3302,97 +3302,25 @@
    },
    "request": {
     "actor": "user_local",
-    "idempotency_key": "th5",
+    "idempotency_key": "th9",
     "op": {
      "kind": "message.send",
-     "client_msg_id": "th5",
+     "client_msg_id": "th9",
      "parts": [
       {
        "type": "text",
-       "text": "x"
-      }
-     ],
-     "thread_root": "msg_nope"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
+       "text": "nested"
       }
      ],
      "reply_to": {
       "message_id": "msg_00000000000000000000000002",
       "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "invalid_thread_root"
-   }
-  },
-  {
-   "name": "thread: a root that is itself in a thread",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
      }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "x"
-      }
-     ],
-     "thread_root": "msg_00000000000000000000000002"
     },
     "now": "2026-10-01T12:00:02.000Z",
     "new_message_id": "msg_00000000000000000000000005",
     "target": null,
-    "reply_target": null,
-    "thread_target": {
+    "reply_target": {
      "id": "msg_00000000000000000000000002",
      "conversation": "conv_TEST",
      "seq": 2,
@@ -3408,407 +3336,6 @@
      "created_at": "2026-10-01T12:00:00.000Z",
      "reactions": []
     },
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "invalid_thread_root"
-   }
-  },
-  {
-   "name": "thread: a root of another conversation",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "x"
-      }
-     ],
-     "thread_root": "msg_00000000000000000000000001"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": {
-     "id": "msg_00000000000000000000000001",
-     "conversation": "conv_OTHER",
-     "seq": 1,
-     "client_msg_id": "th0",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "root"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:00.000Z",
-     "reactions": []
-    },
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "invalid_thread_root"
-   }
-  },
-  {
-   "name": "thread: an outsider is refused before the root",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_eve",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "x"
-      }
-     ],
-     "thread_root": "msg_nope"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "not_participant"
-   }
-  },
-  {
-   "name": "thread: a bad reply_to is reported before a bad root",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "x"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_nope",
-      "part_index": 0
-     },
-     "thread_root": "msg_nope"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": null,
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "unknown_message"
-   }
-  },
-  {
-   "name": "thread: a loaded root with another id",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "x"
-      }
-     ],
-     "thread_root": "msg_other"
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
-    "thread_target": {
-     "id": "msg_00000000000000000000000001",
-     "conversation": "conv_TEST",
-     "seq": 1,
-     "client_msg_id": "th0",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "root"
-      }
-     ],
-     "created_at": "2026-10-01T12:00:00.000Z",
-     "reactions": []
-    },
-    "last_message": {
-     "id": "msg_00000000000000000000000004",
-     "conversation": "conv_TEST",
-     "seq": 4,
-     "client_msg_id": "th4",
-     "author": "user_local",
-     "parts": [
-      {
-       "type": "text",
-       "text": "quoting"
-      }
-     ],
-     "reply_to": {
-      "message_id": "msg_00000000000000000000000002",
-      "part_index": 0
-     },
-     "thread_root": "msg_00000000000000000000000001",
-     "created_at": "2026-10-01T12:00:02.000Z",
-     "reactions": []
-    }
-   },
-   "expect": {
-    "reject": "invalid_thread_root"
-   }
-  },
-  {
-   "name": "thread: a null thread_root is no thread",
-   "head": {
-    "id": "conv_TEST",
-    "title": "mux",
-    "participants": [
-     {
-      "id": "user_local",
-      "kind": "human",
-      "display_name": "Alice"
-     },
-     {
-      "id": "agent_mux",
-      "kind": "agent",
-      "display_name": "mux",
-      "agent_class": "mux",
-      "acp_session": "mux"
-     }
-    ],
-    "last_seq": 4,
-    "rev": 7,
-    "created_at": "2026-10-01T12:00:00.000Z",
-    "updated_at": "2026-10-01T12:00:02.000Z",
-    "read_cursors": {
-     "agent_mux": 2,
-     "user_local": 4
-    },
-    "agent_text_streak": 0,
-    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
-   },
-   "request": {
-    "actor": "user_local",
-    "idempotency_key": "th5",
-    "op": {
-     "kind": "message.send",
-     "client_msg_id": "th5",
-     "parts": [
-      {
-       "type": "text",
-       "text": "plain"
-      }
-     ],
-     "thread_root": null
-    },
-    "now": "2026-10-01T12:00:02.000Z",
-    "new_message_id": "msg_00000000000000000000000005",
-    "target": null,
-    "reply_target": null,
     "thread_target": null,
     "last_message": {
      "id": "msg_00000000000000000000000004",
@@ -3865,6 +3392,928 @@
       "id": "msg_00000000000000000000000005",
       "conversation": "conv_TEST",
       "seq": 5,
+      "client_msg_id": "th9",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "nested"
+       }
+      ],
+      "reply_to": {
+       "message_id": "msg_00000000000000000000000002",
+       "part_index": 0
+      },
+      "thread_root": "msg_00000000000000000000000001",
+      "created_at": "2026-10-01T12:00:02.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "th9",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "nested"
+        }
+       ],
+       "reply_to": {
+        "message_id": "msg_00000000000000000000000002",
+        "part_index": 0
+       },
+       "thread_root": "msg_00000000000000000000000001",
+       "created_at": "2026-10-01T12:00:02.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: a named root that is not the parent's own is refused",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 5
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000002",
+      "part_index": 0
+     },
+     "thread_root": "msg_other"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "th1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "in thread"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "thread_target": {
+     "id": "msg_other",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "th9",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "nested"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000002",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: the parent itself as the root",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 5
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th10",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th10",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "thread_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "th9",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "nested"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000002",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 9,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:02.000Z",
+      "read_cursors": {
+       "agent_mux": 2,
+       "user_local": 6
+      },
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000006",
+      "conversation": "conv_TEST",
+      "seq": 6,
+      "client_msg_id": "th10",
+      "author": "user_local",
+      "parts": [
+       {
+        "type": "text",
+        "text": "to the root"
+       }
+      ],
+      "reply_to": {
+       "message_id": "msg_00000000000000000000000001",
+       "part_index": 0
+      },
+      "thread_root": "msg_00000000000000000000000001",
+      "created_at": "2026-10-01T12:00:02.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000006",
+       "conversation": "conv_TEST",
+       "seq": 6,
+       "client_msg_id": "th10",
+       "author": "user_local",
+       "parts": [
+        {
+         "type": "text",
+         "text": "to the root"
+        }
+       ],
+       "reply_to": {
+        "message_id": "msg_00000000000000000000000001",
+        "part_index": 0
+       },
+       "thread_root": "msg_00000000000000000000000001",
+       "created_at": "2026-10-01T12:00:02.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "thread: an unknown root",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_nope"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: a root that is itself in a thread",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000002"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "th1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "in thread"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: a root of another conversation",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_00000000000000000000000001"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_OTHER",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: an outsider is refused before the root",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_eve",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_nope"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "not_participant"
+   }
+  },
+  {
+   "name": "thread: a bad reply_to is reported before a bad root",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_nope",
+      "part_index": 0
+     },
+     "thread_root": "msg_nope"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "unknown_message"
+   }
+  },
+  {
+   "name": "thread: a loaded root with another id",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "x"
+      }
+     ],
+     "thread_root": "msg_other"
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "th0",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "root"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_thread_root"
+   }
+  },
+  {
+   "name": "thread: a null thread_root is no thread",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:02.000Z",
+    "read_cursors": {
+     "agent_mux": 2,
+     "user_local": 6
+    },
+    "agent_text_streak": 0,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "th5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "th5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "plain"
+      }
+     ],
+     "thread_root": null
+    },
+    "now": "2026-10-01T12:00:02.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "th10",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "to the root"
+      }
+     ],
+     "reply_to": {
+      "message_id": "msg_00000000000000000000000001",
+      "part_index": 0
+     },
+     "thread_root": "msg_00000000000000000000000001",
+     "created_at": "2026-10-01T12:00:02.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 7,
+      "rev": 10,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:02.000Z",
+      "read_cursors": {
+       "agent_mux": 2,
+       "user_local": 7
+      },
+      "agent_text_streak": 0,
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000007",
+      "conversation": "conv_TEST",
+      "seq": 7,
       "client_msg_id": "th5",
       "author": "user_local",
       "parts": [
@@ -3879,9 +4328,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000005",
+       "id": "msg_00000000000000000000000007",
        "conversation": "conv_TEST",
-       "seq": 5,
+       "seq": 7,
        "client_msg_id": "th5",
        "author": "user_local",
        "parts": [
@@ -3916,13 +4365,13 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 5,
-    "rev": 8,
+    "last_seq": 7,
+    "rev": 10,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:02.000Z",
     "read_cursors": {
      "agent_mux": 2,
-     "user_local": 5
+     "user_local": 7
     },
     "agent_text_streak": 0,
     "last_agent_text_at": "2026-10-01T12:00:00.000Z"
@@ -3942,7 +4391,7 @@
      "thread_root": "msg_00000000000000000000000001"
     },
     "now": "2026-10-01T12:00:04.000Z",
-    "new_message_id": "msg_00000000000000000000000006",
+    "new_message_id": "msg_00000000000000000000000008",
     "target": null,
     "reply_target": null,
     "thread_target": {
@@ -3961,9 +4410,9 @@
      "reactions": []
     },
     "last_message": {
-     "id": "msg_00000000000000000000000005",
+     "id": "msg_00000000000000000000000007",
      "conversation": "conv_TEST",
-     "seq": 5,
+     "seq": 7,
      "client_msg_id": "th5",
      "author": "user_local",
      "parts": [
@@ -3995,21 +4444,21 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 6,
-      "rev": 9,
+      "last_seq": 8,
+      "rev": 11,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:04.000Z",
       "read_cursors": {
        "agent_mux": 2,
-       "user_local": 5
+       "user_local": 7
       },
       "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:04.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000006",
+      "id": "msg_00000000000000000000000008",
       "conversation": "conv_TEST",
-      "seq": 6,
+      "seq": 8,
       "client_msg_id": "th8",
       "author": "agent_mux",
       "parts": [
@@ -4025,9 +4474,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000006",
+       "id": "msg_00000000000000000000000008",
        "conversation": "conv_TEST",
-       "seq": 6,
+       "seq": 8,
        "client_msg_id": "th8",
        "author": "agent_mux",
        "parts": [
@@ -4063,13 +4512,13 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 6,
-    "rev": 9,
+    "last_seq": 8,
+    "rev": 11,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:04.000Z",
     "read_cursors": {
      "agent_mux": 2,
-     "user_local": 5
+     "user_local": 7
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:04.000Z"
@@ -4082,7 +4531,7 @@
      "message_id": "msg_00000000000000000000000001"
     },
     "now": "2026-10-01T12:00:04.000Z",
-    "new_message_id": "msg_00000000000000000000000007",
+    "new_message_id": "msg_00000000000000000000000009",
     "target": {
      "id": "msg_00000000000000000000000001",
      "conversation": "conv_TEST",
@@ -4101,9 +4550,9 @@
     "reply_target": null,
     "thread_target": null,
     "last_message": {
-     "id": "msg_00000000000000000000000006",
+     "id": "msg_00000000000000000000000008",
      "conversation": "conv_TEST",
-     "seq": 6,
+     "seq": 8,
      "client_msg_id": "th8",
      "author": "agent_mux",
      "parts": [
@@ -4136,13 +4585,13 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 6,
-      "rev": 10,
+      "last_seq": 8,
+      "rev": 12,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:04.000Z",
       "read_cursors": {
        "agent_mux": 2,
-       "user_local": 5
+       "user_local": 7
       },
       "agent_text_streak": 1,
       "last_agent_text_at": "2026-10-01T12:00:04.000Z"
@@ -4194,13 +4643,13 @@
       "acp_session": "mux"
      }
     ],
-    "last_seq": 6,
-    "rev": 10,
+    "last_seq": 8,
+    "rev": 12,
     "created_at": "2026-10-01T12:00:00.000Z",
     "updated_at": "2026-10-01T12:00:04.000Z",
     "read_cursors": {
      "agent_mux": 2,
-     "user_local": 5
+     "user_local": 7
     },
     "agent_text_streak": 1,
     "last_agent_text_at": "2026-10-01T12:00:04.000Z"
@@ -4220,7 +4669,7 @@
      "thread_root": "msg_00000000000000000000000001"
     },
     "now": "2026-10-01T12:00:04.000Z",
-    "new_message_id": "msg_00000000000000000000000007",
+    "new_message_id": "msg_00000000000000000000000009",
     "target": null,
     "reply_target": null,
     "thread_target": {
@@ -4235,9 +4684,9 @@
      "retracted_at": "2026-10-01T12:00:04.000Z"
     },
     "last_message": {
-     "id": "msg_00000000000000000000000006",
+     "id": "msg_00000000000000000000000008",
      "conversation": "conv_TEST",
-     "seq": 6,
+     "seq": 8,
      "client_msg_id": "th8",
      "author": "agent_mux",
      "parts": [
@@ -4270,21 +4719,21 @@
         "acp_session": "mux"
        }
       ],
-      "last_seq": 7,
-      "rev": 11,
+      "last_seq": 9,
+      "rev": 13,
       "created_at": "2026-10-01T12:00:00.000Z",
       "updated_at": "2026-10-01T12:00:04.000Z",
       "read_cursors": {
        "agent_mux": 2,
-       "user_local": 5
+       "user_local": 7
       },
       "agent_text_streak": 0,
       "last_agent_text_at": "2026-10-01T12:00:04.000Z"
      },
      "message": {
-      "id": "msg_00000000000000000000000007",
+      "id": "msg_00000000000000000000000009",
       "conversation": "conv_TEST",
-      "seq": 7,
+      "seq": 9,
       "client_msg_id": "th7",
       "author": "user_local",
       "parts": [
@@ -4300,9 +4749,9 @@
      "change": {
       "kind": "message",
       "message": {
-       "id": "msg_00000000000000000000000007",
+       "id": "msg_00000000000000000000000009",
        "conversation": "conv_TEST",
-       "seq": 7,
+       "seq": 9,
        "client_msg_id": "th7",
        "author": "user_local",
        "parts": [
