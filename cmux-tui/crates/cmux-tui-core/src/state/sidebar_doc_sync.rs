@@ -45,8 +45,9 @@ use super::sidebar_doc_legacy::mint_item_id;
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
 
-/// The dirty table, its triggers, the position index the neighbor queries
-/// use and the order index of personal row moves. Run at every open (after the personal and presentation
+/// The dirty table, its triggers, and the order index of the personal rows
+/// (the neighbor queries and row moves; it replaces the older position
+/// index, which an older binary makes again at its own open). Run at every open (after the personal and presentation
 /// tables exist); additive, so an older binary keeps working (and its own
 /// writes are marked too).
 pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -57,8 +58,7 @@ pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<(
            b TEXT NOT NULL DEFAULT '',
            PRIMARY KEY(kind, a, b)
          );
-         CREATE INDEX IF NOT EXISTS sidebar_doc_personal_position
-           ON personal_workspaces(position);
+         DROP INDEX IF EXISTS sidebar_doc_personal_position;
          CREATE INDEX IF NOT EXISTS personal_workspaces_order
            ON personal_workspaces(position, session_id, workspace_key);
          CREATE TRIGGER IF NOT EXISTS sidebar_doc_row_insert AFTER INSERT ON personal_workspaces

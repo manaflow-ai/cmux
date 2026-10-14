@@ -313,8 +313,15 @@ pub(crate) fn write_changes(
 /// stay. A second open finds the flag and does nothing.
 pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     // Another process (an older binary) may have written the rows since this
-    // process cached them: read them again.
-    *lock() = Slot::Empty;
+    // process cached them: read them again. A commit that holds the
+    // document (another registry) must not cache it either.
+    {
+        let mut slot = lock();
+        *slot = match *slot {
+            Slot::Leased { .. } => Slot::Leased { stale: true },
+            _ => Slot::Empty,
+        };
+    }
     let tx = connection.unchecked_transaction()?;
     create_sidebar_doc_schema(&tx)?;
     super::sidebar_doc_sync::create_triggers(&tx)?;
