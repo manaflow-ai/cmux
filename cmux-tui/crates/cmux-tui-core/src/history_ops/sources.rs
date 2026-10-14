@@ -11,7 +11,7 @@ use super::trail::TrailEntry;
 /// its newest close (Leo 2026-10-14: Recently Closed is high signal).
 pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
     let mut entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
-    entries.sort_by(|a, b| b.at_ms.cmp(&a.at_ms));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.at_ms));
     let mut seen = std::collections::HashSet::new();
     entries.retain(|entry| page_key(entry).is_none_or(|page| seen.insert(page.to_owned())));
     entries
