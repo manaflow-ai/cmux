@@ -18,6 +18,7 @@ import {
   type HomePart,
   type HomeReaction,
   type HomeResolvedLink,
+  type HomeThreadObject,
   type HomeThreadStats,
 } from "./types";
 
@@ -108,6 +109,16 @@ export function message(raw: Json): HomeMessage {
     clientMessageId: String(raw.client_msg_id ?? ""),
   };
   if (raw.edited_at) result.editedAt = time(raw.edited_at);
+  const thread = raw.thread as Json | undefined;
+  if (thread && typeof thread === "object") {
+    const object: HomeThreadObject = {};
+    if (typeof thread.title === "string") object.title = thread.title;
+    if (typeof thread.owner === "string") object.owner = thread.owner;
+    const resolved = thread.resolved as Json | undefined;
+    if (resolved && typeof resolved === "object")
+      object.resolved = { by: String(resolved.by), at: time(resolved.at), seq: num(resolved.seq) };
+    result.thread = object;
+  }
   if (replyTo) result.replyTo = { message: replyTo.message_id, partIndex: replyTo.part_index };
   // A message from before threads marked its thread as a reply to the root (HomeCoreMapping).
   const root = (raw.thread_root as string | undefined) ?? replyTo?.message_id;
@@ -161,6 +172,11 @@ function threads(raw: unknown): HomeThreadStats[] {
     };
     if (typeof entry.last_reply_seq === "number") stats.lastReplySeq = entry.last_reply_seq;
     if (entry.last_reply_at) stats.lastReplyAt = time(entry.last_reply_at);
+    if (entry.status === "open" || entry.status === "resolved") stats.status = entry.status;
+    if (typeof entry.title === "string") stats.title = entry.title;
+    if (typeof entry.owner === "string") stats.owner = entry.owner;
+    if (typeof entry.resolved_by === "string") stats.resolvedBy = entry.resolved_by;
+    if (entry.resolved_at) stats.resolvedAt = time(entry.resolved_at);
     return stats;
   });
 }
@@ -383,6 +399,16 @@ export class DaemonHomeClient implements PageClient {
           kind: "message.retract",
           message_id: str(params, "message"),
         });
+      case HomeOps.updateThread: {
+        // conversation-thread-objects-v1: the same op on the local owner and, through the
+        // daemon's proxy, a Cloud owner. Empty title or owner clears it.
+        const update: Json = { kind: "thread.update", root: str(params, "root") };
+        if (typeof params.title === "string") update.title = params.title;
+        if (params.status === "open" || params.status === "resolved") update.status = params.status;
+        if (typeof params.owner === "string") update.owner = params.owner;
+        if (Object.keys(update).length === 2) throw pageError("cmux.page.invalid_params", "thread");
+        return this.submit(str(params, "conversation"), this.key(params, options), update);
+      }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:
