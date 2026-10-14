@@ -8,7 +8,9 @@
 //
 // A rim counts as rounded when its rule, or another rule in the same file whose selector ends in
 // the same class, sets a non-zero border-radius; in TSX, a class list with a sub-pixel Tailwind
-// border width and a `rounded` utility. A rule (or the comment line above a TSX line) marked
+// border width and a `rounded` utility. A custom property holding a sub-pixel ring shadow layer (an
+// elevation token) always counts. Straight one-side separators (`border-top: .5px`) are left alone:
+// WebKit draws a straight sub-pixel border as one device pixel. A rule (or the comment line above a TSX line) marked
 // `hairline-allow: <reason>` is exempt.
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +28,8 @@ export interface Rim {
 const ALLOW = /hairline-allow:\s*\S/;
 /** A positive length under one CSS pixel: `.5px`, `0.5px`, `0.33px`. */
 const SUB_PIXEL = /(?<![\w.-])0?\.\d+px\b/;
-const RIM_PROPERTY = /^(?:border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-width)?|outline(?:-width)?|box-shadow)$/i;
+const RIM_PROPERTY =
+  /^(?:border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-width)?|outline(?:-width)?|box-shadow)$/i;
 /** A non-zero border-radius (any corner). */
 const RADIUS = /^border(?:-[a-z]+)*-radius$/i;
 const ZERO_RADIUS = /^\s*(?:0(?:px)?\s*)+(?:!important)?\s*$/;
@@ -160,9 +163,11 @@ function scanCss(file: string, text: string): Rim[] {
     const ownRadius = decls.some((d) => RADIUS.test(d.property) && !ZERO_RADIUS.test(d.value));
     const isRounded =
       ownRadius || selectorParts(rule.selector).some((part) => subjectClasses(part).some((name) => rounded.has(name)));
-    if (!isRounded) continue;
     for (const decl of decls) {
-      if (!subPixelRim(decl.property, decl.value)) continue;
+      // A shadow token (`--ui-popup-shadow: ..., inset 0 0 0 0.5px ...`) is a rim wherever it is
+      // used, and the surfaces that use one (menus, popovers, cards) are rounded.
+      const token = decl.property.startsWith("--") && subPixelRim("box-shadow", decl.value);
+      if (!token && !(isRounded && subPixelRim(decl.property, decl.value))) continue;
       const at = rule.at + decl.offset;
       rims.push({
         file,
@@ -183,8 +188,7 @@ function scanTsx(file: string, text: string): Rim[] {
     for (const literal of line.matchAll(/"([^"]*)"|`([^`]*)`|'([^']*)'/g)) {
       const classes = literal[1] ?? literal[2] ?? literal[3] ?? "";
       const rim = classes.match(TW_RIM);
-      if (rim && TW_ROUNDED.test(classes))
-        rims.push({ file, line: index + 1, selector: "className", text: rim[0] });
+      if (rim && TW_ROUNDED.test(classes)) rims.push({ file, line: index + 1, selector: "className", text: rim[0] });
     }
   });
   return rims;
@@ -193,7 +197,7 @@ function scanTsx(file: string, text: string): Rim[] {
 /** Every raw sub-pixel rim on a rounded element under `root` (default: webviews/src). */
 export function scan(root: string = SRC): Rim[] {
   const rims: Rim[] = [];
-  for (const full of files(root)) {
+  for (const full of files(root).sort()) {
     const file = path.relative(root, full);
     const text = fs.readFileSync(full, "utf8");
     rims.push(...(full.endsWith(".css") ? scanCss(file, text) : scanTsx(file, text)));
