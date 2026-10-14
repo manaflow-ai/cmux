@@ -97,6 +97,14 @@ impl PermissionState {
     }
 
     // Returns the group id and whether a new timer is needed.
+    //
+    // A request joins the group of its turn that is still collecting: the
+    // group's timer (`start_permission_group_timer`, WINDOW after it opened)
+    // ends collection under this lock, so a group holds exactly what came
+    // before it was shown. Membership never reads the clock at the request:
+    // a burst the agent sent in one millisecond reached this lock 100 ms
+    // and more apart on a busy daemon (its request tasks wait their turn),
+    // and a clock test there split it into two groups (cx-nx5mb, rbx).
     pub fn register(
         &mut self,
         id: &str,
@@ -109,7 +117,6 @@ impl PermissionState {
             g.state == "collecting"
                 && g.turn_id == turn
                 && g.epoch == epoch
-                && now.duration_since(g.opened) < WINDOW
                 && g.items.len() < MAX_ITEMS
         });
         let (index, fresh) = match existing {
