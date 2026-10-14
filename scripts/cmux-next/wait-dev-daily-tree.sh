@@ -13,13 +13,17 @@
 # CMUX_DEV_TREE_POLL_SECONDS (default 60) for up to CMUX_DEV_TREE_WAIT_SECONDS
 # (default 3300). Writes the final probe's tree_* lines to $GITHUB_OUTPUT.
 # Exit 0 when ready; 1 when nothing will publish the tree or the time ran out.
+# A failed (or empty) answer is polled CMUX_DEV_TREE_FAILED_GRACE (default 2)
+# more times first: a probe that just re-dispatched the publisher reports
+# failed until GitHub lists the new artifacts run.
 # Env: CMUX_DEV_TREE_PROBE (tests only) replaces pin-cmux-tui.sh.
 set -euo pipefail
 
 probe="${CMUX_DEV_TREE_PROBE:-$(cd "$(dirname "$0")" && pwd)/pin-cmux-tui.sh}"
 wait_seconds="${CMUX_DEV_TREE_WAIT_SECONDS:-3300}"
 poll_seconds="${CMUX_DEV_TREE_POLL_SECONDS:-60}"
-[[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[0-9]+$ ]] || { echo "error: the wait and poll must be whole seconds" >&2; exit 2; }
+grace="${CMUX_DEV_TREE_FAILED_GRACE:-2}"
+[[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[0-9]+$ && "$grace" =~ ^[0-9]+$ ]] || { echo "error: the wait, poll and grace must be whole numbers" >&2; exit 2; }
 : "${GITHUB_OUTPUT:?GITHUB_OUTPUT must be set}"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
@@ -36,9 +40,14 @@ while :; do
       exit 0 ;;
     deferred) ;;
     *)
-      cat "$tmp/out" >> "$GITHUB_OUTPUT"
-      echo "error: the cmux-tui tree will not be published (tree_state=${state:-none}): $(sed -n 's/^tree_reason=//p' "$tmp/out" | tail -1)" >&2
-      exit 1 ;;
+      if (( grace > 0 )); then
+        grace=$((grace - 1))
+        echo "the probe says tree_state=${state:-none}; looking again (a just-dispatched publisher is not listed yet)"
+      else
+        cat "$tmp/out" >> "$GITHUB_OUTPUT"
+        echo "error: the cmux-tui tree will not be published (tree_state=${state:-none}): $(sed -n 's/^tree_reason=//p' "$tmp/out" | tail -1)" >&2
+        exit 1
+      fi ;;
   esac
   if (( SECONDS - started >= wait_seconds )); then
     cat "$tmp/out" >> "$GITHUB_OUTPUT"

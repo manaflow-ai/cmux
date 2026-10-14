@@ -38,11 +38,16 @@ grep -qx "tree_state=ready" "$TMP/out" || fail "the job output must say ready:" 
 [[ "$(cat "$TMP/queue.n")" == 3 ]] || fail "expected 3 probes, got $(cat "$TMP/queue.n")"
 [[ "$(grep -c '^tree_state=' "$TMP/out")" == 1 ]] || fail "only the final probe's outputs are kept:" "$(cat "$TMP/out")"
 
-# Nothing will publish it: stop at once and fail visibly.
-run failed
+# A probe that just re-dispatched the publisher says failed until GitHub
+# lists the new run: a failed answer is looked at again before giving up.
+run failed ready
+[[ "$status" == 0 ]] && grep -qx "tree_state=ready" "$TMP/out" || fail "a failed answer followed by ready must succeed (exit $status):" "$out"
+
+# Nothing will publish it: after the grace polls, fail visibly.
+run failed failed failed failed
 [[ "$status" != 0 ]] || fail "a failed tree must fail the wait:" "$out"
 grep -qx "tree_state=failed" "$TMP/out" || fail "the output must carry the failed state:" "$(cat "$TMP/out")"
-[[ "$(cat "$TMP/queue.n")" == 1 ]] || fail "a failed tree must not be polled again"
+[[ "$(cat "$TMP/queue.n")" == 3 ]] || fail "a failed tree is polled twice more, then given up: got $(cat "$TMP/queue.n") probes"
 
 # Still deferred at the deadline: fail, saying so.
 WAIT=0 run deferred deferred deferred
