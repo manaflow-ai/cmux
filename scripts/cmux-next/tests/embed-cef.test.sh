@@ -61,7 +61,8 @@ STUB
   lib="$TMP/build/app.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Libraries/libvk_swiftshader.dylib"
   syms=$(nm -a "$lib")
   grep -qE ' T _?vk_icdGetInstanceProcAddr$' <<<"$syms" || { printf 'the exported symbol is gone:\n%s\n' "$syms" >&2; exit 1; }
-  if grep -qE ' - |hidden_helper' <<<"$syms"; then
+  # Apple's strip leaves one marker stab (radr://5614542) that says the file was stripped.
+  if grep -v 'radr://5614542' <<<"$syms" | grep -qE ' - |hidden_helper'; then
     printf 'embedded CEF library keeps local symbols or debug stabs:\n%s\n' "$syms" >&2; exit 1
   fi
 fi
