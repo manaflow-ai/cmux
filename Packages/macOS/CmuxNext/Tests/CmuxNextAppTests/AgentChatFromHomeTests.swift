@@ -46,10 +46,13 @@ struct AgentChatFromHomeTests {
     /// The docked Home (the default) is the home workspace with panes: New Agent Chat opens its
     /// chat there, as from any workspace, instead of a refusal or a workspace of its own.
     @Test func fromTheDockedHomeTheChatOpensInTheHomeWorkspace() async throws {
-        try await PasswordManagerRouteTests.withApp { services, _ in
+        try await PasswordManagerRouteTests.withApp { services, connection in
             try #require(!services.home.dock.isClassic, "the docked Home is the default")
             let window = try #require(services.windows.active)
-            try await PasswordManagerRouteTests.until({ services.home.homeWorkspace != nil }, report: { services.home.homeWorkspaceStep })
+            // What the home service runs on each connect (the app starts it at launch, this harness does not).
+            services.home.ensureHomeWorkspace(connection)
+            try await PasswordManagerRouteTests.until({ services.home.homeWorkspace != nil }, within: .seconds(60),
+                                                       report: { services.home.homeWorkspaceStep })
             let home = try #require(services.home.homeWorkspace)
             #expect(services.registry.perform("home.show", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ window.state.workspaceID == home.id && window.focusedPane != nil }, report: {
