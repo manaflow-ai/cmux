@@ -15,6 +15,7 @@ use super::remote_relay::participants::{device_id_refused, is_device_id};
 use super::{Mux, MuxEvent, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::attachments::AttachmentRejected;
+use crate::conversation_store::inbox::InboxOp;
 use crate::conversation_store::runs::RunRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
@@ -48,6 +49,14 @@ pub const CONVERSATION_TREE_CAPABILITY: &str = "conversation-tree-v1";
 /// `Message.thread` on roots, and the thread object fields of
 /// `ThreadSummary` (a reply after the resolution reopens the thread).
 pub const CONVERSATION_THREAD_OBJECTS_CAPABILITY: &str = "conversation-thread-objects-v1";
+/// The person's own list state of a conversation, beside the conversation
+/// (a pin with its position, a "marked unread" flag): `conversation-inbox-op`
+/// on the local owner, the `pinned`, `pin_position` and `marked_unread`
+/// fields of the caller's `conversation-list` items, the
+/// `conversation-inbox-changed` event on `subscribe` (to that participant's
+/// connections only), and with `cloud-conversations-v1` also `cloud-inbox-op`
+/// (the Cloud owner's `inbox.pin` and `inbox.mark_unread`).
+pub const CONVERSATION_INBOX_STATE_CAPABILITY: &str = "conversation-inbox-state-v1";
 /// The local conversation owner on an authenticated WebSocket connection
 /// (static credential or approved pairing) as `user_local`, the same as on
 /// the Unix socket: `conversation-*` commands, `conversation.*` operations
@@ -99,6 +108,15 @@ pub(super) struct ThreadParams {
 #[derive(Deserialize)]
 pub(super) struct LinkResolveParams {
     url: String,
+}
+
+/// `conversation-inbox-op`: the caller's own pin or "marked unread" of one
+/// conversation (`op` is `{kind: "inbox.pin", pinned, position?}` or
+/// `{kind: "inbox.mark_unread", unread}`).
+#[derive(Deserialize)]
+pub(super) struct InboxOpParams {
+    conversation: String,
+    op: Value,
 }
 
 /// Default page of `conversation-thread`.
@@ -246,8 +264,55 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
         return super::remote_relay::conversations::list(mux, client);
     }
     require_local(mux, client)?;
-    let conversations = mux.with_conversations(|store| store.list())?;
+    // The caller's own pins and marks ride on its summaries
+    // (`conversation-inbox-state-v1`); nobody else's.
+    let principal = mux.conversation_principal(client);
+    let (conversations, states) =
+        mux.with_conversations(|store| Ok((store.list()?, store.inbox_states(&principal)?)))?;
+    let conversations: Vec<Value> = conversations
+        .into_iter()
+        .map(|summary| {
+            let state = states.get(&summary.id).copied().unwrap_or_default();
+            let mut value = serde_json::to_value(summary)?;
+            if let (Value::Object(fields), Value::Object(state)) =
+                (&mut value, serde_json::to_value(state)?)
+            {
+                fields.extend(state);
+            }
+            Ok(value)
+        })
+        .collect::<anyhow::Result<_>>()?;
     Ok(json!({"conversations": conversations}))
+}
+
+/// `conversation-inbox-op`: sets the caller's own pin or "marked unread" of
+/// a conversation it takes part in, and publishes `conversation-inbox-changed`
+/// to the caller's connections. Not a conversation op: no rev, no ledger
+/// (values are absolute, so a retry writes the same state).
+pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let InboxOpParams { conversation, op } = params;
+    let op: InboxOp = decode(op, "op")?;
+    let actor = mux.conversation_principal(client);
+    let state = mux.conversation_write(
+        |store| store.apply_inbox_op(&conversation, &actor, &op),
+        |state| {
+            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Inbox {
+                conversation: conversation.clone(),
+                participant: actor.clone(),
+                pinned: state.pinned,
+                pin_position: state.pin_position,
+                marked_unread: state.marked_unread,
+            })))
+        },
+    )?;
+    let mut reply = json!({"conversation": conversation, "participant": actor});
+    if let (Value::Object(fields), Value::Object(state)) =
+        (&mut reply, serde_json::to_value(state)?)
+    {
+        fields.extend(state);
+    }
+    Ok(reply)
 }
 
 pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Result<Value> {
