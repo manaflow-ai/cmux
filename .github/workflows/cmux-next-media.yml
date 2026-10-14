@@ -71,7 +71,10 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.runs_on != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.route.outputs.runs_on }}
-    timeout-minutes: 60
+    # Cold, one PR's first tour builds base and head from scratch: the base
+    # alone took 35 min to reach its web bundles (job 115856352658). Later
+    # tours of the PR reuse its per-tag DerivedData.
+    timeout-minutes: 120
     permissions:
       contents: read
     env:
