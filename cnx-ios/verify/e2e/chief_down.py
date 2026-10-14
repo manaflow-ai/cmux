@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Chief while its model server is down, on the e2e rig (verify/chief-model-down.md).
+"""Chief while its model server is down, on the e2e rig.
 
 Real tagged cmux-next Mac app + the iOS app in one headless simulator, over
 the real link (the rig's own setup: e2e.py). The Mac's Chief is pointed at a
