@@ -2,6 +2,7 @@ import AppKit
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -117,6 +118,35 @@ struct CloudTreeCategoryCreateActionTests {
         })
         fixture.coordinator.open(newWorkspace)
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
+    }
+
+    @Test("Hovering a create row does not rehost its SwiftUI content")
+    func createRowHoverKeepsHostedRoot() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [fixture.machine])
+        let machine = try #require(fixture.machineNode)
+        let action = try #require(machine.children.first { node in
+            if case .createAction(.newWorkspace) = node.kind { return true }
+            return false
+        })
+        let cell = try fixture.cell(for: action)
+        let host = try fixture.createHost(for: action)
+        cell.setHovered(false)
+        let hostedContentIdentity = ObjectIdentifier(host.hostedContent)
+        var hostedContentDidUpdate = false
+        withObservationTracking {
+            _ = host.hostedContent.view
+        } onChange: {
+            hostedContentDidUpdate = true
+        }
+
+        cell.setHovered(true)
+        fixture.container.layoutSubtreeIfNeeded()
+
+        #expect(ObjectIdentifier(host.hostedContent) == hostedContentIdentity)
+        #expect(hostedContentDidUpdate)
     }
 
     @MainActor

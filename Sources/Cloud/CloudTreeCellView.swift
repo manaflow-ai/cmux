@@ -157,7 +157,7 @@ final class CloudTreeCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// Rehosts one immutable tree snapshot and its optional row actions.
+    /// Configures one immutable tree snapshot and its optional row actions.
     ///
     /// - Parameters:
     ///   - node: The row snapshot to display.
@@ -210,7 +210,14 @@ final class CloudTreeCellView: NSTableCellView {
         updateRowHover()
         if showsHoverButtons {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, nodeID: node.id, machineActions: machineActions, nodeActions: nodeActions))
+            buttons.setHostedRootView(
+                AnyView(
+                    CloudTreeRowHoverButtons(
+                        kind: node.kind, nodeID: node.id,
+                        machineActions: machineActions, nodeActions: nodeActions
+                    )
+                )
+            )
             buttons.isHidden = !buttonsVisible || !showsHoverButtons
             buttons.alphaValue = buttonsAlpha
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
@@ -251,7 +258,7 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .createAction(let action) = node.kind, let nodeActions = configuredNodeActions {
             displayHost.passesThrough = false
-            displayHost.rootView = AnyView(
+            displayHost.setHostedRootView(AnyView(
                 CloudTreeCreateActionView(
                     action: action, nodeActions: nodeActions, style: style, isHovered: hovered,
                     contentInset: configuredPanelLevel.map { CloudTreeMachineDetailTabsView.panelContentLeading(tabRowLevel: $0, style: style) }
@@ -260,19 +267,19 @@ final class CloudTreeCellView: NSTableCellView {
                         ?? CloudTreeHoverStyle.leading(level: configuredLevel, style: style),
                     animatesHover: hoverAnimates
                 )
-            )
+            ))
             toolTip = action.title
             setAccessibilityLabel(action.title)
             return
         }
         if case .machineDetailTabs(let tabs) = node.kind, let nodeActions = configuredNodeActions {
             displayHost.passesThrough = false
-            displayHost.rootView = AnyView(
+            displayHost.setHostedRootView(AnyView(
                 CloudTreeMachineDetailTabsView(
                     tabs: tabs, style: style,
                     leading: CloudTreeHoverStyle.leading(level: configuredLevel, style: style)
                 ) { tab in nodeActions.selectMachineDetailTab(tabs.machine, tab) }
-            )
+            ))
             toolTip = nil
             setAccessibilityLabel(String(localized: "cloudTree.machineDetails.label", defaultValue: "Machine Details"))
             return
@@ -293,7 +300,7 @@ final class CloudTreeCellView: NSTableCellView {
         // leaves it in place would otherwise leave the header with no
         // clickable spot, so a click on the icon would toggle the section.
         if CloudTreeRowContentView.sectionRefresh(for: node.kind) == nil { displayHost.interactiveRects = [] }
-        displayHost.rootView = AnyView(
+        displayHost.setHostedRootView(AnyView(
             CloudTreeRowContentView(
                 kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection,
                 onRefresh: Self.sectionRefreshAction(node.kind, configuredNodeActions),
@@ -302,7 +309,7 @@ final class CloudTreeCellView: NSTableCellView {
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention, attentionSlot: style.rowGrid.attentionSlot))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .coordinateSpace(.named(CloudTreePassthroughHostingView.coordinateSpace))
-        )
+        ))
     }
 
     /// The refresh a section header's icon runs; nil for every other row.
@@ -417,6 +424,23 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     /// section header's refresh icon, in this view's (flipped) coordinates.
     var interactiveRects: [CGRect] = []
 
+    /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
+    func setHostedRootView(_ rootView: AnyView) {
+        hostedContent.view = rootView
+    }
+
+    let hostedContent: CloudTreeHostedContent
+
+    required init(rootView: AnyView) {
+        hostedContent = CloudTreeHostedContent()
+        super.init(rootView: AnyView(CloudTreeHostedRootView(content: hostedContent)))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard passesThrough else { return super.hitTest(point) }
         let local = convert(point, from: superview)
@@ -443,6 +467,23 @@ final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {
     /// hover fill can step aside for the button's own.
     var onPointerInside: ((Bool) -> Void)?
     private var pointerTracking: NSTrackingArea?
+
+    /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
+    func setHostedRootView(_ rootView: AnyView) {
+        hostedContent.view = rootView
+    }
+
+    let hostedContent: CloudTreeHostedContent
+
+    required init(rootView: AnyView) {
+        hostedContent = CloudTreeHostedContent()
+        super.init(rootView: AnyView(CloudTreeHostedRootView(content: hostedContent)))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
