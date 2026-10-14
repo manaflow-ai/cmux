@@ -442,6 +442,51 @@ final class BrowserModel {
         }
     }
 
+    /// A tab taken out of the list before the host confirmed its close.
+    struct RemovedTab {
+        let index: Int
+        let tab: BrowserTab
+        let frame: PageFrame?
+        let thumbnail: UIImage?
+        let startPage: Bool
+        let desktop: Bool
+        let wasActive: Bool
+    }
+
+    /// Safari's close, first half: the tab leaves the list at once (inside
+    /// `animation`). Nil when it is not listed.
+    func removeOptimistically(_ tabId: String, animation: Animation? = nil) -> RemovedTab? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        let removed = RemovedTab(index: index, tab: tabs[index], frame: frames[tabId], thumbnail: thumbnails[tabId],
+                                 startPage: startPageTabs.contains(tabId), desktop: desktopTabs.contains(tabId),
+                                 wasActive: activeTabId == tabId)
+        withAnimation(animation) { removeLocally(tabId) }
+        return removed
+    }
+
+    /// Second half: the host closes it. Refused: the tab comes back where it
+    /// was (selected again if it was), a notice says why, and the result is
+    /// false.
+    func finishClose(_ removed: RemovedTab, animation: Animation? = nil) async -> Bool {
+        let tab = removed.tab
+        do {
+            guard let client = connection.client else { throw HostClientError.notConnected }
+            try await client.closeTab(tab.id)
+            return true
+        } catch {
+            withAnimation(animation) {
+                if !tabs.contains(where: { $0.id == tab.id }) { tabs.insert(tab, at: min(removed.index, tabs.count)) }
+                if frames[tab.id] == nil { frames[tab.id] = removed.frame }
+                if thumbnails[tab.id] == nil { thumbnails[tab.id] = removed.thumbnail }
+                if removed.startPage { startPageTabs.insert(tab.id) }
+                if removed.desktop { desktopTabs.insert(tab.id) }
+            }
+            if removed.wasActive { select(tab.id) }
+            notice = "Couldn't close \(tab.title.isEmpty ? tab.displayHost : tab.title): \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            return false
+        }
+    }
+
     private func removeLocally(_ tabId: String) {
         guard let i = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         tabs.remove(at: i)

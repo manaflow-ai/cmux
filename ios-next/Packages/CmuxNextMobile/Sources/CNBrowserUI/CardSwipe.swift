@@ -36,9 +36,15 @@ struct CardSwipe: Equatable, Sendable {
     /// pt/s, still lifted and opaque) until it is off screen.
     static let flyOffMinSpeed: CGFloat = 1000
     /// Fly-off time for `distance` points at the release speed.
+    /// Capped at Safari's exit time (simulator, tabs-parity-audit 3j: the
+    /// card is gone about 190 ms after it starts to accelerate).
     static func flyOffDuration(distance: CGFloat, velocity: CGFloat) -> Double {
-        Double(abs(distance) / max(abs(velocity), flyOffMinSpeed))
+        min(flyOffMaxDuration, Double(abs(distance) / max(abs(velocity), flyOffMinSpeed)))
     }
+    static let flyOffMaxDuration = 0.19
+    /// The tab leaves the grid (count, reflow) this far into the fly-off:
+    /// Safari's count changes about 99 ms into its 190 ms exit.
+    static let flyOffRemovalFraction = 99.0 / 190
     /// Reduce Motion: no movement after release, a crossfade instead.
     static let reduceMotionFade = 0.18
 

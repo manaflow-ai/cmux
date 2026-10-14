@@ -229,6 +229,7 @@ struct TabOverview: View {
                         let image = tab.isTerminal ? (tabs.cardImage(tab.id) ?? images[tab.id]) : (images[tab.id] ?? tabs.cardImage(tab.id))
                         let top = tabs.browser.frames[tab.id]?.topColor ?? .white
                         let startPage = tabs.showsStartPage(tab.id)
+                        let copy = { DepartingCard(id: tab.id, item: tab, rect: r, image: image, topColor: Color(uiColor: top), startPage: startPage) }
                         TabCard(item: tab, image: image,
                                 topColor: Color(uiColor: top),
                                 startPage: startPage, tabs: tabs.browser.tabs, pageSize: layout.size,
@@ -244,9 +245,10 @@ struct TabOverview: View {
                             .gesture(CardSwipeGesture { phase in
                                 let rm = UIAccessibility.isReduceMotionEnabled
                                 switch phase {
-                                case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: rm)
+                                case .changed(let dx):
+                                    swipes.track(tab.id, translation: dx, reduceMotion: rm, copy: copy)
                                 case .ended(_, let v):
-                                    swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm) {
+                                    swipes.release(tab.id, velocity: v, card: r, reduceMotion: rm, departing: copy) {
                                         let closed = await onClose(tab.id)
                                         // Safari opens the last tab when a swipe leaves only one.
                                         if closed, tabs.items.count == 1, let last = tabs.items.first { onSelect(last.id) }
@@ -260,7 +262,23 @@ struct TabOverview: View {
                             .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
                             .zIndex(swipes.isRaised(tab.id) ? 1 : 0)
                             .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
-                            .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+                            // A swiped card's departing copy carries on off screen;
+                            // the card itself leaves without a fade.
+                            .transition(swipes.isDeparting(tab.id) ? .identity
+                                        : .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+                    }
+                    ForEach(swipes.departing) { d in
+                        TabCard(item: d.item, image: d.image, topColor: d.topColor, startPage: d.startPage, tabs: tabs.browser.tabs,
+                                pageSize: layout.size, safeTop: layout.safeTop, width: d.rect.width, height: d.rect.height,
+                                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
+                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset, onClose: {})
+                            .opacity(swipes.departingOpacity(d.id))
+                            .scaleEffect(swipes.scale(d.id), anchor: UnitPoint(x: 0.5, y: d.rect.height / 2 / max(1, d.rect.height + 25)))
+                            .offset(x: d.rect.minX + swipes.offset(d.id), y: d.rect.minY)
+                            .zIndex(2)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .transition(.identity)
                     }
                     if let placeholderId {
                         let r = layout.card(tabs.items.count)

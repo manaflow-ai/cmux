@@ -322,6 +322,51 @@ final class TabsModel {
         return true
     }
 
+    /// Safari's close: the card leaves the grid at once (the grid reflows
+    /// inside `animation`, the count updates) while the host closes the tab.
+    /// Refused: the card comes back to its slot, selected again if it was,
+    /// a notice says why, and the result is false.
+    func closeOptimistic(_ key: String, animation: Animation? = nil) async -> Bool {
+        let savedOrder = order
+        let wasActive = activeKey == key
+        if let id = TabItem.terminalId(fromKey: key) {
+            guard let index = terminals.firstIndex(where: { $0.id == id }) else { return true }
+            let terminal = terminals[index]
+            let thumbnail = terminalThumbnails[key]
+            withAnimation(animation) { removeTerminalLocally(key, id: id) }
+            do {
+                try await connection.requireClient().closeTerminal(id)
+                return true
+            } catch {
+                withAnimation(animation) {
+                    if !terminals.contains(where: { $0.id == id }) { terminals.insert(terminal, at: min(index, terminals.count)) }
+                    terminalThumbnails[key] = terminalThumbnails[key] ?? thumbnail
+                    restoreOrder(savedOrder)
+                }
+                if wasActive { select(key) }
+                notice = "Couldn't close the terminal: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+                return false
+            }
+        }
+        guard let removed = browser.removeOptimistically(key, animation: animation) else { return true }
+        withAnimation(animation) {
+            syncOrder()
+            if wasActive, activeTerminalKey == nil, browser.activeTabId == nil, let first = items.first { select(first.id) }
+        }
+        guard await browser.finishClose(removed, animation: animation) else {
+            withAnimation(animation) { restoreOrder(savedOrder) }
+            if wasActive { select(key) }
+            return false
+        }
+        return true
+    }
+
+    /// The order from before an optimistic close, for the items that exist.
+    private func restoreOrder(_ saved: [String]) {
+        order = saved
+        syncOrder()
+    }
+
     private func removeTerminalLocally(_ key: String, id: String) {
         let wasActive = activeTerminalKey == key
         let index = items.firstIndex { $0.id == key } ?? 0

@@ -270,7 +270,7 @@ struct BrowserScreen: View {
                             scroll: gridScroll, position: $overviewPosition,
                             leadingItem: leadingItem,
                             onSelect: { closeOverview(selecting: $0) },
-                            onClose: { id in await tabs.closeConfirmed(id, animation: motion.resolve(motion.reflow)) },
+                            onClose: { id in await tabs.closeOptimistic(id, animation: motion.resolve(motion.reflow)) },
                             onNewTab: newTabFromOverview,
                             onNewTerminal: tabs.includesTerminals ? { newTerminalFromOverview() } : nil,
                             onDone: { closeOverview(selecting: tabs.activeKey) },
@@ -491,6 +491,7 @@ struct BrowserScreen: View {
                     tabs.removeEndedTerminal(key, animation: motion.resolve(motion.reflow))
                 }
             }
+            cardSwipes.isListed = { key in tabs.items.contains { $0.id == key } }
             tabs.backToGridRemoving = { key in
                 pendingCardRemoval = key
                 if zoomState.phase == .overview {
