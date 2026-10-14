@@ -3367,6 +3367,64 @@
       },
       "extra": false
     },
+    "OpenedBrowserPath": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "browser"
+            ]
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "screen_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        },
+        "reused": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "true when the link navigated a browser tab that was already on the right side; false when it made a new one."
+        }
+      },
+      "extra": false
+    },
     "CreatedPath": {
       "kind": "union",
       "variants": [
@@ -27523,6 +27581,65 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.open_url": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional"
+        },
+        "fields": {
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The link: an http or https URL with a host, at most 8192 bytes, with no control or space character. Anything else is validation.invalid (field url)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "An omitted workspace is the session's home workspace (workspace-kind-v1); with no home workspace the request fails with selector.not_found (scope workspace).",
+          "The target is the workspace's focused screen (else its first). Its right side is every pane outside a docked column whose dock has role agent_chat or edge left.",
+          "Reuse: the selected browser tab of the focused right-side pane, else of the right-side pane focused most recently (ties in layout order), else any browser tab on the right side, navigates to url as browser.navigate does and becomes its pane's selected tab. The keyboard focus does not move.",
+          "Else a new browser tab, as tab.create_browser makes it, in the first of those panes; a workspace with no screen gets the screen tab.create_browser makes for it. Else (only the dock) the browser opens in a new viewport column right of the dock.",
+          "Errors of the navigation or the creation are returned as they are: with no browser provider the creation fails with operation.failed, extra.code engine_unavailable, as tab.create_browser does. A retry with the same idempotency key replays the step the first request ran."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "OpenedBrowserPath"
+          }
+        ]
+      },
+      "errors": [
+        "creation.conflict",
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
         "validation.invalid"
       ]
     },

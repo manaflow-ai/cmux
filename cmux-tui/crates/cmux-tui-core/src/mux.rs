@@ -329,7 +329,9 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
+pub(crate) use resource_topology::{
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
+};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{

@@ -49,6 +49,10 @@ origin `user` on top of the table.
 hq-99's rule (cmux#13742): `history.*` reads only for page `history`; a History delete needs page
 `history` and the person's gesture.
 
+Page `home-channels` may call `workspace.open_url` (cx-ebm.59.3) only on the person's gesture: a
+clicked web link in the Chief chat opens on the right side of the home workspace. It may call
+nothing else of the catalog.
+
 ## Events (`page-events-v1`)
 
 A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's

@@ -485,6 +485,7 @@ client <selector> cell pixels set
 workspace list|create
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> layout apply
+workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
 screen list|create

@@ -249,6 +249,7 @@
     "workspace.layout.apply",
     "workspace.list",
     "workspace.move",
+    "workspace.open_url",
     "workspace.place",
     "workspace.placement.list",
     "workspace.rename",
