@@ -278,6 +278,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
+    pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
@@ -331,6 +333,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
@@ -593,6 +596,8 @@ impl Hub {
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
+            asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
+            asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
@@ -931,11 +936,7 @@ impl Hub {
             }
             if let Some((seq, turn_id)) = open {
                 let error = "the daemon restarted before this turn settled";
-                let result = json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error});
-                // The session shows that turn failed (`lastTurn`), not idle; recorded before
-                // the record goes out, as every turn's end is.
-                self.record_last_turn(&session, &result);
-                self.append(&session, "mux", "turn_result", result);
+                self.append_unknown_outcome(&session, json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "turnId": turn_id, "error": error, "errorText": error}));
                 self.save_meta(&session);
             }
         }
@@ -957,8 +958,7 @@ impl Hub {
             changed
         };
         if changed {
-            let since = if status == SessionStatus::Waiting { now_ms() } else { 0 };
-            session.input_since.store(since, Ordering::SeqCst);
+            session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
         }

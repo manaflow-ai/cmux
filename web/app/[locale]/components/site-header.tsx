@@ -13,7 +13,6 @@ import {
   MobileDrawerToggle,
 } from "./mobile-drawer";
 import { BrandLogoLink } from "./brand-logo-link";
-import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
 
 export function SiteHeader({
@@ -148,17 +147,15 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
-          <ProUpgradeVisibility>
-            <ContentLocaleLink
-              href="/pricing"
-              currentLocale={locale}
-              contentLocales={fallbackContentLocales}
-              onClick={close}
-              className="hover:text-foreground transition-colors py-1"
-            >
-              {t("pricing")}
-            </ContentLocaleLink>
-          </ProUpgradeVisibility>
+          <ContentLocaleLink
+            href="/pricing"
+            currentLocale={locale}
+            contentLocales={fallbackContentLocales}
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("pricing")}
+          </ContentLocaleLink>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

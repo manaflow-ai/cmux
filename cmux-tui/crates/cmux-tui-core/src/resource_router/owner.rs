@@ -211,12 +211,29 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
+        | ResourceOperation::SidebarGet
+        | ResourceOperation::SidebarMove
+        | ResourceOperation::SidebarPin
+        | ResourceOperation::SidebarUnpin
+        | ResourceOperation::SidebarItemAdd
+        | ResourceOperation::SidebarItemRemove
+        | ResourceOperation::SidebarItemUpdate
+        | ResourceOperation::SidebarSectionAdd
+        | ResourceOperation::SidebarSectionUpdate
+        | ResourceOperation::SidebarSectionMove
+        | ResourceOperation::SidebarSectionRemove
+        | ResourceOperation::SidebarGroupCreate
+        | ResourceOperation::SidebarGroupUpdate
+        | ResourceOperation::SidebarGroupUngroup
+        | ResourceOperation::SidebarAdopt
+        | ResourceOperation::SidebarApply
         | ResourceOperation::ProjectList
         | ResourceOperation::ProjectObserve
         | ResourceOperation::ProjectAdd
         | ResourceOperation::ProjectUpdate
         | ResourceOperation::ProjectRemove
         | ResourceOperation::ProjectSync
+        | ResourceOperation::ProjectSourceUpdate
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport

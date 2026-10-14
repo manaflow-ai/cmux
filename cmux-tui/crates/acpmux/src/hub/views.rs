@@ -46,6 +46,16 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 pub(super) const LAST_TURN_KEYS: [&str; 7] =
     ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
 
+impl Hub {
+    /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
+    /// that never got the prompt). The session shows that turn failed (`lastTurn`, its lane),
+    /// recorded before the record goes out, as every turn's end is.
+    pub(super) fn append_unknown_outcome(&self, session: &Session, result: Value) {
+        self.record_last_turn(session, &result);
+        self.append(session, "mux", "turn_result", result);
+    }
+}
+
 /// The session's lane (cx-v9k2f): what a coordinator watching many agents
 /// needs at a glance, decided here once from the summary's own fields.
 ///
