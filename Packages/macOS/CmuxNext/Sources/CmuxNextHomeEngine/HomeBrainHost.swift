@@ -106,7 +106,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
         }
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
+        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
+        // turns included, its own `cmux mcp serve` (one server per turn).
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables

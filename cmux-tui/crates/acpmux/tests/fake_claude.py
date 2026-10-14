@@ -16,6 +16,8 @@ is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
 "hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+A stop_task control request ends its task killed (task_updated);
+FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 FAKE_CLAUDE_AUTH=1 looks for a sign-in the way Claude Code does (the
 environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
@@ -142,6 +144,14 @@ for line in sys.stdin:
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
+        # Like Claude Code, a stopped task ends killed (task_updated); FAKE_CLAUDE_STOP_NOTIFY=1 also
+        # sends its task_notification, as a Claude Code that does not suppress it would.
+        if request.get("subtype") == "stop_task":
+            task = request.get("task_id")
+            send({"type": "system", "subtype": "task_updated", "task_id": task, "patch": {"status": "killed"}})
+            if os.environ.get("FAKE_CLAUDE_STOP_NOTIFY") == "1":
+                send({"type": "system", "subtype": "task_notification", "task_id": task, "status": "stopped",
+                      "output_file": "", "summary": ""})
         if request.get("subtype") == "initialize":
             send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
@@ -345,6 +355,16 @@ for line in sys.stdin:
                   "input": {"command": "npm run dev", "run_in_background": True}}]}})
             send({"type": "system", "subtype": "task_started", "task_id": "r1", "tool_use_id": "toolu_run",
                   "description": "npm run dev", "task_type": "local_bash"})
+        # "bg-done-twice": a background shell that finishes is reported twice: its task_updated
+        # says completed, then its task_notification carries the summary.
+        if said.strip() == "bg-done-twice":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_dn", "name": "Bash",
+                  "input": {"command": "cargo test", "run_in_background": True}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": "d1", "tool_use_id": "toolu_dn",
+                  "description": "cargo test", "task_type": "local_bash"})
+            send({"type": "system", "subtype": "task_updated", "task_id": "d1", "patch": {"status": "completed"}})
+            send({"type": "system", "subtype": "task_notification", "task_id": "d1", "tool_use_id": "toolu_dn",
+                  "status": "completed", "output_file": "", "summary": "Tests passed"})
         # "agent-bg-running": a background subagent starts a dev server in the background, which
         # is still running when the turn ends.
         if said.strip() == "agent-bg-running":
