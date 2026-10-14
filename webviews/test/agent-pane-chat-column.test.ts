@@ -219,19 +219,24 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
   const REST_SLACK = 4;
   /// How far the last line of text sits above the view's bottom once the thread has stopped
-  /// gliding (looping animations, a streaming mark, never end): a row placed by its drawn height
-  /// late slides there over 180 ms, and a loaded runner can still be in that slide when the frames
-  /// stop.
+  /// gliding: a row placed by its drawn height late slides there over 180 ms, and a loaded runner
+  /// can still be in that slide when the frames stop. Only running, finite animations count: a
+  /// looping one (a streaming mark) never ends, and a finished one held by its fill stays listed.
   const restingLastLine = async (page: Page): Promise<number> => {
-    await page.waitForFunction(
-      () =>
-        document
-          .querySelector(".acpmux-scroll")!
-          .getAnimations({ subtree: true })
-          .every((animation) => animation.effect?.getTiming().iterations === Infinity),
-      null,
-      { timeout: 5_000 },
-    );
+    const gliding = () =>
+      document
+        .querySelector(".acpmux-scroll")!
+        .getAnimations({ subtree: true })
+        .filter(
+          (animation) => animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+        )
+        .map((animation) => {
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          return `${target?.className ?? "?"} ${animation.constructor.name} ${String(animation.effect?.getTiming().duration)}`;
+        });
+    await page.waitForFunction(`(${gliding})().length === 0`, null, { timeout: 5_000 }).catch(async (error) => {
+      throw new Error(`still gliding after 5 s: ${JSON.stringify(await page.evaluate(gliding))}`, { cause: error });
+    });
     return page.evaluate(
       () =>
         new Promise<number>((done) =>
