@@ -95,7 +95,11 @@
   border-radius: 10px;
   outline: 0.5px solid var(--agent-border-strong);
   outline-offset: -0.5px;
-  background: repeating-conic-gradient(rgba(127, 127, 127, 0.18) 0 25%, transparent 0 50%) 0 0 / 12px 12px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
