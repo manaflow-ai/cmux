@@ -248,6 +248,8 @@ describe("pauseVm", () => {
     }).pipe(Effect.provide(TestContext.TestContext)));
     expect(exit._tag).toBe("Left");
     expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(exit._tag === "Left" && exit.left._tag === "VmOperationDeadlineError" ? exit.left.waitedMs : null)
+      .toBe(PAUSE_STATE_PROBE_TIMEOUT_MS);
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
   });

@@ -2248,7 +2248,11 @@ export function pauseVm(input: {
         Effect.either,
       )
       : null;
-    if (probed?._tag === "Left" || (probed?._tag === "Right" && probed.right === "in_progress")) {
+    if (probed?._tag === "Left") {
+      if (probed.left._tag === "VmOperationDeadlineError") return yield* Effect.fail(probed.left);
+      return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
+    }
+    if (probed?._tag === "Right" && probed.right === "in_progress") {
       return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
     }
     const observed = probed?._tag === "Right" ? probed.right : null;
