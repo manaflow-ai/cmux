@@ -315,7 +315,10 @@ actor APIClient {
                 let message = errorData?["message"] as? String
                     ?? errorData?["error"] as? String
                     ?? "Unknown error"
-                let details = errorData?["details"] as? [String: Any]
+                // Response diagnostics (HTTP status, request ID) ride along so
+                // the sign-in failure line can name them; body details win.
+                let details = httpResponse.stackDiagnostics(status: actualStatus)
+                    .merging(errorData?["details"] as? [String: Any] ?? [:]) { _, body in body }
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }
             
