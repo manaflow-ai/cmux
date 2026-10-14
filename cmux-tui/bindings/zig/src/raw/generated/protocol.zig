@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409";
+pub const ir_sha256 = "442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -421,6 +421,7 @@ pub const ConversationMessage = struct {
     reply_to: ?ConversationPartRef = null,
     retracted_at: ?[]const u8 = null,
     seq: u64,
+    thread: ?ConversationThreadState = null,
     thread_root: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -429,6 +430,7 @@ pub const ConversationMessage = struct {
         "edited_at",
         "reply_to",
         "retracted_at",
+        "thread",
         "thread_root",
     };
 };
@@ -557,12 +559,61 @@ pub const ConversationTextRun = struct {
     };
 };
 
+pub const ConversationThreadResolution = struct {
+    at: []const u8,
+    by: []const u8,
+    seq: u64,
+};
+
+pub const ConversationThreadState = struct {
+    owner: ?[]const u8 = null,
+    resolved: ?ConversationThreadResolution = null,
+    title: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "owner",
+        "resolved",
+        "title",
+    };
+};
+
+pub const ConversationThreadStatus = enum {
+    open,
+    resolved,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "open")) return .open;
+        if (std.mem.eql(u8, value, "resolved")) return .resolved;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .open => "open",
+            .resolved => "resolved",
+        };
+    }
+};
+
 pub const ConversationThreadSummary = struct {
     authors: []const []const u8,
     last_reply_at: wire.Nullable([]const u8),
     last_reply_seq: wire.Nullable(u64),
+    owner: ?[]const u8 = null,
     reply_count: u64,
+    resolved_at: ?[]const u8 = null,
+    resolved_by: ?[]const u8 = null,
     root: []const u8,
+    status: ?ConversationThreadStatus = null,
+    title: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "owner",
+        "resolved_at",
+        "resolved_by",
+        "status",
+        "title",
+    };
 };
 
 pub const CopyResultMode = enum {

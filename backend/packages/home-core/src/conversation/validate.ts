@@ -42,6 +42,12 @@ export const validateTitle = (title: unknown): void => {
   if (count === 0 || count > MAX_TITLE_CHARS || CONTROL.test(title)) fail("invalid_title")
 }
 
+/** A thread title: 0-200 characters (empty clears it), no control characters. */
+export const validateThreadTitle = (title: unknown): string => {
+  if (!isString(title) || charCount(title) > MAX_TITLE_CHARS || CONTROL.test(title)) return fail("invalid_title")
+  return title
+}
+
 const validDisplayName = (name: unknown): boolean => {
   if (!isString(name)) return false
   const count = charCount(name)
