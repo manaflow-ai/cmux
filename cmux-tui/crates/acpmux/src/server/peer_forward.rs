@@ -66,7 +66,7 @@ async fn forward_inner(
         if let Some(object) = forwarded.as_object_mut() {
             object.insert("sessionId".into(), Value::String(id));
         }
-        super::remote_guard::mark_forwarded(conn.origin, params, &mut forwarded);
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -88,7 +88,7 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, params, &mut p);
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }
