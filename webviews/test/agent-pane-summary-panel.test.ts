@@ -1,13 +1,13 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The chat's summary is a persistent panel, as in the ChatGPT desktop app (Lawrence 2026-10-14):
-// - a wide pane docks it right of the chat and its composer, shown from the start; a click in the
-//   transcript leaves it; its first row opens a terminal or a browser beside the chat;
-// - hiding it (its close button) is one choice, kept for the next page, until the header's
-//   summary button shows it again;
+// The chat's summary is a pinned card under its header button, as in the ChatGPT desktop app (Leo
+// 2026-10-14, "you guys misunderstood"):
+// - shown from the start; a click in the transcript or the composer leaves it; only its button,
+//   its close button or Escape closes it; its first row opens a terminal or a browser beside the chat;
+// - a wide pane makes room: the chat and its composer end left of the card; a narrow pane lays the
+//   card over the transcript and the chat keeps its width; resizing moves the chat, not the card;
+// - closing it is one choice, kept for the next page, until the header's summary button opens it;
 // - the chat menu offers New terminal and New browser beside New side chat, and all of it fits a
-//   window with room for it;
-// - a narrow pane makes it a popover under that button, closed at first, closed again by a click
-//   in the transcript or Escape.
+//   window with room for it.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -139,16 +139,26 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
   const box = async (page: Page, selector: string) =>
     (await page.locator(selector).first().boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
 
-  test("a wide pane docks the summary beside the chat, and a click elsewhere leaves it", async () => {
+  // The chat's column: the composer's card, which the transcript's column matches.
+  const column = (page: Page) => box(page, ".acpmux-composer-box");
+  // Lets the chat column's move (a short transition) finish.
+  const settle = (page: Page) => page.waitForTimeout(400);
+
+  test("a wide pane pins the summary under its button and the chat makes room beside it", async () => {
     const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await context.newPage();
     await open(page);
     await panel(page).waitFor({ timeout: 5_000 });
-    const dock = await box(page, ".acpmux-summary-card");
-    const composer = await box(page, ".acpmux-composer");
-    // A column the chat's transcript and composer end at, the pane's full height.
-    expect(dock.x).toBeGreaterThanOrEqual(composer.x + composer.width - 1);
-    expect(dock.height).toBeGreaterThan(800 - 2);
+    await settle(page);
+    const card = await box(page, ".acpmux-summary-card");
+    const button = await box(page, ".acpmux-summary-button");
+    // A card under the button at the pane's right edge, not a full-height column.
+    expect(card.y).toBeGreaterThanOrEqual(button.y + button.height);
+    expect(1280 - (card.x + card.width)).toBeLessThan(24);
+    expect(card.height).toBeLessThan(800 - 60);
+    // The chat ends left of it.
+    const chat = await column(page);
+    expect(chat.x + chat.width).toBeLessThanOrEqual(card.x);
     await page.getByText("The notes are tidy.").click();
     await page.locator(".acpmux-composer").click();
     expect(await panel(page).isVisible()).toBe(true);
@@ -207,23 +217,55 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     await context.close();
   });
 
-  test("a narrow pane shows the summary as a popover a click elsewhere or Escape closes", async () => {
+  test("a narrow pane lays the card over the chat, and only Escape or its button closes it", async () => {
     const context = await browser!.newContext({ viewport: { width: 760, height: 800 } });
     const page = await context.newPage();
     await open(page);
-    await page.waitForTimeout(500);
-    expect(await panel(page).count()).toBe(0);
-    await page.getByRole("button", { name: "Chat summary" }).click();
     await panel(page).waitFor({ timeout: 5_000 });
-    // Over the transcript, under the header.
-    const popover = await box(page, ".acpmux-summary-card");
-    expect(popover.width).toBeLessThan(760 / 2);
+    await settle(page);
+    // Over the chat's column, which keeps the pane's width.
+    const card = await box(page, ".acpmux-summary-card");
+    const chat = await column(page);
+    expect(card.width).toBeLessThan(760 / 2);
+    expect(chat.x + chat.width).toBeGreaterThan(card.x);
+    // A click in the transcript or the composer leaves it.
     await page.getByText("The notes are tidy.").click();
-    await panel(page).waitFor({ state: "detached", timeout: 5_000 });
-    await page.getByRole("button", { name: "Chat summary" }).click();
-    await panel(page).waitFor({ timeout: 5_000 });
+    await page.locator(".acpmux-composer").click();
+    await page.waitForTimeout(300);
+    expect(await panel(page).isVisible()).toBe(true);
     await page.keyboard.press("Escape");
     await panel(page).waitFor({ state: "detached", timeout: 5_000 });
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    await panel(page).waitFor({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    await panel(page).waitFor({ state: "detached", timeout: 5_000 });
+    // Opened again for the next test's page: closing is kept.
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    await panel(page).waitFor({ timeout: 5_000 });
+    await context.close();
+  });
+
+  test("resizing moves the chat, not the card: room beside it when wide, over it when narrow", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    await panel(page).waitFor({ timeout: 5_000 });
+    await settle(page);
+    const wide = await box(page, ".acpmux-summary-card");
+    expect((await column(page)).x + (await column(page)).width).toBeLessThanOrEqual(wide.x);
+    await page.setViewportSize({ width: 760, height: 800 });
+    await settle(page);
+    // Still open, at the same place from the pane's right edge and top.
+    const narrow = await box(page, ".acpmux-summary-card");
+    expect(await panel(page).isVisible()).toBe(true);
+    expect(Math.abs(760 - (narrow.x + narrow.width) - (1280 - (wide.x + wide.width)))).toBeLessThan(2);
+    expect(Math.abs(narrow.y - wide.y)).toBeLessThan(2);
+    const chat = await column(page);
+    expect(chat.x + chat.width).toBeGreaterThan(narrow.x);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await settle(page);
+    const back = await box(page, ".acpmux-summary-card");
+    expect((await column(page)).x + (await column(page)).width).toBeLessThanOrEqual(back.x);
     await context.close();
   });
 });
