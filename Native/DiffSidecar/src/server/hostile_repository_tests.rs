@@ -9,7 +9,7 @@ use std::process::Command;
 
 use crate::protocol::DiffSource;
 
-use super::{git_generated_paths, run_git_patch_with_limit};
+use super::{SESSION_GIT_TIMEOUT, SessionGit, git_generated_paths, run_git_patch_with_limit};
 
 /// A fresh folder for one test, removed when dropped.
 struct Scratch(PathBuf);
@@ -89,7 +89,8 @@ fn new_repository(path: &Path) {
 /// Backdates `file`, so git must hash it again (through its clean filter)
 /// to learn whether it changed.
 fn make_stat_dirty(file: &Path) {
-    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200);
+    // 2001-01-01, long before the checkout.
+    let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(271_752);
     std::fs::File::options()
         .write(true)
         .open(file)
@@ -126,12 +127,15 @@ struct Session {
 /// Opens a session on `source` the way `open_session` does once the source
 /// is resolved: the patch, then the generated paths.
 async fn open(scratch: &Scratch, source: &DiffSource, repo: &Path) -> Session {
+    let git = SessionGit::open(repo, SESSION_GIT_TIMEOUT)
+        .await
+        .expect("open the session's git");
     let patch_path = scratch.0.join("session.patch");
-    let written = run_git_patch_with_limit(source, repo, &patch_path, 1024 * 1024).await;
+    let written = run_git_patch_with_limit(source, &git, &patch_path, 1024 * 1024).await;
     let patch = written
         .ok()
         .map(|()| std::fs::read_to_string(&patch_path).expect("read the patch"));
-    let generated = git_generated_paths(source, repo).await;
+    let generated = git_generated_paths(source, &git).await;
     Session { patch, generated }
 }
 
@@ -142,11 +146,17 @@ async fn hostile_repository_fsmonitor_hook_never_runs() {
     let repo = scratch.0.join("repository");
     new_repository(&repo);
     let hook = scratch.0.join("fsmonitor-hook");
-    std::fs::write(&hook, format!("#!/bin/sh\n{}\nexit 1\n", scratch.touch_marker()))
-        .expect("write the hook");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\n{}\nexit 1\n", scratch.touch_marker()),
+    )
+    .expect("write the hook");
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))
         .expect("make the hook executable");
-    git(&repo, &["config", "core.fsmonitor", &hook.to_string_lossy()]);
+    git(
+        &repo,
+        &["config", "core.fsmonitor", &hook.to_string_lossy()],
+    );
     std::fs::write(repo.join("file.txt"), "two\n").expect("write file");
 
     open(&scratch, &unstaged(&repo), &repo).await;
@@ -352,7 +362,11 @@ async fn hostile_repository_partial_clone_lazy_fetch_runs_no_ssh_command() {
     git(&repo, &["config", "extensions.partialClone", "origin"]);
     git(
         &repo,
-        &["config", "remote.origin.url", "ssh://example.invalid/repository"],
+        &[
+            "config",
+            "remote.origin.url",
+            "ssh://example.invalid/repository",
+        ],
     );
     git(&repo, &["config", "remote.origin.promisor", "true"]);
     let ssh = format!("{}; false", scratch.touch_marker());
@@ -377,10 +391,17 @@ async fn hostile_repository_attributes_and_order_files_are_never_read() {
     std::fs::write(&attributes, "*.txt -diff linguist-generated\n").expect("write attributes");
     git(
         &repo,
-        &["config", "core.attributesFile", &attributes.to_string_lossy()],
+        &[
+            "config",
+            "core.attributesFile",
+            &attributes.to_string_lossy(),
+        ],
     );
     let order = scratch.0.join("missing-order-file");
-    git(&repo, &["config", "diff.orderFile", &order.to_string_lossy()]);
+    git(
+        &repo,
+        &["config", "diff.orderFile", &order.to_string_lossy()],
+    );
 
     let session = open(&scratch, &unstaged(&repo), &repo).await;
 
