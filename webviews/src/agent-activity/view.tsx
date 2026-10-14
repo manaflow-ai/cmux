@@ -12,7 +12,7 @@ import {
   type ActivitySession,
   type ActivityState,
 } from "./model";
-import { laneMachines, laneStatus } from "./lanes";
+import { attentionCount, laneMachines, laneStatus } from "./lanes";
 import { native } from "./native";
 
 function Frame({ event, noFrame, onClick }: { event?: ActivityEvent; noFrame: string; onClick?: () => void }) {
@@ -208,14 +208,21 @@ function Empty({ strings }: { strings: ActivityState["strings"] }) {
 
 /** The lanes view (cx-v9k2f): every acpmux session by machine and coordinator; a click opens its chat. */
 function Lanes({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
-  const machines = laneMachines(state.lanes ?? [], state.filter, state.strings);
-  const attention = machines.reduce((sum, machine) => sum + machine.attention, 0);
-  const now = Date.now();
+  const all = state.lanes ?? [];
+  const machines = laneMachines(all, state.filter, state.strings);
+  // The count is of every lane, as the sidebar's, whatever the filter hides.
+  const attention = attentionCount(all);
+  // "Idle · 3h" keeps counting on a quiet page: redraw each minute.
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   if (machines.length === 0) {
     return (
       <div className="lanes">
         <div className="empty">
-          <b>{state.strings.lanesEmpty}</b>
+          <b>{all.length ? state.strings.lanesNoMatch : state.strings.lanesEmpty}</b>
         </div>
       </div>
     );

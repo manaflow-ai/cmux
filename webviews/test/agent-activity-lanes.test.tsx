@@ -102,7 +102,7 @@ describe("Agent Activity lanes", () => {
   test("says each state, for how long, and a failed lane's error", async () => {
     await render({ lanes });
     expect(row("op-busy").textContent).toContain("Working · 30m");
-    expect(row("op-asks").textContent).toContain("Waiting on permission · 12m");
+    expect(row("op-asks").textContent).toContain("Waiting on you · 12m");
     expect(row("op-idle-long").textContent).toContain("Idle · 5h");
     expect(row("op-broke").textContent).toContain("Failed · 3h");
     expect(row("op-broke").textContent).toContain("Credit balance too low");
@@ -121,9 +121,12 @@ describe("Agent Activity lanes", () => {
     expect(dispatched).toContainEqual({ type: "jump", id: "op-broke" });
   });
 
-  test("the filter finds a lane by its error text", async () => {
+  test("the filter finds a lane by its error text, and says when nothing matches", async () => {
     await render({ lanes, filter: "credit" });
     expect(rows().map((r) => r.dataset.lane)).toEqual(["op-broke"]);
+    expect(host.querySelector(".lanes-attention")?.textContent).toBe("Needs you: 3");
+    await render({ lanes, filter: "no such lane" });
+    expect(host.querySelector(".lanes .empty")?.textContent).toBe("No matching sessions");
   });
 
   test("Computer use switches to the computer-use view and back", async () => {

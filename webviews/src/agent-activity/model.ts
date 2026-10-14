@@ -86,6 +86,8 @@ export type ActivityState = {
     lanesOwn: string;
     lanesAttention: string;
     lanesEmpty: string;
+    lanesNoMatch: string;
+    laneStatus: string;
   };
 };
 
@@ -274,12 +276,14 @@ export const initialActivityState = (): ActivityState => ({
     computerUse: "Computer use",
     pageView: "View",
     laneWorking: "Working",
-    laneInput: "Waiting on permission",
+    laneInput: "Waiting on you",
     laneIdle: "Idle",
     laneFailed: "Failed",
     laneLost: "Lost",
     lanesOwn: "On their own",
     lanesAttention: "Needs you: {count}",
     lanesEmpty: "No agent sessions",
+    lanesNoMatch: "No matching sessions",
+    laneStatus: "{state} · {duration}",
   },
 });

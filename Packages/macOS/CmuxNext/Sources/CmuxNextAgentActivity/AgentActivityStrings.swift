@@ -74,7 +74,7 @@ nonisolated enum AgentActivityStrings {
     static var computerUse: String { t("lanes.computerUse", "Computer use") }
     static var pageView: String { t("lanes.view", "View") }
     static var laneWorking: String { t("lanes.state.working", "Working") }
-    static var laneInput: String { t("lanes.state.input", "Waiting on permission") }
+    static var laneInput: String { t("lanes.state.input", "Waiting on you") }
     static var laneIdle: String { t("lanes.state.idle", "Idle") }
     static var laneFailed: String { t("lanes.state.failed", "Failed") }
     static var laneLost: String { t("lanes.state.lost", "Lost") }
@@ -82,6 +82,9 @@ nonisolated enum AgentActivityStrings {
     /// `{count}` is the number of sessions; the page fills it in.
     static var lanesAttention: String { t("lanes.attention", "Needs you: {count}") }
     static var lanesEmpty: String { t("lanes.empty", "No agent sessions") }
+    static var lanesNoMatch: String { t("lanes.noMatch", "No matching sessions") }
+    /// A lane's state and how long it has been in it; the page fills both in.
+    static var laneStatus: String { t("lanes.status", "{state} · {duration}") }
 
     /// Every string the web page shows, by the key the page reads (`model.ts` `strings`).
     static var page: [String: String] {
@@ -95,6 +98,7 @@ nonisolated enum AgentActivityStrings {
             "lanes": lanes, "computerUse": computerUse, "pageView": pageView, "laneWorking": laneWorking,
             "laneInput": laneInput, "laneIdle": laneIdle, "laneFailed": laneFailed, "laneLost": laneLost,
             "lanesOwn": lanesOwn, "lanesAttention": lanesAttention, "lanesEmpty": lanesEmpty,
+            "lanesNoMatch": lanesNoMatch, "laneStatus": laneStatus,
         ]
     }
 }

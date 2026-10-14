@@ -1,3 +1,4 @@
+import CmuxNextAgentActivity
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextSidebar

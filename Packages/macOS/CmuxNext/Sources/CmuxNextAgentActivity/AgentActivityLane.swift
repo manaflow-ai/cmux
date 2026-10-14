@@ -51,9 +51,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public static let parentTag = "mux.parent"
 
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
-    /// (a closed session, or an acpmux from before `lane`).
-    public static func of(summary: [String: Any], title: String?) -> AgentActivityLane? {
-        guard let id = summary["sessionId"] as? String, let lane = summary["lane"] as? [String: Any],
+    /// (a closed session, or an acpmux from before `lane`). `id` names the session when the
+    /// summary does not (a `session_changed` carries it beside the summary).
+    public static func of(summary: [String: Any], id fallback: String? = nil, title: String?) -> AgentActivityLane? {
+        guard let id = summary["sessionId"] as? String ?? fallback, let lane = summary["lane"] as? [String: Any],
               let raw = lane["state"] as? String, let state = State(rawValue: raw) else { return nil }
         let name = summary["name"] as? String ?? id
         let since = (lane["since"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }

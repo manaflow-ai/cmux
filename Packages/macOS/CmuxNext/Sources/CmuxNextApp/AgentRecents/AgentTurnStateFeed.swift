@@ -109,7 +109,7 @@ final class AgentTurnStateFeed {
                       let change = AgentTurnStates.change(params) {
                 let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
-                               title: change.title, lane: summary.flatMap { AgentActivityLane.of(summary: $0, title: change.title) })
+                               title: change.title, lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session, title: change.title) })
             } else {
                 return nil
             }

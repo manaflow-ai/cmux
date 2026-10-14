@@ -24,6 +24,8 @@ export type LaneStrings = {
   laneFailed: string;
   laneLost: string;
   lanesOwn: string;
+  /** `{state} · {duration}`, so a locale can order them. */
+  laneStatus: string;
 };
 
 /** A person should look: it waits on them, failed or was lost. */
@@ -110,7 +112,7 @@ export function shortDuration(ms: number, locale?: string): string {
   return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
 }
 
-/** The lane's state in words, and for how long: "Idle · 3h". */
+/** The lane's state in words, and for how long: "Idle · 3h" (`strings.laneStatus`). */
 export function laneStatus(lane: Lane, now: number, strings: LaneStrings, locale?: string): string {
   const word = {
     working: strings.laneWorking,
@@ -119,5 +121,6 @@ export function laneStatus(lane: Lane, now: number, strings: LaneStrings, locale
     failed: strings.laneFailed,
     lost: strings.laneLost,
   }[lane.state];
-  return lane.since ? `${word} · ${shortDuration(now - lane.since, locale)}` : word;
+  if (!lane.since) return word;
+  return strings.laneStatus.replace("{state}", word).replace("{duration}", shortDuration(now - lane.since, locale));
 }

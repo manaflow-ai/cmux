@@ -5378,127 +5378,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting on permission"
+            "value": "Waiting on you"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بانتظار الإذن"
+            "value": "بانتظارك"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čeka dozvolu"
+            "value": "Čeka vas"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på tilladelse"
+            "value": "Venter på dig"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wartet auf Erlaubnis"
+            "value": "Wartet auf dich"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esperando permiso"
+            "value": "Esperándote"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En attente d’autorisation"
+            "value": "Vous attend"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In attesa di permesso"
+            "value": "Ti aspetta"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "許可待ち"
+            "value": "あなたの対応待ち"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កំពុងរង់ចាំការអនុញ្ញាត"
+            "value": "កំពុងរង់ចាំអ្នក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "권한 대기 중"
+            "value": "응답 대기 중"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på tillatelse"
+            "value": "Venter på deg"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka na zgodę"
+            "value": "Czeka na Ciebie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aguardando permissão"
+            "value": "Aguardando você"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ждёт разрешения"
+            "value": "Ждёт вас"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รอการอนุญาต"
+            "value": "รอคุณอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İzin bekliyor"
+            "value": "Sizi bekliyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Чекає на дозвіл"
+            "value": "Чекає на вас"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chờ cấp quyền"
+            "value": "Đang chờ bạn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待授权"
+            "value": "等待你处理"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等待授權"
+            "value": "等待你處理"
           }
         }
       }
@@ -6285,6 +6285,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有智慧代理工作階段"
+          }
+        }
+      }
+    },
+    "lanes.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد جلسات مطابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema odgovarajućih sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen matchende sessioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine passenden Sitzungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay sesiones que coincidan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune session correspondante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna sessione corrispondente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一致するセッションはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានវគ្គដែលត្រូវគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "일치하는 세션 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen samsvarende økter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak pasujących sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma sessão correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет подходящих сессий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเซสชันที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eşleşen oturum yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає відповідних сесій"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có phiên phù hợp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有匹配的会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有相符的工作階段"
+          }
+        }
+      }
+    },
+    "lanes.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{state} · {duration}"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{state} · {duration}"
           }
         }
       }
