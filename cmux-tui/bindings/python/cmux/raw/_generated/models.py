@@ -332,6 +332,8 @@ class AgentRecord:
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    agent: Union[str, None, MissingType] = field(default=MISSING)
+    since_ms: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2572,6 +2574,23 @@ class ConversationImportResult:
 
 
 @dataclass(frozen=True)
+class ConversationLinkResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/request'
+    url: str
+
+
+@dataclass(frozen=True)
+class ConversationLinkResolveResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-link-resolve/result'
+    conversation: ConversationSummary
+    path: List[str]
+    url: str
+    message: Union[ConversationMessage, MissingType] = field(default=MISSING)
+    thread_root: Union[str, MissingType] = field(default=MISSING)
+    truncated: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ConversationListRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
     pass
@@ -4458,6 +4477,7 @@ class AgentChangedEvent(EventBase):
     state: AgentState
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
+    since_ms: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5569,6 +5589,8 @@ __all__ = [
     'ConversationHistoryResult',
     'ConversationImportRequest',
     'ConversationImportResult',
+    'ConversationLinkResolveRequest',
+    'ConversationLinkResolveResult',
     'ConversationListRequest',
     'ConversationListResult',
     'ConversationOpRequest',

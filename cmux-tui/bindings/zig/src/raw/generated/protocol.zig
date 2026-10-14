@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d";
+pub const ir_sha256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -54,11 +54,19 @@ pub const AgentPresenceActivity = enum {
 };
 
 pub const AgentRecord = struct {
+    /// Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports.
+    agent: wire.Field([]const u8) = .absent,
     session: wire.Nullable([]const u8),
+    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
+    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     surface: Id,
     updated_at_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "since_ms",
+    };
 };
 
 pub const AgentReportSource = enum {
@@ -4248,6 +4256,38 @@ pub fn conversationImport(client: anytype, request: ConversationImportRequest) !
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationLinkResolveRequest = struct {
+    url: []const u8,
+};
+
+pub const ConversationLinkResolveResult = struct {
+    conversation: ConversationSummary,
+    message: ?ConversationMessage = null,
+    path: []const []const u8,
+    thread_root: ?[]const u8 = null,
+    truncated: ?bool = null,
+    url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "message",
+        "thread_root",
+        "truncated",
+    };
+};
+
+pub fn conversationLinkResolve(client: anytype, request: ConversationLinkResolveRequest) !wire.Decoded(ConversationLinkResolveResult) {
+    return client.callTyped(
+        ConversationLinkResolveResult,
+        .{
+            .name = "conversation-link-resolve",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-tree-v1",
         },
         request,
     );
@@ -8914,10 +8954,16 @@ pub const AgentChangedEvent = struct {
     agent: wire.Field([]const u8) = .absent,
     event: []const u8,
     session: wire.Nullable([]const u8),
+    /// When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`.
+    since_ms: ?u64 = null,
     source: AgentSource,
     state: AgentState,
     surface: Id,
     updated_at_ms: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "since_ms",
+    };
 };
 
 pub const AgentPresenceChangedEvent = struct {
@@ -10283,7 +10329,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 256;
+pub const command_count: usize = 257;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10341,6 +10387,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-link-resolve", .authority = "local-admin", .since = 12, .capability = "conversation-tree-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },

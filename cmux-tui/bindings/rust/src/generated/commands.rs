@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d.
+// cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -842,6 +842,26 @@ pub struct ConversationImportResult {
     pub conversation: T::ConversationSummary,
     pub imported: Vec<u64>,
     pub skipped: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveRequest {
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveResult {
+    pub conversation: T::ConversationSummary,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub message: Option<T::ConversationMessage>,
+    pub path: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    pub url: String,
 }
 
 #[rustfmt::skip]
@@ -3917,6 +3937,10 @@ impl CmuxClient {
 
     pub fn conversation_import(&mut self, request: ConversationImportRequest) -> Result<ConversationImportResult> {
         self.execute(&CONVERSATION_IMPORT_METADATA, &request)
+    }
+
+    pub fn conversation_link_resolve(&mut self, request: ConversationLinkResolveRequest) -> Result<ConversationLinkResolveResult> {
+        self.execute(&CONVERSATION_LINK_RESOLVE_METADATA, &request)
     }
 
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {

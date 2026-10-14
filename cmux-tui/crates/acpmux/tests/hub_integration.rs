@@ -16,6 +16,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/prompt_context.rs"]
+mod prompt_context;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/secrets.rs"]

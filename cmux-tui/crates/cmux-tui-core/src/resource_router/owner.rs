@@ -218,6 +218,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ProjectUpdate
         | ResourceOperation::ProjectRemove
         | ResourceOperation::ProjectSync
+        | ResourceOperation::ProjectSourceUpdate
         | ResourceOperation::PaletteUsageGet
         | ResourceOperation::PaletteUsageRecord
         | ResourceOperation::PaletteUsageImport

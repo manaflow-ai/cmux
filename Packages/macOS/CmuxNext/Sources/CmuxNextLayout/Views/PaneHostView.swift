@@ -141,23 +141,29 @@ final class PaneHostView: NSView {
 
     /// Clips the host to `rect` (its own coordinates) where a docked docked
     /// column covers it; nil removes the clip.
-    func setStripClip(_ rect: CGRect?) {
-        guard let layer else { return }
+    /// Returns true when the clip changed: a Chromium page in this pane then
+    /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    @discardableResult
+    func setStripClip(_ rect: CGRect?) -> Bool {
+        guard let layer else { return false }
         guard let rect else {
-            if layer.mask != nil { layer.mask = nil }
-            return
+            guard layer.mask != nil else { return false }
+            layer.mask = nil
+            return true
         }
         let mask = layer.mask ?? {
             let mask = CALayer()
+            mask.name = CALayer.cmuxStripClipName
             mask.backgroundColor = NSColor.black.cgColor
             layer.mask = mask
             return mask
         }()
-        guard mask.frame != rect else { return }
+        guard mask.frame != rect else { return false }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mask.frame = rect
         CATransaction.commit()
+        return true
     }
 
     func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
