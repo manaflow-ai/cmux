@@ -9,14 +9,7 @@
       "state": "streaming",
       "theme": "dark",
       "width": 420,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -58,14 +51,7 @@
       "state": "streaming",
       "theme": "dark",
       "width": 760,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -107,14 +93,7 @@
       "state": "streaming",
       "theme": "dark",
       "width": 1200,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -156,14 +135,7 @@
       "state": "queue-steer",
       "theme": "light",
       "width": 760,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -212,14 +184,7 @@
       "state": "pr-chip",
       "theme": "dark",
       "width": 760,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -268,14 +233,7 @@
       "state": "permission",
       "theme": "dark",
       "width": 420,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -317,14 +275,7 @@
       "state": "permission",
       "theme": "light",
       "width": 1200,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -366,14 +317,7 @@
       "state": "images",
       "theme": "light",
       "width": 760,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,
@@ -422,14 +366,7 @@
       "state": "wallpaper",
       "theme": "dark",
       "width": 1200,
-      "frames": [
-        "frame-00.png",
-        "frame-01.png",
-        "frame-02.png",
-        "frame-03.png",
-        "frame-04.png",
-        "frame-05.png"
-      ],
+      "frames": ["frame-00.png", "frame-01.png", "frame-02.png", "frame-03.png", "frame-04.png", "frame-05.png"],
       "video": "fast-clock.webm",
       "metrics": {
         "frames": 6,

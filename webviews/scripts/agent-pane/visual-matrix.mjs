@@ -14,7 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const webviews = path.resolve(here, "../..");
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] ?? fallback : fallback;
+  return index >= 0 ? (process.argv[index + 1] ?? fallback) : fallback;
 };
 const out = path.resolve(arg("out", path.join(webviews, "../artifacts/agent-pane-visual")));
 const maxFrames = Math.max(4, Number(arg("max-frames", "18")));
@@ -23,11 +23,35 @@ const selected = only ? new Set(only.split(",")) : undefined;
 
 const fastStream = {
   steps: [
-    { atMs: 0, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "I’ll inspect the pane " } } },
-    { atMs: 90, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "while the daemon streams.\n\n" } } },
-    { atMs: 180, update: { sessionUpdate: "tool_call", toolCallId: "stream-read", kind: "read", title: "Read agent-session", status: "in_progress" } },
+    {
+      atMs: 0,
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "I’ll inspect the pane " } },
+    },
+    {
+      atMs: 90,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "while the daemon streams.\n\n" },
+      },
+    },
+    {
+      atMs: 180,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "stream-read",
+        kind: "read",
+        title: "Read agent-session",
+        status: "in_progress",
+      },
+    },
     { atMs: 280, update: { sessionUpdate: "tool_call_update", toolCallId: "stream-read", status: "completed" } },
-    { atMs: 380, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "The layout stays compact as each chunk arrives." } } },
+    {
+      atMs: 380,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "The layout stays compact as each chunk arrives." },
+      },
+    },
   ],
   endAtMs: 520,
 };
@@ -92,14 +116,21 @@ async function runCase(item) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.addInitScript(({ script }) => {
-    if (script) window.cmuxAcpmuxMockScript = script;
-    window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
-  }, { script: item.state === "streaming" ? fastStream : undefined });
+  await page.addInitScript(
+    ({ script }) => {
+      if (script) window.cmuxAcpmuxMockScript = script;
+      window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+    },
+    { script: item.state === "streaming" ? fastStream : undefined },
+  );
   await page.goto(url, { waitUntil: "networkidle" });
   await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
-  await page.evaluate((theme) => window.cmuxAcpmuxBridge.applyTheme(theme), agentPaneTheme(item.theme === "dark" ? ghosttyDefault : lightTheme()));
-  if (item.state === "pr-chip") await page.evaluate((state) => window.cmuxAcpmuxBridge.applyHeaderState?.(state), prState());
+  await page.evaluate(
+    (theme) => window.cmuxAcpmuxBridge.applyTheme(theme),
+    agentPaneTheme(item.theme === "dark" ? ghosttyDefault : lightTheme()),
+  );
+  if (item.state === "pr-chip")
+    await page.evaluate((state) => window.cmuxAcpmuxBridge.applyHeaderState?.(state), prState());
   await page.waitForSelector(".acpmux-shell");
   if (item.state === "permission") await select(page, "mock-tab-strip");
   if (item.state === "images") await select(page, "mock-light-theme");
@@ -212,7 +243,12 @@ function layoutMetrics(frames, width, height) {
       const overlapWidth = Math.min(left.x + left.width, right.x + right.width) - Math.max(left.x, right.x);
       const overlapHeight = Math.min(left.y + left.height, right.y + right.height) - Math.max(left.y, right.y);
       if (overlapWidth > 1 && overlapHeight > 1 && (left.key === "composer" || right.key === "composer")) {
-        overlaps.push({ left: left.key, right: right.key, width: Number(overlapWidth.toFixed(2)), height: Number(overlapHeight.toFixed(2)) });
+        overlaps.push({
+          left: left.key,
+          right: right.key,
+          width: Number(overlapWidth.toFixed(2)),
+          height: Number(overlapHeight.toFixed(2)),
+        });
       }
     }
   }
@@ -236,7 +272,18 @@ async function makeContactSheet(results) {
     const source = PNG.sync.read(await fs.readFile(path.join(out, result.id, result.frames.at(-1))));
     const width = Math.min(tileWidth, source.width);
     const height = Math.min(tileHeight, source.height);
-    PNG.bitblt(source, sheet, 0, 0, width, height, (index % columns) * tileWidth, Math.floor(index / columns) * tileHeight, width, height);
+    PNG.bitblt(
+      source,
+      sheet,
+      0,
+      0,
+      width,
+      height,
+      (index % columns) * tileWidth,
+      Math.floor(index / columns) * tileHeight,
+      width,
+      height,
+    );
   }
   const target = path.join(out, "contact-sheet.png");
   await fs.writeFile(target, PNG.sync.write(sheet));
@@ -244,29 +291,33 @@ async function makeContactSheet(results) {
 }
 
 function lightTheme() {
-  return { ...ghosttyDefault, background: { r: 0.94, g: 0.94, b: 0.94, a: 1 }, foreground: { r: 0.08, g: 0.08, b: 0.08, a: 1 } };
+  return {
+    ...ghosttyDefault,
+    background: { r: 0.94, g: 0.94, b: 0.94, a: 1 },
+    foreground: { r: 0.08, g: 0.08, b: 0.08, a: 1 },
+  };
 }
 
 function prState() {
   return {
-  pinned: true,
-  sideTabs: false,
-  lit: [],
-  floatingChat: false,
-  version: 1,
-  pullRequest: {
-    url: "https://github.com/manaflow-ai/cmux/pull/20214",
-    number: 20214,
-    title: "Agent pane visual verification loop",
-    state: "open",
-    review: "",
-    mergeable: "mergeable",
-    checks: { state: "passing", passed: 5, total: 5 },
-    checkList: [
-      { name: "web", state: "passed", url: "https://github.com/manaflow-ai/cmux/actions" },
-      { name: "visual matrix", state: "pending", url: "https://github.com/manaflow-ai/cmux/actions" },
-    ],
-  },
+    pinned: true,
+    sideTabs: false,
+    lit: [],
+    floatingChat: false,
+    version: 1,
+    pullRequest: {
+      url: "https://github.com/manaflow-ai/cmux/pull/20214",
+      number: 20214,
+      title: "Agent pane visual verification loop",
+      state: "open",
+      review: "",
+      mergeable: "mergeable",
+      checks: { state: "passing", passed: 5, total: 5 },
+      checkList: [
+        { name: "web", state: "passed", url: "https://github.com/manaflow-ai/cmux/actions" },
+        { name: "visual matrix", state: "pending", url: "https://github.com/manaflow-ai/cmux/actions" },
+      ],
+    },
   };
 }
 
@@ -278,7 +329,12 @@ function verdict(results) {
 }
 
 function verdictMarkdown(report) {
-  const rows = report.cases.map((item) => `| ${item.id} | ${item.width}px | ${item.theme} | ${item.metrics.cls} | ${item.metrics.maxFrameJumpPx}px | ${item.metrics.composerOverlaps.length || "none"} | [gallery](${item.galleryPath}) |`).join("\n");
+  const rows = report.cases
+    .map(
+      (item) =>
+        `| ${item.id} | ${item.width}px | ${item.theme} | ${item.metrics.cls} | ${item.metrics.maxFrameJumpPx}px | ${item.metrics.composerOverlaps.length || "none"} | [gallery](${item.galleryPath}) |`,
+    )
+    .join("\n");
   return `# Agent pane visual matrix\n\nVerdict: **${report.verdict}**. The matrix uses the mock daemon at the real Playwright boundary with a fast scripted clock. Any composer overlap is a review finding for the sticky bottom stack.\n\n| Case | Width | Theme | CLS-style | Max frame jump | Composer overlaps | Gallery |\n| --- | ---: | --- | ---: | ---: | ---: | --- |\n${rows}\n\nContact sheet: [contact-sheet.png](./contact-sheet.png)\n`;
 }
 
