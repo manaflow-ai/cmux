@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { randomBytes, randomUUID } from "node:crypto";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { context as otelContext, trace, type Attributes } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { sql } from "drizzle-orm";
 import { cloudDb } from "../db/client";
 import { acceptCloudTelemetry, claimCloudDiagnostics, cloudDiagnosticsFinishStatement, expireCloudDiagnostics, finishCloudDiagnostics } from "../services/observability/cloudTelemetryRepository";
-import { CloudTelemetryConflictError } from "../services/observability/cloudTelemetryIngest";
+import { CloudTelemetryConflictError, makeCloudTelemetryHandler } from "../services/observability/cloudTelemetryIngest";
 import { CloudOperationProgress, readCloudOperationProgress } from "../services/observability/cloudOperationProgress";
-import type { CloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
+import type { CloudTelemetryBatch, CloudTelemetrySpan } from "../services/observability/cloudTelemetryContract";
 import { parseCloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
 
 const enabled = process.env.CMUX_DB_TEST === "1";
@@ -158,5 +161,106 @@ describe("Cloud diagnostic durable storage", () => {
     const steps = await readCloudOperationProgress(owner, operationId);
     expect(steps.length).toBe(2);
     expect(steps.every((step) => step.outcome === "success" && step.endedAtMs !== null)).toBe(true);
+  });
+});
+
+// The ingest route as deployed: the real handler, durable acceptance in Postgres,
+// and the OpenTelemetry route span that Axiom receives.
+const exporter = new InMemorySpanExporter();
+const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+trace.disable();
+trace.setGlobalTracerProvider(provider);
+otelContext.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+afterAll(async () => { await provider.shutdown(); trace.disable(); otelContext.disable(); });
+
+const identityKey = "cloud-diagnostics-test-identity-key-0123456789";
+function telemetrySpan(overrides: Partial<CloudTelemetrySpan> = {}): CloudTelemetrySpan {
+  const now = Date.now();
+  return {
+    eventId: randomUUID(), operationId: randomUUID(), traceId: randomBytes(16).toString("hex"),
+    spanId: randomBytes(8).toString("hex"), operation: "exec", phase: "request", outcome: "success",
+    startedAtMs: now - 100, endedAtMs: now, attempt: 1, ...overrides,
+  };
+}
+async function upload(owner: string, spans: CloudTelemetrySpan[], options: { readonly ingress?: boolean } = {}) {
+  const handler = makeCloudTelemetryHandler({
+    authenticate: async () => ({ id: owner }),
+    checkIngress: async () => options.ingress ?? true,
+    accept: (userId, batch, sampleWeights) => acceptCloudTelemetry(userId, batch, { sampleWeights }),
+    scheduleDrain: () => {},
+    now: Date.now,
+  });
+  const body = { version: 1, client: { channel: "production", version: "0.65.0", build: "110", revision: "abcdef123", osVersion: "26.0", architecture: "arm64", instanceId: randomUUID() }, spans };
+  exporter.reset();
+  const response = await trace.getTracer("cloud-diagnostics-test").startActiveSpan("POST /api/observability/cloud", async (span) => {
+    try {
+      return await handler(new Request("https://cmux.test/api/observability/cloud", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }));
+    } finally { span.end(); }
+  });
+  const routeSpan = exporter.getFinishedSpans().find((finished) => finished.name === "POST /api/observability/cloud");
+  return { status: response.status, attributes: (routeSpan?.attributes ?? {}) as Attributes, instanceId: body.client.instanceId };
+}
+async function storedEventIds(owner: string): Promise<Set<string>> {
+  const rows = await cloudDb().execute(sql`select event_id::text from cloud_diagnostic_events where user_id = ${owner}`);
+  return new Set(rows.map((row) => String(row.event_id)));
+}
+
+describe("Cloud diagnostic ingest refusals", () => {
+  dbTest("routine detail that fills an account's minute cannot refuse its failures, and each refusal names its cause", async () => {
+    const owner = fixture().owner;
+    const previousKey = process.env.CMUX_CLOUD_TELEMETRY_ID_KEY;
+    process.env.CMUX_CLOUD_TELEMETRY_ID_KEY = identityKey;
+    try {
+      // Successful command spans are not sampled, so 40 per upload fill the routine budget in a few uploads.
+      let routine = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan()));
+      for (let attempt = 0; routine.status === 202 && attempt < 40; attempt += 1) {
+        routine = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan()));
+      }
+      expect(routine.status).toBe(429);
+      expect(routine.attributes).toMatchObject({
+        "cmux.telemetry.refusal": "account_byte_budget", "cmux.telemetry.submitted_spans": 40, "cmux.telemetry.accepted_spans": 0,
+        "cmux.account_key": createHmac("sha256", identityKey).update(owner).digest("hex"),
+        "service.instance.id": routine.instanceId,
+      });
+
+      const failure = telemetrySpan({ outcome: "failure", failure: "network" });
+      const signIn = telemetrySpan({ operation: "session", phase: "authentication", outcome: "failure", failure: "rate_limit", httpStatus: 429 });
+      expect((await upload(owner, [failure, signIn])).status).toBe(202);
+      const stored = await storedEventIds(owner);
+      expect(stored.has(failure.eventId)).toBe(true);
+      expect(stored.has(signIn.eventId)).toBe(true);
+
+      // The reserve is bounded: an account that sends only failures is still refused.
+      let flood = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan({ outcome: "failure", failure: "network" })));
+      for (let attempt = 0; flood.status === 202 && attempt < 40; attempt += 1) {
+        flood = await upload(owner, Array.from({ length: 40 }, () => telemetrySpan({ outcome: "failure", failure: "network" })));
+      }
+      expect(flood.status).toBe(429);
+    } finally {
+      if (previousKey === undefined) delete process.env.CMUX_CLOUD_TELEMETRY_ID_KEY;
+      else process.env.CMUX_CLOUD_TELEMETRY_ID_KEY = previousKey;
+    }
+  });
+
+  dbTest("an ingress refusal answers 429 before authentication, stores nothing and names its cause", async () => {
+    const owner = fixture().owner;
+    const refused = await upload(owner, [telemetrySpan({ outcome: "failure", failure: "network" })], { ingress: false });
+    expect(refused.status).toBe(429);
+    expect(refused.attributes["cmux.telemetry.refusal"]).toBe("ingress_rate_limited");
+    expect(refused.attributes["cmux.account_key"]).toBeUndefined();
+    expect((await storedEventIds(owner)).size).toBe(0);
+  });
+
+  dbTest("a sampled-out routine poll that reports client queue drops is stored with its count", async () => {
+    const owner = fixture().owner;
+    // A trace ID whose last four hex digits are not divisible by 50 is outside the 2% poll sample.
+    const reported = telemetrySpan({ operation: "list", traceId: `${randomBytes(14).toString("hex")}0001`, droppedCount: 7 });
+    const silent = telemetrySpan({ operation: "list", traceId: `${randomBytes(14).toString("hex")}0001` });
+    expect((await upload(owner, [reported, silent])).status).toBe(202);
+    const claimed = await claimCloudDiagnostics(100, owner);
+    expect(claimed.rows.map((row) => [row.eventId, row.payload.span.droppedCount, row.payload.sampleWeight])).toEqual([[reported.eventId, 7, undefined]]);
+    await finishCloudDiagnostics(claimed, true);
   });
 });
