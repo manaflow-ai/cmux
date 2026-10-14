@@ -207,14 +207,39 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 /* The card's rim is --acpmux-card-ring (styles.css draws it; under a location strip
    composerLocation.css draws it around the strip's seam). Focus is quiet, as the New Tab box's
-   (Lawrence, Leo 10-14): the same one-device-pixel rim, its tone one 8% step toward the text, never a
-   wider ring or the accent, and clear with appearance.borders none. Shell mode takes its own accent,
+   (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
+   with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
+   the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
+   idle one in every theme (cg-composer focus audit, 10-14). The location strip on the card's top
+   edge takes the same tone, so the focused rim stays one outline. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
+.acpmux-composer,
+.nt-composer {
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 30%, var(--acpmux-composer-edge));
+}
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-edge-focus: transparent;
+}
 .acpmux-composer-box:focus-within {
-  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-edge));
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+.acpmux-composer:not([data-shell]):has(> .acpmux-composer-box:focus-within) > .acpmux-composer-strip,
+.nt-composer:has(.nt-box:focus-within) .acpmux-composer-strip {
+  --acpmux-strip-edge: var(--acpmux-composer-edge-focus);
 }
 :root[data-borders="none"] .acpmux-composer-box {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) transparent;
+}
+/* A footer chip has no bezel, so the shared ring (desktop.css) set 2 px off it drew an empty
+   rounded box around bare text, the heaviest mark in the row. Under keyboard focus the chip takes
+   its hover wash and the ring sits on the wash's own edge: one outline on a visible control, as
+   Send's ring circles its own disc. Increase Contrast keeps the shared offset ring. */
+.acpmux-composer-bar .acpmux-picker-button:focus-visible {
+  background: var(--acpmux-composer-hover);
+  outline-offset: 0;
+}
+@media (prefers-contrast: more) {
+  .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:focus-within {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
