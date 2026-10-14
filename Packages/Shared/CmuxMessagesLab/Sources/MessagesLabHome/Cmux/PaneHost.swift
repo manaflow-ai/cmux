@@ -95,7 +95,8 @@ final class HostView: NSView {
         addSubview(scrollView)
         addSubview(headerBackdrop)
         addSubview(selectionHost)
-        if let c = controller { selectionHost.root.addSublayer(c.selection.layer) }
+        // The selected bubble's highlight under the text selection's (Host.swift; TranscriptSelection.selectBubble).
+        if let c = controller { for l in [c.selection.bubbleLayer, c.selection.layer] { selectionHost.root.addSublayer(l) } }
         addSubview(morphHost)
         morphHost.root.addSublayer(demo.morphView.layer)
         addSubview(fieldChrome)
@@ -688,6 +689,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // expands it in place, "Show less" folds it again.
         if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
+            // Real Messages (click references, Host.swift clicked): a click on a bubble selects its
+            // message (the bubble brightens or darkens) and takes the focus from the field (typing
+            // still goes to the field: TranscriptDocumentView.keyDown).
+            selection.selectBubble(hit.key, outgoing: hit.row.outgoing)
+            focusTranscript()
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
             switch hit.row.part {
@@ -700,14 +706,29 @@ final class ChatController: NSObject, NSTextViewDelegate {
             }
             return
         }
+        // A click elsewhere takes the bubble selection off (Host.swift).
+        selection.deselectBubble()
         // cmux: a click on empty transcript space gives the field the keyboard.
         focusCompose()
+    }
+
+    /// Real Messages (click references): a click on a bubble takes the focus from the field (its
+    /// caret goes 80 ms after the press and does not blink back). Not in an open thread or reply
+    /// view, whose field keeps it (Host.swift focusTranscript).
+    private func focusTranscript() {
+        guard store?.state.ui.openThread == nil else { return }
+        let doc = host.scrollView.document
+        doc.takesFocus = true
+        window?.makeFirstResponder(doc)
+        doc.takesFocus = false
     }
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
     /// the word under the cursor; the picker is press and hold.
     func doubleClicked(_ p: CGPoint) {
         guard demo?.hit(p) != nil else { return }
+        // The first click's bubble selection fades out (Host.swift doubleClicked).
+        selection.deselectBubble()
         if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
