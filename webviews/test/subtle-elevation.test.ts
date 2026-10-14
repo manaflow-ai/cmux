@@ -261,7 +261,9 @@ describe("one subtle elevation scale", () => {
           declaration.selector.split(/\s*,\s*/).includes(selector),
       );
       expect({ selector, rules: found.length > 0 }).toEqual({ selector, rules: true });
-      for (const declaration of found) {
+      // A surface that fills its pane (a sheet below the narrow breakpoint) may cast nothing; any
+      // shadow it does cast is still its step.
+      for (const declaration of found.filter(({ value }) => value.trim() !== "none")) {
         expect({ selector, steps: [...new Set(steps(declaration.value))] }).toEqual({ selector, steps: [token] });
       }
     });
