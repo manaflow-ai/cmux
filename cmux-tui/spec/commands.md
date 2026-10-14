@@ -6207,8 +6207,9 @@ distinct reply authors by seq).
 Opens a permalink. Every conversation and message has one stable link:
 `<scheme>://conversation/<conversation id>` and
 `<scheme>://conversation/<conversation id>/message/<message id>`, where the
-scheme is the build's link scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`). A
-query or fragment is ignored, so a link never carries a command. Every UI
+scheme is the build's link scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`; any
+cmux build's scheme is accepted, and an id this owner does not have is
+`unknown_conversation`). A query or fragment is ignored, so a link never carries a command. Every UI
 (the Messages Home, the Channels page, the CLI) copies links in this form and
 opens them through this command. Trusted local connections only. A `url` that
 is not such a link (or is longer than 512 bytes) is a bad request; an unknown
@@ -6304,7 +6305,7 @@ with `replayed:true` and publishes nothing. `op` is tagged by `kind`:
 
 | kind | fields | rule |
 | --- | --- | --- |
-| `message.send` | `client_msg_id, parts, reply_to?, thread_root?, answers?, answers_pending?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part; `thread_root` names a message of this conversation that has no `thread_root` itself (`invalid_thread_root` otherwise; `thread_root` is always the top root of the thread tree), and the new message carries it; with `conversation-tree-v1` threads nest without a limit: `reply_to` is the parent, a `thread_root` sent with `reply_to` must be the parent itself or the parent's own `thread_root` (`invalid_thread_root` otherwise), and a send with a `reply_to` parent in a thread and no `thread_root` gets the parent's `thread_root`, so a reply of a reply stays in its thread; when the sender's read cursor was at the conversation's last seq before the send, the send moves it to the new message's seq, so no client counts its own messages as unread; a sender behind the last seq keeps its cursor, so a message it has not read stays unread (cx-59n8.4); `answers` names at most 64 distinct message ids this reply answers (an agent's turn reply; `cmux chief -p` prints the replies that answer its message), `answers_pending` the ids of `answers` whose subagents still work; a malformed list is `invalid_parts` |
+| `message.send` | `client_msg_id, parts, reply_to?, thread_root?, answers?, answers_pending?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part; `thread_root` names a message of this conversation that has no `thread_root` itself (`invalid_thread_root` otherwise; `thread_root` is always the top root of the thread tree), and the new message carries it; with `conversation-tree-v1` threads nest without a limit: `reply_to` is the parent, a `thread_root` sent with `reply_to` must be the parent itself or the parent's own `thread_root` (`invalid_thread_root` otherwise), and a send with a `reply_to` parent in a thread and no `thread_root` gets the parent's `thread_root`, so a reply of a reply stays in its thread (for every sender of the local owner: this command, the v2 `conversation.send`, and paired devices); when the sender's read cursor was at the conversation's last seq before the send, the send moves it to the new message's seq, so no client counts its own messages as unread; a sender behind the last seq keeps its cursor, so a message it has not read stays unread (cx-59n8.4); `answers` names at most 64 distinct message ids this reply answers (an agent's turn reply; `cmux chief -p` prints the replies that answer its message), `answers_pending` the ids of `answers` whose subagents still work; a malformed list is `invalid_parts` |
 | `message.edit` | `message_id, parts` | author only; not retracted |
 | `message.retract` | `message_id` | author only; parts and reactions become empty |
 | `reaction.add` / `reaction.remove` | `message_id, part_index, reaction` | `reaction` is a reaction `kind` object; one per (author, part, kind) |

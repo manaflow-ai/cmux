@@ -110,7 +110,13 @@ impl Ws {
     ) -> Value {
         let reply = self.send(conversation, key, key, parent, root);
         assert_eq!(reply["ok"], true, "{key}: {reply}");
-        self.message_event()
+        // This send's own event (another message event may come first).
+        loop {
+            let message = self.message_event();
+            if message["client_msg_id"] == key {
+                return message;
+            }
+        }
     }
 
     fn create_channel(&mut self, key: &str, title: &str) -> String {
@@ -241,7 +247,14 @@ fn a_page_creates_a_channel_nests_replies_without_limit_and_opens_message_links(
         json!({"url": "cmux://conversation/conv_00000000000000000000000000"}),
     );
     assert!(reason(&unknown).contains("unknown_conversation"), "{unknown}");
+    let slash = page.request(
+        "conversation-link-resolve",
+        json!({"url": format!("cmux://conversation/{channel}/message/{first_id}/")}),
+    );
+    assert_eq!(slash["path"], json!([root_id, first_id]), "{slash}");
     for url in [
+        format!("cmux--x://conversation/{channel}"),
+        format!("cmux-dev-://conversation/{channel}"),
         format!("https://example.com/conversation/{channel}"),
         format!("cmux://tab/{channel}"),
         format!("cmux://conversation/{channel}/message/{fourth_id}/extra"),

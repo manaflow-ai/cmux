@@ -64,14 +64,18 @@ pub fn parse_link(url: &str) -> Option<ConversationLink> {
     })
 }
 
-/// `cmux` or `cmux-<letters, digits, '-'>`, any case.
+/// `cmux` or `cmux-<tail>`, any case, where the tail is 1-64 letters, digits
+/// and single `-` between them (`cmux-dev`, `cmux-dev-mytag`). Any cmux build's
+/// scheme is accepted: a link copied in another build resolves against this
+/// owner (an id it does not have is `unknown_conversation`).
 fn valid_scheme(scheme: &str) -> bool {
     let lower = scheme.to_ascii_lowercase();
     lower == "cmux"
         || lower.strip_prefix("cmux-").is_some_and(|tail| {
-            !tail.is_empty()
-                && tail.len() <= 64
-                && tail.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            tail.len() <= 64
+                && tail.split('-').all(|word| {
+                    !word.is_empty() && word.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                })
         })
 }
 
