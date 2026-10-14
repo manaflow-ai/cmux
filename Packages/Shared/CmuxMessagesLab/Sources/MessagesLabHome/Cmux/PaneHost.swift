@@ -349,6 +349,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var menuHighlight: MenuHighlight?
     /// The menu input that chose my tapback, until HomeStore commits it (PaneTapback.swift).
     var tapbackChoice: TapbackChoice?
+    /// The receipt row drawn ahead for my newest message: its id and step (PaneHost+Receipt.swift).
+    var receiptAhead: (ID, Int)?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
@@ -545,6 +547,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let sc = host.scrollView.verticalScroller, (sc.alphaValue == 0) != threadOpen {
             NSAnimationContext.runAnimationGroup { ctx in ctx.duration = 0.28; sc.animator().alphaValue = threadOpen ? 0 : 1 }
         }
+        prefetchNextReceipt()
         scheduleWake()
     }
 
