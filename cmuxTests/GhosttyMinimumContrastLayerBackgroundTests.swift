@@ -57,6 +57,12 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
 
             // Frames drawn before the config lands still use the old colors,
             // so wait for dark text rather than sampling the first frame.
+            // The app-host runner can leave a newly created test window ordered
+            // but occluded. Activate the isolated test app before sampling so
+            // Ghostty receives a visible display callback and presents an
+            // IOSurface for the pixel assertions.
+            NSApp.activate(ignoringOtherApps: true)
+            terminal.window.orderFrontRegardless()
             terminal.window.makeKeyAndOrderFront(nil)
             terminal.window.displayIfNeeded()
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
