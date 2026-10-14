@@ -20,6 +20,8 @@
 #                      (swiftlang/swift#92698, #93118); a String there is garbage
 #                      and copying it crashed the nightly (cx-21wc5). Assign a
 #                      local in the do/catch and return once, or return a struct.
+#                      Heuristic: a catch that returns the tuple through a call
+#                      (`return try await retry()`) is not seen.
 #   ratchet:           crash_ratchet.py (plans/cmux-next/crash-elimination.md):
 #                      no module or crate gains a force unwrap, as!, fatalError,
 #                      precondition, assumeIsolated, unowned, implicitly
@@ -86,8 +88,8 @@ for path in swift_sources():
 # swiftlang/swift#92698 (cx-21wc5): a tuple returned from an awaiting `do` and
 # from its `catch` loses its first element at -O. Brace matching, not a regex:
 # only the do body's own text and each catch body count.
-DO_OPEN = re.compile(r"\bdo\s*\{")
-CATCH_OPEN = re.compile(r"\s*catch\b[^{]*\{")
+DO_OPEN = re.compile(r"\bdo(?:\s+throws\s*(?:\([^)]*\))?)?\s*\{")
+CATCH_OPEN = re.compile(r"(?:\s|//[^\n]*\n)*catch\b[^{]*\{")
 TUPLE_RETURN = re.compile(r"\breturn\s*\(")
 
 def block_end(text, open_brace):
@@ -120,8 +122,12 @@ def tuple_do_catch_hits(text):
             cursor = clause_end + 1
 
 repo = os.path.abspath(os.path.join(root, "..", "..", ".."))
-tracked = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*.swift"],
-                         check=True, capture_output=True).stdout.decode("utf-8", "replace")
+try:
+    tracked = subprocess.run(["git", "-C", repo, "ls-files", "-z", "--", "*.swift"],
+                             check=True, capture_output=True).stdout.decode("utf-8", "replace")
+except (OSError, subprocess.CalledProcessError) as error:
+    print(f"check-crash-safety: refused: {repo} is not in a git checkout ({error})", file=sys.stderr)
+    sys.exit(2)
 for rel in sorted(p for p in tracked.split("\0") if p.endswith(".swift")):
     path = os.path.join(repo, rel)
     if not os.path.isfile(path):
