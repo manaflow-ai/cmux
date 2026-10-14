@@ -312,25 +312,7 @@ fn target(
     }
     let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
     let cwd = std::env::current_dir().unwrap_or_default();
-    // The app this CLI belongs to picks its Chief home (one Chief per build).
-    let exe = std::env::current_exe().ok();
-    // The environment of an app terminal names it; else (a brain's turn with
-    // only CMUX_SOCKET_PATH, a shell outside the app) the bundle around this
-    // executable does.
-    let bundle =
-        crate::app_identity::AppIdentity::detect(|k| std::env::var(k).ok(), exe.as_deref())
-            .and_then(|identity| identity.bundle_id)
-            .or_else(|| {
-                crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref())
-                    .and_then(|identity| identity.bundle_id)
-            });
-    let home = home::ChiefHome::resolve_for(
-        chief_home,
-        |k| std::env::var(k).ok(),
-        &user_home,
-        &cwd,
-        bundle.as_deref(),
-    );
+    let home = home::ChiefHome::resolve(chief_home, |k| std::env::var(k).ok(), &user_home, &cwd);
     if link::is_brain_socket(&home.root) {
         return Err((1, m.brain_socket.replace("{socket}", &home.root.display().to_string())));
     }

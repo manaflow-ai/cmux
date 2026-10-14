@@ -30,15 +30,24 @@ pub(in crate::cli) struct ChiefHome {
 }
 
 impl ChiefHome {
-    /// [`Self::resolve_for`] outside any app (no bundle id).
-    #[cfg(test)]
+    /// [`Self::resolve_for`] for the app this CLI belongs to: the bundle id
+    /// an app terminal names in `env` (`CMUX_BUNDLE_ID`), else the bundle
+    /// around this executable (a brain's turn that has only
+    /// `CMUX_SOCKET_PATH`, a shell outside the app).
     pub(super) fn resolve(
         explicit: Option<&Path>,
         env: impl Fn(&str) -> Option<String>,
         user_home: &Path,
         cwd: &Path,
     ) -> Self {
-        Self::resolve_for(explicit, env, user_home, cwd, None)
+        let exe = std::env::current_exe().ok();
+        let bundle = crate::app_identity::AppIdentity::detect(&env, exe.as_deref())
+            .and_then(|identity| identity.bundle_id)
+            .or_else(|| {
+                crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref())
+                    .and_then(|identity| identity.bundle_id)
+            });
+        Self::resolve_for(explicit, env, user_home, cwd, bundle.as_deref())
     }
 
     /// First match wins: `explicit` (`--chief-home`), `CMUX_CHIEF_HOME`,
