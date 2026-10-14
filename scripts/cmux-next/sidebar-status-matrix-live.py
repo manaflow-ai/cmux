@@ -134,9 +134,29 @@ def snapshot(label):
         print(f"snapshot {label}: {json.dumps(shot)[:160]}", flush=True)
 
 
+ORIGINAL_CONFIG = open(opts.config).read() if os.path.exists(opts.config) else None
+
+
 def set_config(values):
-    with open(opts.config, "w") as out:
-        json.dump(values, out)
+    """Merge `values` into the app's cmux.json (written whole by rename, so the watcher never reads half a file)."""
+    try:
+        current = json.loads(ORIGINAL_CONFIG or "{}")
+    except ValueError:
+        current = {}
+    for key, value in values.items():
+        current[key] = {**current.get(key, {}), **value} if isinstance(value, dict) else value
+    temp = opts.config + ".tmp"
+    with open(temp, "w") as out:
+        json.dump(current, out)
+    os.replace(temp, opts.config)
+
+
+def restore_config():
+    if ORIGINAL_CONFIG is not None:
+        temp = opts.config + ".tmp"
+        with open(temp, "w") as out:
+            out.write(ORIGINAL_CONFIG)
+        os.replace(temp, opts.config)
 
 
 def main():
@@ -210,7 +230,7 @@ def main():
         progress = until(lambda: (row("mx-progress") or {}).get("progress"))
         check(bool(progress), f"minimal: an OSC 9;4 row keeps its progress bar ({json.dumps(row('mx-progress'))[:200]})")
         snapshot("minimal")
-        set_config({})
+        restore_config()
 
     for name in ("mx-blocked", "mx-working", "mx-progress"):
         write(term[name], "\x03")
@@ -221,4 +241,7 @@ def main():
     sys.exit(1 if failures else 0)
 
 
-main()
+try:
+    main()
+finally:
+    restore_config()

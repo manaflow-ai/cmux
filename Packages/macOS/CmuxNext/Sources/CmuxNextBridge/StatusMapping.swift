@@ -85,23 +85,6 @@ public struct StatusMapping {
         tab.agentSession.flatMap(turns.state(for:))
     }
 
-    /// The tab's unread notification is the alert of a status the row already marks (cx-ldocj:
-    /// the badge counts notifications only, not a status alone): an OSC 7501 record that blocks,
-    /// finished or failed (the daemon posts its alert as a notification), an agent hook that
-    /// blocks or finished, or an acpmux turn that waits, finished or failed. Seen or not: a
-    /// status already looked at must not leave its alert behind as a badge.
-    public func notificationIsStatusAlert(_ tab: TabModel) -> Bool {
-        switch ProgramStatusRecord.strongest(tab.programStatus)?.state {
-        case .blocked?, .done?, .error?: return true
-        default: break
-        }
-        switch tab.agent?.state {
-        case .blocked?, .done?: return true
-        default: break
-        }
-        return turn(tab).map { $0 != .working } ?? false
-    }
-
     /// An acpmux turn or an OSC 7501 program waits for the user (the tab's
     /// still attention badge).
     public func needsInput(_ tab: TabModel) -> Bool {
