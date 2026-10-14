@@ -17,6 +17,7 @@ import {
   type HomeParticipant,
   type HomePart,
   type HomeReaction,
+  type HomeResolvedLink,
   type HomeThreadStats,
 } from "./types";
 
@@ -308,6 +309,19 @@ export class DaemonHomeClient implements PageClient {
           thread: threads([page.thread])[0],
         };
       }
+      case HomeOps.resolveLink: {
+        // Local conversations only; a Cloud conversation link is a later read (DESIGN.md G4).
+        const resolved = await this.daemon.request<Json>("conversation-link-resolve", {
+          url: str(params, "url", 512),
+        });
+        const result: HomeResolvedLink = {
+          conversation: String((resolved.conversation as Json).id),
+          path: ((resolved.path as unknown[]) ?? []).map(String),
+        };
+        if (resolved.message) result.message = message(resolved.message as Json);
+        if (typeof resolved.thread_root === "string") result.threadRoot = resolved.thread_root;
+        return result;
+      }
       case HomeOps.search: {
         const found = await this.daemon.request<{ hits: Json[] }>("conversation-search", {
           query: str(params, "query", 200),
@@ -340,6 +354,9 @@ export class DaemonHomeClient implements PageClient {
         const key = this.key(params, options);
         const send: Json = { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
+        // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
+        if (typeof params.replyTo === "string" && params.replyTo)
+          send.reply_to = { message_id: params.replyTo, part_index: 0 };
         return this.submit(str(params, "conversation"), key, send);
       }
       case HomeOps.react: {
