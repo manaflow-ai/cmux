@@ -607,6 +607,7 @@
         "CmuxNextDaemonService",
         "CmuxNextMobile",
         "CmuxNextPages",
+        "CmuxNextRemoteBrowser",
         "CmuxNextSettings"
       ],
       "packages": []
