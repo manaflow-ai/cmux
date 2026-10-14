@@ -1011,7 +1011,7 @@ for expected in \
   "name: cmux-nightly-identity-pending-meta" \
   "name: cmux-nightly-identity-pending-bundle" \
   "Build \${process.env.BUILD} failed:" \
-  "if: failure() && steps.classify.outputs.real == 'true'" \
+  "if: failure() && steps.resolve.outputs.real != 'false'" \
   ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
   "scripts/ci/nightly-next-legacy-resolve.py" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
