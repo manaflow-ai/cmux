@@ -202,9 +202,25 @@ new workspace is pinned to a room other than the group's);
 The home workspace (`workspace.ensure_home`) always takes the top, and a
 reopened workspace is created last and then takes its closed row's place.
 The creation's `session.events` batch carries a `workspace_placement`
-change for each new row and each row it moved, and a `workspace_group`
-change for each group whose `top_index` moved, and no personal journal
-record of its own, so a group place counts it from the start. A caller that
+change for each new row, the rows after them as a placement shift (below),
+and a `workspace_group` change for each group whose `top_index` moved, and
+no personal journal record of its own, so a group place counts it from the
+start.
+Placement shift: `index` is an ordinal, so a new row or a moved row changes
+the `index` of the rows it passes, and nothing else of them. A commit
+does not restate those rows; its journal record carries `placement_shift
+{from_index, to_index}` (`to_index` null: through the last placement) beside
+`changes`. A connection that echoed `sidebar-doc-v1` in `set-client-info` or
+`client.metadata.update` reads the order from the sidebar document and gets
+the batch as stored: only the new or moved placement. Every other
+connection gets, at the end of that batch's `changes`, a
+`workspace_placement` upsert for each placement in the range, read from the
+state when the batch is sent (a later write that moves a row again sends it
+again, so a reader that applies the batches in order ends at the current
+order; `forget-session`, which deletes a machine's rows outside a resource
+batch, sends no placement change, as before). `workspace.place`, and a `sidebar.*` mutation that writes a
+workspace's personal row back, do the same for the rows between the moved
+row's old and new index. A caller that
 wants another place sends `workspace.place` after the creation; that later
 write wins. The commit bumps
 `personal_revision` but sends no raw `personal-changed` event, so raw
@@ -359,7 +375,17 @@ another machine's section (`cross_machine`); an app section takes no items
 sections keep a closed workspace or an empty group (`keeps_closed`); a
 machine section shows only live workspaces. `sidebar.get` reads it as
 `{revision, sections, items}` (each section and item carries its
-forward-compatible keys in `extra`). `sidebar.move {items, to}`, `sidebar.pin`,
+forward-compatible keys in `extra`). Each section has `scroll`: `fixed`
+(it stays visible, in the fixed stack at the top, or at the bottom for the
+bottom region) or `flow` (it scrolls with the main list); the default is by
+kind and region (built-in and Pinned fixed, machine flow, custom and app
+fixed at the top and bottom and flow in the middle), and `section.move` into
+another region moves a default value with it. `max_rows` (1 to 50) lets a
+section grow with its content up to that many rows, then scroll inside
+itself; without it the section grows without limit. A `url` item's body has
+`icon_url` (its favicon, set by `sidebar.item.update`); an older client's
+`extra.icon_url` moves into the body when the item is added and, for stored
+items, once at open. `sidebar.move {items, to}`, `sidebar.pin`,
 `sidebar.unpin` (to the item's own machine section), the `sidebar.item.*`,
 `sidebar.section.*` and `sidebar.group.*` mutations and `sidebar.adopt
 {refs, to?}` are one reducer op each; `sidebar.apply {ops}` applies a list

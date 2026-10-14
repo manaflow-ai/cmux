@@ -8,7 +8,7 @@ import { UiProvider } from "../../ui/UiProvider";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
-import { MockHomeProvider, type MockDraft } from "./mockProvider";
+import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
 
 type Props = {
@@ -22,11 +22,23 @@ type Props = {
   draft?: MockDraft;
   /** Adds #incident, a thread with more replies than one page. */
   longThread?: boolean;
+  /** Sample agent runs in the Chief DM. */
+  runs?: MockRuns;
+  /** The owner refuses pins and marks. */
+  refuseInbox?: boolean;
 };
 
-function HomeChannelsGallery({ select, thread, offline = false, draft, longThread = false }: Props) {
+function HomeChannelsGallery({
+  select,
+  thread,
+  offline = false,
+  draft,
+  longThread = false,
+  runs = "none",
+  refuseInbox = false,
+}: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread));
+    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox));
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -82,6 +94,8 @@ export default componentEntry<Props>({
     "pages/home-channels/AddChannel.tsx#AddChannel",
     "pages/home-channels/MessageRow.tsx#DraftRow",
     "pages/home-channels/icons.tsx#HomeIcon",
+    "pages/home-channels/RunCard.tsx",
+    "pages/home-channels/RunSheet.tsx",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -163,6 +177,66 @@ export default componentEntry<Props>({
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
+    "row-menu": {
+      note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-list-row="c-release"]'));
+        await ctx.contextMenu({ selector: '[data-list-row="c-release"]' });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Mark as Read" }));
+      },
+    },
+    pin: {
+      note: "Shift-F10 on a row and Pin: the row moves under a quiet Pinned label; a later pin goes after it. Mark as Unread shows the dot; opening the conversation clears it.",
+      props: { select: "c-chief" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.2,
+          reason: "Pinning moves the row to the top of the list and adds the Pinned label; the other rows move down.",
+        },
+      },
+      play: async (ctx) => {
+        const row = (id: string) => ctx.document.querySelector<HTMLElement>(`[data-list-row="${id}"]`);
+        const order = () =>
+          [...ctx.document.querySelectorAll("[data-list-row]")].map((node) => node.getAttribute("data-list-row"));
+        await ctx.waitFor(() => row("c-design"));
+        await ctx.focus({ selector: '[data-list-row="c-design"]' });
+        await ctx.press("Shift+F10");
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Pin" }));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list-section") && order()[0] === "c-design");
+        await ctx.contextMenu({ selector: '[data-list-row="c-reviewer"]' });
+        await ctx.click({ role: "menuitem", name: "Pin" });
+        await ctx.waitFor(() => order().slice(0, 2).join() === "c-design,c-reviewer");
+        // Mark as Unread on a read conversation, then open it: the mark goes.
+        await ctx.contextMenu({ selector: '[data-list-row="c-design"]' });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => row("c-design")?.classList.contains("unread"));
+        await ctx.click({ selector: '[data-list-row="c-design"]' });
+        await ctx.waitFor(() => row("c-design") && !row("c-design")!.classList.contains("unread"));
+      },
+    },
+    "pin-refused": {
+      note: "The owner refuses the pin: the row goes back to its place and the page says why.",
+      props: { select: "c-chief", refuseInbox: true },
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The refusal shows the error line above the timeline; the timeline moves down by its height.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-list-row="c-design"]'));
+        await ctx.contextMenu({ selector: '[data-list-row="c-design"]' });
+        await ctx.click({ role: "menuitem", name: "Pin" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".hc-error") !== null &&
+            ctx.document.querySelector(".lg-list-section") === null &&
+            !ctx.document.querySelector('[data-list-row="c-design"]')?.hasAttribute("data-pinned"),
+        );
+      },
+    },
     hover: {
       note: "Hovering a message shows its card: quick reactions, Add reaction, Reply in thread, More.",
       props: { select: "c-release" },
@@ -279,6 +353,29 @@ export default componentEntry<Props>({
       props: { select: "c-chief", draft: "growing" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".hc-msg.draft"));
+      },
+    },
+    run: {
+      note: "The Chief's finished run under its reply: Worked for, steps, cost; Open shows the whole run.",
+      props: { select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "run-open": {
+      note: "The run sheet: every step in order (shell output, the read, the diff, the reply), time, tokens and cost.",
+      props: { select: "c-chief", runs: "done" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-open"));
+        await ctx.click({ selector: ".lg-run.done .lg-run-open" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-sheet .cv-tool").length >= 3);
+      },
+    },
+    "run-live": {
+      note: "A run that works now: Working for (ticking), its newest steps under the question, the Chief shown working.",
+      props: { select: "c-chief", runs: "live" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .cv-tool"));
       },
     },
     "draft-posted": {

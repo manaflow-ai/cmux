@@ -481,6 +481,29 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     }
 }
 
+/// This Chief's record from the local owner's Chief registry, read on its
+/// own bound connection (chief_profile.rs `ChiefTools::start`: no registry
+/// or no record, every tool; the daemon away, a non-default Chief does not
+/// start and the default Chief has zoom and date only until the link is up).
+fn load_chief_tools(
+    source: &Source,
+    daemon_socket: &str,
+    membership: &crate::membership::Membership,
+) -> Result<crate::chief_profile::ChiefTools, String> {
+    use crate::chief_profile::{ChiefTools, ProfileClient};
+    let Source::Local { token_file } = source else {
+        return Ok(ChiefTools::none());
+    };
+    let client = ProfileClient::new(
+        daemon_socket.into(),
+        token_file.clone(),
+        membership.participant.clone(),
+    );
+    ChiefTools::start(Some(client), membership.is_default(), &|line: String| {
+        log(line)
+    })
+}
+
 fn start(
     paths: &Paths,
     home: &std::path::Path,
@@ -550,6 +573,13 @@ fn start(
         (Some(base), Some(channels)) => Some(format!("{base}\n\n{channels}")),
         (base, channels) => base.or(channels),
     };
+    // This Chief's record (multi-Chief S5): its profile goes into the turns'
+    // (and compactions') system text after everything above; subagents keep
+    // the text without it (they are not this Chief). Its grant limits the
+    // turn's tools (chief_profile.rs).
+    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    let sub_instructions = instructions.clone();
+    let instructions = chief_tools.instructions(instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -700,6 +730,7 @@ fn start(
         instructions: instructions.clone(),
         tools,
         user_env: session_dir::host_user_env(),
+        profile_tool: chief_tools.grant().allows("profile"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -708,7 +739,7 @@ fn start(
     } else {
         crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
     };
-    let sub_text = crate::prompt::subagent_system_text(instructions.as_deref(), &sub_tools);
+    let sub_text = crate::prompt::subagent_system_text(sub_instructions.as_deref(), &sub_tools);
     let sub_setup = SessionSetup {
         tools: sub_tools,
         ..setup.clone()
@@ -831,7 +862,7 @@ fn start(
                 crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
             };
             let other_text =
-                crate::prompt::subagent_system_text(instructions.as_deref(), &other_tools);
+                crate::prompt::subagent_system_text(sub_instructions.as_deref(), &other_tools);
             if sub_other == Family::Codex
                 && let Err(e) = session_dir::write_subagent_agents_md(paths, &other_text)
             {
@@ -1101,6 +1132,7 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         let spawner = Arc::new(spawner);
@@ -1131,6 +1163,7 @@ fn start(
             orchestrator,
             control: Some(control),
             inspector: start_inspector(paths, &chat, &claude_text),
+            chief: Some(chief_tools.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1296,6 +1329,10 @@ fn start(
     let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
         let _ = tx.send(Input::from(event));
     });
+    // A default Chief that could not read its record at start reads it each
+    // time the link comes up, until it has it (zoom and date only until then).
+    let sink =
+        crate::chief_profile::read_record_on_up(chief_tools.clone(), sink, brain_log.clone());
     match source {
         Source::Local { token_file } => {
             let (display_name, title) = LinkConfig::names_from_env();
