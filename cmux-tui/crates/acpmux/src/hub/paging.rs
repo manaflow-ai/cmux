@@ -25,6 +25,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "failover",
     "forked",
     "imported",
+    "session_offer",
+    "session_offer_decision",
     "mode",
     "model",
     "stopped",

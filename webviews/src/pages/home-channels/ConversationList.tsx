@@ -34,8 +34,8 @@ export interface ConversationListProps {
   strings: Strings;
   onSelect(id: string): void;
   onOpenPalette(): void;
-  /** New channel: opens the page's create popover at this control. */
-  onAddChannel?(anchor: Element): void;
+  /** New message or channel: opens the page's #/new/message sheet (absent: the owner cannot). */
+  onCompose?(): void;
   actions: ListRowActions;
 }
 
@@ -49,7 +49,7 @@ export function ConversationList({
   strings,
   onSelect,
   onOpenPalette,
-  onAddChannel,
+  onCompose,
   actions,
 }: ConversationListProps) {
   const { t } = strings;
@@ -78,15 +78,15 @@ export function ConversationList({
     <nav className="lg-list" aria-label={t("page.title")}>
       <header className="lg-list-header">
         <span className="lg-list-title">{t("page.title")}</span>
-        {onAddChannel && (
+        {onCompose && (
           <button
             type="button"
             className="hc-icon-button"
-            aria-label={t("rail.addChannel")}
-            title={t("rail.addChannel")}
-            onClick={(event) => onAddChannel(event.currentTarget)}
+            aria-label={t("action.newMessage")}
+            title={t("action.newMessage")}
+            onClick={onCompose}
           >
-            <HomeIcon name="plus" size={16} />
+            <HomeIcon name="compose" size={16} />
           </button>
         )}
       </header>

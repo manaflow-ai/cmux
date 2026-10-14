@@ -9,11 +9,11 @@ import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../mo
 import { useT } from "../i18n";
 import { promptSeq, useBookmarks } from "./bookmarks";
 import { MinimapTick } from "../../../ui/MinimapTick";
+import { useHoverIntent } from "../../../ui/hoverIntent";
 import {
   currentTurn,
   minimapTurns,
   popoverOffset,
-  POPOVER_DELAY_MS,
   tickLayout,
   tickWidth,
   TICK_CURRENT_WIDTH,
@@ -60,8 +60,10 @@ export function ThreadMinimap({
   }, [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
-  const [shown, setShown] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // The turn preview's hover intent (ui/hoverIntent.ts): the first waits the hover delay, then it
+  // follows the pointer from tick to tick at once, and cools a moment after the pointer leaves.
+  const preview = useHoverIntent<"rail">();
+  const shown = preview.shown !== null;
   const root = useRef<HTMLElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [popoverHeight, setPopoverHeight] = useState(0);
@@ -71,35 +73,25 @@ export function ThreadMinimap({
   const active = hovered ?? current;
   const turn: MinimapTurn | undefined = hovered === undefined ? undefined : turns[hovered];
 
-  const shownRef = useRef(false);
+  const intend = preview.hover;
   const close = useCallback(() => {
-    clearTimeout(timer.current);
-    timer.current = undefined;
-    shownRef.current = false;
     setHovered(undefined);
-    setShown(false);
-  }, []);
-  /// Hovers tick `index`. The first popover waits POPOVER_DELAY_MS (keyboard focus shows it at once);
+    intend(null);
+  }, [intend]);
+  /// Hovers tick `index`. The first popover waits the hover delay (keyboard focus shows it at once);
   /// once one shows, the next tick's replaces it on the same frame.
-  const hover = useCallback((index: number, immediately: boolean) => {
-    setHovered(index);
-    if (shownRef.current) return;
-    const show = () => {
-      timer.current = undefined;
-      shownRef.current = true;
-      setShown(true);
-    };
-    if (immediately) {
-      clearTimeout(timer.current);
-      show();
-    } else if (timer.current === undefined) timer.current = setTimeout(show, POPOVER_DELAY_MS);
-  }, []);
+  const hover = useCallback(
+    (index: number, immediately: boolean) => {
+      setHovered(index);
+      intend("rail", immediately ? 0 : undefined);
+    },
+    [intend],
+  );
   // The popover's own height, for centering it on the tick and keeping it inside the viewport.
   useLayoutEffect(() => {
     const node = popover.current;
     if (shown && node) setPopoverHeight(node.offsetHeight);
   }, [shown, turn?.key, turn?.reply]);
-  useLayoutEffect(() => () => clearTimeout(timer.current), []);
   // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down, bridge commands that raise
   // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
   const stepping = useRef({
