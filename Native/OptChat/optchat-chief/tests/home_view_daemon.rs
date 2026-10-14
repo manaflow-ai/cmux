@@ -193,6 +193,10 @@ fn chief_workspace_shows_the_home_workspace_panes_tabs_and_terminal_tail() {
         .to_owned();
     let _ = daemon.terminal_printing(&other, "ohv-other", "ELSEWHERE-7");
 
+    // The person looks at Home (making the other workspace may have selected it).
+    let focused = daemon.cmux(&["workspace", &home, "focus"]);
+    assert!(focused.status.success(), "workspace focus: {focused:?}");
+
     let (code, out) = daemon.chief_workspace();
     assert_eq!(code, Some(0), "chief workspace failed: {out}");
     assert!(
