@@ -120,7 +120,9 @@ they are intended. Chief will not work around them.
     FaceTime, Mail) and `detailsShowsReadReceipts: Bool` (default true).
   - Separately from the hook: in `ConversationDetailsInfoPage.storeDidChange`, skip
     `reloadData()` for `.listState` when the visible switches already show the new
-    state, or update the switches in place with `setOn(_:animated: true)`.
+    state, or update the switches in place with `setOn(_:animated: true)`. Upstream
+    fixed this part in 35dc5dd0 ("details switches slide like system switches"),
+    synced here. The hook and the quick-action options are still needed.
 
 ## 7. The trailing header button's label and its mode (Chief)
 
