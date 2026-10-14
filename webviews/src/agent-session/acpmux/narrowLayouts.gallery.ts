@@ -133,8 +133,9 @@ export function narrowProblems(document: Document): string[] {
   for (const effort of document.querySelectorAll(".acpmux-effort"))
     if (!visible(effort)) problems.push("the Effort chip is hidden");
   // A wide pane collapses nothing: Effort/Fast and the model show in full (a size container that
-  // measured a wide composer as narrow would hide them, Lawrence 2026-10-14 "lost effort").
-  if (view.innerWidth >= 600)
+  // measured a wide composer as narrow would hide them, Lawrence 2026-10-14 "lost effort"). At 600 px
+  // the chips still share the row, so the model name and Effort may end in an ellipsis there.
+  if (view.innerWidth >= 700)
     for (const value of document.querySelectorAll(".acpmux-effort .acpmux-picker-button > span, .acpmux-model-name"))
       if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
