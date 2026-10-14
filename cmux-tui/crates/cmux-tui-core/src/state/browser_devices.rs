@@ -108,7 +108,28 @@ pub(crate) fn list(connection: &Connection) -> anyhow::Result<Value> {
     let list = built_in();
     let mut devices = custom(connection)?;
     devices.extend(list.devices.iter().cloned());
+    for device in &mut devices {
+        let category = category(device);
+        if let Some(object) = device.as_object_mut() {
+            object.insert("category".into(), json!(category));
+        }
+    }
     Ok(json!({"chrome": list.chrome, "devices": devices}))
+}
+
+/// Chrome's device menu section of `device` (DeviceModeView's
+/// `deviceCategory`): mobile, foldable, tablet-desktop or smart-display.
+fn category(device: &Value) -> &'static str {
+    let kind = device.get("type").and_then(Value::as_str).unwrap_or_default();
+    if kind == "foldable" || spans(device) {
+        "foldable"
+    } else if kind == "smart-display" {
+        "smart-display"
+    } else if matches!(kind, "tablet" | "notebook" | "desktop") {
+        "tablet-desktop"
+    } else {
+        "mobile"
+    }
 }
 
 /// `browser.devices.add_custom`: stores `device` (Chrome's JSONV1 format);

@@ -3,11 +3,11 @@ import CmuxNextBrowserImport
 import CmuxNextDesign
 import UniformTypeIdentifiers
 
-/// The app's ``PasswordSecretSurface``. The reveal sheet uses a private dialog center, so the
-/// DEBUG `debug.dialog` verb (which reads `CmuxDialogCenter.shared`) never lists the password.
+/// The app's ``PasswordSecretSurface``. The reveal sheet uses a private dialog center (`debug.dialog`
+/// never lists the password) and is left out of screen capture and screen sharing while it shows.
 @MainActor
 final class NativePasswordSecretSurface: PasswordSecretSurface {
-    private let center = CmuxDialogCenter()
+    private let center = CmuxDialogCenter(host: CmuxDialogCaptureExcludedHost())
     private let pasteboard: ConcealedPasteboard
 
     init(pasteboard: ConcealedPasteboard = ConcealedPasteboard()) {

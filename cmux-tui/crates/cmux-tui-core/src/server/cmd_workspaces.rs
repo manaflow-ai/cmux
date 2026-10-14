@@ -246,9 +246,11 @@ pub(super) fn move_workspace_to_group(
 
 /// How `close-workspace` ends: `terminals` also ends its terminals (`batch-close-v1`), and a
 /// `reason` (`close-reason-v1`, only with `terminals`) keeps the close out of closed history.
+/// `if_empty` (`close-workspace-if-empty-v1`) closes only a workspace with no tab.
 pub(super) struct Ending {
     pub terminals: bool,
     pub reason: Option<crate::mux::CloseReason>,
+    pub if_empty: bool,
 }
 
 pub(super) fn close_workspace(
@@ -271,15 +273,17 @@ pub(super) fn close_workspace(
             mutation.expected_revision,
             &workspace_mutation,
             ending.reason,
+            ending.if_empty,
         )?
         .0
     } else {
-        mux.close_workspace_with_mutation(
+        mux.close_workspace_with_mutation_guarded(
             workspace,
             key.as_deref(),
             mutation.expected_generation.as_deref(),
             mutation.expected_revision,
             &workspace_mutation,
+            ending.if_empty,
         )?
     };
     let (registry_id, generation) = mux.registry_identity();

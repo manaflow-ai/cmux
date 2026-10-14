@@ -707,6 +707,10 @@ impl Hub {
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        // From the profile, before its CODEX_PATH picks the binary.
+        let codex_bridge = command_line.is_none()
+            && translator.is_none()
+            && crate::codex_app_server::is_profile_launch(&profile.argv);
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,
@@ -723,6 +727,7 @@ impl Hub {
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
             env: crate::agent::command_env(&cmd),
             cwd: meta.cwd.clone(),
+            codex_bridge,
             translator,
             socket: crate::agent_host::socket_path(&hosts, &session.id),
             hosts_dir: hosts,
