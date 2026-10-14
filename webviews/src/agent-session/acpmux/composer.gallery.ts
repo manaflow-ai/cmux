@@ -686,7 +686,8 @@ export default agentPaneEntry({
         await ctx.type("first line");
         await ctx.press("Shift+Enter");
         await ctx.type("second line");
-        if (!ctx.find(prompt).textContent?.includes("first line")) throw new Error("Shift-Enter did not keep the draft");
+        if (!ctx.find(prompt).textContent?.includes("first line"))
+          throw new Error("Shift-Enter did not keep the draft");
         await ctx.press("Enter");
         await ctx.waitFor(() => (ctx.find(prompt).textContent ?? "").trim() === "");
       },
