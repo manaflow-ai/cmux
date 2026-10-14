@@ -370,7 +370,7 @@ final class SidebarListView: NSView {
         switch (row.key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             guard let ws = workspaces[id] else { return }
-            view.configure(ws, row: row)
+            view.configure(ws, row: row, badgeStyle: model.rowBadgeStyle)
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
             view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.item(id), view as SidebarItemListRowView):

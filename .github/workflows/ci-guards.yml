@@ -369,6 +369,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
 
+      - name: Test the cmux NEXT nightly reel builder
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cmux_next_reel.py
+
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
@@ -402,7 +406,7 @@ jobs:
 
       # Runs the agent-chat boundary tests (a real server process and the
       # cmux-chat script; run-tests.ts).
-      - name: Run agent-chat unit tests
+      - name: Run agent-chat tests
         if: ${{ matrix.group == 'preflight-agent-chat' }}
         working-directory: agent-chat
         run: bun run test
@@ -1032,6 +1036,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
 
+      - name: Validate lane-branch cmux-tui publishes without the daemon tests
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_lane_daemon_tests.py
+
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: |
@@ -1040,6 +1048,7 @@ jobs:
           python3 tests/test_nightly_publication_marker.py
           python3 tests/test_nightly_republish_delta_guard.py
           python3 tests/test_nightly_resume_tracks.py
+          python3 tests/test_nightly_signed_unnotarized_artifact.py
 
       - name: Validate nightly tag permission probe
         if: ${{ matrix.group == 'release-notary' }}

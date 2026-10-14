@@ -275,12 +275,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
-        guard let window else { return }
-        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-        case "Minimize": window.miniaturize(nil)
-        case "None": break
-        default: window.zoom(nil)
-        }
+        WindowTitlebar.performDoubleClick(in: window)
     }
 
     public override var isFlipped: Bool { true }
