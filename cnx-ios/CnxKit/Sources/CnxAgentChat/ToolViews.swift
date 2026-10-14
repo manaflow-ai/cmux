@@ -63,7 +63,9 @@ struct ToolRowView: View {
                     .font(.subheadline.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    // Commands cut at the tail (a token cut in the middle reads wrong);
+                    // paths keep the middle cut so the file name stays.
+                    .truncationMode(call.kind == .execute ? .tail : .middle)
             }
             if let code = call.exitCode, code != 0 {
                 Text("Exit \(code)").font(.footnote).foregroundStyle(Color.cnxDanger)
@@ -273,15 +275,17 @@ struct DiffSnippet: View {
                 .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
             }
             .scrollIndicators(.hidden)
+            .trailingOverflowFade()
             if preview.remaining > 0 {
-                Button("Show \(preview.remaining) more lines") {
+                Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
                     withAnimation(.cnxSmooth) { showAll = true }
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 16)
-                .padding(.bottom, 14)
-                .padding(.top, 4)
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .padding(.bottom, 2)
             }
         }
         .background(Color.cnxCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))

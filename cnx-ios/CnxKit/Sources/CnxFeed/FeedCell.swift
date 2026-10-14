@@ -23,7 +23,9 @@ struct FeedCell: View {
     private let director = DemoDirector.shared
     #endif
 
-    static let collapsedHeight: CGFloat = 224
+    /// Show more caps the body at 8 lines of body text at the current text size.
+    @ScaledMetric(relativeTo: .body) private var collapsedHeight: CGFloat = 224
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     init(item: FeedItem, store: FeedStore, open: @escaping () -> Void, expanded: Binding<Bool>) {
         self.item = item
@@ -45,10 +47,17 @@ struct FeedCell: View {
                     }
                 }
             VStack(alignment: .leading, spacing: 8) {
+                // Only the header, the quote and the body open the tab; the answer card,
+                // its padding and the gaps never navigate (a mis-tap must not leave the Feed
+                // mid-answer).
                 header
+                    .contentShape(.rect)
+                    .onTapGesture(perform: open)
                 if let quote = item.quote {
                     QuoteBubble(quote: quote)
                         .padding(.bottom, -4)
+                        .contentShape(.rect)
+                        .onTapGesture(perform: open)
                 }
                 statusChip
                 bodyView
@@ -79,8 +88,6 @@ struct FeedCell: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .contentShape(.rect)
-        .onTapGesture(perform: open)
         .contextMenu { menuItems }
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
@@ -90,18 +97,31 @@ struct FeedCell: View {
     // MARK: Parts
 
     private var header: some View {
-        HStack(spacing: 4) {
-            Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(2)
-            Text("· \(item.workspaceTitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(0)
-            Text("· \(relativeTime)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1).fixedSize()
+        HStack(alignment: .top, spacing: 4) {
+            if dynamicTypeSize.isAccessibilitySize {
+                // At accessibility sizes the source wraps under the name instead of truncating.
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.agentName).font(.subheadline.weight(.semibold))
+                    Text("\(item.workspaceTitle) · \(relativeTime)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else {
+                HStack(spacing: 4) {
+                    Text(item.agentName).font(.subheadline.weight(.semibold)).lineLimit(1).layoutPriority(2)
+                    Text("· \(item.workspaceTitle)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(0)
+                    Text("· \(relativeTime)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1).layoutPriority(1).fixedSize()
+                }
+            }
             Spacer(minLength: 4)
             Menu { menuItems } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 24)
+                    .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
+            .padding(.vertical, -12)
+            .padding(.trailing, -10)
             .accessibilityLabel("Event actions")
         }
     }
@@ -157,17 +177,19 @@ struct FeedCell: View {
             Text(text).font(.caption.weight(.semibold))
         }
         .padding(.horizontal, 10)
-        .frame(height: 24)
+        .padding(.vertical, 3)
+        .frame(minHeight: 24)
         .background(Color.cnxFill, in: .capsule)
     }
 
-    private var isOverflowing: Bool { (contentHeight ?? 0) > Self.collapsedHeight + 28 }
+    private var isOverflowing: Bool { (contentHeight ?? 0) > collapsedHeight + 28 }
 
     private var bodyView: some View {
         VStack(alignment: .leading, spacing: 6) {
             WebMarkdownView(
                 markdown: item.markdown, style: .body,
-                collapsedHeight: Self.collapsedHeight, isExpanded: expanded || !isOverflowing
+                collapsedHeight: collapsedHeight, isExpanded: expanded || !isOverflowing,
+                onTap: open
             ) { height in
                 contentHeight = height
             }
@@ -186,7 +208,9 @@ struct FeedCell: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.primary)
                 .buttonStyle(.plain)
-                .frame(minHeight: 28)
+                .frame(minHeight: 44)
+                .contentShape(.rect)
+                .padding(.vertical, -8)
                 .contentTransition(.opacity)
             }
         }

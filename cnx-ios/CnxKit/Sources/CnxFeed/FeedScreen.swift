@@ -148,6 +148,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .padding(.horizontal, 20)
         }
         .scrollIndicators(.hidden)
+        .trailingOverflowFade(width: 32)
         .padding(.vertical, 6)
         .sensoryFeedback(.selection, trigger: store.filter)
     }

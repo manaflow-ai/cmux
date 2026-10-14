@@ -146,8 +146,9 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    if store.currentModelName != nil { modelPill }
+                    if store.currentModelName != nil || !store.modes.isEmpty { modelPill }
                     Spacer(minLength: 0)
+                    if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
                 // No mic button: iOS has no API to start keyboard dictation, and the
                 // keyboard's own mic dictates into this field (SPEC open decision).
@@ -162,7 +163,9 @@ struct ChatComposer: View {
         .padding(.horizontal, collapsed ? 20 : 12)
     }
 
-    private var placeholder: String { placeholderOverride ?? "Reply to \(store.summary.agentName)" }
+    private var placeholder: String {
+        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+    }
 
     /// Expands the capsule, then focuses the field once it exists.
     private func expand() {
@@ -246,9 +249,21 @@ struct ChatComposer: View {
         Menu {
             // Checkmark buttons rather than inline pickers: an inline picker
             // inside a menu section drops the section's header.
-            Section("Model") {
-                ForEach(store.models) { model in
-                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+            if !store.models.isEmpty {
+                Section("Model") {
+                    ForEach(store.models) { model in
+                        checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+                    }
+                }
+            }
+            // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
+            // modes that still ask before running tools; a refused one comes back as the
+            // chat's error line.
+            if !store.modes.isEmpty {
+                Section("Mode") {
+                    ForEach(store.modes) { mode in
+                        checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
+                    }
                 }
             }
             if let effort = store.effortOption {
@@ -273,7 +288,7 @@ struct ChatComposer: View {
             .frame(minHeight: 34)
             .background(Color.cnxFill, in: .capsule)
         }
-        .accessibilityLabel("Model")
+        .accessibilityLabel(store.currentModelName == nil ? "Mode" : "Model")
         .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
             effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
         }].compactMap { $0 }.joined(separator: ", ")))
@@ -281,12 +296,19 @@ struct ChatComposer: View {
 
     private func modelPillLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(store.currentModelName ?? "")
+            Text(store.currentModelName ?? currentModeName ?? "")
+            if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
+                Text(mode).foregroundStyle(.secondary)
+            }
             if withEffort, let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
                 Text(value.name ?? value.value).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: withEffort, vertical: false)
+    }
+
+    private var currentModeName: String? {
+        store.modes.first { $0.id == store.currentModeID }?.name
     }
 
     private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
@@ -327,7 +349,10 @@ struct ChatComposer: View {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)
                     }
                 }
+                // 36 pt drawn, 44 pt to touch.
+                .padding(4)
                 .contentShape(.circle)
+                .padding(-4)
         }
         .buttonStyle(.plain)
         .disabled(state == .empty)
@@ -461,9 +486,12 @@ struct QueuedPromptsView: View {
                         store.removeQueued(item.id)
                         text = item.text
                     } label: {
-                        Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
+                        Image(systemName: "xmark").font(.footnote.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
+                    .padding(.trailing, -10)
                     .accessibilityLabel("Remove queued message")
                 }
                 .padding(.horizontal, 14)

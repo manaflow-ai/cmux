@@ -44,6 +44,7 @@ public struct CodeCard: View {
                     .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
+            .trailingOverflowFade()
             .frame(maxHeight: isCapped ? maxHeight - 40 : nil, alignment: .top)
             .clipped()
             .overlay(alignment: .bottom) {

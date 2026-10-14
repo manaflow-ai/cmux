@@ -178,9 +178,11 @@ struct MockScript {
     static let beforeQuestion = "Both test suites pass. Two product decisions before I wire Settings:"
     static let beforeQuestionDenied = "Swift tests pass; I skipped the Rust tests as you asked. Two product decisions before I wire Settings:"
 
-    static func question(session: String) -> AgentQuestion {
+    /// The waiting turn's copy uses its own id, so a driver that answers it never
+    /// collides with the next turn's `q-transport`.
+    static func question(session: String, id: String = "q-transport") -> AgentQuestion {
         AgentQuestion(
-            id: "q-transport",
+            id: id,
             source: AgentQuestion.Source(harness: .claude, session: session, permission: "perm-question", agentName: "Claude"),
             items: [
                 AgentQuestion.Item(
