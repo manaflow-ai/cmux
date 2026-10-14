@@ -198,13 +198,17 @@ public struct TerminalContent: View {
             .task(id: terminalId) {
                 guard let terminalId else { return }
                 for await push in connection.pushes() {
+                    let mirrored = connection.hostInfo?.supports(.terminalMirror) ?? false
                     switch push {
                     case .terminalUpdated(let terminal) where terminal.id == terminalId && model.status != .ended:
                         model.terminal = terminal
                         model.controller?.macGridChanged(terminal)
-                        if !terminal.running { model.status = .exited }
+                        if !terminal.running { model.status = mirrored ? .ended : .exited }
                     case .terminalExited(let id, _) where id == terminalId:
-                        model.status = .exited
+                        // A Mac-owned terminal whose process ended is gone on the
+                        // Mac (its tab closes): say so and offer a way forward.
+                        // A phone-owned PTY that exited keeps its last screen.
+                        model.status = mirrored ? .ended : .exited
                     default:
                         break
                     }
