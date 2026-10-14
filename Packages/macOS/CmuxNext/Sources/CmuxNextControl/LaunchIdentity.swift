@@ -21,29 +21,31 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let socketOverrideKey = "CMUX_NEXT_SOCKET_PATH"
 
     public var bundleID: String?
-    /// Sanitized tag (`[a-z0-9-]`, ``BuildIdentity/tag``: the one the bundle
-    /// ships, else the bundle id's suffix), nil for untagged builds.
+    /// Sanitized tag (`[a-z0-9-]`), nil for untagged builds.
     public var tag: String?
     public var socketPath: String
+    /// The app's own build (bundle id and the tag its bundle ships; never a
+    /// DEBUG test override): its daemon session, state and control socket
+    /// (``BuildIdentity/appSession``). The `cmux` CLI in this app's terminals
+    /// gets the same pair through `CMUX_BUNDLE_ID` and `CMUX_TAG`
+    /// (``terminalEnvironment``), so both resolve one build.
+    public var build: BuildIdentity
 
-    public init(bundleID: String?, tag: String?, socketPath: String) {
+    public init(bundleID: String?, tag: String?, socketPath: String, build: BuildIdentity? = nil) {
         self.bundleID = bundleID
         self.tag = tag
         self.socketPath = socketPath
+        self.build = build ?? BuildIdentity(bundleID: bundleID, bundledTag: tag)
     }
-
-    /// The app's own build (bundle id and tag; never a DEBUG test override):
-    /// its daemon session and control socket (``BuildIdentity/appSession``).
-    /// The `cmux` CLI in this app's terminals gets the same pair through
-    /// `CMUX_BUNDLE_ID` and `CMUX_TAG`, so both resolve one build.
-    public var build: BuildIdentity { BuildIdentity(bundleID: bundleID, bundledTag: tag) }
 
     /// Variables every terminal of this app gets, so the `cmux` CLI inside
     /// it talks to this app and never to the cmux that launched it.
     public var terminalEnvironment: [String: String] {
         var environment = ["CMUX_SOCKET_PATH": socketPath]
         if let bundleID { environment["CMUX_BUNDLE_ID"] = bundleID }
-        if let tag { environment["CMUX_TAG"] = tag }
+        // The build's tag (the shipped one first), so the CLI's build key is
+        // this app's even for a copy that ships another tag than its id.
+        if let tag = build.tag ?? tag { environment["CMUX_TAG"] = tag }
         return environment
     }
 
@@ -60,6 +62,8 @@ public struct LaunchIdentity: Sendable, Equatable {
         let bundle = bundleID.flatMap { $0.isEmpty ? nil : $0 }
         // A copy named `cmux DEV <tag>.app` without `LSEnvironment` is the
         // untagged DEV build (names of its key), as for the `cmux` CLI.
+        let tag = ControlSocketPath.shared.bundleTag(bundle)
+            ?? bundledEnvironment["CMUX_TAG"].flatMap(ControlSocketPath.shared.sanitize)
         let build = BuildIdentity(bundleID: bundle, bundledTag: bundledEnvironment["CMUX_TAG"])
         // A DEBUG compile under release's bundle id never takes release's socket.
         var path = (isDebugBuild && build.kind == .release ? nil : build.controlSocket(userHome: home))
@@ -67,7 +71,7 @@ public struct LaunchIdentity: Sendable, Equatable {
         if let explicit = processEnvironment[socketOverrideKey]?.trimmingCharacters(in: .whitespaces), !explicit.isEmpty {
             path = explicit
         }
-        return LaunchIdentity(bundleID: bundle, tag: build.tag, socketPath: path)
+        return LaunchIdentity(bundleID: bundle, tag: tag, socketPath: path, build: build)
     }
 
     /// Keys of cmux variables this process inherited rather than received
