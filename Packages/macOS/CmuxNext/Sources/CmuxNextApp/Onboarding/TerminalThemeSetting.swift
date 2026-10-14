@@ -62,10 +62,8 @@ final class TerminalThemeSetting {
     var reloadDelay = TerminalThemeSetting.backgroundReloadDelay
     /// Shuffle Daily: turns the backdrop to the next work at local midnight.
     private let dailyTimer = DemandTimer(owner: "terminal-theme.daily-background")
-    /// The clock Shuffle Daily reads (tests move it to another day).
-    var now: () -> Date = Date.init
-    /// The calendar that sets its local day (read on each pick, so a time zone change applies; tests pin a zone).
-    var calendar: () -> Calendar = { .current }
+    /// The clock and calendar (read per pick, so a time zone change applies) Shuffle Daily reads; tests pin both.
+    var now: () -> Date = Date.init, calendar: () -> Calendar = { .current }
     /// Where it hears of a day, time zone or clock change (tests post to their own); set before `follow`.
     var notificationCenter: NotificationCenter = .default
     /// Whether the background is Shuffle Daily, so a day, time zone or clock change re-picks the work.
