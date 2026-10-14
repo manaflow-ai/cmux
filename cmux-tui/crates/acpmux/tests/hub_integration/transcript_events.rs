@@ -229,10 +229,15 @@ async fn codex_subagents_arrive_as_sessions_with_their_own_updates() {
 async fn a_codex_subagent_asking_after_the_turn_ended_reaches_the_person() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "late-ask").await;
-    let done =
-        c.request(method::SESSION_PROMPT, prompt(&id, "codex-late-subagent-ask", None)).await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "codex-late-subagent-ask", None)).await;
+    // The ask may reach acpmux before acpmux ends the turn: its notification
+    // then comes before the prompt's response, so keep what came before it.
+    let (done, before) = c.response(rid).await;
     assert_eq!(done.unwrap()["stopReason"], "end_turn");
-    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
+    let pending = match before.into_iter().find(|(m, _)| m == method::MUX_PERMISSION_PENDING) {
+        Some((_, pending)) => pending,
+        None => c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await,
+    };
     assert_eq!(pending["request"]["toolCall"]["title"], "touch late.txt");
     let pid = pending["permissionId"].as_str().unwrap().to_owned();
     c.request(

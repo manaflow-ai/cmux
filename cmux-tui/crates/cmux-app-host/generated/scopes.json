@@ -1341,6 +1341,70 @@
       "scope": "sidebar_view:write",
       "class": "mutation"
     },
+    "sidebar.adopt": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "scope": "sidebar:read",
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
