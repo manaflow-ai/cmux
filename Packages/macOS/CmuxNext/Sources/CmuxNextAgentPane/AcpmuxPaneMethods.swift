@@ -61,6 +61,9 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
+        // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
+        // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
+        "_acpmux/offer_respond",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -198,11 +201,17 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
+        "_acpmux/offer_respond",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
     /// side chat names the chat it is beside (cx-jlzsf).
     public static let scopedSessionParams: [String: Set<String>] = ["_acpmux/side": ["chat"]]
+
+    /// Params beside `sessionId` that may name a session: none is fine, a named one (even `null`)
+    /// must be a string in the pane's scope. Only an accepted offer names its child chat (the one
+    /// the pane just started); a dismissed one names none. `_acpmux/side` always names its chat.
+    public static let optionalScopedSessionParams: [String: Set<String>] = ["_acpmux/offer_respond": ["childSessionId"]]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
@@ -265,6 +274,8 @@ nonisolated enum AcpmuxPaneMethods {
         // The card's Provide hands over a secret (its Decline is a click too).
         "_acpmux/secret_submit": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
+        // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
+        // Start begins is its session/prompt, which has one).
     ]
 
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
