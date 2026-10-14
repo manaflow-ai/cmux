@@ -4,8 +4,13 @@
 // panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
 // unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
 //
+// A prompt is a solid bubble on the composer's surface, its text inset evenly, with one Copy on
+// hover; a tool row shows none (a turn's answer has its own in the footer).
+//
 // Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
-// column inside 16px ones, so their edges never met and the narrow-pane inset was neither.
+// column inside 16px ones, so their edges never met and the narrow-pane inset was neither. The
+// bubble was a 5% tint the wallpaper showed through, 16px from its sides and 10.5px from its top,
+// on a 16px radius, and a hover showed a second Copy over it.
 //
 // Each frame is read after it paints (a task queued from requestAnimationFrame), so a layout fixed
 // by a ResizeObserver before paint is not a jump, and one fixed a frame late is.
@@ -311,6 +316,71 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // line at once, never down and back.
     const resting = new Set(frames.map((frame) => frame.lastLine));
     expect({ resting: [...resting] }).toEqual({ resting: [frames[0]!.lastLine] });
+    await page.close();
+  });
+
+  test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
+    const page = await open(newChat(), 900);
+    const bubble = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".cv-user__bubble")!;
+      const box = node.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const lines = [...range.getClientRects()];
+      const text = {
+        left: Math.min(...lines.map((line) => line.left)),
+        top: Math.min(...lines.map((line) => line.top)),
+        bottom: Math.max(...lines.map((line) => line.bottom)),
+      };
+      // How opaque the fill is, as the page paints it.
+      const canvas = document.createElement("canvas").getContext("2d")!;
+      canvas.fillStyle = getComputedStyle(node).backgroundColor;
+      canvas.fillRect(0, 0, 1, 1);
+      const row = node.closest(".acpmux-row")!.getBoundingClientRect();
+      return {
+        alpha: canvas.getImageData(0, 0, 1, 1).data[3],
+        radius: parseFloat(getComputedStyle(node).borderTopLeftRadius),
+        left: Math.round(text.left - box.left),
+        top: Math.round(text.top - box.top),
+        bottom: Math.round(box.bottom - text.bottom),
+        right: Math.round(row.right - box.right),
+      };
+    });
+    expect(bubble.alpha).toBe(255);
+    expect(bubble.radius).toBeLessThanOrEqual(12);
+    expect(bubble.left).toBeGreaterThanOrEqual(10);
+    expect(bubble.left).toBeLessThanOrEqual(12);
+    expect(Math.abs(bubble.top - bubble.left)).toBeLessThanOrEqual(2);
+    expect(Math.abs(bubble.bottom - bubble.left)).toBeLessThanOrEqual(2);
+    expect(bubble.right).toBe(0);
+    await page.close();
+  });
+
+  test("a hover shows one Copy on a prompt and none on a tool row", async () => {
+    const page = await open(newChat(), 900);
+    /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
+    const shown = (text: string) =>
+      page.evaluate((text) => {
+        const row = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
+          node.textContent?.includes(text),
+        )!;
+        return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
+          if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
+          for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
+            if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
+              return false;
+          return true;
+        }).length;
+      }, text);
+    const prompt = page.locator(".acpmux-row.acpmux-user").first();
+    await prompt.scrollIntoViewIfNeeded();
+    await prompt.hover();
+    await page.waitForTimeout(250);
+    const onPrompt = await shown("Why does the build retry?");
+    const command = page.locator("button.cv-command").first();
+    await command.hover();
+    await page.waitForTimeout(250);
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 });
