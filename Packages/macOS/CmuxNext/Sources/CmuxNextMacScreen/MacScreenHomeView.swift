@@ -58,15 +58,36 @@ public struct MacScreenHomeView: View {
         } message: {
             Text(L.t("macScreen.home.forgetBody", "To show it again, pair it with its link."))
         }
-        .alert(L.t("macScreen.home.renameTitle", "Rename Mac"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+        // A sheet, not an alert: an alert's text field draws a focus ring.
+        .sheet(item: $renaming) { mac in
+            renameSheet(mac)
+        }
+    }
+
+    private func renameSheet(_ mac: SavedMac) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(L.t("macScreen.home.renameTitle", "Rename Mac")).font(.headline)
             TextField(L.t("macScreen.home.renameField", "Name"), text: $renameText)
+                .textFieldStyle(.roundedBorder)
                 .focusEffectDisabled()
-            Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
-            Button(L.t("macScreen.home.rename", "Rename")) {
-                if let mac = renaming { store.rename(mac.id, to: renameText) }
-                renaming = nil
+                .onSubmit { rename(mac) }
+                .accessibilityIdentifier("macScreen.home.renameField")
+            HStack {
+                Spacer()
+                Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button(L.t("macScreen.home.rename", "Rename")) { rename(mac) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
+        .padding(20)
+        .frame(width: 320)
+    }
+
+    private func rename(_ mac: SavedMac) {
+        store.rename(mac.id, to: renameText)
+        renaming = nil
     }
 
     private var header: some View {
