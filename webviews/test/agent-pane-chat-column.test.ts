@@ -161,7 +161,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height } });
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}${hash}`);
+    await page.goto(
+      `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}${hash}`,
+    );
     await page.getByText("Paragraph 24.", { exact: false }).waitFor({ timeout: 25_000 });
     // Rows place by their drawn heights a frame after they mount.
     await page.waitForTimeout(300);

@@ -751,7 +751,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_OF]: SubagentOfPillRow,
 };
 
-/// A row's height as the page drew it, valid while the row's content version and width hold.
+/// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
@@ -780,6 +780,11 @@ function glide(node: HTMLElement | null, step: number): void {
   });
 }
 const GLIDE_MS = 180;
+/// The thread's top padding (styles.css `.acpmux-thread`): rows are placed under it.
+const THREAD_TOP = 16;
+/// Room under the transcript's last row, over the composer (Leo 2026-10-14, #20610): with the last
+/// row's own padding the action row clears the composer by 20px.
+const END_ROOM = 12;
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -1424,14 +1429,13 @@ export function VirtualTranscript({
         ? estimated.layout
         : placeRows(
             estimated.layout,
+            // A row keeps its last drawn height until its new version is drawn: a streaming reply's
+            // text appears after the version that holds it, so an estimate of the version ran ahead
+            // of the drawn text, and its drawn height then pulled the view back a line or more at
+            // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
             (index) => {
               const known = drawn.get(rows[index].id);
-              return known &&
-                known.sessionId === sessionId &&
-                known.version === rows[index].version &&
-                known.width === rowWidth
-                ? known.height
-                : undefined;
+              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
           );
@@ -1445,7 +1449,13 @@ export function VirtualTranscript({
       first: last?.first ?? 0,
       last: last?.last ?? 0,
     };
-    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+    // The rows start under the thread's top padding, so the transcript ends that much past their
+    // heights, and END_ROOM more: followed to its end, the last turn's time, Copy and Fork sit
+    // clear of the composer (and its shadow), not under its edge.
+    return {
+      layout: { ...layout, totalHeight: layout.totalHeight + THREAD_TOP + END_ROOM },
+      ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0,
+    };
   }, [estimated, drawn, registry, rows, sessionId, width]);
   const layout = measured.layout;
   const reportedLayout = useRef<typeof measured | null>(null);

@@ -11,7 +11,8 @@
 // Durations are the motion tokens: Reduce Motion keeps only a short fade, animation speed off
 // (tokens 0) none.
 
-/// How the fold moves: `slide` (rows slide, steps fade), `fade` (rows jump, steps fade) or `none`.
+/// How the fold moves: `slide` (rows slide, steps fade), `fade` (every row that moved or appeared
+/// fades in at its new place, over FADE_MS) or `none`.
 /// The page reads `#foldMotion=` so captures can compare them; `slide` is the default.
 export type FoldMotionMode = "slide" | "fade" | "none";
 
@@ -32,6 +33,8 @@ type Armed = {
 };
 
 const STALE_MS = 500;
+/// The `fade` mode's fade: short, and visible (Leo 2026-10-14: a fade that shows nothing is no option).
+const FADE_MS = { min: 120, max: 180 };
 
 const rowsOf = (thread: HTMLElement) => [...thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]")];
 
@@ -102,6 +105,11 @@ export class FoldMotion {
     const appear = Math.min(seconds(style.getPropertyValue("--agent-motion-in")) * 1000, reduced ? 100 : Infinity);
     const go = Math.min(seconds(style.getPropertyValue("--agent-motion-out")) * 1000, reduced ? 100 : Infinity);
     const easing = style.getPropertyValue("--agent-ease-out").trim() || "ease-out";
+    // Fade: the rows that move jump to their places and fade in there with the steps that appear;
+    // the steps that go leave at once, as copies fading where the moved rows now are would cross them.
+    const fading = this.mode === "fade" && appear > 0;
+    const fadeMs = reduced ? appear : Math.min(Math.max(appear, FADE_MS.min), FADE_MS.max);
+    const moved = new Set<HTMLElement>();
     if (move <= 0 && appear <= 0 && go <= 0) {
       this.armed = undefined;
       return;
@@ -115,10 +123,13 @@ export class FoldMotion {
       } else if (move > 0) {
         const shift = was - row.getBoundingClientRect().top;
         if (Math.abs(shift) > 0.5) row.style.translate = `0 ${shift}px`;
+      } else if (fading && Math.abs(was - row.getBoundingClientRect().top) > 0.5) {
+        row.style.opacity = "0";
+        moved.add(row);
       }
     }
     for (const leaving of armed.leaving) {
-      if (go <= 0) continue;
+      if (go <= 0 || fading) continue;
       thread.append(leaving.node);
       const shift = leaving.top - leaving.node.getBoundingClientRect().top;
       leaving.node.style.translate = `0 ${shift}px`;
@@ -131,6 +142,13 @@ export class FoldMotion {
       const places = now.map((row) => row.getBoundingClientRect().top);
       for (const [index, row] of now.entries()) {
         const was = armed.before.get(row.dataset.rowId!);
+        if (moved.has(row)) {
+          row.style.opacity = "";
+          this.running.push(
+            row.animate([{ opacity: 0 }, { opacity: 1 }], { duration: fadeMs, easing, fill: "backwards" }),
+          );
+          continue;
+        }
         if (was === undefined) {
           row.style.opacity = "";
           // Steps a reader opens fade in once the rows below have mostly moved out of their way; at
@@ -138,7 +156,7 @@ export class FoldMotion {
           if (appear > 0)
             this.running.push(
               row.animate([{ opacity: 0 }, { opacity: 1 }], {
-                duration: appear,
+                duration: fading ? fadeMs : appear,
                 delay: armed.anchor === undefined ? 0 : move * 0.6,
                 easing,
                 fill: "backwards",
