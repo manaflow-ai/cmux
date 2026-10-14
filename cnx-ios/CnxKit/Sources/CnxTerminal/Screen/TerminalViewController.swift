@@ -54,6 +54,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let tuiHost = UIView()
     private let bottomStack = UIView()
     private let bottomBacking = UIView()
+    /// 24 pt fade above the composer card, shown only while rows are scrolled
+    /// under it, so the row the card's edge cuts reads as "more below" (R2-6).
+    private let bottomFade = GradientView()
+    /// The last frame, held over the surface while a resize's mirror reset
+    /// and replay are drawn, so the page never shows a black frame (R2-3).
+    private var freezeView: UIView?
+    private var freezeBatches = 0
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -187,6 +194,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomBacking.isUserInteractionEnabled = false
         bottomBacking.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomBacking)
+        let base = CnxGhosttyApp.background
+        bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
+        bottomFade.isUserInteractionEnabled = false
+        bottomFade.alpha = 0
+        bottomFade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomFade)
         view.addSubview(bottomStack)
         // The bottom soft edge follows the composer like a system toolbar.
         let edge = UIScrollEdgeElementContainerInteraction()
@@ -272,6 +285,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
             bottomBacking.topAnchor.constraint(equalTo: bottomStack.topAnchor),
+            bottomFade.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
+            bottomFade.heightAnchor.constraint(equalToConstant: 24),
+            bottomFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomBacking.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomBacking.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomBacking.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -510,6 +527,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func sessionEvent(_ event: TerminalSessionEvent) {
         switch event {
         case .output(let data):
+            if data == Self.mirrorReset { freezeLastFrame() }
             // Per chunk: queue the bytes and nothing else. Parsing, the row
             // shift and the artifact scan happen once per display frame.
             model.ingest(event)
@@ -590,6 +608,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         feedInFlight = false
+        if freezeView != nil, raw > Self.mirrorReset.count {
+            // The replay is parsed: drop the held frame on the next present
+            // (or after one more batch, whichever comes first).
+            freezeBatches += 1
+            if freezeBatches >= 2 { unfreeze() }
+        }
+        if raw > Self.mirrorReset.count { model.liveOutputDrawn() }
         #if DEBUG
         TerminalBenchProbe.shared?.outputProcessed(raw)
         #endif
@@ -628,6 +653,36 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
+    }
+
+    // MARK: Held frame (R2-3)
+
+    /// `ESC c`: the session resets the mirror before a replay (a resize, a reattach).
+    static let mirrorReset = Data("\u{1B}c".utf8)
+
+    /// Holds what is on screen until the replay after a reset is drawn. Only
+    /// once the page has drawn something (the first attach has nothing to hold).
+    private func freezeLastFrame() {
+        guard freezeView == nil, view.window != nil, document != nil || model.isTUI,
+              let snapshot = view.snapshotView(afterScreenUpdates: false) else { return }
+        snapshot.frame = view.bounds
+        snapshot.isUserInteractionEnabled = false
+        view.insertSubview(snapshot, belowSubview: bottomBacking)
+        freezeView = snapshot
+        freezeBatches = 0
+    }
+
+    private func unfreeze() {
+        freezeView?.removeFromSuperview()
+        freezeView = nil
+        freezeBatches = 0
+    }
+
+    /// Shows the bottom fade while rows are scrolled under the composer.
+    private func updateBottomFade() {
+        let under = !model.isTUI && scrollView.contentOffset.y < maxOffsetY - 1
+        let alpha: CGFloat = under ? 1 : 0
+        if bottomFade.alpha != alpha { bottomFade.alpha = alpha }
     }
 
     // MARK: Layout
@@ -718,8 +773,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if model.session.remoteRows == nil {
             // A local session writes from row 0: no mirror rows above it.
             blank = 0
-        } else if TerminalDocumentLayout.needsOriginScan(previous: document, previousTotal: previousTotal,
-                                                         totalRows: scrollbar.total, screenRows: surface.grid.rows) {
+        } else if placesFromReport || TerminalDocumentLayout.needsOriginScan(previous: document, previousTotal: previousTotal,
+                                                                             totalRows: scrollbar.total, screenRows: surface.grid.rows) {
+            // Back from a TUI (until the user scrolls) the primary screen is
+            // being redrawn and resized: read the top again on every update,
+            // so earlier output is never left above an origin read too early (R2-1).
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
         }
@@ -817,6 +875,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #if DEBUG
         TerminalBenchProbe.shared?.presented()
         #endif
+        if freezeView != nil, freezeBatches > 0 { unfreeze() }
         guard !model.isTUI, cell.height > 0 else { return }
         let scale = view.window?.screen.scale ?? 3
         let rowPixels = Int((cell.height * scale).rounded())
@@ -909,6 +968,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
+            tuiSizing.tuiEnded()
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
@@ -933,6 +993,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateBottomFade()
         guard !model.isTUI else { return }
         if dragPinsToComposer, scrollView.isTracking, !pinningDrag,
            scrollView.panGestureRecognizer.translation(in: view).y > 0 {
@@ -1040,6 +1101,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY, restingStackTop: restingStackTop, isTUI: model.isTUI)
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        // The page changed without output (the keyboard came or went): the
+        // saved frame for the next cold launch follows (R2-5).
+        model.saveFrameSoon()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 

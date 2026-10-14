@@ -56,15 +56,20 @@ public struct TerminalTabPage: View {
                             .padding(.bottom, insets.bottom)
                             .transition(.opacity)
                     }
-                } else if !model.connectionState.isAttached {
-                    // A tab back from the warm set shows its last frame at once.
-                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame)
+                } else if !model.connectionState.isAttached || model.coldFrame != nil {
+                    // One view from "Connecting…" to live (R2-5): a tab back
+                    // from the warm set or a cold restore shows its last frame
+                    // at once; once attached the label goes, the frame stays
+                    // until the live rows are drawn, then fades out in 120 ms.
+                    // (Two views crossfading here flashed the title pill grey.)
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
+                                           showsLabel: !model.connectionState.isAttached)
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: model.connectionState)
+            .animation(.easeOut(duration: 0.12), value: !model.connectionState.isAttached || model.coldFrame != nil)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
             // controller's keyboard layout guide at 172 pt with no keyboard

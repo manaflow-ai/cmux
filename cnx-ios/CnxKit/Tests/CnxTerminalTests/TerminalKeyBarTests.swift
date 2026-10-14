@@ -68,6 +68,15 @@ import Testing
         #expect(KeyBarKey.chord("c").accessibilityLabel == "Control C")
     }
 
+    /// R2-4: at rest only whole keys are drawn; the fade is 12 pt.
+    @Test func cutKeysAreNotDrawnAtRest() {
+        let visible = CGRect(x: 0, y: 0, width: 151, height: 34)
+        #expect(KeyBarClipping().isWhole(CGRect(x: 103, y: 0, width: 40, height: 34), in: visible))
+        #expect(!KeyBarClipping().isWhole(CGRect(x: 138, y: 0, width: 40, height: 34), in: visible))
+        #expect(!KeyBarClipping().isWhole(CGRect(x: -13, y: 0, width: 40, height: 34), in: visible))
+        #expect(KeyBarScrollEdges.trailingFade == 12)
+    }
+
     @Test func leadingEdgeIsHardAtRest() {
         let rest = KeyBarScrollEdges(offset: 0, contentWidth: 900, visibleWidth: 186)
         #expect(!rest.fadesLeading)

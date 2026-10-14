@@ -19,6 +19,13 @@ public struct KeyBarClipping: Sendable {
         guard visible.width > 0, key.width > 0 else { return false }
         return key.midX > visible.minX && key.midX < visible.maxX
     }
+
+    /// Whether all of `key` is inside `visible`. At rest the row shows only
+    /// whole keys: a key the edge cuts is not drawn (no sliver, R2-4).
+    public func isWhole(_ key: CGRect, in visible: CGRect?) -> Bool {
+        guard let visible else { return true }
+        return key.minX >= visible.minX - 0.5 && key.maxX <= visible.maxX + 0.5
+    }
 }
 
 /// The key bar scroller's edge fades (SPEC B2): 12 pt gradient masks, the
@@ -26,9 +33,10 @@ public struct KeyBarClipping: Sendable {
 /// at a hard edge), the trailing one while more keys wait to the right.
 public struct KeyBarScrollEdges: Equatable, Sendable {
     public static let fade: CGFloat = 12
-    /// The trailing fade: about two thirds of a key, so a key the row cuts
-    /// at rest fades out instead of ending in a hard edge (R1-4).
-    public static let trailingFade: CGFloat = 28
+    /// The trailing fade, 12 pt as specified (R2-4). It shows only while the
+    /// row moves: at rest the row draws whole keys only, so the last one is
+    /// at full brightness.
+    public static let trailingFade: CGFloat = 12
 
     public var offset: CGFloat
     public var contentWidth: CGFloat

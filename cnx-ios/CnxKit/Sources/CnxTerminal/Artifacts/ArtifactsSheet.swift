@@ -55,10 +55,10 @@ struct ArtifactsSheet: View {
     var body: some View {
         NavigationStack(path: $model.artifactPath) {
             VStack(spacing: 0) {
-                // 8 pt under the navigation bar (R1-7): the bar's own bottom
-                // margin is part of it, so no extra padding here.
+                // 8 pt under the Done button (R1-7, R2-7): the bar's bottom
+                // margin is 5 pt deeper than its buttons, so the chips go up by it.
                 chips
-                    .padding(.top, 0)
+                    .padding(.top, -5)
                     .padding(.bottom, 4)
                 List {
                     ForEach(shown) { artifact in

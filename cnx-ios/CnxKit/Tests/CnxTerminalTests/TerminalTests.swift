@@ -99,6 +99,27 @@ import Testing
         #expect(artifacts.map(\.reference) == ["/Users/cmux/cnx-ios-e2e/r2/live/work/demo/reports/2026-10-13-round2-verification/long-folder/x.md"])
     }
 
+    /// R2-7 (seen live): the command line listed the whole path first, then
+    /// `ls -l` output wrapped it at 53 columns; the piece `p/cnx-...md` stayed.
+    @Test func aPieceOfAPathAlreadyListedWholeGoes() {
+        var extractor = ArtifactExtractor()
+        let stream = "clear; ls -l /tmp/cnx-e2e-070024-sample.md\r\n-rw-r--r--@ 1 aziz  wheel  40 Oct 14 07:00 /tm\r\np/cnx-e2e-070024-sample.md\r\n"
+        var artifacts = extractor.scan(Data(stream.utf8))
+        #expect(artifacts.map(\.reference).contains("p/cnx-e2e-070024-sample.md"))
+        let screen = "clear; ls -l /tmp/cnx-e2e-070024-sample.md\n-rw-r--r--@ 1 aziz  wheel  40 Oct 14 07:00 /tmp/cnx-e2e-070024-sample.md\n"
+        artifacts = extractor.reconcile(artifacts, screenText: screen, columns: nil)
+        #expect(artifacts.map(\.reference) == ["/tmp/cnx-e2e-070024-sample.md"])
+    }
+
+    @Test func tmpAndPrivateTmpAreOneEntry() {
+        var extractor = ArtifactExtractor()
+        let artifacts = extractor.scan(Data("cat /tmp/x.md\nopen /private/tmp/x.md\n".utf8))
+        #expect(artifacts.map(\.reference) == ["/tmp/x.md"])
+        #expect(ArtifactExtractor.canonical("/private/var/log/a.txt") == "/var/log/a.txt")
+        let merged = extractor.reconcile(artifacts, screenText: "open /private/tmp/x.md\n", columns: nil)
+        #expect(merged.map(\.reference) == ["/tmp/x.md"])
+    }
+
     @Test func reconcileKeepsHistoryThatLeftTheScreen() {
         var extractor = ArtifactExtractor()
         let artifacts = extractor.scan(Data("old/notes.md\n".utf8))

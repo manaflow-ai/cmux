@@ -101,10 +101,36 @@ public final class TerminalModel {
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
     }
 
+    /// The Mac's output after an attach is drawn: a held last frame (a cold
+    /// restore) goes now, not when the attach starts (that showed the stale
+    /// frame over the live one, R2-5). Throttled, the new frame is saved for
+    /// the next cold launch.
+    func liveOutputDrawn() {
+        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        saveFrameSoon()
+    }
+
+    /// Saves the page's frame (for the next cold launch) at most every few seconds.
+    public var frameSaver: (@MainActor (UIImage) -> Void)?
+    @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
+    @ObservationIgnored private var frameSavePending = false
+
+    func saveFrameSoon() {
+        guard frameSaver != nil, !frameSavePending else { return }
+        let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
+        frameSavePending = true
+        Task { @MainActor [weak self] in
+            if wait > 0 { try? await ContinuousClock().sleep(for: .seconds(wait)) }
+            guard let self else { return }
+            frameSavePending = false
+            lastFrameSave = CACurrentMediaTime()
+            if let image = controller?.snapshot() { frameSaver?(image) }
+        }
+    }
+
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
         if connection != connectionState { connectionState = connection }
-        if connection.isAttached, coldFrame != nil { coldFrame = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).

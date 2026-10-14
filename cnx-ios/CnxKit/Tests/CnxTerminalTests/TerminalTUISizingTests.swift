@@ -35,13 +35,16 @@ import Testing
         #expect(rows(sizing) == 20)
     }
 
-    @Test func theMirrorResetAfterAResizeDoesNotResizeAgain() {
+    /// R2-1: `top` with the keyboard up, then `q`: the shell gets its
+    /// keyboard-down rows back at once, not the TUI's 20.
+    @Test func quittingATUIWithTheKeyboardUpRestoresTheShellRows() {
         var sizing = TerminalTUISizing()
         sizing.tuiStarted()
         sizing.keyboardSettled(stackTop: 400, restingStackTop: resting, isTUI: true)
-        // The Mac resets the mirror: the alternate screen goes off, then on.
-        // Nothing here changes on "off", so the rows stay put (no ping-pong).
         #expect(rows(sizing) == 20)
+        sizing.tuiEnded()
+        #expect(rows(sizing) == 37)
+        // Another TUI with the keyboard still up fits above it again.
         sizing.tuiStarted()
         #expect(rows(sizing) == 20)
     }

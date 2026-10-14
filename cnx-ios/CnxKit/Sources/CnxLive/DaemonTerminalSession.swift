@@ -232,8 +232,8 @@ public final class DaemonTerminalSession: TerminalSession {
             setAlternate(on)
         case .rows(let rows):
             reportedRows = rows
-        case .resetMirror:
-            setAlternate(false)
+        case .resetMirror(let alternate):
+            setAlternate(alternate)
             handler?(.output(Data("\u{1B}c".utf8)))
         case .detached(let reason):
             ended(reason: reason)
