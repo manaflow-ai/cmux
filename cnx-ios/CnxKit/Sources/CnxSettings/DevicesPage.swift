@@ -103,6 +103,17 @@ struct DevicesPage: View {
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
         .task { await list.load(directory) }
+        .confirmationDialog(
+            pendingRemoval.map { "Remove \(displayName($0))?" } ?? "",
+            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingRemoval
+        ) { device in
+            Button("Remove", role: .destructive) { Task { await remove(device) } }
+        } message: { device in
+            Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
+                                         displayName: displayName(device)))
+        }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -131,8 +142,9 @@ struct DevicesPage: View {
     }
 
     /// A row with its Remove paths: the trailing swipe, the context menu, and
-    /// Edit's delete control (`onDelete`). The confirmation is anchored to the
-    /// row, so it opens next to what was swiped.
+    /// Edit's delete control (`onDelete`). The confirmation is the page's: a
+    /// dialog attached to a List row does not present on iOS 27 (tried for
+    /// design item 14).
     @ViewBuilder private func removableRow(_ device: SettingsDevice) -> some View {
         row(device)
             .opacity(removing.contains(device.id) ? 0.5 : 1)
@@ -151,16 +163,6 @@ struct DevicesPage: View {
                         pendingRemoval = device
                     }
                 }
-            }
-            .confirmationDialog(
-                "Remove \(displayName(device))?",
-                isPresented: Binding(get: { pendingRemoval?.id == device.id }, set: { if !$0, pendingRemoval?.id == device.id { pendingRemoval = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button("Remove", role: .destructive) { Task { await remove(device) } }
-            } message: {
-                Text(Self.removalExplanation(device, connected: isConnected(device), honorsRemoval: honorsRemoval(device),
-                                             displayName: displayName(device)))
             }
     }
 

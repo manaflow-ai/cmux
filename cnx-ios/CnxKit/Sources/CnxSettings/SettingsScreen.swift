@@ -53,7 +53,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         NavigationLink(value: SettingsRoute.team) {
                             HStack(spacing: 14) {
                                 SettingsTeamAvatar(team: team, size: 28)
-                                Text(team.name).font(theme.type.rowTitle)
+                                UnbrokenText(team.name)
                             }
                         }
                     }
@@ -176,7 +176,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     HStack(spacing: 14) {
                         UserInitials(user.initials, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(user.name).font(theme.type.rowTitle.weight(.semibold))
+                            UnbrokenText(user.name, weight: .semibold)
                             if let email = user.email {
                                 EmailText(email).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                             }
@@ -244,13 +244,13 @@ struct SettingsIcon: View {
 /// sizes the value goes under the title, as in iOS Settings, so the title
 /// never breaks mid-word.
 struct SettingsLabel: View {
-    let title: LocalizedStringKey
+    let title: String
     let symbol: String
     let value: String?
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(_ title: LocalizedStringKey, symbol: String, value: String? = nil) {
-        self.title = title
+    init(_ title: LocalizedStringResource, symbol: String, value: String? = nil) {
+        self.title = String(localized: title)
         self.symbol = symbol
         self.value = value
     }
@@ -260,19 +260,53 @@ struct SettingsLabel: View {
             SettingsIcon(symbol).foregroundStyle(theme.colors.label)
             if typeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                    UnbrokenText(title).foregroundStyle(theme.colors.label)
                     if let value {
                         Text(value).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2)
                     }
                 }
             } else {
-                Text(title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                Text(verbatim: title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
                 if let value {
                     Spacer(minLength: 8)
                     Text(value).font(theme.type.rowTitle).foregroundStyle(theme.colors.label2).lineLimit(1)
                 }
             }
         }
+    }
+}
+
+/// Text whose words never break mid-word: when the longest word is wider
+/// than the space (the largest accessibility sizes), the text shrinks until
+/// it fits (down to half size) instead of hyphenating. Lines still wrap
+/// between words.
+struct UnbrokenText: View {
+    let text: String
+    let style: UIFont.TextStyle
+    let weight: Font.Weight
+    let alignment: Alignment
+    @State private var width: CGFloat = 0
+
+    init(_ text: String, style: UIFont.TextStyle = .body, weight: Font.Weight = .regular, alignment: Alignment = .leading) {
+        self.text = text
+        self.style = style
+        self.weight = weight
+        self.alignment = alignment
+    }
+
+    var body: some View {
+        let font = UIFont.preferredFont(forTextStyle: style)
+        let base = font.pointSize
+        let measure = UIFont.systemFont(ofSize: base, weight: weight == .semibold ? .semibold : weight == .bold ? .bold : .regular)
+        let longest = text.split(whereSeparator: \.isWhitespace)
+            .map { (String($0) as NSString).size(withAttributes: [.font: measure]).width }
+            .max() ?? 0
+        let scale = width > 0 && longest > width ? max(0.5, (width - 1) / longest) : 1
+        Text(verbatim: text)
+            .font(.system(size: base * scale, weight: weight))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
@@ -318,12 +352,12 @@ extension NotificationPermission {
 }
 
 private struct LinkRow: View {
-    let title: LocalizedStringKey
+    let title: LocalizedStringResource
     let symbol: String
     let url: String
     @Environment(\.openURL) private var openURL
 
-    init(_ title: LocalizedStringKey, symbol: String, url: String) {
+    init(_ title: LocalizedStringResource, symbol: String, url: String) {
         self.title = title
         self.symbol = symbol
         self.url = url
@@ -348,11 +382,17 @@ private struct LinkRow: View {
 struct UserInitials: View {
     let initials: String
     let size: CGFloat
+    let background: CnxColorToken
     @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
 
-    init(_ initials: String, size: CGFloat) {
+    /// Raised gray inside a row; white on the light grouped background
+    /// (Account's header, which has no row).
+    static let onGrouped = CnxColorToken(dark: CnxRGBA(hex: "#2C2C2E"), light: CnxRGBA(hex: "#FFFFFF"))
+
+    init(_ initials: String, size: CGFloat, background: CnxColorToken = theme.colors.surfaceRaised) {
         self.initials = initials
         self.size = size
+        self.background = background
     }
 
     var body: some View {
@@ -361,7 +401,7 @@ struct UserInitials: View {
             .font(.system(size: size * 0.38, weight: .semibold))
             .foregroundStyle(theme.colors.label)
             .frame(width: size, height: size)
-            .background(theme.colors.surfaceRaised, in: .circle)
+            .background(background, in: .circle)
             .accessibilityHidden(true)
     }
 }

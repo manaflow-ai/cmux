@@ -35,10 +35,9 @@ struct AccountPage: View {
                 // no row background (Apple Account).
                 Section {
                     VStack(spacing: 6) {
-                        UserInitials(user.initials, size: 64)
+                        UserInitials(user.initials, size: 64, background: UserInitials.onGrouped)
                             .padding(.bottom, 6)
-                        Text(user.name)
-                            .font(.title2.weight(.semibold))
+                        UnbrokenText(user.name, style: .title2, weight: .semibold, alignment: .center)
                             .foregroundStyle(theme.colors.label)
                             .multilineTextAlignment(.center)
                         if let email = user.email {
@@ -68,7 +67,7 @@ struct AccountPage: View {
                             SignInMethodGlyph(method, size: 18)
                                 .foregroundStyle(theme.colors.label)
                                 .frame(width: theme.metrics.settingsIconFrame)
-                            Text(method.title).font(theme.type.rowTitle)
+                            UnbrokenText(method.title)
                             if let detail = method.detail(accountEmail: auth.user?.email) {
                                 Spacer(minLength: 8)
                                 EmailText(detail).font(theme.type.meta).foregroundStyle(theme.colors.label2)
@@ -324,10 +323,8 @@ struct NotificationsPage: View {
                 Section {
                     HStack(spacing: 14) {
                         SettingsIcon("bell.slash").foregroundStyle(theme.colors.label2)
-                        Text("Notifications from your Macs need the TestFlight build.")
-                            .font(theme.type.rowTitle)
+                        UnbrokenText(String(localized: "Notifications from your Macs need the TestFlight build."))
                             .foregroundStyle(theme.colors.label2)
-                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("settings.notifications.macsUnavailable")
@@ -387,9 +384,8 @@ struct TransportPage: View {
                     } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(kind.title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
-                                Text(Self.subtitle(kind)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                UnbrokenText(kind.title).foregroundStyle(theme.colors.label)
+                                UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
                             }
                             Spacer(minLength: 8)
                             Image(systemName: "checkmark")
@@ -430,10 +426,10 @@ struct TransportPage: View {
         .settingsPage("Transport")
     }
 
-    static func subtitle(_ kind: TransportKind) -> LocalizedStringKey {
+    static func subtitle(_ kind: TransportKind) -> String {
         switch kind {
-        case .webrtc: "Direct when possible, relay otherwise. Recommended."
-        case .wireguard: "Encrypted tunnel to your Mac, relay when needed."
+        case .webrtc: String(localized: "Direct when possible, relay otherwise. Recommended.")
+        case .wireguard: String(localized: "Encrypted tunnel to your Mac, relay when needed.")
         }
     }
 }
