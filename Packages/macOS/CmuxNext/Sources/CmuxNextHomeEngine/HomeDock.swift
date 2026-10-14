@@ -47,7 +47,7 @@ public final class HomeDock {
     public init() {}
 
     /// The page tab of `home` and where it is, if any.
-    static func pageTab(in home: WorkspaceModel) -> (tab: TabModel, pane: PaneModel, screen: ScreenModel)? {
+    public static func pageTab(in home: WorkspaceModel) -> (tab: TabModel, pane: PaneModel, screen: ScreenModel)? {
         for screen in home.screens {
             for pane in screen.panes {
                 if let tab = pane.tabs.first(where: { $0.page == page }) { return (tab, pane, screen) }
