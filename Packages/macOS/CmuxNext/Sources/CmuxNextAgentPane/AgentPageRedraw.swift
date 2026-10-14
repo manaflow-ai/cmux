@@ -19,9 +19,10 @@ public final class AgentPageRedraw {
         self.webView = webView
     }
 
-    /// The page drew before and `pane` is out of the window: shown again, it draws once more first.
+    /// The page drew before and `pane` is out of the window, or parked hidden in its pane (which
+    /// does not resize it): shown again, it draws once more first.
     public func awaits(_ pane: NSView) -> Bool {
-        pane.window == nil && drawnSize != nil
+        (pane.window == nil || pane.isHidden) && drawnSize != nil
     }
 
     /// Runs `body` once the page drew at the size `pane` shows it at: at the pane's next layout when

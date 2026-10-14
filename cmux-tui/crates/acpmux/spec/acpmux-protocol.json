@@ -217,6 +217,36 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/set_tools",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subagent_stop",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bookmark_get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/bookmark_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/kill",
       "params": true,
       "result": true
@@ -1721,6 +1751,17 @@
             "null"
           ]
         },
+        "tools": {
+          "description": "The chat's tools (`hub/tools.rs`).",
+          "items": {
+            "$ref": "#/types/ToolSummary"
+          },
+          "type": "array"
+        },
+        "toolsMutable": {
+          "description": "`_acpmux/set_tools` can change them.",
+          "type": "boolean"
+        },
         "turn": {
           "anyOf": [
             {
@@ -1768,7 +1809,9 @@
         "stateSeq",
         "unread",
         "attached",
-        "shown"
+        "shown",
+        "tools",
+        "toolsMutable"
       ],
       "type": "object"
     },
@@ -1788,6 +1831,42 @@
       },
       "required": [
         "sessions"
+      ],
+      "type": "object"
+    },
+    "ToolSummary": {
+      "description": "One row of a chat's tool list (`store::ToolRow`).",
+      "properties": {
+        "canToggle": {
+          "description": "`_acpmux/set_tools` can turn it on or off in this chat.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "description": "`mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "`mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "source": {
+          "description": "What gives it: `cmux`, or the harness that reported it (`claude`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "canToggle",
+        "enabled",
+        "id",
+        "kind",
+        "name",
+        "source"
       ],
       "type": "object"
     },

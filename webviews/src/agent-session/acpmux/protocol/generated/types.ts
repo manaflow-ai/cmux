@@ -298,6 +298,10 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /** The chat's tools (`hub/tools.rs`). */
+  tools: ToolSummary[];
+  /** `_acpmux/set_tools` can change them. */
+  toolsMutable: boolean;
   turn?: (TurnSummary | null);
   turnCount: number;
   unread: boolean;
@@ -309,6 +313,20 @@ export type SessionsParams = Record<string, never>;
 export type SessionsResult = {
   /** Local and peer sessions, newest first. */
   sessions: SessionSummary[];
+} & Record<string, unknown>;
+
+/** One row of a chat's tool list (`store::ToolRow`). */
+export type ToolSummary = {
+  /** `_acpmux/set_tools` can turn it on or off in this chat. */
+  canToggle: boolean;
+  enabled: boolean;
+  /** `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat. */
+  id: string;
+  /** `mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools. */
+  kind: string;
+  name: string;
+  /** What gives it: `cmux`, or the harness that reported it (`claude`). */
+  source: string;
 } & Record<string, unknown>;
 
 /** The running turn. */

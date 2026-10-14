@@ -32,6 +32,11 @@ export interface AcpmuxRequests {
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: unknown; result: unknown };
+  "_acpmux/set_tools": { params: unknown; result: unknown };
+  "_acpmux/subagent_stop": { params: unknown; result: unknown };
+  "_acpmux/stats": { params: unknown; result: unknown };
+  "_acpmux/bookmark_get": { params: unknown; result: unknown };
+  "_acpmux/bookmark_set": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
@@ -182,6 +187,11 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/set_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subagent_stop", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bookmark_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },

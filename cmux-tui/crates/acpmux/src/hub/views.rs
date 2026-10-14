@@ -227,6 +227,9 @@ impl Hub {
             policy: m.permission_policy.clone(),
             enforcement: self.session_enforcement(&m),
             rules: m.permission_rules.is_some(),
+            // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
+            tools: m.tools.rows.iter().map(Into::into).collect(),
+            tools_mutable: m.tools.mutable,
             tags: live_tags(&m),
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,

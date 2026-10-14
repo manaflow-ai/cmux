@@ -69,6 +69,10 @@ pub struct SessionSummary {
     pub attached: u64,
     /// Some attached client shows the chat.
     pub shown: bool,
+    /// The chat's tools (`hub/tools.rs`).
+    pub tools: Vec<ToolSummary>,
+    /// `_acpmux/set_tools` can change them.
+    pub tools_mutable: bool,
     /// The status dot every client draws (`status_indicator`); null for none.
     pub indicator: Option<Indicator>,
     /// What it is doing and since when (`views::lane`); null for a closed session.
@@ -86,6 +90,36 @@ pub enum Indicator {
     Failed,
     Lost,
     Done,
+}
+
+/// One row of a chat's tool list (`store::ToolRow`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct ToolSummary {
+    /// `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.
+    pub id: String,
+    pub name: String,
+    /// `mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools.
+    pub kind: String,
+    /// What gives it: `cmux`, or the harness that reported it (`claude`).
+    pub source: String,
+    pub enabled: bool,
+    /// `_acpmux/set_tools` can turn it on or off in this chat.
+    pub can_toggle: bool,
+}
+
+impl From<&crate::store::ToolRow> for ToolSummary {
+    fn from(row: &crate::store::ToolRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            name: row.name.clone(),
+            kind: row.kind.clone(),
+            source: row.source.clone(),
+            enabled: row.enabled,
+            can_toggle: row.can_toggle,
+        }
+    }
 }
 
 /// The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).
