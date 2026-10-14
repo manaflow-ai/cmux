@@ -1,20 +1,23 @@
-// The New Tab page's style switch (Leo 2026-10-13, cx-txe89): choosing the page's style, in one
-// quiet row under the page. Its look is Debug Settings `newTab.styleSwitch` (Leo 2026-10-14 compares
-// them before one ships; templates.ts STYLE_SWITCHES):
-// - dots: one dot per style, drawn as before #20127 (the sidebar's space dots), named by tooltip;
-// - hint (the default): those dots, and a pick's name over them for a moment;
+// The New Tab page's style switch: choosing the page's style, in one quiet row under the page that
+// never changes size or place. Its look is Settings > Labs `labs.newTabStyle` (Leo 2026-10-14: every
+// look ships as an opt-in; templates.ts STYLE_SWITCHES):
+// - round (the default, #20473): one small round dot per style, the current one in the accent (a dot
+//   that slides to a new pick) and the rest dim; a pointer over a dot shows its name over it, and a
+//   pick shows the picked name for a moment;
+// - hint: a dot per style on a chip (as before #20127), and a pick's name over them for a moment;
+// - dots: those chip dots, named by tooltip;
 // - strip: a small sketch of each style's layout, named by tooltip;
-// - names: the style names (#20336).
-// Every look is native radios (the browser owns arrows and focus), the current one on a small fill
-// that slides to a new pick (none under Reduce Motion). No capsule, no popup.
+// - names: the style names (#20336), the current one on a small fill that slides to a pick.
+// Every look is native radios (the browser owns arrows and focus) that fill each option's hit
+// target, unseen. Nothing slides under Reduce Motion. No capsule, no popup.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import { useNt } from "./strings";
 import { DEFAULT_STYLE_SWITCH, PAGE_STYLES, type PageStyle, type StyleSwitchLook } from "./templates";
 
-/// How long the hint look names a pick, fades included (screen.css `nt-style-flash`).
-const FLASH_MS = 1100;
+/// How long a pick's name stays before it fades (the hint look's fades included, screen.css `nt-style-flash`).
+const PICKED_NAME_MS = 1100;
 
 export function StyleSwitch({
   look = DEFAULT_STYLE_SWITCH,
@@ -30,10 +33,18 @@ export function StyleSwitch({
   const nt = useNt();
   const group = useRef<HTMLDivElement>(null);
   const mark = useRef<HTMLSpanElement>(null);
+  const label = useRef<HTMLSpanElement>(null);
   const pointed = useRef(Number.NEGATIVE_INFINITY);
   // The mark slides only after its first placement, so the page never opens with a slide.
   const [settled, setSettled] = useState(false);
-  // The pick the hint look names; `count` restarts the name for a pick made while one shows.
+  // Round: the dot whose name shows, the one pointed at, else the one just picked.
+  const [hovered, setHovered] = useState<PageStyle | undefined>();
+  const [picked, setPicked] = useState<PageStyle | undefined>();
+  const named = look === "round" ? (hovered ?? picked) : undefined;
+  // The last name shown stays in place while it fades.
+  const [shown, setShown] = useState<PageStyle | undefined>();
+  if (named && named !== shown) setShown(named);
+  // Hint: the pick it names; `count` restarts the name for a pick made while one shows.
   const [flash, setFlash] = useState<{ style: PageStyle; count: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -50,14 +61,35 @@ export function StyleSwitch({
 
   useEffect(() => {
     const view = group.current?.ownerDocument.defaultView;
-    if (!flash || !view) return;
-    const timer = view.setTimeout(() => setFlash(null), FLASH_MS);
+    if (!view || (!picked && !flash)) return;
+    const timer = view.setTimeout(() => {
+      setPicked(undefined);
+      setFlash(null);
+    }, PICKED_NAME_MS);
     return () => view.clearTimeout(timer);
-  }, [flash]);
+  }, [picked, flash]);
+
+  useLayoutEffect(() => {
+    const option = shown && group.current?.querySelector<HTMLElement>(`[data-style="${shown}"]`);
+    if (option && label.current) label.current.style.left = `${option.offsetLeft + option.offsetWidth / 2}px`;
+  }, [shown]);
 
   return (
     <ChoiceGroup label={nt("templates")} className="nt-style" onSubmit={onCancel} onCancel={onCancel}>
-      <div ref={group} className="nt-style-options" data-look={look} data-settled={settled ? "" : undefined}>
+      <div
+        ref={group}
+        className="nt-style-options"
+        data-look={look}
+        data-settled={settled ? "" : undefined}
+        onPointerOut={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHovered(undefined);
+        }}
+      >
+        {look === "round" && (
+          <span ref={label} className="nt-style-name" aria-hidden="true" data-shown={named ? "" : undefined}>
+            {shown ? nt(`template.${shown}`) : ""}
+          </span>
+        )}
         <span ref={mark} className="nt-style-mark" aria-hidden="true" />
         {PAGE_STYLES.map((style) => {
           const name = nt(`template.${style}`);
@@ -66,8 +98,9 @@ export function StyleSwitch({
               key={style}
               className="nt-style-option"
               data-style={style}
-              // The page shows a `title` at once (ui/titleTooltips.ts).
-              title={look === "names" ? undefined : name}
+              // The page shows a `title` at once (ui/titleTooltips.ts); round and names show the name already.
+              title={look === "round" || look === "names" ? undefined : name}
+              onPointerOver={() => setHovered(style)}
               onPointerDown={() => (pointed.current = performance.now())}
             >
               <input
@@ -83,6 +116,9 @@ export function StyleSwitch({
                   pointed.current = Number.NEGATIVE_INFINITY;
                   const input = event.currentTarget;
                   onPick(style);
+                  setPicked(style);
+                  // Picked by keys, the new dot's name shows, not the one a resting pointer is over.
+                  if (fromKeys) setHovered(undefined);
                   if (look === "hint") setFlash((last) => ({ style, count: (last?.count ?? 0) + 1 }));
                   // After the pick's commit, where a page that mounts for it (Classic, or a screen
                   // from Classic) has focused its field: arrow keys keep moving through the styles; a
@@ -97,7 +133,7 @@ export function StyleSwitch({
                 <span aria-hidden="true">{name}</span>
               ) : look === "strip" ? (
                 <StyleSketch style={style} />
-              ) : (
+              ) : look === "round" ? null : (
                 <span className="nt-style-dot" aria-hidden="true" />
               )}
             </label>

@@ -62,7 +62,7 @@ export const claudeConfigured = (env: Env): boolean => secretOf(env) !== null
  * that change often, such as a demo's test user), comma separated user ids. The route bills one person's account.
  */
 export const claudeAllowed = (env: Env, owner: string | null): boolean =>
-  claudeConfigured(env) && owner !== null && `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).includes(owner)
+  claudeConfigured(env) && owner !== null && owner !== "" && `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).filter(Boolean).includes(owner)
 
 const row = (sql: SqlStorage, k: string) => sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
 const put = (sql: SqlStorage, k: string, v: string) => sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v)

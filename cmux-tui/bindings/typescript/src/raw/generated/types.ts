@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6. */
+/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -314,8 +314,11 @@ export type ConversationSummary = {
   "id": string;
   "last_message"?: ConversationMessage;
   "last_seq": bigint;
+  "marked_unread"?: boolean;
   "owner": string;
   "participants": Array<ConversationParticipant>;
+  "pin_position"?: bigint;
+  "pinned"?: boolean;
   "read_cursors": Record<string, bigint>;
   "rev": bigint;
   "title": string;

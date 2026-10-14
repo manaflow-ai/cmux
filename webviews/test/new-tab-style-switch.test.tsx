@@ -1,11 +1,12 @@
 // The New Tab page chooses its style (Leo 2026-10-13: the old template dots looked, clicked and
-// moved badly, but choosing the style was good; 10-14: he wants to see the dots again before the
-// names of #20336 replace them). The switch draws one of four looks (Debug Settings
-// `newTab.styleSwitch`, sent as `styleSwitch`): the dots as they were before #20127, the dots that
-// name a pick for a moment (the default), a strip of small layout glyphs, or #20336's names. Every
-// look is the same native radio group: arrow keys move between the styles, a pick is saved as
-// `tabs.newTabTemplate` (`newTab.setTemplate`) and shown in place, a pointer pick hands focus back
-// to the field. Terminal is not offered: New Tab never opens a terminal by itself.
+// moved badly, but choosing the style was good; 10-14: the dots again, #20473, and every look he
+// compared ships as a Labs option). The switch draws one of five looks (Settings > Labs
+// `labs.newTabStyle`, sent as `styleSwitch`): round dots that name the one pointed at (the default),
+// the chip dots that name a pick for a moment, those dots as they were before #20127, a strip of
+// small layout glyphs, or #20336's names. Every look is the same native radio group: arrow keys move
+// between the styles, a pick is saved as `tabs.newTabTemplate` (`newTab.setTemplate`) and shown in
+// place, a pointer pick hands focus back to the field. Terminal is not offered: New Tab never opens
+// a terminal by itself.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -122,12 +123,17 @@ for (const look of STYLE_SWITCHES) {
         .filter((radio) => radio.checked)
         .map((radio) => radio.value),
     ).toEqual(["default"]);
+    const titles = () => [...host.querySelectorAll("label")].map((label) => label.title);
     if (look === "names") {
       expect(host.textContent).toContain("Composer");
+    } else if (look === "round") {
+      // Round names a dot over it while pointed at, so no tooltip and no name at rest.
+      expect(host.textContent).toBe("");
+      expect(titles()).toEqual(["", "", "", "", ""]);
     } else {
       // At rest the style names are tooltips (the page's instant `title` tooltips), not text.
       expect(host.textContent).toBe("");
-      expect([...host.querySelectorAll("label")].map((label) => label.title)).toEqual([
+      expect(titles()).toEqual([
         "Default",
         "Composer",
         "Threads",
@@ -153,8 +159,12 @@ for (const look of STYLE_SWITCHES) {
       // The dots that name a pick show its name over them for a moment.
       const flash = () => host.querySelector(".nt-style-flash")?.textContent ?? "";
       expect(flash()).toBe(look === "hint" ? "Threads" : "");
+      // Round names the pick over its dot for a moment.
+      const named = () => host.querySelector(".nt-style-name[data-shown]")?.textContent ?? "";
+      expect(named()).toBe(look === "round" ? "Threads" : "");
       await wait();
       expect(flash()).toBe("");
+      expect(named()).toBe("");
 
       // A keyboard pick (an arrow key checks the next radio, with no pointer down): saved, and
       // focus stays on the switch to keep moving, even when the picked page focused its field.
@@ -179,35 +189,53 @@ for (const look of STYLE_SWITCHES) {
   });
 }
 
-test("the dots that name a pick are the look with no knob set", () => {
-  expect(DEFAULT_STYLE_SWITCH).toBe("hint");
+test("round dots are the look with nothing set", () => {
+  expect(DEFAULT_STYLE_SWITCH).toBe("round");
   expect(newTabHost({ newTab: { layout: "b" } })!.styleSwitch).toBeUndefined();
   expect(newTabHost({ newTab: { layout: "b", styleSwitch: "strip" } })!.styleSwitch).toBe("strip");
   expect(newTabHost({ newTab: { layout: "b", styleSwitch: "sparkles" } })!.styleSwitch).toBeUndefined();
 });
 
+test("round: a pointer over a dot names it, over that dot; leaving the row hides the name", async () => {
+  const host = window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () => root.render(createElement(StyleSwitch, { current: "threads", onPick() {}, onCancel() {} })));
+  const name = () => host.querySelector<HTMLElement>(".nt-style-name")!;
+  expect(name().hasAttribute("data-shown")).toBe(false);
+  const composer = host.querySelector("label[data-style=composer]")!;
+  await act(async () => void composer.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
+  expect([name().textContent, name().hasAttribute("data-shown")]).toEqual(["Composer", true]);
+  await act(async () => void composer.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  expect(name().hasAttribute("data-shown")).toBe(false);
+  await act(async () => root.unmount());
+});
+
 // cg-design-judge: every style showed a browser-default radio dot. The pane does not load
-// src/ui/ui.css, so its .ui-sr-only never applied; the page's own stylesheet has to hide the inputs.
-test("the style radios draw no native dot: the page's own stylesheet hides them", async () => {
+// src/ui/ui.css, so its .ui-sr-only never applied; the page's own stylesheet hides the inputs. Each
+// radio fills its option's target, unseen, so a click anywhere on the target picks the style.
+test("the style radios draw no native dot in any look: the page's own stylesheet hides them", async () => {
   const style = window.document.createElement("style");
   style.textContent = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
   window.document.head.append(style);
   const host = window.document.getElementById("root")!;
   const root = createRoot(host);
-  await act(async () => {
-    root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
-  });
-  const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios).toHaveLength(5);
-  for (const radio of radios) {
-    const drawn = window.getComputedStyle(radio);
-    expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.overflow]).toEqual([
-      radio.value,
-      "absolute",
-      "1px",
-      "1px",
-      "hidden",
-    ]);
+  for (const look of STYLE_SWITCHES) {
+    await act(async () => {
+      root.render(createElement(StyleSwitch, { look, current: "default", onPick() {}, onCancel() {} }));
+    });
+    const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
+    expect(radios).toHaveLength(5);
+    for (const radio of radios) {
+      const drawn = window.getComputedStyle(radio);
+      expect([look, radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([
+        look,
+        radio.value,
+        "absolute",
+        "100%",
+        "100%",
+        "0",
+      ]);
+    }
   }
   await act(async () => root.unmount());
   style.remove();

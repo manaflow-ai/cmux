@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 
 use super::tab_drag;
-use super::tab_groups::prune_tab_groups;
+use super::tab_groups::{pane_by_public_id, prune_tab_groups};
 use super::*;
 use crate::state::store::{state_delete, state_upsert};
 use crate::state::tab_state_store::{
@@ -20,7 +20,9 @@ use crate::state::tab_state_store::{
     tab_group_snapshot, update_tab_state, write_tab_groups,
 };
 use crate::state::values::{fresh_upserts, upserted_value};
-use crate::workspace_registry::{SavedTabGroupRecord, TabGroupState, WorkspacePresentationUpdate};
+use crate::workspace_registry::{
+    SavedTabGroupRecord, TabGroupRecord, TabGroupState, WorkspacePresentationUpdate,
+};
 
 /// The durable identity of one strip change.
 pub(crate) struct StripRequest {
@@ -73,6 +75,9 @@ pub(crate) struct StripEdit {
     /// recorded as one closed-history group that forms it again
     /// (RECOVERABLE-BY-DEFAULT).
     pub(crate) ungrouped: Option<Value>,
+    /// A group that closes with its tabs (Close Group): its archive joins
+    /// the closed-history group of those tabs, whose reopen forms it again.
+    pub(crate) closed_group: Option<Value>,
     pub(crate) result: StripResult,
 }
 
@@ -103,6 +108,7 @@ impl Mux {
                     tab_state: Vec::new(),
                     saved: None,
                     ungrouped: None,
+                    closed_group: None,
                     result: StripResult::None,
                 };
                 let result = mutate(&mux, &mut projected, &mut edit)?;
@@ -194,7 +200,8 @@ fn strip_state_write(
     before: &crate::workspace_registry::PresentationSnapshot,
     edit: StripEdit,
 ) -> crate::resource_mutation::PlanStateWrite {
-    let StripEdit { groups, pins, tab_state, saved, ungrouped, result: result_kind } = edit;
+    let StripEdit { groups, pins, tab_state, saved, ungrouped, closed_group, result: result_kind } =
+        edit;
     let mut touched_tabs = BTreeSet::new();
     for (tab, group) in &before.tab_groups.members {
         if groups.members.get(tab) != Some(group) {
@@ -236,6 +243,9 @@ fn strip_state_write(
                 "tab_group",
                 archive,
             )?;
+        }
+        if let Some(archive) = &closed_group {
+            crate::state::closed_history_store::attach_closed_tab_group(transaction, archive)?;
         }
         write_tab_groups(transaction, &groups)?;
         for (tab, pinned, url) in &pins {
@@ -293,5 +303,29 @@ fn strip_state_write(
                 .ok_or_else(|| crate::state::commit::state_not_found("saved_tab_group", saved))?,
         };
         Ok(())
+    })
+}
+
+/// The closed-history archive of group `id` (`record`) with its tabs
+/// `tabs` in order: what Ungroup and Close Group record, and what a reopen
+/// forms the group again from.
+pub(crate) fn group_archive(
+    state: &State,
+    id: &str,
+    record: &TabGroupRecord,
+    tabs: &[String],
+) -> Value {
+    let workspace = pane_by_public_id(state, &record.pane_id)
+        .and_then(|pane| state.screen_of(pane))
+        .map(|(workspace, _)| state.workspaces[workspace].public_id.to_string());
+    serde_json::json!({
+        "id": id,
+        "pane_id": record.pane_id,
+        "workspace_id": workspace,
+        "name": record.name,
+        "color": record.color,
+        "collapsed": record.collapsed,
+        "icon": record.icon,
+        "tab_ids": tabs,
     })
 }

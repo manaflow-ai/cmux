@@ -102,7 +102,6 @@ test("Return on a New Tab asks the agent on the model its chip names", async () 
             lastAgent="claude"
             cwd="/Users/you/src/app"
             chips={NewTabComposerChips}
-            onAddHarness={noop}
             {...actions}
           />
         </QueryClientProvider>,

@@ -68,7 +68,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
         acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+                             acpmux: AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
     /// This build's Chief home's mux home (`ChiefHome`); the engine bar,
@@ -106,7 +106,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
         }
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
+        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
+        // turns included, its own `cmux mcp serve` (one server per turn).
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables

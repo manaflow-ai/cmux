@@ -14,9 +14,12 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::codex_app_server;
-use super::resolve::{Failure, call};
+use super::resolve::{Failure, call, call_as};
 use super::{GlobalArgs, OutputMode, UsageError};
 
+/// Every delivery state `agent inbox --state` takes.
+const DELIVERY_STATES: [&str; 8] =
+    ["held", "queued", "delivered", "acknowledged", "failed", "unsent", "retracted", "declined"];
 /// UTF-8 bytes of one body; the daemon enforces the same limit.
 const MAX_BODY_BYTES: usize = 32 * 1024;
 /// Queued messages one send delivers to an acpmux recipient, oldest first.
@@ -107,9 +110,12 @@ pub(super) fn parse_inbox(
         _ => return Err(UsageError::new("agent inbox takes at most one agent")),
     };
     if let Some(state) = &state
-        && !matches!(state.as_str(), "queued" | "delivered" | "acknowledged" | "failed")
+        && !DELIVERY_STATES.contains(&state.as_str())
     {
-        return Err(UsageError::new("--state must be queued, delivered, acknowledged or failed"));
+        return Err(UsageError::new(format!(
+            "--state must be one of {}",
+            DELIVERY_STATES.join(", ")
+        )));
     }
     let limit = limit
         .map(|value| {
@@ -123,9 +129,10 @@ pub(super) fn parse_inbox(
     Ok(InboxPlan { target, state, limit, ack })
 }
 
-/// The address this process sends from: its acpmux session, else its
-/// terminal, else a plain shell. An agent acpmux started from a cmux
-/// terminal inherits that terminal's variables, so the session wins.
+/// The address this process's inbox has: its acpmux session, else its
+/// terminal. An agent acpmux started from a cmux terminal inherits that
+/// terminal's variables, so the session wins. A send never names it: the
+/// daemon takes the sender from the launch credential.
 fn own_address() -> Option<String> {
     if let Some(session) = env_value("ACPMUX_SESSION_ID") {
         return Some(format!("acp:{session}"));
@@ -142,6 +149,8 @@ type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
 struct Connection {
     reader: Reader,
     route: Map<String, Value>,
+    /// This process's launch credential, for its own terminal's session only.
+    credential: Option<String>,
 }
 
 impl Connection {
@@ -159,6 +168,8 @@ impl Connection {
                 ))
             })?;
         let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+        let mut reader = BufReader::new(stream);
+        let credential = super::launch_credential::for_connection(&mut reader, &socket);
         let mut route = Map::new();
         route.insert(
             "machine".into(),
@@ -168,7 +179,7 @@ impl Connection {
             "session".into(),
             Value::String(global.session.clone().unwrap_or_else(|| "current".into())),
         );
-        Ok(Self { reader: BufReader::new(stream), route })
+        Ok(Self { reader, route, credential })
     }
 
     fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
@@ -188,7 +199,8 @@ impl Connection {
                 .map_err(|error| Failure::Transport(format!("cmux: {error}")))?,
         };
         let params = self.params(fields);
-        let result = call(&mut self.reader, operation, params, Some(&key))?;
+        let credential = self.credential.as_deref();
+        let result = call_as(&mut self.reader, operation, params, Some(&key), credential)?;
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 
@@ -311,8 +323,6 @@ fn send_and_deliver(
         fields.insert("recipients".into(), json!([recipient]));
     }
     fields.insert("body".into(), Value::String(body));
-    fields
-        .insert("sender".into(), Value::String(own_address().unwrap_or_else(|| "cli".to_owned())));
     for (key, value) in
         [("sender_name", &plan.from), ("thread_id", &plan.thread), ("in_reply_to", &plan.reply_to)]
     {
@@ -359,7 +369,7 @@ fn send_and_deliver(
             queued.as_array().cloned().unwrap_or_default(),
             &recipient,
             &mut sent,
-            |text, id| acp::deliver(&session, text, id),
+            |text, id, provenance| acp::deliver(&session, text, id, provenance),
             |fields| connection.mutate(ResourceOperation::AgentMessageMark, fields, None),
         );
     }
@@ -539,7 +549,7 @@ fn deliver_queued(
     queued: Vec<Value>,
     recipient: &str,
     sent: &mut Sent,
-    mut deliver: impl FnMut(&str, &str) -> Result<(), String>,
+    mut deliver: impl FnMut(&str, &str, Option<&Value>) -> Result<(), String>,
     mut mark: impl FnMut(Value) -> Result<Value, Failure>,
 ) {
     let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
@@ -547,7 +557,7 @@ fn deliver_queued(
         let id = message["id"].as_str().unwrap_or_default().to_owned();
         let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
         let mut fields = json!({"ids": [id], "recipient": recipient, "via": "acp.prompt"});
-        match deliver(&text, &id) {
+        match deliver(&text, &id, provenance(&message, recipient).as_ref()) {
             Ok(()) => fields["state"] = json!("delivered"),
             Err(error) => {
                 sent.problems.push(format!(
@@ -560,6 +570,42 @@ fn deliver_queued(
         }
         record_mark(mark(fields), recipient, &id, sent);
     }
+}
+
+/// Who sent `message`, for its prompt's `_meta.acpmux.provenance` (acpmux
+/// `prompt_provenance.rs`): the receiving chat shows it as that agent's
+/// message. `None` when a required field would not pass acpmux's check, so
+/// the message still goes out, as plain text; a name that would not pass is
+/// left out.
+fn provenance(message: &Value, recipient: &str) -> Option<Value> {
+    let fits =
+        |value: &&str| !value.trim().is_empty() && value.len() <= 256 && !value.contains(unshown);
+    let field = |key: &str| message[key].as_str().filter(fits);
+    let mut provenance = json!({
+        "kind": "agent_message",
+        "from": field("sender")?,
+        "to": Some(recipient).filter(fits)?,
+        "msgId": field("id")?,
+        "threadId": field("thread_id")?,
+    });
+    if let Some(name) = field("sender_name").filter(|name| name.chars().count() <= 64) {
+        provenance["fromName"] = json!(name);
+    }
+    if let Some(parent) = field("in_reply_to") {
+        provenance["replyTo"] = json!(parent);
+    }
+    Some(provenance)
+}
+
+/// What acpmux refuses in a provenance field: a control, a line or paragraph
+/// separator, or a bidi or zero-width format mark.
+fn unshown(c: char) -> bool {
+    c.is_control()
+        || (c.is_whitespace() && c != ' ')
+        || matches!(
+            c,
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+        )
 }
 
 fn failure_text(failure: &Failure) -> String {
@@ -593,6 +639,7 @@ fn sent_summary(message: &Value) -> String {
                 "queued" if recipient.starts_with("term_") => {
                     format!("queued for {recipient}; it reaches the agent at its next hook")
                 }
+                "held" => format!("held for {recipient} until you approve it in the cmux app"),
                 _ => format!("{state} to {recipient}"),
             }
         })
@@ -652,7 +699,10 @@ fn inbox(global: &GlobalArgs, plan: &InboxPlan) -> Result<(Vec<Value>, Option<St
         let unread: Vec<String> = messages
             .iter()
             .filter(|message| {
-                !matches!(delivery_state(message, recipient), Some("acknowledged") | None)
+                matches!(
+                    delivery_state(message, recipient),
+                    Some("queued" | "delivered" | "failed")
+                )
             })
             .filter_map(|message| message["id"].as_str().map(str::to_owned))
             .collect();
@@ -740,10 +790,15 @@ mod acp {
         })
     }
 
-    pub(super) fn deliver(session: &str, text: &str, prompt_id: &str) -> Result<(), String> {
+    pub(super) fn deliver(
+        session: &str,
+        text: &str,
+        prompt_id: &str,
+        provenance: Option<&serde_json::Value>,
+    ) -> Result<(), String> {
         runtime()?.block_on(async {
             let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
-            acpmux::deliver::deliver(client, session, text, prompt_id)
+            acpmux::deliver::deliver(client, session, text, prompt_id, false, provenance)
                 .await
                 .map(|_| ())
                 .map_err(|error| format!("{error:#}"))
@@ -759,7 +814,12 @@ mod acp {
         Err(UNSUPPORTED.to_owned())
     }
 
-    pub(super) fn deliver(_session: &str, _text: &str, _prompt_id: &str) -> Result<(), String> {
+    pub(super) fn deliver(
+        _session: &str,
+        _text: &str,
+        _prompt_id: &str,
+        _provenance: Option<&serde_json::Value>,
+    ) -> Result<(), String> {
         Err(UNSUPPORTED.to_owned())
     }
 }

@@ -56,14 +56,15 @@ export function pageStyle(template: NewTabTemplate): PageStyle {
   return template === "terminal" ? "default" : template;
 }
 
-/// The style switch's looks (Debug Settings `newTab.styleSwitch`, sent as `styleSwitch`; Leo
-/// 2026-10-14 compares them before one ships): the dots as they were before #20127, the dots that
-/// name a pick for a moment, a strip of small layout glyphs, and the style names of #20336.
-export const STYLE_SWITCHES = ["dots", "hint", "strip", "names"] as const;
+/// The style switch's looks (Settings > Labs `labs.newTabStyle`, sent as `styleSwitch`): round
+/// dots that name the one pointed at (#20473, the default), the chip dots that name a pick for a
+/// moment, the dots as they were before #20127, a strip of small layout glyphs, and the style
+/// names of #20336.
+export const STYLE_SWITCHES = ["round", "hint", "dots", "strip", "names"] as const;
 export type StyleSwitchLook = (typeof STYLE_SWITCHES)[number];
 
-/// The look with no knob set: the dots, which name a pick for a moment.
-export const DEFAULT_STYLE_SWITCH: StyleSwitchLook = "hint";
+/// The look with nothing set: round dots that name the one pointed at or just picked (#20473).
+export const DEFAULT_STYLE_SWITCH: StyleSwitchLook = "round";
 
 /// A look from the host, or undefined for anything else.
 export function parseStyleSwitch(value: unknown): StyleSwitchLook | undefined {
