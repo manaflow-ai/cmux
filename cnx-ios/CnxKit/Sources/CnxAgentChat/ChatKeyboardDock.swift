@@ -86,6 +86,13 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// dismisses the keyboard, its drawn frame every display frame.
     private static var layoutGuideStalls = false
     private var lastOffsetY: CGFloat = 0
+    /// The jump button's rule (clamped distance, hysteresis; see
+    /// `JumpToBottomVisibility`).
+    private var jumpVisibility: JumpToBottomVisibility
+    /// The jump circle's host size: fixed, so the host never resizes when the
+    /// button appears (a hosting view that grew from its empty size inside a
+    /// layout animation flew the circle in from the host's old frame).
+    static let jumpHostSize: CGFloat = 44
     /// The external stack's bottom with the keyboard down, view coordinates.
     private var externalRest: CGFloat?
     #if DEBUG
@@ -105,6 +112,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         emptyHost = UIHostingController(rootView: empty)
         if dock != nil { dockHost = UIHostingController(rootView: AnyView(EmptyView())) }
         if let jump { jumpHost = UIHostingController(rootView: jump) }
+        jumpVisibility = JumpToBottomVisibility(isShown: surface.showJump)
         super.init(nibName: nil, bundle: nil)
         contentHost.rootView = Self.measuring(content, alignment: .top) { [weak self] in self?.contentHeightChanged($0) }
         if let dock {
@@ -176,7 +184,6 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             host.view.translatesAutoresizingMaskIntoConstraints = false
         }
         emptyHost.sizingOptions = [.intrinsicContentSize]
-        jumpHost?.sizingOptions = [.intrinsicContentSize]
 
         scrollView.addSubview(contentHost.view)
         view.addSubview(emptyHost.view)
@@ -285,6 +292,8 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             NSLayoutConstraint.activate([
                 jump.centerXAnchor.constraint(equalTo: view.centerXAnchor),
                 jump.bottomAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -4),
+                jump.widthAnchor.constraint(equalToConstant: Self.jumpHostSize),
+                jump.heightAnchor.constraint(equalToConstant: Self.jumpHostSize),
             ])
         }
         for host in [contentHost, emptyHost] + [dockHost, jumpHost].compactMap({ $0 }) { host.didMove(toParent: self) }
@@ -345,6 +354,25 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         bottomOffset.y - scrollView.contentOffset.y
     }
 
+    /// The distance from the bottom with the rubber band clamped off: a
+    /// pull past either end is not a scroll away from the newest turn.
+    private var scrolledDistanceFromBottom: CGFloat {
+        JumpToBottomVisibility.distance(offsetY: scrollView.contentOffset.y,
+                                        minOffsetY: -scrollView.contentInset.top, maxOffsetY: bottomOffset.y)
+    }
+
+    /// The finger is pulling a docked keyboard down (an interactive
+    /// dismissal): it reached the stack, where UIKit hands the drag to the
+    /// keyboard (`keyboardDismissPadding`).
+    private var keyboardDragging: Bool {
+        guard scrollView.isTracking else { return false }
+        let keyboardTop = Self.layoutGuideStalls
+            ? view.bounds.maxY + (notifiedKeyboardTop?.constant ?? 0)
+            : view.keyboardLayoutGuide.layoutFrame.minY
+        guard keyboardTop < view.bounds.maxY - 1 else { return false }
+        return scrollView.panGestureRecognizer.location(in: view).y >= dockGuide.layoutFrame.minY
+    }
+
     /// Insets from the header and the stack; content shorter than the space
     /// between them sits on the stack. Called in every layout pass, so inside
     /// the keyboard's animation when the keyboard moves the stack.
@@ -382,11 +410,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             if offset != scrollView.contentOffset { scrollView.contentOffset = offset }
         }
         lastOffsetY = scrollView.contentOffset.y
+        updateJump()
     }
 
     /// No turns yet (the empty state shows).
     var isEmpty = false {
-        didSet { if oldValue != isEmpty, isViewLoaded { view.setNeedsLayout() } }
+        didSet {
+            guard oldValue != isEmpty, isViewLoaded else { return }
+            view.setNeedsLayout()
+            if isEmpty { updateJump() }
+        }
     }
     private var surfaceIsEmpty: Bool { isEmpty }
 
@@ -520,16 +553,30 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let y = scrollView.contentOffset.y
         if scrollView.isTracking { onUserScroll?(lastOffsetY - y) }
         lastOffsetY = y
-        let away = distanceFromBottom > 80
-        if surface.showJump != away {
-            withAnimation(.cnxSnap) { surface.showJump = away }
-            jumpHost?.view.isUserInteractionEnabled = away
-        }
+        updateJump()
+        let away = scrolledDistanceFromBottom > 80
         if scrollView.isTracking || scrollView.isDecelerating {
             surface.following = !away
         } else if !away {
             surface.following = true
         }
+    }
+
+    /// Shows the jump button only for a real scroll away from the newest
+    /// turn: never for an empty chat, the rubber band, or a drag that is
+    /// pulling the keyboard down (verify/jump-button.md).
+    private func updateJump() {
+        let shown: Bool
+        if isEmpty {
+            jumpVisibility = JumpToBottomVisibility()
+            shown = false
+        } else {
+            shown = jumpVisibility.update(offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top,
+                                          maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
+        }
+        guard surface.showJump != shown else { return }
+        withAnimation(.cnxSnap) { surface.showJump = shown }
+        jumpHost?.view.isUserInteractionEnabled = shown
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
@@ -570,6 +617,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         let navBar = ChatKeyboardTrace.navigationBar(in: window).flatMap { pres($0) }
         // The composer card as drawn (its glass view), in either placement.
         let card = window.flatMap { ChatKeyboardTrace.composerCard(in: $0) }.flatMap { pres($0) }
+        let jumpFrame = pres(jumpHost?.view)
         func f(_ v: CGFloat?) -> String { v.map { String(format: "%.2f", $0) } ?? "-" }
         return [
             "kb=\(f(keyboardTop))",
@@ -582,6 +630,12 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             "tracking=\(scrollView.isTracking ? 1 : 0)",
             "offset=\(f(scrollBoundsY))",
             "stackH=\(f(stackHeight))", "drawnH=\(f(surface.drawnStackHeight))", "reportedH=\(f(surface.stackHeight))",
+            // verify/jump-button.md: the button's state, its host as drawn,
+            // and the scroll range it is judged against.
+            "jump=\(surface.showJump ? 1 : 0)",
+            "jumpFrame=\(f(jumpFrame?.minX)),\(f(jumpFrame?.minY)),\(f(jumpFrame?.width)),\(f(jumpFrame?.height))",
+            "minOffset=\(f(-scrollView.contentInset.top))", "maxOffset=\(f(bottomOffset.y))",
+            "kbdrag=\(keyboardDragging ? 1 : 0)",
         ].joined(separator: " ")
     }
     #endif

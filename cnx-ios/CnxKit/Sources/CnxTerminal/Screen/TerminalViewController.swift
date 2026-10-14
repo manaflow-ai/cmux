@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxDesign
 import SwiftUI
 import UIKit
 
@@ -56,6 +57,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
     private let scrollToBottomButton = UIButton(configuration: .glass())
+    private var scrollButtonVisibility = JumpToBottomVisibility()
     private var keyBarHost: UIHostingController<TerminalKeyBar>!
     private var composerHost: UIHostingController<TerminalComposer>!
     private var tuiHeight: NSLayoutConstraint!
@@ -709,6 +711,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiHost.addSubview(surface)
             surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: CGFloat(surfaceRows) * cell.height)
             surface.scroll(toRow: 0)
+            scrollButtonVisibility = JumpToBottomVisibility()
             setScrollButton(visible: false)
         } else {
             scrollView.isScrollEnabled = true
@@ -737,7 +740,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         let atBottom = scrollView.contentOffset.y >= maxOffsetY - cell.height
         if scrollView.isTracking || scrollView.isDecelerating || fling != nil { following = atBottom }
-        setScrollButton(visible: !atBottom)
+        // The rubber band past the top of a short scrollback is not a scroll
+        // away from the prompt (verify/jump-button.md).
+        setScrollButton(visible: scrollButtonVisibility.update(
+            offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {

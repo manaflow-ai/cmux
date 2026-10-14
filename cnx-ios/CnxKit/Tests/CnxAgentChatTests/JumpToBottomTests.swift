@@ -66,3 +66,19 @@ import Testing
         #expect(!V.next(isShown: true, offsetY: max - 10, minOffsetY: -62, maxOffsetY: max, keyboardDragging: true))
     }
 }
+
+@Suite struct JumpToBottomVisibilityStateTests {
+    @Test func updateCarriesTheStateAcrossFrames() {
+        var jump = JumpToBottomVisibility()
+        // A real scroll up, back down to 100 pt (still shown), then home.
+        let up = jump.update(offsetY: 1700, minOffsetY: -62, maxOffsetY: 2000)
+        let near = jump.update(offsetY: 1900, minOffsetY: -62, maxOffsetY: 2000)
+        let home = jump.update(offsetY: 1990, minOffsetY: -62, maxOffsetY: 2000)
+        #expect(up && near && !home)
+        // A pull on an empty chat after that: hidden every frame.
+        for pull in stride(from: 0 as CGFloat, through: 300, by: 5) {
+            let shown = jump.update(offsetY: -300 - pull, minOffsetY: -300, maxOffsetY: -300)
+            #expect(!shown)
+        }
+    }
+}
