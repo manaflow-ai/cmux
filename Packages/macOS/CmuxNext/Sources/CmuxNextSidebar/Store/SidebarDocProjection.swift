@@ -37,6 +37,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var items: [SidebarDocWorkspaceRef: String]
     /// The machine section of each session.
     public var machineSections: [String: String]
+    /// The machine sections in the document's order (the workspace list's sections).
+    public var machineOrder: [String] = []
     /// Live workspaces the document does not place yet (`sidebar.adopt`).
     public var unplaced: [SidebarDocWorkspaceRef]
     /// The groups of Pinned and custom sections, in document order, with their members.
@@ -54,12 +56,14 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var placedList = false
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
+        var machineOrder: [String] = []
 
         for row in rows {
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
             let record = records.sections[row.section]
                 ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
             if let session = record.session {
+                if machineSections[session] == nil { machineOrder.append(record.id) }
                 machineSections[session] = record.id
                 if !placedList {
                     placedList = true
@@ -90,6 +94,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.machines = machines
         self.items = items
         self.machineSections = machineSections
+        self.machineOrder = machineOrder
         self.unplaced = unplaced
         self.bandGroups = bandGroups
     }

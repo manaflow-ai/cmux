@@ -16,7 +16,7 @@ extension PinCommands {
     private var refs: WorkspaceLayoutRefs { WorkspaceLayoutRefs(machines: context.services.machines) }
 
     /// Pins are layout tiles (not the legacy flag).
-    var pinsAreTiles: Bool { layout.unavailableReason == nil }
+    var pinsAreTiles: Bool { SidebarDocWiring.layoutUnavailableReason(layout) == nil }
 
     /// Whether `workspace` shows pinned, in the model the sidebar draws.
     func isWorkspacePinned(_ workspace: WorkspaceModel) -> Bool {
@@ -55,7 +55,7 @@ extension PinCommands {
     /// removes it from them; its tile, if any, stays. The workspace's name
     /// is stored with the row for when it is closed.
     func toggleWorkspaceOnTop(_ id: String, origin: ActionOrigin) throws {
-        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
         let document = layout.document
         if let remove = document.removeFromTopOp(ref) {
@@ -71,7 +71,7 @@ extension PinCommands {
     /// there in order, labeled with its name; one undo step each. A row
     /// with no layout ref is refused.
     func dropWorkspaces(_ ids: [String], on section: LayoutSectionID, at index: Int, origin: ActionOrigin) throws {
-        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         var at = index
         for id in ids {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }

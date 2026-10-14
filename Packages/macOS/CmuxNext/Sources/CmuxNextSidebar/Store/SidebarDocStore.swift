@@ -184,17 +184,42 @@ public final class SidebarDocStore {
         }
     }
 
+    /// Like `send(ops:title:undoable:)`, but a change refused at once (the
+    /// document is not active, or the mirror's reducer refuses it) throws
+    /// its message instead of showing it, so an automation caller gets the
+    /// error. A later daemon refusal still shows in the refusal HUD.
+    public func sendChecked(ops: [[String: Any]], title: String, undoable: Bool = true) throws(SidebarDocSendRefusal) {
+        guard !ops.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ops) else { return }
+        try submit(.apply(data, key: Self.newKey()), title: title, undoable: undoable) { remote, key, stamped in
+            try await remote.apply(ops: stamped ?? data, key: key)
+        }
+    }
+
     private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true,
                       _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) {
+        do {
+            try submit(intent, title: title, undoable: undoable, body)
+        } catch {
+            onRefused(error.message)
+        }
+    }
+
+    /// Applies `intent` to the mirror and sends it; throws (after telling every list) when it is refused at once.
+    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool,
+                        _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
-        guard isActive, let mirror, let remote else { return refuse(SidebarDocStrings.unavailable) }
+        func refused(_ message: String) -> SidebarDocSendRefusal {
+            NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
+            return SidebarDocSendRefusal(message: message)
+        }
+        guard isActive, let mirror, let remote else { throw refused(SidebarDocStrings.unavailable) }
         let stamped: Data?
         do {
             stamped = try mirror.apply(intent: intent)
         } catch let refusal as SidebarMirror.Refusal {
-            return refuse(SidebarDocStrings.refused(refusal.code))
+            throw refused(SidebarDocStrings.refused(refusal.code))
         } catch {
-            return refuse(SidebarDocStrings.unavailable)
+            throw refused(SidebarDocStrings.unavailable)
         }
         bump()
         let key = intent.idempotencyKey
@@ -229,6 +254,11 @@ public final class SidebarDocStore {
     private func bump() { version &+= 1 }
 
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
+}
+
+/// A change refused before it was sent, with the message the refusal HUD shows.
+public nonisolated struct SidebarDocSendRefusal: Error, Hashable, Sendable {
+    public var message: String
 }
 
 /// The daemon side of the document (the App's home daemon connection).

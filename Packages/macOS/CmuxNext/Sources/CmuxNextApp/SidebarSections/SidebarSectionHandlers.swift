@@ -21,7 +21,8 @@ enum SidebarSectionHandlers {
                 do {
                     guard let op = try run(invocation, layout.document) else { return }
                     let title = registry?.action(for: id)?.targetTitle?(invocation) ?? registry?.descriptor(for: id)?.title ?? ""
-                    if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: undoable && invocation.origin == .user) {
+                    // Every user's band edit is one undo step with the document (its inverse comes back from the daemon).
+                    if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: invocation.origin == .user) {
                         return
                     }
                     guard undoable, registry != nil else { return try layout.send(op) }

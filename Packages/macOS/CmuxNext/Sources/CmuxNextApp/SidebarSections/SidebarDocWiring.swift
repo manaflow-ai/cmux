@@ -48,6 +48,11 @@ enum SidebarDocWiring {
         }
     }
 
+    /// Why band edits are refused now: nil while the document is active (it takes them), else the older owner's reason.
+    static func layoutUnavailableReason(_ layout: SidebarLayoutService) -> String? {
+        isActive ? nil : layout.unavailableReason
+    }
+
     /// The document is active: band edits go to it, not to the older layout owner.
     static var isActive: Bool { SidebarDocStore.current.map { $0.isActive && $0.shown != nil } ?? false }
 
@@ -59,8 +64,10 @@ enum SidebarDocWiring {
         guard isActive, let store = SidebarDocStore.current else { return false }
         do {
             try store.send(layout: ops, over: layout, title: title, undoable: undoable)
-        } catch {
-            throw ActionFailure(message: SidebarSectionStrings.describe(error))
+        } catch let gap as SidebarDocStore.LayoutOpGap {
+            throw ActionFailure(message: SidebarSectionStrings.describe(gap))
+        } catch let refusal as SidebarDocSendRefusal {
+            throw ActionFailure(message: refusal.message)
         }
         return true
     }

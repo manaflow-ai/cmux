@@ -13,7 +13,7 @@ extension SidebarDocStore {
     public enum LayoutOpGap: Error, Hashable, Sendable {
         /// A field the document does not store (alignment, spacing) or an edit it has no op for (reset).
         case unsupported
-        /// The workspace list stands for the machine sections: it cannot move or be removed.
+        /// The workspace list stands for the machine sections: it cannot move, be removed, be renamed or be scoped to a space.
         case workspaceList
         case unknownItem
     }
@@ -29,11 +29,12 @@ extension SidebarDocStore {
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op
-    /// has no document form; sends nothing then.
-    public func send(layout ops: [SidebarLayoutOp], over layout: SidebarLayoutDocument, title: String, undoable: Bool) throws(LayoutOpGap) {
+    /// has no document form (`LayoutOpGap`, nothing is sent) or the change is
+    /// refused at once (`SidebarDocSendRefusal`).
+    public func send(layout ops: [SidebarLayoutOp], over layout: SidebarLayoutDocument, title: String, undoable: Bool) throws {
         let docOps = try docOps(for: ops, layout: layout)
         guard !docOps.isEmpty else { return }
-        send(ops: docOps, title: title, undoable: undoable)
+        try sendChecked(ops: docOps, title: title, undoable: undoable)
     }
 }
 
@@ -61,17 +62,18 @@ private struct LayoutOpPlanner {
         switch op {
         case let .sectionAdd(section, index):
             guard section.content == .items else { throw .unsupported }
-            var wire: [String: Any] = ["id": section.id.rawValue, "kind": ["type": "custom"], "shows_title": section.showsTitle,
-                                       "region": section.region.rawValue, "look": section.look.rawValue,
-                                       "arrangement": section.arrangement.layout.rawValue]
-            if let title = section.title { wire["title"] = title }
-            if let columns = section.arrangement.columns { wire["columns"] = columns }
-            if let maxRows = section.maxRows { wire["max_rows"] = maxRows }
-            if let room = section.room { wire["room"] = room }
-            siblings[section.id.rawValue] = []
-            return [["op": "section.add", "section": wire, "place": sectionPlace(section.id, region: section.region, index: index)]]
+            // A section added with its first items (Add to Top, Pin into a new Pinned): the items follow it.
+            // A section the document already has (Pinned, shown only when it holds something) takes just the items.
+            var out: [[String: Any]] = []
+            if records.sections[section.id.rawValue] == nil {
+                out.append(sectionAdd(section, index: index))
+            }
+            for item in section.items { out += try add(item, to: section.id, index: Int.max) }
+            return out
         case let .sectionUpdate(id, patch):
             guard patch.align == nil, patch.gap == nil else { throw .unsupported }
+            // The workspace list is every machine section: only how its rows look applies to each one.
+            if id == Self.workspaces, patch.title != nil || patch.room != nil || patch.showsTitle != nil { throw .workspaceList }
             var wire: [String: Any] = [:]
             if let title = patch.title { wire["title"] = Self.update(title) }
             if let showsTitle = patch.showsTitle { wire["shows_title"] = showsTitle }
@@ -81,8 +83,7 @@ private struct LayoutOpPlanner {
             if let maxRows = patch.maxRows { wire["max_rows"] = Self.update(maxRows) }
             if let room = patch.room { wire["room"] = Self.update(room) }
             guard !wire.isEmpty else { return [] }
-            // The workspace list is every machine section: an edit of it applies to each one.
-            let ids = id == Self.workspaces ? (shown?.machineSections.values.sorted() ?? []) : [id.rawValue]
+            let ids = id == Self.workspaces ? (shown?.machineOrder ?? []) : [id.rawValue]
             return ids.map { ["op": "section.update", "id": $0, "patch": wire] }
         case let .sectionMove(id, region, index):
             guard id != Self.workspaces else { throw .workspaceList }
@@ -100,14 +101,31 @@ private struct LayoutOpPlanner {
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             return remove(record)
         case let .itemRemoveRef(ref):
-            let matching = records.items.values.filter { $0.parent == nil && SidebarDocProjection.ref($0.body, id: $0.id) == ref }
-            return matching.sorted { $0.id < $1.id }.flatMap { remove($0) }
+            // Every item with the ref, in any section and at any depth (a link listed in a machine section too).
+            let matching = records.items.values.filter { SidebarDocProjection.ref($0.body, id: $0.id) == ref }
+            var out: [[String: Any]] = []
+            for record in matching.sorted(by: { $0.id < $1.id }) {
+                out += record.body.workspace != nil ? remove(record) : drop(record.id, op: ["op": "item.remove", "id": record.id])
+            }
+            return out
         case let .itemUpdate(id, showsLabel):
             guard records.items[id.rawValue] != nil else { throw .unknownItem }
             return [["op": "item.update", "id": id.rawValue, "patch": ["shows_label": showsLabel]]]
         case .reset:
             throw .unsupported
         }
+    }
+
+    private mutating func sectionAdd(_ section: LayoutSection, index: Int) -> [String: Any] {
+        var wire: [String: Any] = ["id": section.id.rawValue, "kind": ["type": "custom"], "shows_title": section.showsTitle,
+                                   "region": section.region.rawValue, "look": section.look.rawValue,
+                                   "arrangement": section.arrangement.layout.rawValue]
+        if let title = section.title { wire["title"] = title }
+        if let columns = section.arrangement.columns { wire["columns"] = columns }
+        if let maxRows = section.maxRows { wire["max_rows"] = maxRows }
+        if let room = section.room { wire["room"] = room }
+        siblings[section.id.rawValue] = []
+        return ["op": "section.add", "section": wire, "place": sectionPlace(section.id, region: section.region, index: index)]
     }
 
     /// An item into a band. A workspace has one place: its item moves there
@@ -176,7 +194,13 @@ private struct LayoutOpPlanner {
         let others = layout.sections.filter { $0.region == region && $0.id != id }
         guard index >= 0, index < others.count else { return place }
         let anchor = others[index].id
-        if anchor == Self.workspaces { place["index"] = index } else { place["before"] = anchor.rawValue }
+        if anchor != Self.workspaces {
+            place["before"] = anchor.rawValue
+        } else if let first = shown?.machineOrder.first {
+            place["before"] = first // the first machine section in the document's order
+        } else {
+            place["index"] = index
+        }
         return place
     }
 
