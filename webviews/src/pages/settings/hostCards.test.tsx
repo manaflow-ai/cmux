@@ -49,7 +49,7 @@ test("Change Background… shows the picker on Appearance: resting previews, lea
   page.unmount();
 });
 
-test("Apple Wallpapers: one not downloaded says so and opens the Wallpaper pane; it can still be picked", async () => {
+test("Apple Wallpapers: tiles show only their names; one not downloaded opens the Wallpaper pane", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const apple = { collection: "apple", collection_title: "Apple Wallpapers" };
   await act(async () =>
@@ -71,22 +71,24 @@ test("Apple Wallpapers: one not downloaded says so and opens the Wallpaper pane;
   await settle();
   const group = page.container.querySelector<HTMLElement>('[data-collection="apple"]')!;
   expect(group.querySelector(".backdrop-group-title")!.textContent).toBe("Apple Wallpapers");
-  const cells = [...group.querySelectorAll<HTMLElement>(".backdrop-grid > *")];
-  expect(cells.map((cell) => cell.textContent)).toEqual([
-    "SonomamacOS system wallpaper · Sonoma",
-    "Grid GreenNot downloadedGet in System Settings",
-  ]);
-  const get = [...group.querySelectorAll("button")].find((button) => button.textContent === "Get in System Settings")!;
-  await act(async () => get.click());
+  const tiles = [...group.querySelectorAll<HTMLButtonElement>(".backdrop-grid > button")];
+  expect(tiles.map((tile) => tile.textContent)).toEqual(["Sonoma", "Grid Green"]);
+  const [sonoma, grid] = tiles;
+  expect(sonoma.title).toBe("");
+  expect(sonoma.querySelector(".backdrop-download")).toBeNull();
+  // Not downloaded: dimmed, a cloud in the corner, and the Wallpaper pane on click.
+  expect(grid.title).toBe("Download in System Settings");
+  expect(grid.classList.contains("backdrop-pending")).toBe(true);
+  expect(grid.querySelector(".backdrop-download svg")).not.toBeNull();
+  await act(async () => grid.click());
   await settle();
   expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
   expect(runs(page, "cmux.settings.set").length).toBe(0);
-  // Its thumbnail stands in until it is downloaded, so it can be chosen now.
-  await act(async () => group.querySelector<HTMLButtonElement>('button[aria-label="Grid Green"]')!.click());
+  await act(async () => sonoma.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
     key: "appearance.background",
-    value: "system:/S/Grid Green.madesktop",
+    value: "system:/S/Sonoma.heic",
   });
   page.unmount();
 });
