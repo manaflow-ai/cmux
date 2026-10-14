@@ -58,7 +58,7 @@ final class SidebarGroupSwatchView: NSView {
     private func updateColors() {
         performWithTheme {
             // The group's swatch, as its members' line draws it; none draws an edge too.
-            fill.backgroundColor = color.headerFill.cgColor
+            fill.backgroundColor = GroupTint.palette(color).lineColor(themed: SidebarGroupPalette.tunable.value == .theme).cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
             ring.borderColor = (isChosen ? Palette.textPrimary : (isHovered ? Palette.separator : NSColor.clear)).cgColor

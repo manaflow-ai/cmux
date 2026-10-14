@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 
 /// Each open group's members' line (cx-qno.17, cx-q5jw) as one view under
 /// the rows. The lines animate in the rows' own spring block (`RowMotion`),
@@ -102,6 +103,11 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.headerFill.cgColor }
+        let themed = withObservationTracking {
+            SidebarGroupPalette.tunable.value == .theme
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.needsDisplay = true }
+        }
+        performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
     }
 }

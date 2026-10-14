@@ -90,7 +90,9 @@ import Testing
                 #expect(!header.dot.isHidden, "\(style) \(color): no color dot where the line starts")
                 let group = try #require(color.themeRGB(scope.tokens))
                 let name = try Self.ink(header.name.textColor)
-                let want = style == .tinted ? group : scope.tokens.textPrimary
+                // A tinted name keeps text contrast: the group's color, darkened as far as 4.5:1 needs.
+                let tinted = ThemeTokens.readable(group, over: scope.tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast)
+                let want = style == .tinted ? tinted : scope.tokens.textPrimary
                 #expect(Fixture.same(name, want), "\(style) \(color) name: \(name), want \(want)")
             }
         }
