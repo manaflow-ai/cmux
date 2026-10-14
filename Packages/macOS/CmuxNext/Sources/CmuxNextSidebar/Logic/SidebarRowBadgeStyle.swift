@@ -103,9 +103,12 @@ extension SidebarSection {
         let rows = states.enumerated().map { index, state in
             let count = index + 1
             let unread = state == .idle ? count : count - 1
-            return SidebarNode.workspace(SidebarWorkspace(
+            var row = SidebarWorkspace(
                 id: WorkspaceID("row-badge-preview-\(count)"), machineID: machine, title: count == 1 ? "1 item" : "\(count) items",
-                kind: .terminal, unread: unread > 0 ? .count(unread) : .none, activity: state, rowState: .placeholder))
+                kind: .terminal, unread: unread > 0 ? .count(unread) : .none, activity: state, rowState: .placeholder)
+            // Agent work shows only on a row whose agent is working (`WorkspaceRowContent.activity`).
+            row.agentWorking = state == .working
+            return SidebarNode.workspace(row)
         }
         return [SidebarSection(kind: .machine(SidebarMachine(id: machine, name: "Badge preview", kind: .server)), nodes: rows)]
     }

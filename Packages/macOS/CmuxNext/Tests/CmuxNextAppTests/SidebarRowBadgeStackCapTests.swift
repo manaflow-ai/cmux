@@ -34,10 +34,17 @@ import Testing
         return row.rowBadge
     }
 
-    /// Runs `body` with the stack cap set to `cap` (nil: the default), then clears it.
-    private static func withCap(_ cap: SidebarRowBadgeStackCap?, _ body: () throws -> Void) rethrows {
+    /// Runs `body` with the stack cap set to `cap` (nil: the default), then clears it. The store is
+    /// active without a file, so nothing is written.
+    private static func withCap(_ cap: SidebarRowBadgeStackCap?, _ body: () throws -> Void) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarRowBadgeStackCap.tunable.key
-        TunableStore.shared.set(key, cap?.tunableValue)
+        if let cap {
+            try #require(TunableStore.shared.set(key, cap.tunableValue) == cap.tunableValue, "the stack size takes the override")
+        } else {
+            TunableStore.shared.set(key, nil)
+        }
         defer { TunableStore.shared.set(key, nil) }
         try body()
     }
