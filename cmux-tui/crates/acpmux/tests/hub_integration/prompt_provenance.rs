@@ -174,7 +174,13 @@ async fn a_malformed_provenance_is_refused() {
     no_sender.as_object_mut().unwrap().remove("from");
     let mut long_name = p.clone();
     long_name["fromName"] = json!("n".repeat(65));
-    for bad in [json!("acp:x"), json!({"kind": "person"}), no_sender, long_name] {
+    // A name that reads backwards or breaks the line shows a sender it is not.
+    let mut bidi_name = p.clone();
+    bidi_name["fromName"] = json!("builder\u{202E}nimda");
+    let mut split_sender = p.clone();
+    split_sender["from"] = json!("acp:a\u{2028}acp:b");
+    let malformed = [json!("acp:x"), json!({"kind": "person"}), no_sender, long_name];
+    for bad in malformed.into_iter().chain([bidi_name, split_sender]) {
         let value = c.reply("session/prompt", prompt(&session, "p-bad", "hi", Some(&bad))).await;
         assert_eq!(
             value.pointer("/error/data/reason"),
