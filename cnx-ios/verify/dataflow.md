@@ -58,6 +58,12 @@ committed. The file names below are in `shots/`.
 | Majors: team color, acknowledgements, dead fakes | Settings uploads the color through the sidebar's path. Acknowledgements list the real dependencies. The mock user, demo directors and mock terminal are compiled out of Production, and `check-production-binary.sh` rejects them. It passed on the Production build. | `check-production-binary.sh` output |
 | Majors: silent drops | A prompt sent with no link returns the draft. An answer to a question that is gone now says so. | `AcpmuxHub` |
 
+The live run was at `a2ea6b60` (Mac app at `b76afdc9`). The later merge of
+`origin/feat-cnx-ios` (browserstream, prodinfra and others) touched the same
+Settings, shell, tab source and hostd files. After the merge, the hostd tests
+pass, and the iOS Debug and Production builds succeed (with the xcframework
+rebuilt). The merge was not run live again.
+
 ## Tests
 
 - `cargo test -j 4 -p cnx-hostd`: 18 unit and 4 integration tests pass.

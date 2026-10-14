@@ -14,7 +14,7 @@ export interface IceServer {
  * so a missing or failing TURN key still yields a usable (STUN-only) answer with `turn: false`.
  */
 export const iceServers = async (env: Env, fetcher: typeof fetch = fetch): Promise<{ iceServers: Array<IceServer>; ttl: number; turn: boolean }> => {
-  const ttl = Math.min(Math.max(Number(env.ICE_TTL_SECONDS ?? "14400") || 14400, 300), 172800)
+  const ttl = Math.min(Math.max(Number(env.ICE_TTL_SECONDS ?? "3600") || 3600, 300), 172800)
   const out: Array<IceServer> = []
   let turn = false
   if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {

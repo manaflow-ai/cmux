@@ -45,21 +45,6 @@ public enum FollowUpBehavior: String, CaseIterable, Identifiable, Sendable, Coda
     }
 }
 
-/// Live Activities policy.
-public enum LiveActivityMode: String, CaseIterable, Identifiable, Sendable, Codable {
-    case perAgent, onlyWaiting, off
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .perAgent: "One per agent"
-        case .onlyWaiting: "Only when waiting"
-        case .off: "Off"
-        }
-    }
-}
-
 /// Device-local preferences (SPEC section 9), persisted in `UserDefaults`.
 @MainActor
 @Observable
@@ -84,7 +69,6 @@ public final class SettingsStore {
     public var notifyQuestions: Bool { didSet { save(notifyQuestions, "notifyQuestions") } }
     public var notifyFinished: Bool { didSet { save(notifyFinished, "notifyFinished") } }
     public var notifyErrors: Bool { didSet { save(notifyErrors, "notifyErrors") } }
-    public var liveActivities: LiveActivityMode { didSet { save(liveActivities.rawValue, "liveActivities") } }
     public var requireFaceID: Bool { didSet { save(requireFaceID, "requireFaceID") } }
 
     public init(defaults: UserDefaults = .standard) {
@@ -102,7 +86,6 @@ public final class SettingsStore {
         notifyQuestions = bool("notifyQuestions", true)
         notifyFinished = bool("notifyFinished", true)
         notifyErrors = bool("notifyErrors", true)
-        liveActivities = string("liveActivities").flatMap(LiveActivityMode.init(rawValue:)) ?? .onlyWaiting
         requireFaceID = bool("requireFaceID", false)
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).

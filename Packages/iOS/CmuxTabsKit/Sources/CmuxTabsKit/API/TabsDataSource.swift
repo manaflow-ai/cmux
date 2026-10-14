@@ -70,6 +70,10 @@ public protocol TabsDataSource: AnyObject, Observable {
     func reloadOrStop(_ id: TabsKitTab.ID)
     /// The page menu's groups (`TabsKitTabFeatures.pageMenu`).
     func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// False while a tab's live content would show nothing yet (a terminal
+    /// still attaching): the kit keeps the tab's card over it, so opening a
+    /// card never flashes blank. Default true.
+    func isContentReady(_ id: TabsKitTab.ID) -> Bool
     /// A short message the kit shows as a glass toast at the top (a tab that
     /// could not be created, a step that failed). Set it when `createTab`
     /// returns nil so the user learns why; the grid stays as it was.
@@ -105,6 +109,7 @@ extension TabsDataSource {
     public func navigate(_ id: TabsKitTab.ID, to text: String) {}
     public func reloadOrStop(_ id: TabsKitTab.ID) {}
     public func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
+    public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
     public var notice: String? { nil }
     public func clearNotice() {}
 }

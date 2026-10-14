@@ -13,19 +13,21 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 - `src/store.ts`, `src/schema.ts`, `drizzle/`: PlanetScale Postgres through
   Hyperdrive (Drizzle). Tests use an in-memory store.
 - `src/stack.ts`: Stack team membership and invitations.
-- `src/ice.ts`: Cloudflare Realtime TURN credentials.
+- `src/ice.ts`: Cloudflare Realtime TURN credentials (1 h TTL; `turn:false` in the answer when none could be included).
+- `src/push.ts`: APNs sender for `POST /v1/devices/:deviceId/notify` (fixed text per event kind; never agent output).
+- Rate limits: Workers rate limiting bindings per env (`ratelimits` in `wrangler.jsonc`), keyed by the caller's owner key (the Mac for notify). Tests run without them.
 
 ## Environments
 
 | Env | Worker | URL | Database |
 | --- | --- | --- | --- |
 | `dev` | `cnx-ios-api-dev` | https://cnx-ios-api-dev.debussy.workers.dev | PlanetScale `cmux/cnx-ios`, branch `main`, role `cnx-ios-dev`, Hyperdrive `cnx-ios-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`) |
-| `prod` | `cnx-ios-api-prod` | not deployed | to create: a prod branch/role, its Hyperdrive config, then replace `REPLACE_WITH_PROD_HYPERDRIVE_ID` and `INVITE_CALLBACK_URL` in `wrangler.jsonc` |
+| `prod` | `cnx-ios-api-prod` | https://cnx-ios-api.cmux.dev (custom domain; also https://cnx-ios-api-prod.debussy.workers.dev) | PlanetScale `cmux/cnx-ios-prod` (its own database, PS-5 single node, us-east), branch `main`, role `cnx-ios-prod`, Hyperdrive `cnx-ios-prod` (`11158756425f41469964743aab2f6319`, caching disabled). Accepts only the production Stack project |
 
 `STACK_PROJECTS` in `wrangler.jsonc` lists the Stack projects whose users an
 environment accepts, primary first (id, label, publishable key or `""`, invite
 callback). The dev Worker accepts the dev project (primary) and the production
-project, so production cnx app builds (`dev.cmux.cnx.prod`) use it too. A user
+project for testing; production app builds use the prod Worker. A user
 is (project, sub): see PROTOCOL.md "Identity and auth".
 
 Cloudflare account `0c1675e0def6de1ab3a50a4e17dc5656`. Run wrangler as
@@ -40,6 +42,7 @@ Pipe values from 1Password; never paste or echo them.
 | --- | --- | --- |
 | `TURN_KEY_ID` | 1Password `Cloudflare TURN Server API Key` (vault Shared), the "Turn Token ID" in its notes | for TURN (else `/v1/ice` is STUN only) |
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false` | for push |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
 
 ```bash
@@ -49,7 +52,7 @@ op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" | tr -d '\n' \
   | bunx wrangler@4 secret put TURN_KEY_API_TOKEN --env dev
 ```
 
-Check `op whoami` first: a failed `op` call pipes an empty value and wrangler
+`--env prod` takes the same two TURN secrets (set 2026-10-13). Check `op whoami` first: a failed `op` call pipes an empty value and wrangler
 stores it.
 
 The database URL is only in the Hyperdrive config. To create one:

@@ -32,7 +32,11 @@ transport or models.
   It is one interruptible spring: a second tap reverses it mid-flight, and a
   pinch can grab it. Before zooming in, the grid scrolls so the card is fully
   on screen. Your content is laid out at full size inside the moving rect; it
-  is never re-laid out or rebuilt.
+  is never re-laid out or rebuilt. On the settled grid the active tab's card
+  is that same live view (no hand-off to a snapshot), so nothing on screen
+  swaps at either end of a zoom. Return false from `isContentReady` while a
+  tab's content would still be blank (a terminal attaching) and its card
+  covers it.
 - **Close buttons and titles.** They arrive and leave as in Safari (measured
   on device recordings): the zooming card's close button rides its corner at
   full size and fades in with the zoom's progress (0.76 to 0.96). The other

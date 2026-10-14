@@ -359,9 +359,78 @@ public final class CnxAuthModel {
         return forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await coordinator.accessToken()
     }
 
+    /// Runs before every sign-out while the session is still valid (the live
+    /// layer stops pushes to this phone). Bounded: sign-out never waits long.
+    @ObservationIgnored public var willSignOut: (@MainActor @Sendable () async -> Void)?
+
+    /// Account deletion failures, in words for the user.
+    public enum AccountDeletionError: Error, Sendable, Equatable {
+        /// The cnx service could not forget the account's devices.
+        case serviceData(String)
+        /// The cmux account itself was not deleted (or not confirmed).
+        case account(String)
+
+        public var message: String {
+            switch self {
+            case .serviceData(let detail), .account(let detail): detail
+            }
+        }
+    }
+
+    /// Permanently deletes the account (App Store Guideline 5.1.1(v)):
+    /// `purgeServiceData` first (the cnx service forgets this account's
+    /// devices, push tokens and preferences, PROTOCOL.md `DELETE /v1/me`),
+    /// then the Stack account through cmux's account deletion, as in the main
+    /// cmux app, then a local sign-out.
+    public func deleteAccount(purgeServiceData: (@MainActor () async throws -> Void)?) async throws {
+        if isMock {
+            await signOut()
+            return
+        }
+        guard let coordinator else { throw AccountDeletionError.account("Not signed in.") }
+        if let purgeServiceData {
+            do {
+                try await purgeServiceData()
+            } catch {
+                authModelLog.error("account deletion: service data purge failed: \(String(describing: error), privacy: .public)")
+                throw AccountDeletionError.serviceData("Couldn't remove your devices from the cmux service. Check your connection and try again.")
+            }
+        }
+        do {
+            let result = try await coordinator.deleteAccount()
+            authModelLog.info("account deleted (\(result == .completed ? "complete" : "cleanup pending", privacy: .public))")
+        } catch let error as AccountDeletionRequestError {
+            authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            switch error {
+            case .localTransportFailure:
+                throw AccountDeletionError.account("You're offline. Connect to the internet and try again.")
+            case .completionUnknown, .timedOut:
+                throw AccountDeletionError.account("Couldn't confirm the account was deleted. Try again in a moment.")
+            default:
+                throw AccountDeletionError.account("Your account couldn't be deleted. Try again, or contact support from cmux.com.")
+            }
+        } catch {
+            authModelLog.error("account deletion failed: \(String(describing: error), privacy: .public)")
+            throw AccountDeletionError.account("Your account couldn't be deleted. Try again.")
+        }
+        let hook = willSignOut
+        willSignOut = nil
+        await signOut()
+        willSignOut = hook
+    }
+
     /// Local-first sign-out: the Stack session and its Keychain tokens (the
     /// coordinator) and this model's team list.
     public func signOut() async {
+        if let willSignOut, !isMock {
+            // At most 3 s: an unreachable service never holds sign-out.
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await willSignOut() }
+                group.addTask { try? await Task.sleep(for: .seconds(3)) }
+                await group.next()
+                group.cancelAll()
+            }
+        }
         teamsUserID = nil
         fetchedTeams.reset()
         if isMock {

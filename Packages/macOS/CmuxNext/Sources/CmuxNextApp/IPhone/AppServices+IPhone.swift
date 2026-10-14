@@ -31,6 +31,13 @@ extension AppServices {
             .appendingPathComponent(namespace, isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
         guard let base else { return }
+        #if DEBUG
+        // The phone's browser tabs stream from this build's own remote browser host.
+        let browserHosts: (any CnxBrowserHosting)? = IPhoneBrowserHosts.available()
+            ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
+        #else
+        let browserHosts: (any CnxBrowserHosting)? = nil
+        #endif
         iphone.follow { [weak self] in self?.settings?.snapshot.mobile.allowIPhoneConnections ?? false }
         iphone.dependencies = IPhoneHostService.Dependencies(
             executable: executable,
@@ -56,7 +63,8 @@ extension AppServices {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
-            computerName: { await MacName.computerName() }
+            computerName: { await MacName.computerName() },
+            browserHosts: browserHosts
         )
         iphone.dependencies?.agentTabHost = { [weak self] in self?.agentTabs.localHost }
     }

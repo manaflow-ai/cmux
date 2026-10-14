@@ -38,6 +38,7 @@ pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingCha
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -61,7 +62,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(code: &'static str, reason: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, reason: impl Into<String>) -> Self {
         Self { code, reason: reason.into() }
     }
 }
@@ -233,11 +234,11 @@ fn acpmux_endpoint(target: &AcpmuxTarget) -> Result<(String, Option<String>), Re
 /// How long the `acpmux` service waits for the app to report a new endpoint.
 const ACPMUX_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
-type AcpmuxSocket =
+pub(crate) type AcpmuxSocket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Opens the acpmux loopback WebSocket with its bearer token.
-async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
     let (url, token) = acpmux_endpoint(target)?;
     let mut request = url.into_client_request().map_err(|e| Refusal::new("unavailable", e.to_string()))?;
     if !request.uri().host().is_some_and(is_loopback_host) {

@@ -11,6 +11,10 @@ use cnx_link::link::{ChannelReceiver, ChannelSender};
 use cnx_link::{ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient};
 use tokio::runtime::Runtime;
 
+mod browser;
+
+pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+
 uniffi::setup_scaffolding!();
 
 fn runtime() -> &'static Runtime {
@@ -185,6 +189,27 @@ impl LinkHandle {
             receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
             closed: Arc::new(Mutex::new(None)),
         }))
+    }
+
+    /// Open a streamed Mac browser tab (`browser` service, args JSON
+    /// `{"tab", "url"}`): frames and host messages go to `observer`.
+    pub async fn open_browser(
+        &self,
+        args_json: String,
+        observer: Arc<dyn BrowserObserver>,
+    ) -> Result<Arc<BrowserStream>, CnxError> {
+        let args: serde_json::Value = serde_json::from_str(&args_json)
+            .map_err(|e| CnxError::InvalidArgument { message: format!("args_json: {e}") })?;
+        if !args.is_object() {
+            return Err(CnxError::InvalidArgument { message: "args_json must be a JSON object".into() });
+        }
+        let link = self.link.clone();
+        on_runtime(async move {
+            let channel = link.open("browser", args).await?;
+            let (sender, receiver) = channel.split();
+            Ok(browser::start(Arc::new(sender), receiver, observer))
+        })
+        .await
     }
 
     /// Round-trip one ping; milliseconds.

@@ -3,11 +3,14 @@
 //! Registers the Mac with the backend, holds the signaling socket, admits
 //! dials from the owner's own phones, answers WebRTC offers and WireGuard
 //! handshakes, and serves link channels: `echo`, `daemon` (the cmux-tui
-//! session socket through an allowlist), `acpmux` and `file`.
+//! session socket through an allowlist), `acpmux`, `file` and `browser`
+//! (a streamed Mac browser tab, `browser.rs`).
 
 pub mod auth;
+pub mod browser;
 pub mod config;
 pub mod control;
 pub mod host;
+pub mod notify;
 pub mod policy;
 pub mod services;
