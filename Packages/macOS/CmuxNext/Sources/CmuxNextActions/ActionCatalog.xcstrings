@@ -1,395 +1,134 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "action.window.closeOthers": {
+    "action.agentChat.tileSubagents": {
+      "comment": "Command palette: Tile Subagents (Catalog/AgentSubagentActionCatalog.swift)",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close Other Windows"
+            "value": "Tile Subagents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجانب الوكلاء الفرعيين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poslaži podagente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fliselæg underagenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten anordnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organizar subagentes en mosaico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disposer les sous-agents en mosaïque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affianca i subagenti"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのウィンドウを閉じる"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق النوافذ الأخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori ostale prozore"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk andre vinduer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Andere Fenster schließen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar las demás ventanas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer les autres fenêtres"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi le altre finestre"
+            "value": "サブエージェントをタイル表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទបង្អួចផ្សេងទៀត"
+            "state": "translated",
+            "value": "រៀបភ្នាក់ងាររងជាក្រឡា"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "다른 윈도우 닫기"
+            "state": "translated",
+            "value": "하위 에이전트 바둑판식 배열"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk andre vinduer"
+            "state": "translated",
+            "value": "Flislegg underagenter"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij pozostałe okna"
+            "state": "translated",
+            "value": "Ułóż podagenty sąsiadująco"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar Outras Janelas"
+            "state": "translated",
+            "value": "Organizar subagentes lado a lado"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть другие окна"
+            "state": "translated",
+            "value": "Разместить субагентов плиткой"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดหน้าต่างอื่น"
+            "state": "translated",
+            "value": "จัดเรียงเอเจนต์ย่อยแบบเรียงต่อกัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diğer Pencereleri Kapat"
+            "state": "translated",
+            "value": "Alt ajanları döşe"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити інші вікна"
+            "state": "translated",
+            "value": "Розмістити субагентів плиткою"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng các cửa sổ khác"
+            "state": "translated",
+            "value": "Xếp ô các tác tử phụ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭其他窗口"
+            "state": "translated",
+            "value": "平铺子代理"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉其他視窗"
-          }
-        }
-      }
-    },
-    "action.workspaceGroup.closeOthers": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "Close Other Groups"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ほかのグループを閉じる"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق المجموعات الأخرى"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori ostale grupe"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk andre grupper"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Andere Gruppen schließen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar los demás grupos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer les autres groupes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi gli altri gruppi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទក្រុមផ្សេងទៀត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다른 그룹 닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk andre grupper"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij pozostałe grupy"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar Outros Grupos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть другие группы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดกลุ่มอื่น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diğer Grupları Kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити інші групи"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng các nhóm khác"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭其他分组"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉其他群組"
-          }
-        }
-      }
-    },
-    "action.workspaceGroup.duplicate": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duplicate Workspace Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースグループを複製"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تكرار مجموعة مساحات العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dupliciraj grupu radnih prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dupliker arbejdsområdegruppe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arbeitsbereichsgruppe duplizieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Duplicar grupo de espacios de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dupliquer le groupe d’espaces de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Duplica gruppo di aree di lavoro"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចម្លងក្រុមកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 그룹 복제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dupliser arbeidsområdegruppe"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Duplikuj grupę przestrzeni roboczych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Duplicar Grupo de Áreas de Trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дублировать группу рабочих пространств"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ทำสำเนากลุ่มเวิร์กสเปซ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışma Alanı Grubunu Çoğalt"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дублювати групу робочих областей"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nhân bản nhóm không gian làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "复制工作区分组"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "複製工作區群組"
+            "value": "並排子代理"
           }
         }
       }
@@ -78226,134 +77965,133 @@
         }
       }
     },
-    "action.agentChat.tileSubagents": {
-      "comment": "Command palette: Tile Subagents (Catalog/AgentSubagentActionCatalog.swift)",
+    "action.agentChat.copyIdentifier": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tile Subagents"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تجانب الوكلاء الفرعيين"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Poslaži podagente"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fliselæg underagenter"
+            "value": "Copy Agent Identifier"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subagenten anordnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Organizar subagentes en mosaico"
+            "value": "Agent-Kennung kopieren"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disposer les sous-agents en mosaïque"
+            "value": "Copier l’identifiant de l’agent"
           }
         },
-        "it": {
+        "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affianca i subagenti"
+            "value": "نسخ معرّف الوكيل"
           }
         },
-        "ja": {
+        "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "サブエージェントをタイル表示"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "រៀបភ្នាក់ងាររងជាក្រឡា"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "하위 에이전트 바둑판식 배열"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flislegg underagenter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ułóż podagenty sąsiadująco"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Organizar subagentes lado a lado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Разместить субагентов плиткой"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "จัดเรียงเอเจนต์ย่อยแบบเรียงต่อกัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alt ajanları döşe"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розмістити субагентів плиткою"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xếp ô các tác tử phụ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "平铺子代理"
+            "value": "Copiar identificador del agente"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "並排子代理"
+            "value": "拷貝代理識別碼"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制智能体标识符"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 식별자 복사"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント識別子をコピー"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj identifikator agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér agent-id"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia identificatore dell’agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងលេខសម្គាល់ភ្នាក់ងារ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier agent-ID"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj identyfikator agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar identificador do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать идентификатор агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกตัวระบุเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Tanımlayıcısını Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопіювати ідентифікатор агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép mã định danh tác tử"
           }
         }
       }
@@ -78489,133 +78227,395 @@
         }
       }
     },
-    "action.agentChat.copyIdentifier": {
+    "action.window.closeOthers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Agent Identifier"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent-Kennung kopieren"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copier l’identifiant de l’agent"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نسخ معرّف الوكيل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copiar identificador del agente"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拷貝代理識別碼"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "复制智能体标识符"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 식별자 복사"
+            "value": "Close Other Windows"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント識別子をコピー"
+            "value": "ほかのウィンドウを閉じる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق النوافذ الأخرى"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiraj identifikator agenta"
+            "state": "needs_review",
+            "value": "Zatvori ostale prozore"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiér agent-id"
+            "state": "needs_review",
+            "value": "Luk andre vinduer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andere Fenster schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerrar las demás ventanas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer les autres fenêtres"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copia identificatore dell’agente"
+            "state": "needs_review",
+            "value": "Chiudi le altre finestre"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ចម្លងលេខសម្គាល់ភ្នាក់ងារ"
+            "state": "needs_review",
+            "value": "បិទបង្អួចផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 윈도우 닫기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopier agent-ID"
+            "state": "needs_review",
+            "value": "Lukk andre vinduer"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kopiuj identyfikator agenta"
+            "state": "needs_review",
+            "value": "Zamknij pozostałe okna"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Copiar identificador do agente"
+            "state": "needs_review",
+            "value": "Fechar Outras Janelas"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Скопировать идентификатор агента"
+            "state": "needs_review",
+            "value": "Закрыть другие окна"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "คัดลอกตัวระบุเอเจนต์"
+            "state": "needs_review",
+            "value": "ปิดหน้าต่างอื่น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajan Tanımlayıcısını Kopyala"
+            "state": "needs_review",
+            "value": "Diğer Pencereleri Kapat"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Скопіювати ідентифікатор агента"
+            "state": "needs_review",
+            "value": "Закрити інші вікна"
           }
         },
         "vi": {
           "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng các cửa sổ khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭其他窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉其他視窗"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.closeOthers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
             "state": "translated",
-            "value": "Sao chép mã định danh tác tử"
+            "value": "Close Other Groups"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのグループを閉じる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق المجموعات الأخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvori ostale grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luk andre grupper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andere Gruppen schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerrar los demás grupos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer les autres groupes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi gli altri gruppi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទក្រុមផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 그룹 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukk andre grupper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij pozostałe grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar Outros Grupos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть другие группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดกลุ่มอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Grupları Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрити інші групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng các nhóm khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭其他分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉其他群組"
+          }
+        }
+      }
+    },
+    "action.workspaceGroup.duplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate Workspace Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループを複製"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تكرار مجموعة مساحات العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dupliciraj grupu radnih prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dupliker arbejdsområdegruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeitsbereichsgruppe duplizieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplicar grupo de espacios de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dupliquer le groupe d’espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplica gruppo di aree di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងក្រុមកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 그룹 복제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dupliser arbeidsområdegruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplikuj grupę przestrzeni roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duplicar Grupo de Áreas de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дублировать группу рабочих пространств"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำสำเนากลุ่มเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma Alanı Grubunu Çoğalt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дублювати групу робочих областей"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhân bản nhóm không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "复制工作区分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "複製工作區群組"
           }
         }
       }
