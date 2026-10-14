@@ -264,12 +264,26 @@ enum Signal {
 #[derive(Default)]
 pub(crate) struct Slot {
     sender: Mutex<Option<mpsc::Sender<Signal>>>,
+    /// What came before [`start`] ran (the control socket accepts clients
+    /// before the owner loop starts the supervisor): a Chief created then
+    /// still gets its brain. Kept only when brains are configured, at most
+    /// [`EARLY_MAX`]; lock order: `sender`, then `early`.
+    early: Mutex<Vec<Signal>>,
 }
+
+/// The most signals [`Slot`] keeps before the supervisor starts.
+const EARLY_MAX: usize = 256;
 
 impl Slot {
     fn send(&self, signal: Signal) {
-        if let Some(sender) = self.sender.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+        let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(sender) = sender.as_ref() {
             let _ = sender.send(signal);
+        } else if taken().is_some() {
+            let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
+            if early.len() < EARLY_MAX {
+                early.push(signal);
+            }
         }
     }
 
@@ -336,8 +350,14 @@ impl ChiefBrains {
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     let config = config()?;
     let (sender, inbox) = mpsc::channel();
-    *mux.chiefs().brains.sender.lock().unwrap_or_else(PoisonError::into_inner) =
-        Some(sender.clone());
+    {
+        let slot = &mux.chiefs().brains;
+        let mut installed = slot.sender.lock().unwrap_or_else(PoisonError::into_inner);
+        for early in slot.early.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
+            let _ = sender.send(early);
+        }
+        *installed = Some(sender.clone());
+    }
     let mut supervisor = Supervisor {
         mux: Arc::downgrade(mux),
         socket: socket.to_owned(),
