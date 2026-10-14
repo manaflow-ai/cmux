@@ -4,7 +4,7 @@ import CmuxNextActions
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
 /// standard responder-chain items so text fields (rename, omnibox) work;
-/// its placements and the Help menu are in MainMenu+Placements.swift.
+/// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
     static func make(registry: ActionRegistry) -> NSMenu {
         let mainMenu = NSMenu()
@@ -32,7 +32,7 @@ enum MainMenu {
             item(Strings.menuCopy, #selector(NSText.copy(_:)), "c", [.command]),
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
-        ] + editPlacements(registry)))
+        ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
         let server = registry.makeMainMenuItems(for: .server)
         if !server.isEmpty { mainMenu.addItem(submenu(Strings.menuServer, items: server)) }

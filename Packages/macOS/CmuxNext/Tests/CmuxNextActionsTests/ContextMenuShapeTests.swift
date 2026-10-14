@@ -108,12 +108,10 @@ struct ContextMenuShapeTests {
         #expect(!ids(new).contains("splitLeft") && !ids(new).contains("splitUp"))
     }
 
-    /// Show Tabs Under Workspaces is a sidebar setting: on the sidebar's menu, not every row's.
-    /// Save Layout as Template moves next to New Workspace from Template.
-    @Test func theWorkspaceRowKeepsSidebarSettingsOnTheSidebar() throws {
+    /// Save Layout as Template moves next to New Workspace from Template, so the row's More
+    /// has no one-row Group submenu.
+    @Test func theWorkspaceRowHasNoOneRowGroupSubmenu() throws {
         let row = rows(.workspaceRow)
-        #expect(!ids(row).contains("sidebar.workspaceTabs.toggle"))
-        #expect(ids(rows(.sidebarBackground)).contains("sidebar.workspaceTabs.toggle"))
         let more = try #require(submenu("More", in: row))
         #expect(submenu("Group", in: more) == nil)
         #expect(ids(submenu("New", in: more) ?? []).contains("saveLayoutTemplate"))

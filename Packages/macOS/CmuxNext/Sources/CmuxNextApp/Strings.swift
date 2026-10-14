@@ -16,7 +16,6 @@ enum Strings {
     static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
     static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
     static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
-    static var menuFind: String { String(localized: "menu.edit.find", defaultValue: "Find", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
     static var menuHelp: String { String(localized: "menu.help", defaultValue: "Help", bundle: .module) }

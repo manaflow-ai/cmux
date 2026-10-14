@@ -258,7 +258,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 id: "sidebar.workspaceTabs.toggle", title: t("action.sidebar.workspaceTabs.toggle", "Show Tabs Under Workspaces"),
                 keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
                 surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options)])
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
             ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),

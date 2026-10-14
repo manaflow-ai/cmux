@@ -1,18 +1,12 @@
 import AppKit
 import CmuxNextActions
 
-/// The catalog's Edit and Help placements (`mainMenu: .edit` / `.help`),
-/// laid out the way Mac apps lay those menus out. An action placed there
-/// that no group names still shows, after the grouped rows.
+/// The catalog's Help placements (`mainMenu: .help`), laid out the way Mac
+/// apps lay that menu out. An action placed there that no group names still
+/// shows, after the grouped rows. The Edit placements (Find…, Toggle
+/// Dictation) stay out of the bar for now: as menu key equivalents they would
+/// claim keys a user's Ghostty keybinds and panels expect (cmuxterm-hq#2015 C11).
 extension MainMenu {
-    /// Edit › Find ›, grouped as in Safari, Chrome and Xcode: the find
-    /// fields, then stepping through matches, then closing the bar.
-    static let findGroups: [[ActionID]] = [
-        ["find", "findInDirectory"],
-        ["findNext", "findPrevious", "useSelectionForFind"],
-        ["hideFind"],
-    ]
-
     /// Help: the documentation first (Mac apps' "<App> Help"), then
     /// learning and news, then reports, then sharing.
     static let helpGroups: [[ActionID]] = [
@@ -21,16 +15,6 @@ extension MainMenu {
         ["help.showCrashLogs", "cloudDiagnostics", "help.featureFlags"],
         ["app.shareCmux"],
     ]
-
-    /// Rows after Select All: the Find submenu, then the other Edit
-    /// placements (Toggle Dictation), each under a separator.
-    static func editPlacements(_ registry: ActionRegistry) -> [NSMenuItem] {
-        var items: [NSMenuItem] = [.separator()]
-        let find = groupedItems(findGroups, in: .edit, registry)
-        if !find.isEmpty { items.append(submenu(Strings.menuFind, items: find)) }
-        items.append(.separator())
-        return items + otherItems(besides: findGroups, in: .edit, registry)
-    }
 
     static func helpPlacements(_ registry: ActionRegistry) -> [NSMenuItem] {
         groupedItems(helpGroups, in: .help, registry) + [.separator()] + otherItems(besides: helpGroups, in: .help, registry)
