@@ -52,6 +52,9 @@ public final class TabModel: Identifiable {
     /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
     /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
     public internal(set) var userIcon: String?
+    /// The device a browser tab emulates, as the daemon resolved it
+    /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
+    public internal(set) var emulation: JSONValue?
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -187,6 +190,7 @@ public final class TabModel: Identifiable {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
+        if emulation != record.emulation { emulation = record.emulation }
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
