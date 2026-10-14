@@ -13,8 +13,8 @@ new-profile grace and 10-minute session grace, so the run passes
 Steps: launch the app (no activation, automation socket, empty config), open
 two Chromium tabs in one pane, switch between them 8 times, then count the
 app's on-screen windows above the main window (a help bubble is its own
-window) and capture the window with its popups. Then load chrome://version in
-a tab and print Chromium's command line, which shows the switches in effect.
+window) and capture the window. Then read the command lines of Chromium's
+helper processes, which carry the browser's feature overrides.
 
 Usage (from an nx-remote --app-from-fleet job):
   chrome-promos-live.py TAG APP_PATH --expect bubble|none
@@ -89,14 +89,6 @@ def open_tab(url):
 def page_status(tab):
     reply = rpc("debug.browser.page_status", {"tab": tab} if tab else {})
     return reply if "certificate" in reply else {}
-
-
-def page(tab, script):
-    return rpc("browser.page.eval", {"script": script, **({"tab": tab} if tab else {})}).get("value")
-
-
-def loaded(tab):
-    return page(tab, "document.readyState") == "complete"
 
 
 def focused_pane():
@@ -193,17 +185,20 @@ try:
         check(extra is not None and extra > 0, f"a Chrome help bubble window appears after the tab switches (+{extra})")
     else:
         check(extra is not None and extra <= 0, f"no new window appears after the tab switches (+{extra})")
-    v = open_tab("chrome://version")
-    snapshot("2-chrome-version.png")
-    if wait(lambda: loaded(v), 30):
-        cmd = page(v, "(document.getElementById('command_line')||{}).innerText || ''")
-        print("chrome://version command line:", cmd, flush=True)
-        if args.expect == "none":
-            for s in ("--no-first-run", "--no-default-browser-check", "--disable-search-engine-choice-screen",
-                      "IPH_DemoMode:chosen_feature/IPH_Dummy"):
-                check(s in str(cmd), f"Chromium's command line has {s}")
-    else:
-        print("chrome://version did not load in a cmux tab", flush=True)
+    # chrome://version does not render in a cmux tab. Chromium hands its
+    # feature overrides to every helper process on the command line, so the
+    # helpers' command lines show whether the IPH demo-mode override is in
+    # effect (the other switches are browser-process only).
+    helpers = subprocess.run(["ps", "-A", "-ww", "-o", "command="], capture_output=True, text=True).stdout
+    roots = (os.path.realpath(args.app), os.path.abspath(args.app))
+    mine = [line for line in helpers.splitlines() if line.startswith(roots) and "--type=" in line]
+    with_features = [line for line in mine if "--enable-features=" in line]
+    for line in with_features[:1]:
+        print("helper enable-features:", [part for part in line.split() if part.startswith("--enable-features=")], flush=True)
+    has_demo = any("IPH_DemoMode" in line for line in with_features)
+    print(f"helper processes: {len(mine)}, with --enable-features: {len(with_features)}, IPH_DemoMode: {has_demo}", flush=True)
+    if args.expect == "none":
+        check(has_demo, "Chromium's helper processes run with the IPH_DemoMode override")
 finally:
     stop = os.environ.get("NX_APP_STOP")
     if stop:
