@@ -29,12 +29,14 @@ import Testing
     nonisolated(unsafe) static var npDepth = 1
     nonisolated static func npSay(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG \(DispatchTime.now().uptimeNanoseconds / 1_000_000) " + s + "\n").utf8)) }
     static let npDiag: Void = {
+        _ = NSApplication.shared
         npSay("install")
         let wrapper: AEEventHandlerProcPtr = { event, reply, refcon in
+            guard let event else { return OSErr(errAEEventNotHandled) }
             var id: OSType = 0
             var type: DescType = 0
             var size = 0
-            AEGetAttributePtr(event, keyEventIDAttr, typeType, &type, &id, MemoryLayout<OSType>.size, &size)
+            AEGetAttributePtr(event, AEKeyword(keyEventIDAttr), DescType(typeType), &type, &id, MemoryLayout<OSType>.size, &size)
             let text = String(bytes: withUnsafeBytes(of: id.bigEndian) { Array($0) }, encoding: .ascii) ?? "\(id)"
             NowPlayingCardTests.npSay("AE \(text) begins\n" + Thread.callStackSymbols.prefix(10).joined(separator: "\n"))
             var result: OSErr = OSErr(errAEEventNotHandled)
@@ -47,7 +49,7 @@ import Testing
             var refcon: SRefCon?
             let found = AEGetEventHandler(AEEventClass(kCoreEventClass), id, &handler, &refcon, false)
             npSay("AE handler \(id) found=\(found) has=\(handler != nil)")
-            if found == noErr, let handler { npOriginals[id] = (handler, refcon) }
+            if found == OSErr(noErr), let handler { npOriginals[id] = (handler, refcon) }
             AEInstallEventHandler(AEEventClass(kCoreEventClass), id, wrapper, nil, false)
         }
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.entry.rawValue | CFRunLoopActivity.exit.rawValue, true, -1_000_000) { _, activity in
