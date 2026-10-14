@@ -1431,7 +1431,7 @@ written yet: it is queued in one FIFO per id, in arrival order across connection
 with error code `input.overflow` and queues nothing. When the creation committed and its terminal is live,
 the queue is written to it in order. Until that write ended, input by `terminal_id` still joins the queue
 (`{queued:true}`), and input to the new terminal by any other path (`send {surface}`, `send-key`, the
-`terminal.input.*` resource operations) waits for it, so queued bytes precede all later input. When the
+`terminal.input.*` resource operations, an image paste commit, `clear-history`) waits for it, so queued bytes precede all later input. When the
 creation fails, its connection closes first, or it has not ended 10 seconds after the first queued byte,
 nothing of the queue is written: each connection that queued bytes gets them back, in order, in one
 `terminal-input-unclaimed` control event ([events.md](events.md#terminal-input-unclaimed)) with `reason`
