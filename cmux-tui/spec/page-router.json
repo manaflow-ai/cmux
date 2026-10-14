@@ -85,7 +85,7 @@
     },
     "agent_session": {
       "owner": "agent_session.trust",
-      "description": "Folder trust of a chat of this machine (agent-session-trust, commands.md; cx-1bhjj): `agent_session.trust.get {surface, cwd}` answers acpmux's acp.trust.get, `agent_session.trust.set {surface, cwd, level, home_confirmed?}` records an answer (acp.trust.set). The tab must be an agent tab of this store; the machine kind gate and the home folder rule of agent-session-start apply. Unix socket and authenticated WebSocket connections; a set needs origin user.",
+      "description": "Folder trust of a chat of this machine (agent-session-trust, commands.md; cx-1bhjj): `agent_session.trust.get {surface, cwd}` answers acpmux's acp.trust.get, `agent_session.trust.set {surface, cwd, level, home_confirmed?}` records an answer (acp.trust.set). The tab must be an agent tab of this store; the machine kind gate and the home folder rule of agent-session-start apply, and a page never sends home_confirmed (it cannot prove the person chose the home folder first). Unix socket only (a WebSocket page gets agent_session.not_trusted); a set needs origin user. The call runs on the relay's connection (one relay connection per pane).",
       "read": [
         "agent_session.trust.get"
       ],
