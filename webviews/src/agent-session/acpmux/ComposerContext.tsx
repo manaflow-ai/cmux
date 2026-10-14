@@ -166,10 +166,14 @@ export function ComposerContext({
               ·
             </span>
           )}
+          {/* This Mac is the computer a chat runs on unless it says otherwise: a local chat draws the
+              computer's icon alone (Leo 2026-10-13: the footer "tells too much"); an SSH or Cloud
+              chat names its machine. */}
           <LocationPicker
             label={t(CONTEXT_LABELS.computer)}
             menu="Computer"
             icon={<ComputerIcon />}
+            quiet={selectedComputer === "local" && currentComputer !== undefined}
             value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
             options={computers}
             selected={selectedComputer}
@@ -302,11 +306,22 @@ function normalizeCwd(cwd?: string): string | undefined {
 
 /// What every location control shows: an optional icon, the name (cut with an ellipsis, never
 /// wrapped) and, on a control that opens a menu, a chevron. One look for the whole row.
-function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value: string; chevron: boolean }) {
+function LocationFace({
+  icon,
+  value,
+  chevron,
+  quiet = false,
+}: {
+  icon?: React.ReactNode;
+  value: string;
+  chevron: boolean;
+  /// The icon stands for the value, which only assistive tech reads (the title has it too).
+  quiet?: boolean;
+}) {
   return (
     <>
       {icon}
-      <span className="acpmux-location-label">{value}</span>
+      <span className={quiet ? "sr-only" : "acpmux-location-label"}>{value}</span>
       {chevron && (
         <span className="ui-ghost-icon" aria-hidden="true">
           <ChevronIcon />
@@ -367,6 +382,7 @@ function LocationPicker({
   selected,
   disabled,
   icon,
+  quiet = false,
   allowPath = false,
   onBrowse,
   extras,
@@ -380,6 +396,8 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
+  /// Draw the icon alone; the value stays in the title and for assistive tech.
+  quiet?: boolean;
   allowPath?: boolean;
   /// The folder popover's last row, Choose folder…: the host's folder panel.
   onBrowse?(): void;
@@ -412,7 +430,7 @@ function LocationPicker({
           aria-label={label + ": " + value}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
-          <LocationFace icon={icon} value={value} chevron={false} />
+          <LocationFace icon={icon} value={value} chevron={false} quiet={quiet} />
         </span>
       </span>
     );
@@ -421,12 +439,16 @@ function LocationPicker({
     setOpen(false);
     setQuery("");
   };
-  const button = <LocationFace icon={icon} value={value} chevron />;
+  const button = <LocationFace icon={icon} value={value} chevron quiet={quiet} />;
   if (!allowPath)
     return (
       <span ref={control} className="acpmux-location-picker">
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
+          <MenuButton
+            className="acpmux-location-button ui-ghost ui-ghost-sm"
+            label={label}
+            title={quiet ? `${label}: ${value}` : undefined}
+          >
             {button}
           </MenuButton>
           <MenuPopup

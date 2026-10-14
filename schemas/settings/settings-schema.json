@@ -239,7 +239,7 @@
             "rows" : [
               "appearance.density",
               "app.uiScale",
-              "appearance.metrics.chromeFontSize",
+              "appearance.interfaceScale",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
               "appearance.metrics.titlebarHeight",
@@ -489,16 +489,6 @@
             "title" : {
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
-            }
-          },
-          {
-            "key" : "settings.group.freeModel",
-            "rows" : [
-              "freeModel.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.freeModel",
-              "text" : "AI Models"
             }
           }
         ],
@@ -9469,7 +9459,7 @@
         "chromeFontSize"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "metrics",
@@ -9485,6 +9475,72 @@
       "refuses" : [
         4,
         22,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.interfaceSize.summary",
+        "text" : "Text size of tabs, sidebar and controls"
+      },
+      "title" : {
+        "key" : "settings.appearance.interfaceSize",
+        "text" : "Interface Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.9,
+        1.25,
+        1.075
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.appearance.interfaceSize.help",
+        "text" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.interfaceScale",
+      "keywords" : [
+        "font",
+        "text",
+        "size",
+        "zoom",
+        "scale",
+        "bigger",
+        "smaller",
+        "interfaceScale",
+        "labs"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "interfaceScale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.9,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.1,
+        2.25,
         "1"
       ],
       "section" : "appearance",
@@ -14153,7 +14209,6 @@
     {
       "accepts" : [
         "compact",
-        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -14165,13 +14220,6 @@
             "text" : "Compact"
           },
           "value" : "compact"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.comfortable",
-            "text" : "Comfortable"
-          },
-          "value" : "comfortable"
         },
         {
           "title" : {
@@ -14192,7 +14240,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -14201,11 +14249,9 @@
         "density",
         "expanded",
         "compact",
-        "comfortable",
         "rows",
         "preview",
         "two lines",
-        "taller",
         "t3",
         "codex"
       ],
@@ -15387,7 +15433,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23552,7 +23598,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
+  "schema_hash" : "99e43e3e6058a642a5734116bceb4b94947b4506051ccc939786e3a20bfb602d",
   "sections" : [
     {
       "id" : "general",
