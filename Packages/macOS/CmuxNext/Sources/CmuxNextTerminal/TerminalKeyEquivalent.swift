@@ -16,6 +16,13 @@ public struct TerminalKeyEquivalent {
     /// asking the menu would swallow the user's Ghostty keybind (nxdog50).
     public static var menuMayClaim: ((NSEvent) -> Bool)?
 
+    /// Whether the dispatcher gave `event` to this terminal for the user's
+    /// own Ghostty keybind (their config binds or unbinds a chord cmux has a
+    /// default on, or changes a routed keybind). Then no main-menu item takes
+    /// a Command chord before Ghostty. Ghostty's and cmux's default keybinds
+    /// never count, so Edit > Undo keeps Cmd-Z.
+    public static var userKeybindOwns: ((NSEvent) -> Bool)?
+
     /// Notes the path of a traced key (`debug.key`); nil otherwise.
     public static var trace: ((String) -> Void)?
 
@@ -28,10 +35,10 @@ public struct TerminalKeyEquivalent {
 
         // App-level Command actions, especially Quit, must win before a
         // Ghostty binding or an unbound chord can forward text to the PTY,
-        // unless the dispatcher already gave this key to the terminal (the
-        // user's Ghostty keybind won it): then the menu never takes it.
-        let menuMayClaim = Self.menuMayClaim?(event) ?? true
-        if event.modifierFlags.contains(.command), menuMayClaim, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+        // unless the dispatcher gave this key to the terminal for the user's
+        // own Ghostty keybind: then the menu never takes it first.
+        if event.modifierFlags.contains(.command), !(Self.userKeybindOwns?(event) ?? false),
+           NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
             return true
         }
 
@@ -43,7 +50,7 @@ public struct TerminalKeyEquivalent {
         }
         Self.trace?("terminal: Ghostty binding \(isBinding ? "yes" : "no")")
         if isBinding {
-            if menuMayClaim, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            if Self.menuMayClaim?(event) ?? true, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 Self.trace?("terminal: the menu took it")
                 return true
             }
