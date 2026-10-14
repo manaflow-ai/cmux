@@ -164,14 +164,27 @@ def mouse(action, x, y):
 
 def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
     """Press at path[0], move through the path in `seconds`, hold, release; `escape_at` (s): Escape mid-drag."""
+    if opts.real_pointer:
+        # cua-driver moves along one straight line and releases at its end (no hold). Its call can return
+        # before the gesture runs, and fronting the window takes a while (job 1014-082101-bac11c: every scenario
+        # recorded a still sidebar), so time the scenario from the drag the app reports, not from the call.
+        reply = {}
+        worker = threading.Thread(target=lambda: reply.update(value=real_drag(path[0], path[-1], seconds)))
+        called = time.monotonic()
+        worker.start()
+        began = wait(lambda: window().get("dragging"), 15)
+        print(f"real drag: {'began %.2fs after the call' % (time.monotonic() - called) if began else 'NO drag began within 15 s'}", flush=True)
+        if began and escape_at is not None:
+            threading.Timer(max(0.0, escape_at - 0.2), lambda: rpc("debug.key", {"key": "escape"})).start()
+        worker.join(seconds + 70)  # no polling while the pointer moves (it would add main-thread work to the trace)
+        value = reply.get("value")
+        failed = not isinstance(value, dict) or value.get("error") or value.get("isError")
+        print(f"cua drag {'FAILED' if failed else 'reply'}: {json.dumps(value)[:500]}", flush=True)
+        if began and not wait(lambda: not window().get("dragging"), 10):
+            print("real drag: still dragging 10 s after the gesture", flush=True)
+        return
     if escape_at is not None:
         threading.Timer(escape_at, lambda: rpc("debug.key", {"key": "escape"})).start()
-    if opts.real_pointer:
-        # cua-driver moves along one straight line and releases at its end (no hold).
-        reply = real_drag(path[0], path[-1], seconds)
-        if isinstance(reply, dict) and reply.get("error"):
-            print(f"cua drag error: {reply['error']}", flush=True)
-        return
     x0, y0 = path[0]
     mouse("down", x0, y0)
     points = []
@@ -281,7 +294,9 @@ def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
     folder = os.path.join(opts.out, name)
     shutil.rmtree(folder, ignore_errors=True)
     rpc("debug.sidebar_rows", {"motion": "start"})
-    rpc("debug.window_record", {"dir": folder, "seconds": min(8, kwargs.get("seconds", 1.2) + kwargs.get("hold", 0.35) + 1.6)})
+    # A real-pointer gesture starts late (the window is fronted first): record the longest window.
+    seconds = 8 if opts.real_pointer else min(8, kwargs.get("seconds", 1.2) + kwargs.get("hold", 0.35) + 1.6)
+    rpc("debug.window_record", {"dir": folder, "seconds": seconds})
     gesture(path, **kwargs)
     time.sleep(1.2)  # test harness: let the drop settle on screen
     frames = (rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}).get("frames") or []
