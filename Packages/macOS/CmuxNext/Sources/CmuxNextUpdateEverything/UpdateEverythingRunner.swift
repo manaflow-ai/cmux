@@ -46,10 +46,9 @@ public final class UpdateEverythingRunner {
     public func run(_ plan: UpdateEverythingPlan, continueThreads: Bool, steps: any UpdateEverythingSteps) async -> [UpdateEverythingOutcome] {
         let machines = plan.machines.filter { !$0.isUpToDate }
         var outcomes = await withTaskGroup(of: (Int, UpdateEverythingOutcome).self) { group in
-            // Plain bindings: a tuple pattern captured by the task crashes the 6.3 region checker.
-            for index in machines.indices {
-                let machine = machines[index]
-                group.addTask { @MainActor in (index, await Self.update(machine, continueThreads: continueThreads, steps: steps)) }
+            for (index, machine) in machines.enumerated() {
+                // Names the class, not `Self`: the 6.3 region checker rejects a captured dynamic Self.
+                group.addTask { @MainActor in (index, await UpdateEverythingRunner.update(machine, continueThreads: continueThreads, steps: steps)) }
             }
             var collected: [(Int, UpdateEverythingOutcome)] = []
             for await outcome in group { collected.append(outcome) }
