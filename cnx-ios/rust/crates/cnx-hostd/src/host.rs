@@ -66,6 +66,14 @@ impl IceSource {
 pub async fn run(config: HostConfig) -> Result<()> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let services = Arc::new(config.services.clone());
+    if crate::notify::enabled() {
+        tokio::spawn(crate::notify::run(
+            config.base_url.clone(),
+            config.device_id.clone(),
+            Arc::clone(&tokens),
+            config.services.acpmux.clone(),
+        ));
+    }
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);

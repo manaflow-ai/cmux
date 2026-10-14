@@ -1058,9 +1058,10 @@
       "type" : "string"
     },
     "browser.omnibar.glass" : {
-      "default" : "regular",
-      "description" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.",
+      "default" : "transparent",
+      "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
       "enum" : [
+        "transparent",
         "regular",
         "clear",
         "off"
@@ -1635,7 +1636,7 @@
     },
     "mobile.allowIPhoneConnections" : {
       "default" : false,
-      "description" : "Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+      "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
       "title" : "Allow iPhone Connections",
       "type" : "boolean"
     },

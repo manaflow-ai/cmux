@@ -56,7 +56,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `announcements.fetch` | boolean | `true` |  | Download Announcements. Off: cmux never asks the network for announcements. The request carries no identifiers. |
 | `computerUse.enabled` | boolean | `false` |  | Computer Use. Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them. |
 | `computerUse.driver` | string | `"legacy"` | `legacy`, `upstream` | Computer Use Driver. Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately. |
-| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
+| `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
@@ -271,7 +271,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
 | `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
 | `browser.omnibar.calculator` | boolean | `true` |  | Calculator Answers. Shows the answer to arithmetic you type. Return copies it. |
-| `browser.omnibar.glass` | string | `"regular"` | `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color. |
+| `browser.omnibar.glass` | string | `"transparent"` | `transparent`, `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color. |
 | `browser.omnibar.glassTint` | string | `"background"` | `background`, `accent`, `none` | Glass Tint. The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none. |
 | `browser.omnibar.glassTintStrength` | real | `0.35` | 0 to 1 | Tint Strength |
 | `browser.omnibar.cornerRadius` | string | `"theme"` | `theme`, `capsule` | Address Bar Corners. Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile. |

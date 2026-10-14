@@ -159,6 +159,7 @@ target/release/cnx-hostd
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
+| `CNX_PUSH=0` | Do not report agent events for push notifications. By default hostd watches acpmux (`_acpmux/watch`) and reports each new question, permission request and finished turn to `POST /v1/devices/:deviceId/notify` with labels only (kind, agent name, folder name, ids; never prompts, output, tool arguments or paths). See `src/notify.rs`. |
 | `CNX_LOG` | tracing filter, default `info`. |
 
 Logs go to stderr.
@@ -184,9 +185,10 @@ The app keeps the Stack session; hostd never sees a refresh token.
 - The app sets `CNX_TUI_SOCKET` to its own daemon socket, `CNX_DEVICE_ID` to a
   UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
   computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
-  and `CNX_FILE_ROOTS` to the chat roots. The service is the dev Worker
-  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build), for production
-sign-in too.
+  and `CNX_FILE_ROOTS` to the chat roots. The service is the production
+  Worker `https://cnx-ios-api.cmux.dev` for production sign-in and the dev
+  Worker for development sign-in (`CMUX_NEXT_CNX_API_URL` overrides it in a
+  Debug build).
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to

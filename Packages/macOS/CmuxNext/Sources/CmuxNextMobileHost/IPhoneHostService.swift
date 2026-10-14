@@ -5,7 +5,7 @@ public import Foundation
 public import Observation
 import os
 
-/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux cnx phone host,
+/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux iPhone host,
 /// cnx-ios/PROTOCOL.md) while `mobile.allowIPhoneConnections` (cmux.json) is on
 /// and an account is signed in, so the phone app reaches this Mac's own
 /// daemon and acpmux with no separate host to start. ``CnxHostSupervisor``
@@ -75,6 +75,7 @@ public final class IPhoneHostService {
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
+    @ObservationIgnored private var followingAccount: Task<Void, Never>?
     /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
@@ -168,6 +169,17 @@ public final class IPhoneHostService {
         }
     }
 
+    /// Follows the signed-in account (sign-in, sign-out, a user or team switch).
+    func followAccount(_ read: @escaping @MainActor @Sendable () -> Account?) {
+        followingAccount?.cancel()
+        // task-owner: lives as long as the app; re-reads the account on each auth change
+        followingAccount = Task { [weak self] in
+            for await account in ObservationStream(read) {
+                self?.accountChanged(account)
+            }
+        }
+    }
+
     private func setAllowed(_ allowed: Bool) {
         guard allowed != self.allowed else { return }
         self.allowed = allowed
@@ -179,6 +191,7 @@ public final class IPhoneHostService {
     public func stop() {
         running = nil
         following?.cancel()
+        followingAccount?.cancel()
         applying?.cancel()
         pairingWatch?.cancel()
         approverSync?.stop()

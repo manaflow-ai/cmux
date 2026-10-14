@@ -7,8 +7,13 @@ public import CmuxNextSettings
 public import Foundation
 
 extension IPhoneHostService {
-    /// The cnx service phones and this Mac meet at. `CMUX_NEXT_CNX_API_URL` (a launch
-    /// variable; CMUX_NEXT_* survive the launch) points a Debug build at another one.
+    /// The cnx service phones and this Mac meet at: production for production sign-in, the dev
+    /// Worker for development sign-in. `CMUX_NEXT_CNX_API_URL` (a launch variable; CMUX_NEXT_*
+    /// survive the launch) points a Debug build at another one.
+    static let productionAPI = URL(string: "https://cnx-ios-api.cmux.dev")
+    /// The renamed production service (cnx-ios/verify/naming-migration.md). Not used yet: it
+    /// replaces ``productionAPI`` once its TURN and push secrets are installed.
+    static let renamedProductionAPI = URL(string: "https://cmux-next-ios-api.cmux.dev")
     static let developmentAPI = URL(string: "https://cnx-ios-api-dev.debussy.workers.dev")
 
     /// Hands the host what it needs from the app: the bundled hostd, the account's tokens,
@@ -39,14 +44,14 @@ extension IPhoneHostService {
         let override: URL? = nil
         let serviceOverride: URL? = nil
         #endif
-        // Every build runs it, production sign-in included: the cnx service verifies
-        // tokens of both sign-in projects.
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
-        guard let base = serviceOverride ?? Self.developmentAPI else { return }
+        // Each Worker accepts only its own sign-in project's tokens.
+        guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
         let state = DaemonLauncher.applicationSupportDirectory()
             .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,

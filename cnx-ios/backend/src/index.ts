@@ -2,7 +2,8 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { sendTeamInvite, userTeams } from "./stack.ts"
-import { openStore, type Device, type Store } from "./store.ts"
+import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
+import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
 import type { Attachment } from "./team-hub.ts"
 
 export { TeamHub } from "./team-hub.ts"
@@ -20,9 +21,17 @@ export const personalTeamId = (userId: string) => `${PERSONAL}${userId}`
 const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
+const APNS_TOKEN = /^[0-9a-f]{64,200}$/
+const EVENT_ID = /^[A-Za-z0-9._:-]{1,64}$/
+const OPAQUE_ID = /^[A-Za-z0-9._:-]{1,128}$/
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } })
-const fail = (status: number, code: string, message: string) => json({ error: { code, message } }, status)
+const fail = (status: number, code: string, message: string) => {
+  const res = json({ error: { code, message } }, status)
+  // Rate limits use one-minute windows.
+  if (status === 429) res.headers.set("retry-after", "60")
+  return res
+}
 
 class HttpError extends Error {
   constructor(
@@ -32,6 +41,13 @@ class HttpError extends Error {
   ) {
     super(message)
   }
+}
+
+/** Workers rate limiting (PROTOCOL.md): a missing binding (tests, local) never limits. */
+const limit = async (binding: RateLimit | undefined, key: string, what: string) => {
+  if (!binding) return
+  const { success } = await binding.limit({ key })
+  if (!success) throw new HttpError(429, "rate_limited", `too many ${what}; try again in a minute`)
 }
 
 const readJson = async (req: Request): Promise<Record<string, unknown>> => {
@@ -140,10 +156,118 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   // The reason (expired, restricted, unknown_key, ...) names why without echoing the token.
   if (!("caller" in auth)) return fail(401, "unauthorized", `missing or invalid Stack access token (${auth.rejection})`)
   const caller: Ctx = { ...auth.caller, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
+  const me = ownerKey(env, caller)
+  await limit(env.USER_LIMIT, me, "requests")
 
   if (path === "/v1/ice" && method === "GET") {
-    const { iceServers: list, ttl } = await iceServers(env)
-    return json({ iceServers: list, ttl })
+    await limit(env.ICE_LIMIT, me, "ICE requests")
+    const { iceServers: list, ttl, turn } = await iceServers(env)
+    return json({ iceServers: list, ttl, turn })
+  }
+
+  if (path === "/v1/me/devices" && method === "GET") {
+    const rows = await withStore(env, ctx, (s) => s.listOwnerDevices(me))
+    // Presence for Macs from each team's hub (only teams the caller can still reach).
+    const macTeams = [...new Set(rows.filter((d) => d.kind === "mac").map((d) => d.teamId))]
+    const live = new Map<string, boolean>()
+    await Promise.all(
+      macTeams.map(async (t) => {
+        try {
+          await requireMember(env, t, caller)
+          for (const m of await hub(env, caller, t).macs()) live.set(m.deviceId, m.online)
+        } catch {}
+      })
+    )
+    return json({
+      devices: rows.map((d) => ({
+        deviceId: d.deviceId,
+        kind: d.kind,
+        name: d.name,
+        teamId: d.teamId,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+        lastSeenAt: d.lastSeenAt,
+        online: d.kind === "mac" ? (live.get(d.deviceId) ?? false) : null,
+        push: d.push
+      }))
+    })
+  }
+
+  if (path === "/v1/me" && method === "DELETE") {
+    // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets.
+    const gone = await withStore(env, ctx, (s) => s.deleteOwner(me))
+    await Promise.all(gone.map((d) => hub(env, caller, d.teamId).forgetDevice(d.deviceId).catch(() => {})))
+    console.log(JSON.stringify({ msg: "account data deleted", devices: gone.length }))
+    return json({ deleted: { devices: gone.length } })
+  }
+
+  const dev = path.match(/^\/v1\/devices\/([^/]+)(?:\/(push|notify))?$/)
+  if (dev) {
+    const deviceId = decodeURIComponent(dev[1]!).toLowerCase()
+    if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
+    const sub = dev[2]
+    if (!sub && method === "DELETE") {
+      const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
+      if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
+      if (!r) throw new HttpError(404, "not_found", "no such device")
+      await hub(env, caller, r.teamId).forgetDevice(deviceId)
+      return json({ deleted: true, deviceId })
+    }
+    if (sub === "push" && (method === "PUT" || method === "DELETE")) {
+      const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      if (!device) throw new HttpError(404, "not_found", "no such device")
+      if (device.ownerUserId !== me) throw new HttpError(403, "not_owner", "this device belongs to another user")
+      if (method === "DELETE") {
+        await withStore(env, ctx, (s) => s.deletePush(deviceId))
+        return json({ deleted: true })
+      }
+      if (device.kind !== "phone") throw new HttpError(400, "bad_request", "only a phone takes push notifications")
+      const b = await readJson(req)
+      const token = typeof b.token === "string" ? b.token.toLowerCase() : ""
+      if (!APNS_TOKEN.test(token)) throw new HttpError(400, "bad_request", "token must be the APNs device token in hex")
+      if (b.environment !== "sandbox" && b.environment !== "production") throw new HttpError(400, "bad_request", "environment must be sandbox or production")
+      if (typeof b.topic !== "string" || !apnsTopics(env).has(b.topic)) throw new HttpError(400, "bad_request", "topic is not an app this service pushes to")
+      let kinds: Array<PushKind> = [...PUSH_KINDS]
+      if (b.kinds !== undefined) {
+        if (!Array.isArray(b.kinds) || b.kinds.some((k) => !(PUSH_KINDS as ReadonlyArray<unknown>).includes(k)))
+          throw new HttpError(400, "bad_request", `kinds must be a list of ${PUSH_KINDS.join(", ")}`)
+        kinds = [...new Set(b.kinds as Array<PushKind>)]
+      }
+      const r = await withStore(env, ctx, (s) => s.setPush({ deviceId, ownerUserId: me, token, environment: b.environment as "sandbox" | "production", topic: b.topic as string, kinds }))
+      return json({ push: { environment: r.environment, topic: r.topic, kinds: r.kinds, updatedAt: r.updatedAt } })
+    }
+    if (sub === "notify" && method === "POST") {
+      const b = await readJson(req)
+      if (typeof b.eventId !== "string" || !EVENT_ID.test(b.eventId)) throw new HttpError(400, "bad_request", "eventId must be 1-64 of A-Z a-z 0-9 . _ : -")
+      if (!(PUSH_KINDS as ReadonlyArray<unknown>).includes(b.kind)) throw new HttpError(400, "bad_request", `kind must be one of ${PUSH_KINDS.join(", ")}`)
+      for (const k of ["workspaceId", "tabId", "sessionId"] as const)
+        if (b[k] !== undefined && b[k] !== null && (typeof b[k] !== "string" || !OPAQUE_ID.test(b[k] as string))) throw new HttpError(400, "bad_request", `${k} must be an id`)
+      const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
+      if (!device) throw new HttpError(404, "not_found", "no such device")
+      if (device.ownerUserId !== me || device.kind !== "mac") throw new HttpError(403, "not_owner", "notify from your own Mac")
+      await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
+      const config = apnsConfig(env)
+      const kind = b.kind as PushKind
+      const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
+      if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      const results = await sendApns(config, targets, {
+        eventId: b.eventId,
+        kind,
+        agent: clean(b.agent, 40),
+        place: clean(b.place, 60),
+        macId: deviceId,
+        macName: clean(device.name, 40),
+        ...(typeof b.workspaceId === "string" ? { workspaceId: b.workspaceId } : {}),
+        ...(typeof b.tabId === "string" ? { tabId: b.tabId } : {}),
+        ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {})
+      }, Date.now())
+      const drop = results.filter((r) => r.outcome === "drop_target").map((r) => r.token)
+      if (drop.length) await withStore(env, ctx, (s) => s.dropPushTokens(drop))
+      const failed = results.filter((r) => r.outcome === "failed")
+      if (failed.length) console.log(JSON.stringify({ msg: "apns failed", results: failed.map((r) => ({ status: r.status, reason: r.reason })) }))
+      return json({ configured: true, sent: results.filter((r) => r.outcome === "sent").length, failed: failed.length, dropped: drop.length })
+    }
+    return fail(405, "method_not_allowed", "method not allowed")
   }
 
   if (path === "/v1/devices" && method === "POST") {
@@ -164,30 +288,6 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (r.device.kind === "mac")
       await hub(env, caller, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: caller.userId, ownerProjectId: caller.projectId })
     return json({ device: publicDevice(env, r.device) })
-  }
-
-  if (path === "/v1/me/devices" && method === "GET") {
-    // Every device the caller registered, Macs and phones, for a device list with Remove (PROTOCOL.md).
-    const rows = await withStore(env, ctx, (s) => s.listOwnerDevices(ownerKey(env, caller)))
-    return json({
-      devices: rows.map((d) => ({ deviceId: d.deviceId, kind: d.kind, name: d.name, teamId: d.teamId, createdAt: d.createdAt, updatedAt: d.updatedAt, lastSeenAt: d.lastSeenAt }))
-    })
-  }
-
-  const removal = path.match(/^\/v1\/devices\/([^/]+)$/)
-  if (removal && method === "DELETE") {
-    // Only the owner removes a device; another user's device answers 404 like a missing one.
-    let deviceId: string
-    try {
-      deviceId = decodeURIComponent(removal[1]!).toLowerCase()
-    } catch {
-      throw new HttpError(400, "bad_request", "deviceId must be a UUID")
-    }
-    if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
-    const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, ownerKey(env, caller)))
-    if (r === "not_found") throw new HttpError(404, "not_found", "no such device")
-    await hub(env, caller, r.teamId).removeDevice(deviceId)
-    return json({ removed: true, deviceId })
   }
 
   if (path === "/v1/me/macs" && method === "GET") {
@@ -284,6 +384,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (action === "invites" && method === "POST") {
     const b = await readJson(req)
     if (typeof b.email !== "string" || !EMAIL.test(b.email)) throw new HttpError(400, "bad_request", "email is required")
+    await limit(env.INVITE_LIMIT, me, "invitations")
     await requireMember(env, teamId, caller)
     if (teamId.startsWith(PERSONAL)) throw new HttpError(400, "bad_request", "personal space has no members")
     const r = await sendTeamInvite(env, caller, teamId, b.email)

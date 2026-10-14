@@ -31,17 +31,21 @@ public struct ThemedPicker<ID: Hashable>: NSViewRepresentable {
         self.identifier = identifier
     }
 
-    public func makeCoordinator() -> Coordinator { Coordinator(self) }
+    public func makeCoordinator() -> ThemedPickerTarget { ThemedPickerTarget() }
 
     public func makeNSView(context: Context) -> ThemedPopUpButton {
         let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
         popup.target = context.coordinator
-        popup.action = #selector(Coordinator.chose(_:))
+        popup.action = #selector(ThemedPickerTarget.chose(_:))
         return popup
     }
 
     public func updateNSView(_ popup: ThemedPopUpButton, context: Context) {
-        context.coordinator.parent = self
+        let choices = choices, binding = $selection
+        context.coordinator.choose = { index in
+            guard choices.indices.contains(index) else { return }
+            binding.wrappedValue = choices[index].id
+        }
         let titles = choices.map(\.title)
         if popup.itemTitles != titles {
             popup.removeAllItems()
@@ -52,17 +56,14 @@ public struct ThemedPicker<ID: Hashable>: NSViewRepresentable {
         if popup.indexOfSelectedItem != index { popup.selectItem(at: index) }
         if let identifier, popup.accessibilityIdentifier() != identifier { popup.setAccessibilityIdentifier(identifier) }
     }
+}
 
-    /// Carries the pop-up's choice to the binding.
-    @MainActor public final class Coordinator: NSObject {
-        fileprivate var parent: ThemedPicker
+/// Carries a `ThemedPicker`'s choice to its binding. Not generic and not nested in the generic picker:
+/// the Release build's inliner crashed (swift-frontend, Xcode 26.6, EarlyPerfInliner in
+/// isCallerAndCalleeLayoutConstraintsCompatible) on the generic nested coordinator's deinit once the
+/// package targeted macOS 14.
+@MainActor public final class ThemedPickerTarget: NSObject {
+    fileprivate var choose: (Int) -> Void = { _ in }
 
-        fileprivate init(_ parent: ThemedPicker) { self.parent = parent }
-
-        @objc fileprivate func chose(_ popup: NSPopUpButton) {
-            let index = popup.indexOfSelectedItem
-            guard parent.choices.indices.contains(index) else { return }
-            parent.selection = parent.choices[index].id
-        }
-    }
+    @objc fileprivate func chose(_ popup: NSPopUpButton) { choose(popup.indexOfSelectedItem) }
 }

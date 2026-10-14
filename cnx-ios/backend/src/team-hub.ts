@@ -120,13 +120,16 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /**
-   * The owner removed this device (DELETE /v1/devices/:id): drop a Mac's row, tell the team it is
-   * offline, and close the device's socket with 4002 `removed`.
+   * A device was deleted (PROTOCOL.md `DELETE /v1/devices/:deviceId`): drop a Mac from presence with a last
+   * `removed` frame, close the device's socket with 4002 `removed`, and end its relay sessions.
    */
-  async removeDevice(deviceId: string): Promise<void> {
-    const wasMac = this.macRow(deviceId) !== undefined
-    const presence = wasMac ? { ...this.presenceOf(deviceId), online: false } : null
-    this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
+  async forgetDevice(deviceId: string): Promise<void> {
+    const mac = this.macRow(deviceId)
+    if (mac) {
+      this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
+      const lastSeenAt = mac.last_seen_at ? new Date(mac.last_seen_at).toISOString() : null
+      this.broadcast(JSON.stringify({ type: "presence", mac: { deviceId, name: mac.name, online: false, lastSeenAt, removed: true } }))
+    }
     for (const ws of this.ctx.getWebSockets(deviceId)) {
       this.setAttach(ws, { ...this.attach(ws), replaced: true })
       try {
@@ -134,7 +137,9 @@ export class TeamHub extends DurableObject<Env> {
       } catch {}
     }
     this.live.delete(deviceId)
-    if (presence) this.broadcast(JSON.stringify({ type: "presence", mac: presence }))
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
+      this.sessions.delete(r.session_id)
+    this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
   }
 
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */

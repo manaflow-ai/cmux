@@ -95,5 +95,5 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 
 - Phone-signed approvals or relayed Mac approvals for agent permission
   questions.
-- The production Worker (`cnx-ios-api-prod`) deployment. Production builds use
-  the dev Worker today.
+- None for the service: production builds use the production Worker
+  (`https://cnx-ios-api.cmux.dev`), and development builds use the dev Worker.

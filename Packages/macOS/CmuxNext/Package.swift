@@ -908,7 +908,7 @@ let package = Package(
             ],
             swiftSettings: daemonSwiftSettings
         ),
-        // The cmux cnx iPhone host (Settings > Mobile): follows the account and
+        // The cmux iPhone host (Settings > Mobile): follows the account and
         // mobile.allowIPhoneConnections, runs the bundled cnx-hostd through
         // CmuxNextMobile's CnxHostSupervisor, lists and removes the account's
         // phones, and projects the Settings page's card.

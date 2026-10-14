@@ -51,7 +51,6 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
-    /// The cmux cnx iPhone host (Settings > Mobile); follows the account and mobile.allowIPhoneConnections.
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
