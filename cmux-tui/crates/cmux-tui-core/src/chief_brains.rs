@@ -822,7 +822,7 @@ impl Supervisor {
                 );
             }
             Err(error) => {
-                eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}")
+                eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}");
             }
         }
     }
