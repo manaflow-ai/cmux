@@ -4779,13 +4779,10 @@ function AcpmuxPane() {
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              onPick={(style, fromKeys) =>
+              onPick={(style) =>
                 pickNewTabStyle(style, {
                   callNative,
-                  show: (next) => {
-                    setNewTab((current) => current && { ...current, template: next });
-                    if (!fromKeys) window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
-                  },
+                  show: (next) => setNewTab((current) => current && { ...current, template: next }),
                 })
               }
             />

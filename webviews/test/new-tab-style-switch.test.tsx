@@ -57,8 +57,18 @@ test("the New Tab page offers its five styles as radios, the current one checked
   // The names show as text, not as dots with tooltips.
   expect(host.textContent).toContain("Composer");
 
-  await act(async () => radios[4]!.click());
+  // A click goes back to the field once the picked page has mounted (the frame after the pick).
+  let fieldAsked = 0;
+  window.addEventListener("acpmux-focus-location", () => fieldAsked++);
+  await act(async () => {
+    radios[4]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+    radios[4]!.click();
+  });
   expect(picks).toEqual(["classic"]);
+  expect(fieldAsked).toBe(0);
+  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
+  await act(() => new Promise<void>((done) => window.requestAnimationFrame(() => done())));
+  expect(fieldAsked).toBe(1);
   await act(async () => root.unmount());
 });
 

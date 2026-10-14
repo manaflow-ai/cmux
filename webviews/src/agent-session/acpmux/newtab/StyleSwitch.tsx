@@ -4,6 +4,7 @@
 // fill that slides to a new pick. No capsule, no popup.
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
+import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import { useNt } from "./strings";
 import { PAGE_STYLES, type PageStyle } from "./templates";
 
@@ -13,8 +14,7 @@ export function StyleSwitch({
   onCancel,
 }: {
   current: PageStyle;
-  /// `fromKeys`: picked with the arrow keys, so focus stays on the switch.
-  onPick(style: PageStyle, fromKeys: boolean): void;
+  onPick(style: PageStyle): void;
   onCancel(): void;
 }) {
   const nt = useNt();
@@ -54,7 +54,18 @@ export function StyleSwitch({
               value={style}
               aria-label={nt(`template.${style}`)}
               checked={style === current}
-              onChange={() => onPick(style, performance.now() - pointed.current > 500)}
+              onChange={(event) => {
+                const fromKeys = performance.now() - pointed.current > 500;
+                const input = event.currentTarget;
+                onPick(style);
+                // After the pick's commit, where a page that mounts for it (Classic, or a screen
+                // from Classic) has focused its field: arrow keys keep moving through the styles; a
+                // click goes back to the field.
+                const view = input.ownerDocument.defaultView;
+                view?.requestAnimationFrame(() =>
+                  fromKeys ? input.focus() : view.dispatchEvent(new view.Event(FOCUS_LOCATION_EVENT)),
+                );
+              }}
             />
             <span aria-hidden="true">{nt(`template.${style}`)}</span>
           </label>
