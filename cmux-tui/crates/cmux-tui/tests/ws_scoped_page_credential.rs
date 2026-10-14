@@ -6,8 +6,9 @@
 //! bound to the Channels page. The Channels page connects with it.
 //!
 //! Checked at the WebSocket boundary: the credential admits one handshake
-//! with the Channels Origin only; the page-router table applies to that
-//! connection (an operation outside the Channels list is refused); it never
+//! with the Channels Origin only; that connection gets the Channels page's
+//! raw commands and `cmux.protocol/2` allow list only (a terminal command or
+//! an operation outside the Channels list is refused); it never
 //! carries the Cloud lease; a WebSocket connection cannot mint one; after an
 //! owner restart a fresh credential connects again.
 
@@ -217,6 +218,18 @@ fn a_page_bound_credential_admits_only_its_page_and_never_the_person() {
     assert_eq!(history["ok"], false, "{history}");
     assert_eq!(history["error"]["code"], "origin.forbidden", "{history}");
     assert_eq!(history["error"]["details"]["reason"], "page_not_allowed", "{history}");
+    // Only the page's raw commands: no terminal, workspace or input command.
+    for request in [
+        json!({"cmd": "new-tab"}),
+        json!({"cmd": "send-text", "text": "echo owned\n"}),
+        json!({"cmd": "list-workspaces"}),
+        json!({"cmd": "subscribe", "surface": "s1"}),
+    ] {
+        let refused = page.rpc(request.clone());
+        assert_eq!(refused["ok"], false, "{request}: {refused}");
+        assert_eq!(refused["error_code"], "origin.forbidden", "{request}: {refused}");
+    }
+    assert_eq!(page.rpc(json!({"cmd": "subscribe"}))["ok"], true);
     // It is never the person: no Cloud command.
     let cloud = page.rpc(json!({"cmd": "cloud-session-status"}));
     assert_eq!(cloud["ok"], false, "{cloud}");

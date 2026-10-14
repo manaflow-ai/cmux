@@ -23,11 +23,18 @@ public nonisolated struct ChiefOwnerPageEndpoint: Sendable, Equatable {
 }
 
 extension ChiefConversationOwner {
-    /// The page `page`'s endpoint on this owner, nil while the owner is not
-    /// connected or is too old for a scoped credential (the page then shows
-    /// the build daemon's conversations only, as before).
+    /// Why the owner has no page endpoint yet (the page tries again).
+    public nonisolated struct NotConnected: Error, Sendable {}
+
+    /// The page `page`'s endpoint on this owner; nil when the owner is too old
+    /// for a scoped credential (the page then shows the build daemon's
+    /// conversations only, as before). Throws `NotConnected` while the owner
+    /// is starting or reconnecting, and the request's error on a lost
+    /// connection, so the page waits for the owner instead of showing the
+    /// wrong conversations.
     public func pageEndpoint(page: String) async throws -> ChiefOwnerPageEndpoint? {
-        guard let connection, supports(DaemonCapabilities.shared.wsListen),
+        guard let connection else { throw NotConnected() }
+        guard supports(DaemonCapabilities.shared.wsListen),
               supports(DaemonCapabilities.shared.scopedPageCredential) else { return nil }
         // The owner's listener admits this page's Origin only (loopback, like the build daemon's).
         let listener = try await connection.request(WsListenRequest(allowOrigin: "cmux-page://cmux.\(page)"))

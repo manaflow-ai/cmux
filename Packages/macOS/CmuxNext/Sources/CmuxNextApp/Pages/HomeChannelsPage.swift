@@ -49,9 +49,13 @@ final class DaemonCredentialPageProvider: PageProvider {
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op == "cmux.host.credential.load" else { throw PageError.unknownOp(op) }
         let credential = try await daemonCredential()
-        // A Chief owner that is down or too old adds nothing: the page keeps the build daemon.
-        guard case .object(var fields) = credential,
-              let owner = try? await chief?.pageEndpoint(page: "home-channels") else { return credential }
+        // An owner too old for it adds nothing (the build daemon only); one still starting retries.
+        guard case .object(var fields) = credential, let chief else { return credential }
+        let endpoint: ChiefOwnerPageEndpoint?
+        do { endpoint = try await chief.pageEndpoint(page: "home-channels") } catch {
+            throw PageError.unavailable(Self.chiefStarting)
+        }
+        guard let owner = endpoint else { return credential }
         fields["owner"] = .object(["url": .string(owner.url), "token": .string(owner.token)])
         return .object(fields)
     }
@@ -74,18 +78,10 @@ final class DaemonCredentialPageProvider: PageProvider {
             let page = try await connection.request(PageCredentialRequest())
             fields["token"] = .string(page.credential)
             return .object(fields)
-        } catch let error as DaemonError where Self.isTransport(error) {
+        } catch let error as DaemonError where error.isLostConnection {
             throw PageError.unavailable("the local cmux daemon is restarting")
         } catch {
             return file
-        }
-    }
-
-    /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
-    nonisolated static func isTransport(_ error: DaemonError) -> Bool {
-        switch error {
-        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
-        default: false
         }
     }
 
@@ -100,7 +96,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         let outcome: DaemonService.PageListenerOutcome
         do {
             outcome = try await daemon.ensurePageListener()
-        } catch let error as DaemonError where Self.isTransport(error) {
+        } catch let error as DaemonError where error.isLostConnection {
             throw PageError.unavailable("the local cmux daemon is restarting")
         } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
             throw PageError.unavailable("the local cmux daemon is restarting")
@@ -125,6 +121,10 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     static var restarting: String {
         String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+    }
+
+    static var chiefStarting: String {
+        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module)
     }
 
     static var tooOld: String {

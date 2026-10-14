@@ -287,7 +287,7 @@ fn handle_websocket_connection_with_permit(
     };
 
     let handshake_page = page.take();
-    let Some(person) =
+    let Some(admission) =
         authenticate_websocket(&mux, &mut websocket, peer, token, handshake_page.as_deref())
     else {
         let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
@@ -336,13 +336,19 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
-    if person {
+    if admission == CredentialMatch::Person {
         mux.control_clients.mark_person(client);
+    }
+    let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
+    // A page-bound credential admits its page only: the page's raw commands and its
+    // `cmux.protocol/2` allow list, nothing else (page-credential-scoped-v1). It matched only
+    // because the handshake named that page.
+    if admission == CredentialMatch::Page {
+        hello.scope_to_page(handshake_page.as_deref().unwrap_or_default());
     }
     if let Some(page) = handshake_page {
         origin_gate::set_page(&mux, client, page);
     }
-    let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
@@ -389,30 +395,30 @@ fn handle_websocket_connection_with_permit(
     drop(connection_permit);
 }
 
-/// `Some(person)` once authenticated: `person` is true for a pairing-store
-/// credential (a human-approved pairing, or the verified app's
-/// `page-credential`), false for the static or file token (any same-user
-/// process can read the file, so it never carries the person's Cloud lease)
-/// and for a page-bound credential (`page-credential {page}`), which admits
-/// only a handshake whose Origin names its page (`handshake_page`).
+/// What admitted the connection, once authenticated: `Person` for a
+/// pairing-store credential (a human-approved pairing, or the verified app's
+/// `page-credential`); `None` (the match kind, not a refusal) for the static
+/// or file token (any same-user process can read the file, so it never
+/// carries the person's Cloud lease); `Page` for a page-bound credential
+/// (`page-credential {page}`), which admits only a handshake whose Origin
+/// names its page (`handshake_page`) and only that page's commands.
 fn authenticate_websocket(
     mux: &Arc<Mux>,
     websocket: &mut WebSocket<SynchronizedTcpStream>,
     peer: SocketAddr,
     configured_token: Option<&str>,
     handshake_page: Option<&str>,
-) -> Option<bool> {
+) -> Option<CredentialMatch> {
     let Ok(Message::Text(text)) = websocket.read() else { return None };
     let mut text = text.to_string();
     if let Some(mut provided) = auth_token(&text) {
         let matched = mux.authenticate_page_handshake(&provided, handshake_page);
-        let paired = matched == CredentialMatch::Person;
         let authenticated = matched != CredentialMatch::None
             || configured_token
                 .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()));
         zeroize_string(&mut provided);
         zeroize_string(&mut text);
-        return authenticated.then_some(paired);
+        return authenticated.then_some(matched);
     }
     if !pairing_request(&text) {
         zeroize_string(&mut text);
@@ -452,7 +458,7 @@ fn authenticate_websocket(
         Ok(PairingDecision::Approved { credential }) => websocket
             .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
             .is_ok()
-            .then_some(true),
+            .then_some(CredentialMatch::Person),
         Ok(PairingDecision::Denied) | Err(_) => {
             mux.cancel_pairing(challenge.id);
             None

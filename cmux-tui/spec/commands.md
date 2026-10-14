@@ -6659,10 +6659,19 @@ connection may ask, not only the verified app; a WebSocket connection never
 may. It returns `object{credential, expires_in, page}`: a credential of the
 same single-use, 2-minute page store, bound to that page. A WebSocket
 handshake that presents it must carry that page's Origin
-(`cmux-page://cmux.<page>`), so the page-router table applies to the
-connection; with any other Origin, or none, the handshake is refused and the
-credential is used up. It is never the person: no `cloud-*` command or event,
-like the file token. It lets an owner whose app connection is not the
+(`cmux-page://cmux.<page>`); with any other Origin, or none, the handshake is
+refused and the credential is used up. The connection then gets only that
+page's commands: its `cmux.protocol/2` allow list (spec/page-router.json) and
+the page's raw commands (for `home-channels`: `identify`, `set-client-info`, a
+plain `subscribe`, `conversation-list`, `conversation-create`,
+`conversation-snapshot`, `conversation-history`, `conversation-thread`,
+`conversation-op`, `conversation-typing`, `conversation-search` and
+`conversation-link-resolve`; for every other page none); any other line is
+refused with `origin.forbidden`. It is never the person: no `cloud-*` command
+or event, like the file token. Page-bound credentials have their own bound
+(16), so they never evict the verified app's page credentials. A client checks
+`page-credential-scoped-v1` before it sends `page`: an older daemon ignores
+the field. It lets an owner whose app connection is not the
 verified app (the Chief home's conversation owner) hand its page a
 credential narrower than the file token. An unknown page id is refused.
 

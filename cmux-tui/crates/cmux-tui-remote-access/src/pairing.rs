@@ -16,6 +16,9 @@ const MAX_CREDENTIALS: usize = 64;
 /// A page credential (`issue`) is for one WebSocket handshake that follows at once.
 const PAGE_CREDENTIAL_TTL: Duration = Duration::from_secs(120);
 const MAX_PAGE_CREDENTIALS: usize = 16;
+/// Page-bound credentials (`issue_for_page`) have their own bound: any trusted local
+/// process may ask for one, so they never evict the verified app's own.
+const MAX_SCOPED_PAGE_CREDENTIALS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingChallenge {
@@ -94,6 +97,8 @@ struct PairingState {
     credentials: VecDeque<Credential>,
     /// Single-use page credentials (`issue`), kept apart so they never evict a pairing.
     page_credentials: VecDeque<Credential>,
+    /// Single-use page-bound credentials (`issue_for_page`), apart from both.
+    scoped_page_credentials: VecDeque<Credential>,
 }
 
 pub struct PairingBroker {
@@ -225,7 +230,7 @@ impl PairingBroker {
     }
 
     /// A page credential bound to `page` (`page-credential {page}`): single
-    /// use and 2 min like `issue`, in the same bounded store, but it admits
+    /// use and 2 min like `issue`, in a bounded store of its own, but it admits
     /// only a handshake whose Origin names `page` and never as the person.
     pub fn issue_for_page(&self, page: &str) -> Result<(String, u64), PairingError> {
         self.issue_page_credential(Some(page.to_owned()))
@@ -236,13 +241,18 @@ impl PairingBroker {
         let value = random_credential()?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::prune(&mut state, now);
-        state.page_credentials.push_back(Credential {
+        let (store, bound) = if page.is_some() {
+            (&mut state.scoped_page_credentials, MAX_SCOPED_PAGE_CREDENTIALS)
+        } else {
+            (&mut state.page_credentials, MAX_PAGE_CREDENTIALS)
+        };
+        store.push_back(Credential {
             value: value.clone(),
             expires_at: now + PAGE_CREDENTIAL_TTL,
             page,
         });
-        while state.page_credentials.len() > MAX_PAGE_CREDENTIALS {
-            state.page_credentials.pop_front();
+        while store.len() > bound {
+            store.pop_front();
         }
         Ok((value, PAGE_CREDENTIAL_TTL.as_secs()))
     }
@@ -274,15 +284,19 @@ impl PairingBroker {
             return CredentialMatch::Person;
         }
         // A page credential authenticates one handshake, then it is gone.
-        let Some(index) = state.page_credentials.iter().position(|credential| {
+        let matches = |credential: &Credential| {
             constant_time_eq(provided.as_bytes(), credential.value.as_bytes())
-        }) else {
+        };
+        if let Some(index) = state.page_credentials.iter().position(matches) {
+            state.page_credentials.remove(index);
+            return CredentialMatch::Person;
+        }
+        let Some(index) = state.scoped_page_credentials.iter().position(matches) else {
             return CredentialMatch::None;
         };
-        match state.page_credentials.remove(index).and_then(|credential| credential.page) {
-            None => CredentialMatch::Person,
+        match state.scoped_page_credentials.remove(index).and_then(|credential| credential.page) {
             Some(page) if handshake_page == Some(page.as_str()) => CredentialMatch::Page,
-            Some(_) => CredentialMatch::None,
+            _ => CredentialMatch::None,
         }
     }
 
@@ -297,6 +311,7 @@ impl PairingBroker {
         state.pending.retain(|_, request| request.expires_at > now);
         state.credentials.retain(|credential| credential.expires_at > now);
         state.page_credentials.retain(|credential| credential.expires_at > now);
+        state.scoped_page_credentials.retain(|credential| credential.expires_at > now);
         state.recent.retain(|_, requests| {
             while requests
                 .front()

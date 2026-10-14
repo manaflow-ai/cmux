@@ -62,9 +62,12 @@ export function DaemonGate({
     owner: null as DaemonSocket | null,
   });
 
-  /** A socket that serves the conversations to a page: authenticated and new enough. */
+  /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
+   *  says whether it closed before the page took it (a close listener added later never fires). */
   const open = (endpoint: string, auth: DaemonAuth) =>
     DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+      let closed = false;
+      daemon.onClose(() => (closed = true));
       try {
         const identity = await daemon.request<{ capabilities?: string[] }>("identify");
         // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
@@ -73,7 +76,7 @@ export function DaemonGate({
         daemon.close();
         throw error;
       }
-      return daemon;
+      return { daemon, closed: () => closed };
     });
 
   /** One connect: authenticate, check the capability, then keep the socket until it drops. */
@@ -84,16 +87,24 @@ export function DaemonGate({
     pages?: string,
     ownerCredential?: HostCredential["owner"],
   ) => {
-    const ownerSocket = ownerCredential
-      ? open(ownerCredential.url, { token: ownerCredential.token })
-      : Promise.resolve(undefined);
-    Promise.all([open(endpoint, auth), ownerSocket.catch((error: Error) => error)])
-      .then(([daemon, owner]) => {
-        // Either socket failing fails the connect: the page never shows half of its owners.
-        if (owner instanceof Error) {
-          daemon.close();
-          throw owner;
+    const opening = [
+      open(endpoint, auth),
+      ownerCredential ? open(ownerCredential.url, { token: ownerCredential.token }) : Promise.resolve(undefined),
+    ] as const;
+    Promise.allSettled(opening)
+      .then(([main, second]) => {
+        const opened = [main, second].flatMap((result) =>
+          result.status === "fulfilled" && result.value ? [result.value] : [],
+        );
+        // Either socket failing (or closing already) fails the connect: the page never shows half of
+        // its owners, and the socket that did open is closed, not leaked.
+        const failed = main.status === "rejected" ? main : second.status === "rejected" ? second : null;
+        if (failed || opened.some((socket) => socket.closed())) {
+          for (const socket of opened) socket.daemon.close();
+          throw failed ? failed.reason : Object.assign(new Error(t("connect.connecting")), { code: "unreachable" });
         }
+        const daemon = (main as PromiseFulfilledResult<{ daemon: DaemonSocket }>).value.daemon;
+        const owner = second.status === "fulfilled" ? second.value?.daemon : undefined;
         // Unmounted, or a newer connection already won: this one is not used.
         if (!live.current.mounted || live.current.daemon) {
           owner?.close();

@@ -10,9 +10,11 @@
 //! page-router table, for an owner whose app connection is not the verified
 //! app (the Chief home's conversation owner). It is single use and lasts 2 min
 //! like the person's, but it admits only a WebSocket handshake whose Origin
-//! names that page (so the page-router table applies to the connection), and
-//! it is never the person: no Cloud lease. It is narrower than the file token
-//! any trusted local process can already read.
+//! names that page, the connection gets only that page's commands
+//! (client_hello.rs `scope_to_page`: its raw commands and its
+//! `cmux.protocol/2` allow list), and it is never the person: no Cloud lease.
+//! It is narrower than the file token any trusted local process can already
+//! read.
 
 use serde::Deserialize;
 use serde_json::{Value, json};
