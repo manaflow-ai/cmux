@@ -122,6 +122,16 @@ pub struct Invocation {
     pub env_remove: Vec<String>,
 }
 
+impl Invocation {
+    /// `codex exec` with the user's provider overrides (`codex_config`), each
+    /// as `-c <value>` right after `exec`.
+    pub fn with_codex_overrides(self, overrides: &[String]) -> Self {
+        // hq#1957: not implemented yet (the failing tests come first).
+        let _ = overrides;
+        self
+    }
+}
+
 fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_owned()).collect()
 }

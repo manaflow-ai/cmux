@@ -27,6 +27,7 @@
 //! The prompt is never logged; the daemon logs the harness, the model and
 //! how long it took.
 
+pub mod codex_config;
 pub mod model_pick;
 pub mod recipes;
 pub mod run;

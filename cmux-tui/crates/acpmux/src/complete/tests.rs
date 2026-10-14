@@ -2,6 +2,7 @@
 //! the small-model choice, the request limits, and the child's deadline and
 //! output cap with plain shell commands.
 
+use super::codex_config::{CodexUserConfig, config_path};
 use super::model_pick::{self, ClaudeInputs, claude_model, newest_haiku, pick};
 use super::recipes::{self, Invocation, Recipe, invocation, recipe_for};
 use super::run::{self, RunDir, RunError};
@@ -289,6 +290,79 @@ fn pi_runs_the_pi_cli_not_its_acp_adapter() {
     assert_eq!((program.as_str(), prefix.len()), ("/bin/grok", 0));
 }
 
+#[test]
+fn codex_reapplies_the_users_model_provider_without_credentials() {
+    let cfg =
+        CodexUserConfig::parse(include_str!("../../tests/fixtures/codex-provider-config.toml"));
+    assert_eq!(cfg.provider.as_deref(), Some("openrouter"));
+    assert_eq!(cfg.model.as_deref(), Some("deepseek/deepseek-v4"));
+    assert_eq!(
+        cfg.overrides,
+        [
+            r#"model_provider="openrouter""#,
+            r#"model_providers.openrouter.base_url="https://openrouter.ai/api/v1""#,
+            r#"model_providers.openrouter.env_key="OPENROUTER_API_KEY""#,
+            r#"model_providers.openrouter.name="OpenRouter""#,
+            r#"model_providers.openrouter.query_params.api-version="2026-01""#,
+            r#"model_providers.openrouter.request_max_retries=2"#,
+            r#"model_providers.openrouter.wire_api="chat""#,
+        ]
+    );
+    let joined = cfg.overrides.join("\n");
+    for leaked in
+        ["sk-or-secret", "secret-header", "mcp_servers", "approval_policy", "example.invalid"]
+    {
+        assert!(!joined.contains(leaked), "{leaked} leaked: {joined}");
+    }
+
+    let inv = invocation(Recipe::Codex, "/opt/codex".into(), vec![], None, Path::new(DIR))
+        .with_codex_overrides(&cfg.overrides);
+    let argv = words(&inv);
+    assert_eq!(&argv[..3], ["exec", "-c", r#"model_provider="openrouter""#]);
+    assert!(argv.contains(&"--ignore-user-config"));
+}
+
+#[test]
+fn codex_default_config_adds_nothing() {
+    for text in ["", "model = \"gpt-6\"\n", "model_provider = \"openai\"\n", "not toml ["] {
+        let cfg = CodexUserConfig::parse(text);
+        assert!(cfg.overrides.is_empty(), "{text:?}: {:?}", cfg.overrides);
+    }
+    // A provider id that is not a bare key is not passed on.
+    let odd = CodexUserConfig::parse("model_provider = \"a b\"\n");
+    assert!(odd.overrides.is_empty(), "{:?}", odd.overrides);
+    assert_eq!(
+        config_path(Some("/x/codex"), Some(Path::new("/home/u"))),
+        Some(Path::new("/x/codex/config.toml").to_path_buf())
+    );
+    assert_eq!(
+        config_path(None, Some(Path::new("/home/u"))),
+        Some(Path::new("/home/u/.codex/config.toml").to_path_buf())
+    );
+}
+
+#[test]
+fn codex_model_comes_from_the_users_provider() {
+    let cfg =
+        CodexUserConfig::parse(include_str!("../../tests/fixtures/codex-provider-config.toml"));
+    let offered = ids(&["gpt-6", "gpt-6-luna"]);
+    let live = ids(&["deepseek/deepseek-v4", "qwen/qwen3-mini"]);
+    // Their provider's own list, never OpenAI's catalog.
+    assert_eq!(cfg.model_for(&offered, Some(live.as_slice())).as_deref(), Some("qwen/qwen3-mini"));
+    // No small model there (or no list yet): their configured model.
+    assert_eq!(cfg.model_for(&offered, None).as_deref(), Some("deepseek/deepseek-v4"));
+    let big = ids(&["deepseek/deepseek-v4"]);
+    assert_eq!(
+        cfg.model_for(&offered, Some(big.as_slice())).as_deref(),
+        Some("deepseek/deepseek-v4")
+    );
+    // OpenAI: the offered list.
+    let openai = CodexUserConfig::parse("model = \"gpt-6\"\n");
+    assert_eq!(openai.model_for(&offered, Some(live.as_slice())).as_deref(), Some("gpt-6-luna"));
+    assert_eq!(openai.model_for(&ids(&["gpt-6"]), None).as_deref(), Some("gpt-6"));
+    assert_eq!(CodexUserConfig::default().model_for(&ids(&["gpt-6"]), None), None);
+}
+
 // ---------------------------------------------------------- model pick
 
 #[test]
@@ -296,7 +370,7 @@ fn claude_prefers_the_haiku_alias() {
     // The alias lets the user's own provider mapping (Bedrock, Vertex,
     // CodeRouter) pick the concrete model.
     let live = ids(&["default", "opus", "sonnet", "haiku", "claude-haiku-5-5"]);
-    let with_live = ClaudeInputs { live: Some(&live), ..Default::default() };
+    let with_live = ClaudeInputs { live: Some(live.as_slice()), ..Default::default() };
     assert_eq!(claude_model(&with_live), "haiku");
     // No live list yet: the alias, never a catalog id.
     assert_eq!(claude_model(&ClaudeInputs::default()), model_pick::CLAUDE_FALLBACK);
@@ -311,18 +385,21 @@ fn claude_uses_a_concrete_haiku_only_when_the_alias_is_unavailable() {
         "claude-haiku-5-5",
         "claude-haiku-5-1",
     ]);
-    let no_alias = ClaudeInputs { live: Some(&live), ..Default::default() };
+    let no_alias = ClaudeInputs { live: Some(live.as_slice()), ..Default::default() };
     assert_eq!(claude_model(&no_alias), "claude-haiku-5-5");
     // The alias listed but refused by the backend.
     let mut with_alias = live.clone();
     with_alias.push("haiku".to_owned());
     let refused = ids(&["haiku"]);
     let alias_refused =
-        ClaudeInputs { live: Some(&with_alias), refused: &refused, ..Default::default() };
+        ClaudeInputs { live: Some(with_alias.as_slice()), refused: &refused, ..Default::default() };
     assert_eq!(claude_model(&alias_refused), "claude-haiku-5-5");
     // No concrete Haiku to fall back to: still the alias.
     let bare = ids(&["default", "opus"]);
-    assert_eq!(claude_model(&ClaudeInputs { live: Some(&bare), ..Default::default() }), "haiku");
+    assert_eq!(
+        claude_model(&ClaudeInputs { live: Some(bare.as_slice()), ..Default::default() }),
+        "haiku"
+    );
     assert_eq!(
         newest_haiku(&ids(&["claude-haiku-4-5-20250101", "claude-haiku-4-5-20251001"])).as_deref(),
         Some("claude-haiku-4-5-20251001")
@@ -335,7 +412,7 @@ fn claude_honors_small_fast_then_default_haiku() {
     let small = ClaudeInputs {
         small_fast: Some(" us.anthropic.claude-haiku-4-5-v1:0 "),
         default_haiku: Some("us.anthropic.claude-haiku-4-5-v2:0"),
-        live: Some(&live),
+        live: Some(live.as_slice()),
         ..Default::default()
     };
     assert_eq!(claude_model(&small), "us.anthropic.claude-haiku-4-5-v1:0");
@@ -343,7 +420,7 @@ fn claude_honors_small_fast_then_default_haiku() {
     let mapped = ClaudeInputs {
         small_fast: Some("  "),
         default_haiku: Some("us.anthropic.claude-haiku-4-5-v2:0"),
-        live: Some(&live),
+        live: Some(live.as_slice()),
         ..Default::default()
     };
     assert_eq!(claude_model(&mapped), "haiku");
