@@ -23,6 +23,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--runs", type=int, default=20)
 parser.add_argument("--budget-ms", type=float, default=16)
+parser.add_argument("--budget-open-ms", type=float, default=16,
+                    help="--bench-open: p95 main-thread Cmd-T time budget")
 parser.add_argument("--text", default="hello")
 parser.add_argument("--app", help="the tagged app bundle (a fleet-built artifact); default: the tag's DerivedData build")
 parser.add_argument("--bench", action="store_true",
@@ -257,6 +259,7 @@ def run_bench_open():
     if bad:
         sys.exit(f"FAIL bench errors: {bad[:3]}")
     summarize("Cmd-T", opens)
+    key_p95 = p95([r["key_ms"] for r in opens])
     failures = []
     for i, r in enumerate(opens):
         frames, opening = r["frames"], r.get("opening") or {}
@@ -277,6 +280,8 @@ def run_bench_open():
             failures.append(f"run {i}: the first frame came {after_key} ms after the key's turn (refresh {period:.2f} ms)")
         if r.get("visible_ms") is None or first is None or r["visible_ms"] > first + 0.5:
             failures.append(f"run {i}: the page and its tab were not shown at the first frame")
+    if key_p95 > opts.budget_open_ms:
+        failures.append(f"p95 Cmd-T main-thread time {key_p95:.2f} ms is over the {opts.budget_open_ms:.2f} ms budget")
     if failures:
         sys.exit("FAIL Cmd-T:\n" + "\n".join(failures))
     print("ok: every Cmd-T adopted a spare at its pane size and showed the page and its tab at the first frame, no missed frame")
