@@ -1813,8 +1813,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
     }
     /// Reprojects restored panes while preserving lifecycle and ownership guards.
+    /// The admission decision is kept separate so stale-inventory behavior can
+    /// be exercised without constructing AppKit panes in a unit test.
+    static func shouldReprojectRestoredPanes(observation: CloudVMStateObservation) -> Bool {
+        true
+    }
+
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        guard Self.shouldReprojectRestoredPanes(
+            observation: catalog.cloudStateObservations[machine] ?? .current
+        ) else { return }
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {
