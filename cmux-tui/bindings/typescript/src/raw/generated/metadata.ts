@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1. */
+/* cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1" as const;
+export const SDK_IR_SHA256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -657,7 +657,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "conversation-agent-token": {
@@ -1898,6 +1898,16 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "page-credential": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-credential-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+    ]
   },
   "pairing-response": {
     "authority": "local-admin",
@@ -3188,6 +3198,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Blocks subsequent requests on this connection; SDKs should use a dedicated connection."
+    ]
+  },
+  "ws-listen": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "ws-listen-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
     ]
   },
   "zoom-pane": {
@@ -20011,6 +20031,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "NotifyResult"
     }
   },
+  "page-credential": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "pairing-response": {
     "request": {
       "additional_properties": false,
@@ -24528,6 +24559,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WaitForResult"
+    }
+  },
+  "ws-listen": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "allow_origins": {
+          "constraints": [
+            "The page origins the listener admits besides its own (capability ws-listen-origins-v1), joined with allow_origin."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "zoom-pane": {

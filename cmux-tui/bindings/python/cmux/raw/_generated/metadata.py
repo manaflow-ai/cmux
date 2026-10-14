@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1'
+IR_SHA256 = '4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955'
 
 
 @dataclass(frozen=True)
@@ -2091,6 +2091,16 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'page-credential': CommandMetadata(
+        'page-credential',
+        'local-admin',
+        12,
+        'page-credential-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'pairing-response': CommandMetadata(
         'pairing-response',
         'local-admin',
@@ -3428,6 +3438,18 @@ COMMANDS = {
             'pattern': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'timeout_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'ws-listen': CommandMetadata(
+        'ws-listen',
+        'local-admin',
+        12,
+        'ws-listen-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_origin': CommandFieldMetadata(None, None),
+            'allow_origins': CommandFieldMetadata(None, None),
         },
     ),
     'zoom-pane': CommandMetadata(

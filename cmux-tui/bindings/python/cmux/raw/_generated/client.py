@@ -468,6 +468,9 @@ class GeneratedClientMixin:
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
+    def page_credential(self) -> JsonValue:
+        return self._invoke_command('page-credential', PageCredentialRequest())
+
     def pairing_response(self, request: int, approve: bool) -> EmptyResult:
         return self._invoke_command('pairing-response', PairingResponseRequest(request=request, approve=approve))
 
@@ -771,6 +774,9 @@ class GeneratedClientMixin:
     def wait_for(self, surface: Id, pattern: str, timeout_ms: int) -> WaitForResult:
         return self._invoke_command('wait-for', WaitForRequest(surface=surface, pattern=pattern, timeout_ms=timeout_ms))
 
+    def ws_listen(self, *, allow_origin: Union[str, None, MissingType] = MISSING, allow_origins: Union[List[str], None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('ws-listen', WsListenRequest(allow_origin=allow_origin, allow_origins=allow_origins))
+
     def zoom_pane(self, pane: Union[Id, None, MissingType] = MISSING, *, mode: Union[Literal['toggle', 'on', 'off'], None, MissingType] = MISSING) -> ZoomPaneResult:
         return self._invoke_command('zoom-pane', ZoomPaneRequest(pane=pane, mode=mode))
 
@@ -927,6 +933,7 @@ GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
+GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
@@ -1028,6 +1035,7 @@ GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-resul
 GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
+GeneratedClientMixin.ws_listen.__cmux_command__ = COMMANDS['ws-listen']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']
 
 __all__ = ["GeneratedClientMixin"]

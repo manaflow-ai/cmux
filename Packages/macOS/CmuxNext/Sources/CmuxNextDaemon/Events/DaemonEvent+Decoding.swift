@@ -82,6 +82,13 @@ extension DaemonEvent {
                 return .cloudConversations(event)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
+            // The request id is a random u64: JSONValue numbers are Double (53 bits), so the exact id
+            // goes along as a decimal string (`request_id`) for `pairing-response` (cx-hnmbt.2).
+            case "pairing-requested", "pairing-resolved":
+                let id = try d(EventPayload.PairingRequest.self).request
+                guard case .object(var fields) = payload() else { return .unknown(name: name, payload: .null) }
+                fields["request_id"] = .string(String(id))
+                return .unknown(name: name, payload: .object(fields))
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
             case "daemon-shutdown": return .daemonShutdown
             case LineTransport.streamEvent:
@@ -100,6 +107,10 @@ private enum EventPayload {
     struct HistoryChanged: Decodable {
         var revision: UInt64
         var kinds: [String]?
+    }
+
+    struct PairingRequest: Decodable {
+        var request: UInt64
     }
 
     struct KeybindingsChanged: Decodable {

@@ -129,6 +129,11 @@ impl Mux {
         self.pairing.authenticate(credential)
     }
 
+    /// A page credential for the verified app (`page-credential`): `(credential, seconds)`.
+    pub fn issue_page_credential(&self) -> anyhow::Result<(String, u64)> {
+        self.pairing.issue().map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
     pub fn pending_pairings(&self) -> Vec<PairingChallenge> {
         self.pairing.pending()
     }

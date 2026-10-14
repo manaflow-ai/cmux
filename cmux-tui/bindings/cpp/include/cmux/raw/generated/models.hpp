@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1";
+inline constexpr std::string_view kProtocolIrSha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -394,6 +394,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PasteImageRequest;
@@ -501,6 +502,7 @@ struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
+struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
@@ -3532,6 +3534,10 @@ struct OverflowEvent {
     friend bool operator==(const OverflowEvent&, const OverflowEvent&) = default;
 };
 
+struct PageCredentialRequest {
+    friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
+};
+
 struct PairingRequestedEvent {
     std::string code{};
     std::uint64_t expires_in{};
@@ -5285,6 +5291,12 @@ struct WorkspaceRenamedEvent {
     Id workspace{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const WorkspaceRenamedEvent&, const WorkspaceRenamedEvent&) = default;
+};
+
+struct WsListenRequest {
+    Field<std::string> allow_origin{};
+    Field<std::vector<std::string>> allow_origins{};
+    friend bool operator==(const WsListenRequest&, const WsListenRequest&) = default;
 };
 
 enum class ZoomPaneRequestMode {
@@ -7575,6 +7587,12 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
+struct Codec<PageCredentialRequest> {
+    static Result<Json> encode(const PageCredentialRequest& value);
+    static Result<PageCredentialRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PairingResponseRequest> {
     static Result<Json> encode(const PairingResponseRequest& value);
     static Result<PairingResponseRequest> decode(const Json& value);
@@ -8214,6 +8232,12 @@ template <>
 struct Codec<WaitForRequest> {
     static Result<Json> encode(const WaitForRequest& value);
     static Result<WaitForRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<WsListenRequest> {
+    static Result<Json> encode(const WsListenRequest& value);
+    static Result<WsListenRequest> decode(const Json& value);
 };
 
 template <>

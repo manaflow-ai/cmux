@@ -3531,6 +3531,12 @@ class NotifyRequest:
 
 
 @dataclass(frozen=True)
+class PageCredentialRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
+    pass
+
+
+@dataclass(frozen=True)
 class PairingResponseRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pairing-response/request'
     request: int
@@ -4411,6 +4417,13 @@ class WaitForRequest:
     surface: Id
     pattern: str
     timeout_ms: int
+
+
+@dataclass(frozen=True)
+class WsListenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ws-listen/request'
+    allow_origin: Union[str, None, MissingType] = field(default=MISSING)
+    allow_origins: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5649,6 +5662,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
     'PasteImageRequest',
@@ -5756,6 +5770,7 @@ __all__ = [
     'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
+    'WsListenRequest',
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1";
+pub const ir_sha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6564,6 +6564,23 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
     );
 }
 
+pub const PageCredentialRequest = struct {};
+
+pub const PageCredentialResult = JsonValue;
+
+pub fn pageCredential(client: anytype, request: PageCredentialRequest) !wire.Decoded(PageCredentialResult) {
+    return client.callTyped(
+        PageCredentialResult,
+        .{
+            .name = "page-credential",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-credential-v1",
+        },
+        request,
+    );
+}
+
 pub const PairingResponseRequest = struct {
     approve: bool,
     request: u64,
@@ -8820,6 +8837,26 @@ pub fn waitFor(client: anytype, request: WaitForRequest) !wire.Decoded(WaitForRe
     );
 }
 
+pub const WsListenRequest = struct {
+    allow_origin: wire.Field([]const u8) = .absent,
+    allow_origins: wire.Field([]const []const u8) = .absent,
+};
+
+pub const WsListenResult = JsonValue;
+
+pub fn wsListen(client: anytype, request: WsListenRequest) !wire.Decoded(WsListenResult) {
+    return client.callTyped(
+        WsListenResult,
+        .{
+            .name = "ws-listen",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "ws-listen-v1",
+        },
+        request,
+    );
+}
+
 pub const ZoomPaneRequestMode = enum {
     toggle,
     on,
@@ -10225,7 +10262,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 254;
+pub const command_count: usize = 256;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10379,6 +10416,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
@@ -10480,6 +10518,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
 };
 
