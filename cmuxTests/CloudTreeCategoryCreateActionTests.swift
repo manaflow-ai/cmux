@@ -2,6 +2,7 @@ import AppKit
 import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -133,14 +134,19 @@ struct CloudTreeCategoryCreateActionTests {
         let cell = try fixture.cell(for: action)
         let host = try fixture.createHost(for: action)
         cell.setHovered(false)
-        let hostedContentIdentity = host.hostedContentIdentity
-        let updateCount = host.hostedContentUpdateCount
+        let hostedContentIdentity = ObjectIdentifier(host.hostedContent)
+        var hostedContentDidUpdate = false
+        withObservationTracking {
+            _ = host.hostedContent.view
+        } onChange: {
+            hostedContentDidUpdate = true
+        }
 
         cell.setHovered(true)
         fixture.container.layoutSubtreeIfNeeded()
 
-        #expect(host.hostedContentIdentity == hostedContentIdentity)
-        #expect(host.hostedContentUpdateCount == updateCount + 1)
+        #expect(ObjectIdentifier(host.hostedContent) == hostedContentIdentity)
+        #expect(hostedContentDidUpdate)
     }
 
     @MainActor

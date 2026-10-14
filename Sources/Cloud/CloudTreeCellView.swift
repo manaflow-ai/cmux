@@ -423,20 +423,13 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     /// Spots that take clicks even while the rest passes through, like a
     /// section header's refresh icon, in this view's (flipped) coordinates.
     var interactiveRects: [CGRect] = []
-#if DEBUG
-    var hostedContentIdentity: ObjectIdentifier { ObjectIdentifier(hostedContent) }
-    private(set) var hostedContentUpdateCount = 0
-#endif
 
     /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
     func setHostedRootView(_ rootView: AnyView) {
-#if DEBUG
-        hostedContentUpdateCount += 1
-#endif
         hostedContent.view = rootView
     }
 
-    private let hostedContent: CloudTreeHostedContent
+    let hostedContent: CloudTreeHostedContent
 
     required init(rootView: AnyView) {
         hostedContent = CloudTreeHostedContent()
@@ -474,20 +467,13 @@ final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {
     /// hover fill can step aside for the button's own.
     var onPointerInside: ((Bool) -> Void)?
     private var pointerTracking: NSTrackingArea?
-#if DEBUG
-    var hostedContentIdentity: ObjectIdentifier { ObjectIdentifier(hostedContent) }
-    private(set) var hostedContentUpdateCount = 0
-#endif
 
     /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
     func setHostedRootView(_ rootView: AnyView) {
-#if DEBUG
-        hostedContentUpdateCount += 1
-#endif
         hostedContent.view = rootView
     }
 
-    private let hostedContent: CloudTreeHostedContent
+    let hostedContent: CloudTreeHostedContent
 
     required init(rootView: AnyView) {
         hostedContent = CloudTreeHostedContent()
