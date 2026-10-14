@@ -244,6 +244,11 @@ public final class BrowserHistoryWriter {
     private final class Once<T: Sendable> {
         var continuation: CheckedContinuation<T?, Never>?
 
+        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
+        // isolated deinit's back-deploy path crashed swift-frontend's Release inliner
+        // (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit.
+        nonisolated deinit {}
+
         func resume(_ value: T?) {
             continuation?.resume(returning: value)
             continuation = nil
