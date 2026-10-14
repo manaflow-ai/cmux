@@ -9,14 +9,14 @@ import CmuxNextWakeups
 /// not cmux.json. A palette, menu or key run is the person's. Any other run
 /// (the CLI, a script, a page) applies only after the person approves it on a
 /// native sheet, so an agent in a terminal cannot change it. MCP never offers it.
-public enum WorkspaceLocalhostChoice {
+extension ActionRegistry {
     /// Runs `workspace.setRemoteLocalhost`. `workspace` resolves the
     /// invocation's workspace (id and name); `approve` shows the native sheet
     /// for a workspace name and choice title and returns whether the person
     /// confirmed it.
-    public static func set(_ invocation: ActionInvocation, workspace: () throws -> (id: String, name: String),
-                           registry: ActionRegistry, machines: any RemoteLocalhostMachines,
-                           approve: @escaping @MainActor (_ workspace: String, _ choice: String) async -> Bool) throws {
+    public func setWorkspaceLocalhost(_ invocation: ActionInvocation, workspace: () throws -> (id: String, name: String),
+                                      machines: any RemoteLocalhostMachines,
+                                      approve: @escaping @MainActor (_ workspace: String, _ choice: String) async -> Bool) throws {
         let raw = invocation["localhost"]?.stringValue ?? ""
         // machine: the workspace's machine; thisMac: this Mac; setting: follow the setting (nil).
         let choices: [String: Bool?] = ["machine": true, "thisMac": false, "setting": nil]
@@ -32,8 +32,8 @@ public enum WorkspaceLocalhostChoice {
             home.send("set-personal-workspace") { try await $0.setPersonalWorkspace(request) }
             return
         }
-        let name = quoted(model.name), title = choiceTitle(raw, registry)
-        registry.track(Task {
+        let name = Self.quoted(model.name), title = choiceTitle(raw)
+        track(Task {
             // The sheet goes before the caller stops waiting (the router never
             // cancels tracked work): a change nobody waits for never happens.
             let sheet = Task { await approve(name, title) }
@@ -56,8 +56,8 @@ public enum WorkspaceLocalhostChoice {
     }
 
     /// The menu title of a choice, for the sheet.
-    private static func choiceTitle(_ value: String, _ registry: ActionRegistry) -> String {
-        let argument = registry.descriptor(for: "workspace.setRemoteLocalhost")?.arguments.first { $0.name == "localhost" }
+    private func choiceTitle(_ value: String) -> String {
+        let argument = descriptor(for: "workspace.setRemoteLocalhost")?.arguments.first { $0.name == "localhost" }
         guard case .enumeration(let cases)? = argument?.kind else { return value }
         return cases.first { $0.value == value }?.title ?? value
     }

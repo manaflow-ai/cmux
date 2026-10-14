@@ -2,17 +2,17 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
 
-/// Set Workspace Localhost (`WorkspaceLocalhostChoice`): the App resolves the
+/// Set Workspace Localhost (`ActionRegistry.setWorkspaceLocalhost`): the App resolves the
 /// workspace and shows the approval sheet.
 enum RemoteLocalhostHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("workspace.setRemoteLocalhost", requires: DaemonCapabilities.shared.personalRemoteLocalhost,
                       daemon: services.machines.local, run: { invocation in
-            try WorkspaceLocalhostChoice.set(invocation, workspace: {
+            try services.registry.setWorkspaceLocalhost(invocation, workspace: {
                 let (model, _) = try context.workspace(invocation)
                 return (model.id, model.displayName)
-            }, registry: services.registry, machines: services.machines) { workspace, choice in
+            }, machines: services.machines) { workspace, choice in
                 let prompt = DestructiveConfirmation.Prompt(
                     title: ConfirmationStrings.remoteLocalhostTitle, body: ConfirmationStrings.remoteLocalhostBody(workspace, choice),
                     button: ConfirmationStrings.userOnlySettingButton)
