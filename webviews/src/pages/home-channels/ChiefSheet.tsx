@@ -112,6 +112,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
             <span className="lg-form-label">{t("chief.field.name")}</span>
             <input
               className="hc-link-field"
+              aria-label={t("chief.field.name")}
               value={profile.name}
               maxLength={100}
               required
@@ -124,6 +125,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
             <span className="lg-form-label">{t("chief.field.role")}</span>
             <input
               className="hc-link-field"
+              aria-label={t("chief.field.role")}
               value={profile.role}
               maxLength={200}
               disabled={!chief && locked}
@@ -159,6 +161,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
         <span className="lg-form-label">{t("chief.field.personality")}</span>
         <textarea
           className="hc-link-field lg-form-text"
+          aria-label={t("chief.field.personality")}
           rows={2}
           maxLength={4000}
           disabled={locked}
@@ -171,6 +174,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
         <span className="lg-form-label">{t("chief.field.instructions")}</span>
         <textarea
           className="hc-link-field lg-form-text"
+          aria-label={t("chief.field.instructions")}
           rows={4}
           maxLength={32000}
           disabled={locked}
@@ -187,7 +191,12 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
         <span className="lg-grant-items">
           {CHIEF_TOOLS.map((tool) => (
             <label key={tool} className="lg-grant-item">
-              <input type="checkbox" checked={grant.tools.includes(tool)} onChange={() => toggle("tools", tool)} />
+              <input
+                type="checkbox"
+                aria-label={t(`chief.tool.${tool}`)}
+                checked={grant.tools.includes(tool)}
+                onChange={() => toggle("tools", tool)}
+              />
               <span>{t(`chief.tool.${tool}`)}</span>
             </label>
           ))}
@@ -200,6 +209,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
             <label key={harness} className="lg-grant-item">
               <input
                 type="checkbox"
+                aria-label={harness}
                 checked={grant.harnesses.includes(harness)}
                 onChange={() => toggle("harnesses", harness)}
               />
