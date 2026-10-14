@@ -1,3 +1,4 @@
+import CmuxNextBookmarks
 import CmuxNextDaemon
 import Foundation
 
@@ -11,7 +12,8 @@ extension BookmarkService {
     /// the tree. False when the store must not sync: the daemon cannot merge
     /// (no `bookmarks-merge-v1`), the file cannot be read, or the merge failed.
     func mergeChromiumStore(_ store: String, profile: String) async -> Bool {
-        guard usesDaemon, let connection = services.machines.local.connection, connection.supportsBookmarkMerge else {
+        guard usesDaemon, services.machines.local.supports(DaemonCapabilities.shared.bookmarksMerge),
+              let connection = services.machines.local.connection else {
             logger.error("chrome.bookmarks: no merge-bookmarks on the home daemon; \(profile, privacy: .public) is not synced")
             return false
         }
