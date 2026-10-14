@@ -25,6 +25,8 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    static var npKept: [NSWindow] = []
+    nonisolated(unsafe) static var npStopped = false
     nonisolated(unsafe) static var npDepth = 1 // installed inside the outer run
     static let npDiag: Void = {
         func say(_ s: String) { FileHandle.standardError.write(Data(("NPDIAG " + s + "\n").utf8)) }
@@ -62,7 +64,15 @@ import Testing
             }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultMode)
+        let probe = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeTimers.rawValue | CFRunLoopActivity.beforeSources.rawValue | CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, activity in
+            let text = String(describing: CFCopyDescription(CFRunLoopGetMain()))
+            let stopped = text.contains("stopped = true")
+            if stopped != NowPlayingCardTests.npStopped {
+                NowPlayingCardTests.npStopped = stopped
+                say("stopped flag now \(stopped) at activity \(activity.rawValue) depth \(NowPlayingCardTests.npDepth)\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n"))
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), probe, .commonModes)
         say("installed")
     }()
     init() { _ = Self.npDiag }
@@ -188,14 +198,17 @@ import Testing
         #expect(h.card.subviews.first is CardSurfaceView, "the card is not on the sidebar cards' surface")
     }
 
-    @Test func nothingOnTheCardMovesUnderReduceMotion() throws {
+    @Test func nothingOnTheCardMovesUnderReduceMotion() throws { try reduceMotionBody() }
+
+    func reduceMotionBody(orderFront: Bool = true, close: Bool = true) throws {
+        FileHandle.standardError.write(Data("NPDIAG body start orderFront=\(orderFront) close=\(close)\n".utf8))
         _ = NSApplication.shared
         let card = SidebarNowPlayingCardView(frame: NSRect(x: 0, y: 0, width: 216, height: SidebarNowPlayingCardView.height(for: Self.track())))
         let window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { if close { window.close() } else { Self.npKept.append(window) } }
         window.contentView = card
-        window.orderFrontRegardless()
+        if orderFront { window.orderFrontRegardless() }
         /// Every animation on the card that slides (anything but a discrete step) or repeats.
         func sliding() -> [String] {
             func animated(_ layer: CALayer) -> [String] {
@@ -238,4 +251,56 @@ import Testing
         await h.cardShows(false)
         #expect(h.card.isHidden || h.card.frame.isEmpty, "the card stays after the source stops")
     }
+}
+
+// Diagnostic variants (not for merge): each suite is its own process.
+@MainActor @Suite(.serialized) struct NPVarFull {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoT1 {
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoT2 {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoT3 {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoT4 {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoOrderFront {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody(orderFront: false) }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarNoClose {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t2() async throws { try await NowPlayingCardTests().theControlsAndTheScrubberReachTheSource() }
+    @Test func t3() async throws { try await NowPlayingCardTests().theCardDrawsInTheTerminalTheme() }
+    @Test func t4() throws { try NowPlayingCardTests().reduceMotionBody(close: false) }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+}
+@MainActor @Suite(.serialized) struct NPVarOnlyT1T5 {
+    @Test func t1() async throws { try await NowPlayingCardTests().theCardShowsWhatPlaysWithItsArtworkAndControls() }
+    @Test func t5() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
+    @Test func t6() async throws { try await NowPlayingCardTests().theCardIsThereOnlyWhileThePreviewIsOn() }
 }
