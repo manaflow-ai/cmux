@@ -105,9 +105,8 @@ test("turning the card's switch on asks the host to write the setting", async ()
 test("a subagent that starts before the setting reaches the page still tiles once it says on", async () => {
   const { createRoot } = await import("react-dom/client");
   const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-  const { useAutoOpenSubagents, useOpenNewSubagents } = await import(
-    "../src/agent-session/acpmux/subagents/subagentPanes"
-  );
+  const { useAutoOpenSubagents, useOpenNewSubagents } =
+    await import("../src/agent-session/acpmux/subagents/subagentPanes");
   const settings = await import("../src/agent-session/acpmux/composerSettings");
   await act(async () => settings.setComposerSettings({ tileSubagentsAutomatically: false }));
   const opened: string[] = [];
@@ -118,7 +117,9 @@ test("a subagent that starts before the setting reaches the page still tiles onc
       version: 1,
       at: Date.now(),
       kind: SUBAGENTS,
-      subagents: [{ id: "sub-1", name: "explore", task: "Find the bug", parent: null, state: "running", startedAt: Date.now() }],
+      subagents: [
+        { id: "sub-1", name: "explore", task: "Find the bug", parent: null, state: "running", startedAt: Date.now() },
+      ],
     },
   ] as never[];
   function Chat() {

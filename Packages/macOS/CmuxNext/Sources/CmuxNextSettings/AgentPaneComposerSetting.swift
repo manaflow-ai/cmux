@@ -78,6 +78,6 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         ]
     }
 
-    /// Looks only: agents may change them.
+    /// Agents may change them: two looks, and tiling of the chat's own subagents.
     static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
 }

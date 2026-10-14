@@ -31,6 +31,13 @@ export const revealedSubagent = (value: string) =>
 const HISTORY_SLACK_MS = 3_000;
 const setAutoOpen = (on: boolean) => showComposerControl("tileSubagentsAutomatically", on);
 
+// The old switch's own copy, before the setting (#20694): drop it.
+try {
+  globalThis.localStorage?.removeItem("cmux.acpmux.subagentPanes");
+} catch {
+  // No storage.
+}
+
 /// Whether new subagents tile in panes of their own (off unless turned on).
 export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
   return [useComposerSettings().tileSubagentsAutomatically, setAutoOpen];
@@ -84,10 +91,13 @@ export function useOpenNewSubagents(
     if (!sessionId) return;
     let chat = seen.current.get(sessionId);
     if (!chat) seen.current.set(sessionId, (chat = { since: Date.now() - HISTORY_SLACK_MS, known: new Set() }));
+    // While off nothing counts as handled: the setting reaches the page after its first rows, and
+    // turning it on tiles the chat's new subagents still running.
+    if (!enabled) return;
     for (const agent of subagentsIn(rows, views).values()) {
       if (chat.known.has(agent.id)) continue;
       chat.known.add(agent.id);
-      if (enabled && agent.parent === null && agent.state === "running" && agent.startedAt + clockOffset >= chat.since)
+      if (agent.parent === null && agent.state === "running" && agent.startedAt + clockOffset >= chat.since)
         open(agent.id);
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `open` changes each render; rows drive it
