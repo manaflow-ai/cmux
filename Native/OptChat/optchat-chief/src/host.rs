@@ -521,7 +521,7 @@ fn start(
         ),
     );
     crate::acpmux_daemon::set_child_env(daemon_env);
-    let instructions = crate::prompt::user_instructions(&paths.instructions);
+    let instructions = crate::prompt::chief_instructions(&paths.person, &paths.instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");

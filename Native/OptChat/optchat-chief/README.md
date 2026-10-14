@@ -94,7 +94,8 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   hard its subagents think; by default the calling turn's effort.
 - First message: the view at spawn time (one block per cached piece), then
   `Your task:\n\n<task>`. System prompt: section 9's subagent prompt (agent
-  renamed Chief), VIEW_DOC, a short cmux section, then the user's AGENTS.md
+  renamed Chief), VIEW_DOC, a short cmux section, then the person profile
+  and the user's AGENTS.md
   (the preset's `systemPrompt` on Claude; CLAUDE.md when acpmux takes none;
   AGENTS.md on other harnesses).
 - `zoom("a<N>")` (`chief zoom a<N> [AT]`) gives a subagent's whole chat from
@@ -381,6 +382,7 @@ $MUX_HOME/optchat/memory-jsonl-backup-<stamp>/  the old JSONL files of a migrate
 $MUX_HOME/optchat/backup.json     the last backup outcome (ok, held with its text, retrying, off)
 $MUX_HOME/optchat/backup-allow.txt  message ids or summary names whose possible secret the user allowed
 $MUX_HOME/optchat/settings.json   per-Chief settings: {"backup": {"remote": true|false}}
+$MUX_HOME/optchat/person.md       the person profile: who the user is and how they want work done; written once with a default, then the user's (read at host start)
 $MUX_HOME/optchat/AGENTS.md       the user's own instructions, the end of the system prompt (read at host start)
 $MUX_HOME/optchat/memory.html     `optchat-chief browse` output
 $MUX_HOME/optchat/host.json.imported  the old host state, moved into memory.sqlite3 at the first start
@@ -410,8 +412,16 @@ $TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working dir
 user pasted.
 
 The system prompt (and the acpmux session's `CLAUDE.md`) is the spec's MASTER
-and VIEW_DOC (agent renamed "Chief"), a short cmux section, then
-`$MUX_HOME/optchat/AGENTS.md` when it exists. The files
+and VIEW_DOC (agent renamed "Chief"), a short cmux section, then the person
+profile (`$MUX_HOME/optchat/person.md`) and `$MUX_HOME/optchat/AGENTS.md` when
+it exists. The Chief runs with no user CLAUDE.md, settings or hooks, so the
+profile is the one place that says how the user wants work done. A host start
+writes the default once when the file is missing (act without asking for safe
+operations; ask only for money, legal, physical or destructive actions; never
+build or test on this Mac, use the fleet or remote routes through a subagent);
+the user edits it, or empties it to drop it. Both files are read once per host
+start, so the cached prefix changes only when a file changed and the host
+restarted (`profile.json` is the app's avatar, a different file). The files
 this host writes (CLAUDE.md, the MCP tool list, the settings) are
 byte-identical across turns. The request the model gets is not fully ours:
 
