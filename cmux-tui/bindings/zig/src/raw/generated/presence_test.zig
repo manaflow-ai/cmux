@@ -29,6 +29,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseTabGroupResult, "terminals");
     try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "if_empty");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
@@ -59,6 +60,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
+    try expectExplicitNullRejected(protocol.SendResult, "queued");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
     try expectExplicitNullRejected(protocol.SetDefaultColorsRequest, "complete");
     try expectExplicitNullRejected(protocol.SetRowHeightsRequest, "fit");

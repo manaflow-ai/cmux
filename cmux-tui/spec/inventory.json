@@ -27,6 +27,7 @@
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
+    "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
     "chief.engine.get",
@@ -78,6 +79,7 @@
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
@@ -863,6 +865,12 @@
       "name": "tab-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "terminal-input-unclaimed",
+      "streams": [
+        "control"
       ]
     },
     {

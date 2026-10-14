@@ -141,6 +141,10 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.tab.set_profile": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "caffeinate.cycle_variant": {
       "scope": "caffeinate:write",
       "class": "mutation"
@@ -1747,6 +1751,7 @@
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
