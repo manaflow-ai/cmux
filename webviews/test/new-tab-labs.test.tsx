@@ -21,6 +21,7 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "MutationObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
@@ -44,6 +45,7 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
     Node: window.Node,
     Element: window.Element,
+    MutationObserver: window.MutationObserver,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
@@ -92,7 +94,8 @@ async function page(options: Options = {}) {
 }
 
 const section = () => host.querySelector<HTMLElement>(".nt-labs");
-const toggle = (flag: string) => section()!.querySelector<HTMLInputElement>(`[data-lab="${flag}"] input[type=checkbox]`)!;
+const toggle = (flag: string) =>
+  section()!.querySelector<HTMLInputElement>(`[data-lab="${flag}"] input[type=checkbox]`)!;
 
 test("outside a team build the page has no Labs section", async () => {
   await page({ team: false });

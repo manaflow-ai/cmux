@@ -34,7 +34,7 @@ struct NewTabStyleSwitchTests {
         let (settings, directory) = try await Self.settings()
         defer { try? FileManager.default.removeItem(at: directory) }
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
-        model.onSetNewTabTemplate = { template in Task { await NewTabPage.saveTemplate(template, settings: settings) } }
+        model.onNewTabSetting = { change in Task { await NewTabPage.save(change, settings: settings) } }
 
         let reply = await Self.pick(model, "threads")
         #expect(reply["ok"] as? Bool == true)

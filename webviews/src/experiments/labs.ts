@@ -24,6 +24,11 @@ function subscribe(change: () => void): () => void {
   return () => observer.disconnect();
 }
 
+/** Whether this is a team build (nightly or dev, `data-labs-team`), where pages offer Labs toggles. */
+export function labsTeamBuild(root: Element = document.documentElement): boolean {
+  return root.getAttribute("data-labs-team") === "1";
+}
+
 /** `labsFlag` for a component: it renders again when the flag turns on or off. */
 export function useLabsFlag(name: LabsFlagName): boolean {
   return useSyncExternalStore(
