@@ -80,6 +80,6 @@ import Testing
                 "the old pane kept the focus ring at its new frame after the split: \(rings)")
         #expect(rings.first { $0.pane == new.rawValue }?.showsRing == true, "the new pane has no focus ring: \(rings)")
         // Every overlay is on its pane's current frame: nothing is left where the pane was.
-        #expect(rings.allSatisfy(\.ringInSync), "a ring is off its pane's content: \(rings)")
+        #expect(rings.allSatisfy { $0.ringInSync }, "a ring is off its pane's content: \(rings)")
     }
 }
