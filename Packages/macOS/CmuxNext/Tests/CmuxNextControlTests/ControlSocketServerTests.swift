@@ -336,4 +336,39 @@ import Testing
         #expect(!server.isRunning)
         #expect(access(path, F_OK) != 0, "the restored socket of a stopped server is removed")
     }
+
+    /// Restores that keep failing (descriptors exhausted while the file is
+    /// gone) back off instead of spinning, and the socket still comes back
+    /// once a bind works again.
+    @Test func restoresThatKeepFailingBackOffAndStillComeBack() async throws {
+        let path = temporarySocketPath()
+        let binds = Mutex(0)
+        let failing = Mutex(true)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let server = ControlSocketServer(
+            configuration: .init(path: path, accessMode: .allowAll),
+            router: router,
+            accept: { Darwin.accept($0, nil, nil) },
+            bind: { descriptor, address, length in
+                let count = binds.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count > 1, failing.withLock({ $0 }) {
+                    errno = EACCES
+                    return -1
+                }
+                return Darwin.bind(descriptor, address, length)
+            }
+        )
+        try server.start()
+        defer { server.stop() }
+        #expect(unlink(path) == 0)
+        try await Task.sleep(for: .seconds(2))
+        let failed = binds.withLock { $0 } - 1
+        #expect(failed >= 3, "the delete started restores (\(failed))")
+        #expect(failed <= 12, "failed restores back off instead of spinning (\(failed) in 2 s)")
+        failing.withLock { $0 = false }
+        #expect(await pingWithin(path, .seconds(10)) == "PONG", "the socket comes back once a bind works")
+    }
 }
