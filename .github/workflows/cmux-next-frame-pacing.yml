@@ -13,6 +13,16 @@ name: cmux-next frame pacing
 # `runner` does) and skips the run otherwise, and the build and the bench take
 # vars.CI_SIDE_LANE_RUNNER with no Blacksmith fallback. The bench drives the
 # console session, so it holds the mini's gui token while it measures.
+#
+# The same bench job then runs the golden interactions (scripts/ci/frame-pacing/golden.sh
+# and golden.py, cx-codh2): New Tab cold and warm, sidebar collapse and expand, transcript
+# follow while a reply streams, a live window resize, and the Reduce Motion path, each with
+# its animated property sampled once per display frame. A scenario whose animation did not
+# run (too few intermediate frames, or one frame carrying most of the travel) fails the
+# judge step, which is continue-on-error: it warns and gates nothing. `suites: golden`
+# runs them alone, with their own build tag and a concurrency group per ref, so it never
+# displaces the nightly run; cmux-next-motion-golden.yml dispatches that for pull requests
+# into feat-cmux-next that touch the measured paths.
 
 on:
   schedule:
@@ -30,19 +40,28 @@ on:
         required: false
         default: "3"
         type: string
+      suites:
+        description: "What to run: fling, golden (the golden interactions), or both"
+        required: false
+        default: fling,golden
+        type: string
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  # One bench at a time: every run uses the same tag, socket and console session.
-  group: cmux-next-frame-pacing
-  cancel-in-progress: false
+  # One bench at a time: every run uses the same tag, socket and console session. A
+  # golden-only run (a pull request's) has its own tag and a group per ref, where a newer
+  # push supersedes the older run.
+  group: ${{ inputs.suites == 'golden' && format('cmux-next-frame-pacing-golden-{0}', inputs.ref) || 'cmux-next-frame-pacing' }}
+  cancel-in-progress: ${{ inputs.suites == 'golden' }}
 
 env:
-  # The tagged app's baked tag; its debug socket is /tmp/cmux-debug-<tag>.sock.
-  CMUX_TAG: frame-pacing
+  # The tagged app's baked tag; its debug socket is /tmp/cmux-debug-<tag>.sock. Keep it in
+  # step with the build job's `tag`.
+  CMUX_TAG: ${{ inputs.suites == 'golden' && 'motion-golden' || 'frame-pacing' }}
+  SUITES: ${{ inputs.suites || 'fling,golden' }}
 
 jobs:
   resolve-ref:
@@ -144,7 +163,7 @@ jobs:
     if: needs.gate.outputs.run == 'true' && github.run_attempt <= 2
     uses: ./.github/workflows/reload-build.yml
     with:
-      tag: frame-pacing
+      tag: ${{ inputs.suites == 'golden' && 'motion-golden' || 'frame-pacing' }}
       ref: ${{ needs.resolve-ref.outputs.sha }}
       platform: macos
       runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt <= 2 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-26' }}
@@ -194,7 +213,7 @@ jobs:
         if: steps.gui.outputs.taken == 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: reload-frame-pacing-macos
+          name: reload-${{ env.CMUX_TAG }}-macos
           path: ${{ runner.temp }}/frame-pacing/artifact
 
       - name: Select Xcode
@@ -217,21 +236,33 @@ jobs:
           chmod -R a+rwX "$work"
 
       - name: Fling bench at 120 Hz
-        if: steps.gui.outputs.taken == 'true'
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
         continue-on-error: true
         timeout-minutes: 15
         env:
           FLINGS: ${{ inputs.flings || '3' }}
         run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/bench.sh "$RUNNER_TEMP/frame-pacing" "$FLINGS"
 
-      # bench.sh tears both down on exit; this covers a step killed by its timeout.
+      - name: Golden interactions at 120 Hz
+        if: steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        continue-on-error: true
+        timeout-minutes: 10
+        run: scripts/ci/frame-pacing/console-session.sh scripts/ci/frame-pacing/golden.sh "$RUNNER_TEMP/frame-pacing"
+
+      # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
+      - name: Judge the golden interactions
+        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
+        continue-on-error: true
+        run: python3 scripts/ci/frame-pacing/golden.py judge "$RUNNER_TEMP/frame-pacing/out/golden" >> "$GITHUB_STEP_SUMMARY"
+
+      # bench.sh and golden.sh tear both down on exit; this covers a step killed by its timeout.
       - name: Remove the virtual display and the app
         if: always() && steps.gui.outputs.taken == 'true'
         continue-on-error: true
         run: scripts/ci/frame-pacing/console-session.sh /usr/bin/pkill -f "$RUNNER_TEMP/frame-pacing" || true
 
       - name: Summary
-        if: always() && steps.gui.outputs.taken == 'true'
+        if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'fling')
         run: python3 scripts/ci/frame-pacing/summarize.py "$RUNNER_TEMP/frame-pacing/out" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the bench results
