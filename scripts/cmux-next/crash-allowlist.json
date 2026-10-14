@@ -440,7 +440,7 @@
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
   },
   {
-   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/DividerMouseCatchers.swift",
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DividerMouseCatchers.swift",
    "class": "swift.unowned",
    "count": 1,
    "reason": "owned child, nested lifetime: the shell window owns its overlay layer and divider catchers, which end with it (OwnedChildLifetimeTests.overlayLayerAndDividerCatchersEndWithTheirWindow)",
