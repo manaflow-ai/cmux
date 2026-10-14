@@ -45,6 +45,12 @@ public final class LiveCoordinator {
     public let link: LinkController
     public let workspaces: WorkspaceSync
     public let acpmux = AcpmuxHub()
+    /// This phone's APNs registration (the token goes on the link device id).
+    public let push = PushRegistration.shared
+    /// Whether the service could include a TURN relay in `GET /v1/ice` (nil
+    /// before the first look). Without one, WebRTC outside the Mac's network
+    /// may fail, and the app says so.
+    public private(set) var relayAvailable: Bool?
     @ObservationIgnored public let feed: LiveFeed
 
     @ObservationIgnored let store: AppStore
@@ -173,6 +179,8 @@ public final class LiveCoordinator {
             try await api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             registeredTeamID = teamID
+            push.attach(api: api, deviceID: identity.link)
+            checkRelay()
             let macs = try await api.macs(teamID: teamID)
             guard !Task.isCancelled, store.activeTeamID == teamID else { return }
             applyMacs(macs, teamID: teamID)
@@ -207,6 +215,8 @@ public final class LiveCoordinator {
             presenceConnected = connected
         case .snapshot(let macs):
             applyMacs(macs, teamID: teamID)
+        case .mac(let mac) where mac.removed == true:
+            forgetMac(mac.deviceId)
         case .mac(let mac):
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
@@ -214,6 +224,15 @@ public final class LiveCoordinator {
             store.setMacs(current, teamID: teamID)
             retarget()
         }
+    }
+
+    /// A Mac its owner deleted (here or on another device): gone from every team.
+    func forgetMac(_ id: String) {
+        for team in store.teams where team.macs.contains(where: { $0.id == id }) {
+            store.setMacs(team.macs.filter { $0.id != id }, teamID: team.id)
+        }
+        if let count = store.accountMacCount, count > 0 { store.accountMacCount = count - 1 }
+        retarget()
     }
 
     private func applyMacs(_ macs: [LiveAPI.Mac], teamID: String) {
@@ -280,6 +299,46 @@ public final class LiveCoordinator {
         activeTeamChanged()
         followed = Followed(serial: (followed?.serial ?? 0) + 1, teamID: team.id, teamName: team.name, macName: macName)
         onFollow?(team.id)
+    }
+
+    /// Looks once per team start whether the service has a TURN relay.
+    private func checkRelay() {
+        Task { [weak self] in
+            guard let self else { return }
+            if let ice = try? await self.api.ice() { self.relayAvailable = ice.turn ?? true }
+        }
+    }
+
+    // MARK: Devices (Settings → Connection) and account
+
+    /// Every Mac and phone of this account.
+    public func myDevices() async throws -> [LiveAPI.Device] {
+        try await api.myDevices()
+    }
+
+    /// This phone's own device ids (link and presence).
+    public var ownDeviceIDs: Set<String> { [identity.link, identity.presence] }
+
+    /// Deletes a device of this account; a Mac leaves every list at once.
+    public func removeDevice(id: String) async throws {
+        try await api.deleteDevice(id: id)
+        forgetMac(id)
+    }
+
+    /// Account deletion, first step: the service forgets the account's
+    /// devices, push tokens and preferences.
+    public func deleteAccountData() async throws {
+        try await api.deleteMe()
+    }
+
+    /// Where a notification's session lives: the agent tab bound to it, or
+    /// the tab the Mac named.
+    public func destination(sessionID: String?, workspaceID: String?, tabID: String?) -> AgentChatDestination? {
+        if let sessionID, let place = place(sessionID: sessionID) {
+            return AgentChatDestination(workspaceID: place.workspaceID, tabID: place.tabID)
+        }
+        guard let workspaceID, let tabID, store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tabID }) == true else { return nil }
+        return AgentChatDestination(workspaceID: workspaceID, tabID: tabID)
     }
 
     /// Sign-out: stops discovery, presence and the link.
@@ -506,7 +565,9 @@ public final class LiveCoordinator {
                 }
             }
         case .waiting(let transport, _, _, _):
-            banner = .failed("Can't reach \(name) over \(transport.displayName)")
+            // Without TURN, WebRTC from another network cannot get through: say so.
+            let relay = relayAvailable == false && transport == .webRTC ? ". Relay (TURN) unavailable" : ""
+            banner = .failed("Can't reach \(name) over \(transport.displayName)\(relay)")
         }
     }
 }

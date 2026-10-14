@@ -3,6 +3,7 @@ import CnxAuth
 import CnxDesign
 import CnxModel
 import SwiftUI
+import UIKit
 import UserNotifications
 
 private let theme = CnxTheme.standard
@@ -325,12 +326,14 @@ private struct NotificationsStep: View {
             VStack(alignment: .leading, spacing: 4) {
                 ExplainerRow(symbol: "questionmark.bubble", text: "Questions and permission requests")
                 ExplainerRow(symbol: "checkmark.circle", text: "Finished tasks")
-                ExplainerRow(symbol: "livephoto", text: "Live Activities for running agents")
+                ExplainerRow(symbol: "exclamationmark.triangle", text: "Errors that stop an agent")
             }
         } actions: {
             PrimaryCapsule("Turn on notifications") {
                 Task {
-                    _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
+                    let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])) ?? false
+                    // The token goes to the service once this phone is registered with its team.
+                    if granted { UIApplication.shared.registerForRemoteNotifications() }
                     next()
                 }
             }

@@ -241,6 +241,8 @@ public struct RootView: View {
             Task { await auth.selectTeam(teamID) }
         }
         live = coordinator
+        // Stop pushes to this phone before the session ends.
+        auth.willSignOut = { await PushRegistration.shared.unregister() }
         log.info("live data on \(base.host() ?? "", privacy: .public)")
         syncTeams()
     }
@@ -363,6 +365,23 @@ struct ShellView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { shell.live?.foreground() }
         }
+        // Notification taps: open now, or once the Mac's tree places the tab.
+        .onChange(of: NotificationRouter.shared.pending, initial: true) { _, route in
+            guard let route else { return }
+            if shell.open(route) { NotificationRouter.shared.pending = nil }
+        }
+        .onChange(of: shell.store.workspaces) { _, _ in
+            guard let route = NotificationRouter.shared.pending else { return }
+            // One retry after the tree arrives; then the Feed is where it is.
+            shell.open(route)
+            NotificationRouter.shared.pending = nil
+        }
+        .onChange(of: pushKinds, initial: true) { _, kinds in
+            PushRegistration.shared.setKinds(kinds)
+        }
+        .onAppear {
+            NotificationRouter.shared.isShowing = { [weak shell] route in shell?.isShowing(route) ?? false }
+        }
         .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
             shell.attach(live: live)
         }
@@ -373,6 +392,13 @@ struct ShellView: View {
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
+    }
+}
+
+extension ShellView {
+    /// The event kinds Settings → Notifications asks for.
+    var pushKinds: [String] {
+        PushRegistration.kinds(questions: shell.settings.notifyQuestions, finished: shell.settings.notifyFinished, errors: shell.settings.notifyErrors)
     }
 }
 
@@ -407,6 +433,7 @@ struct ShellTabs: View {
                     settings: shell.settings,
                     path: $shell.settingsPath,
                     scrollRequest: shell.settingsScrollTarget,
+                    directory: shell.deviceDirectory,
                     inviteToTeam: { shell.invite(to: $0) }
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
