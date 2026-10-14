@@ -40,6 +40,10 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
+    /// Token-free detail (code, HTTP status, request ID) of the raw error that
+    /// failed the last ``completeExternalSignIn()``, captured before the error
+    /// collapses to a display-safe ``AuthError``.
+    public private(set) var lastExternalSignInFailureDetail: String?
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
         didSet { publishAuthenticatedTeamScope() }
@@ -497,9 +501,11 @@ public final class AuthCoordinator {
         defer { finishSignInFlow(flow) }
         isLoading = true
         defer { isLoading = false }
+        lastExternalSignInFailureDetail = nil
         do {
             try await completeSignIn(flow: flow)
         } catch {
+            lastExternalSignInFailureDetail = AuthError.failureDetail(for: error)
             throw AuthError(displaySafe: error) ?? error
         }
     }

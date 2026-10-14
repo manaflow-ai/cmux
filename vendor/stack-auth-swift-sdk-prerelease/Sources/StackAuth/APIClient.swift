@@ -200,28 +200,28 @@ actor APIClient {
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         
         // Required headers
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-stack-client-version")
-        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-stack-access-type")
-        request.setValue("true", forHTTPHeaderField: "x-stack-override-error-status")
-        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-stack-random-nonce")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("swift@\(Self.sdkVersion)", forHTTPHeaderField: "x-hexclave-client-version")
+        request.setValue(serverOnly ? "server" : "client", forHTTPHeaderField: "x-hexclave-access-type")
+        request.setValue("true", forHTTPHeaderField: "x-hexclave-override-error-status")
+        request.setValue(UUID().uuidString, forHTTPHeaderField: "x-hexclave-random-nonce")
         
         // Server key if required
         if serverOnly {
             guard let serverKey = secretServerKey else {
                 throw StackAuthError(code: "missing_server_key", message: "Server key required for this operation")
             }
-            request.setValue(serverKey, forHTTPHeaderField: "x-stack-secret-server-key")
+            request.setValue(serverKey, forHTTPHeaderField: "x-hexclave-secret-server-key")
         }
         
         // Auth headers
         if authenticated {
             if let accessToken = await effectiveTokenStore.getStoredAccessToken() {
-                request.setValue(accessToken, forHTTPHeaderField: "x-stack-access-token")
+                request.setValue(accessToken, forHTTPHeaderField: "x-hexclave-access-token")
             }
             if let refreshToken = await effectiveTokenStore.getStoredRefreshToken() {
-                request.setValue(refreshToken, forHTTPHeaderField: "x-stack-refresh-token")
+                request.setValue(refreshToken, forHTTPHeaderField: "x-hexclave-refresh-token")
             }
         }
         
@@ -255,7 +255,7 @@ actor APIClient {
             
             // Check for actual status code in header
             let actualStatus: Int
-            if let statusHeader = httpResponse.value(forHTTPHeaderField: "x-stack-actual-status"),
+            if let statusHeader = httpResponse.hexclaveHeader("actual-status"),
                let status = Int(statusHeader) {
                 actualStatus = status
             } else {
@@ -265,12 +265,12 @@ actor APIClient {
             // Handle 401 with token refresh
             if actualStatus == 401 && authenticated && !didRefreshAccessToken {
                 // Check if it's an invalid access token error
-                if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error"),
+                if let errorCode = httpResponse.hexclaveHeader("known-error"),
                    errorCode == "invalid_access_token" {
                     // Try to refresh the token once. The failed token is used
                     // by the refresh lock to let concurrent 401s reuse the
                     // token that the first waiter already installed.
-                    let failedAccessToken = request.value(forHTTPHeaderField: "x-stack-access-token")
+                    let failedAccessToken = request.value(forHTTPHeaderField: "x-hexclave-access-token")
                     let tokens = await fetchNewAccessToken(
                         tokenStore: tokenStore,
                         ifAccessTokenUnchangedFrom: failedAccessToken
@@ -278,7 +278,7 @@ actor APIClient {
                     if tokens.accessToken != nil {
                         // Retry with new token
                         var newRequest = request
-                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-stack-access-token")
+                        newRequest.setValue(tokens.accessToken, forHTTPHeaderField: "x-hexclave-access-token")
                         return try await sendWithRetry(
                             request: newRequest,
                             authenticated: authenticated,
@@ -306,10 +306,9 @@ actor APIClient {
                     ),
                     retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
                 )
-                var details: [String: Any] = [
-                    StackAuthError.endpointKey: observation.endpoint,
-                    StackAuthError.bodyKindKey: observation.bodyKind.rawValue,
-                ]
+                var details = httpResponse.stackDiagnostics(status: actualStatus)
+                details[StackAuthError.endpointKey] = observation.endpoint
+                details[StackAuthError.bodyKindKey] = observation.bodyKind.rawValue
                 if let seconds = observation.retryAfterSeconds {
                     details[StackAuthError.retryAfterSecondsKey] = seconds
                 }
@@ -324,12 +323,15 @@ actor APIClient {
             }
             
             // Check for known error
-            if let errorCode = httpResponse.value(forHTTPHeaderField: "x-stack-known-error") {
+            if let errorCode = httpResponse.hexclaveHeader("known-error") {
                 let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let message = errorData?["message"] as? String
                     ?? errorData?["error"] as? String
                     ?? "Unknown error"
-                let details = errorData?["details"] as? [String: Any]
+                // Response diagnostics (HTTP status, request ID) ride along so
+                // the sign-in failure line can name them; body details win.
+                let details = httpResponse.stackDiagnostics(status: actualStatus)
+                    .merging(errorData?["details"] as? [String: Any] ?? [:]) { _, body in body }
                 throw StackAuthError.from(code: errorCode, message: message, details: details)
             }
             
@@ -342,7 +344,11 @@ actor APIClient {
             }
             
             // Other error
-            throw StackAuthError(code: "http_error", message: "HTTP \(actualStatus)")
+            throw StackAuthError(
+                code: "http_error",
+                message: "HTTP \(actualStatus)",
+                details: httpResponse.stackDiagnostics(status: actualStatus)
+            )
             
         } catch let error as URLError {
             // Network error - retry for idempotent requests
@@ -395,9 +401,9 @@ actor APIClient {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue(publishableClientKey, forHTTPHeaderField: "x-stack-publishable-client-key")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue(publishableClientKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
 
         let body = [
             "grant_type=refresh_token",
@@ -657,5 +663,25 @@ extension APIClient {
             throw StackAuthError(code: "parse_error", message: "Failed to parse response")
         }
         return json
+    }
+}
+
+extension HTTPURLResponse {
+    /// Reads a Stack response header by its Hexclave name, falling back to the
+    /// legacy `x-stack-*` name. Stack sends both on every response; requests must
+    /// carry only the Hexclave names, because since 2026-10-13 Stack answers 429
+    /// to requests that carry the `x-stack-*` aliases.
+    func hexclaveHeader(_ suffix: String) -> String? {
+        value(forHTTPHeaderField: "x-hexclave-\(suffix)") ?? value(forHTTPHeaderField: "x-stack-\(suffix)")
+    }
+
+    /// Status and request ID of a failed response, so the app can show the user
+    /// something they can report.
+    func stackDiagnostics(status: Int) -> [String: Any] {
+        var details: [String: Any] = ["httpStatus": status]
+        if let requestID = hexclaveHeader("request-id") {
+            details["requestId"] = requestID
+        }
+        return details
     }
 }
