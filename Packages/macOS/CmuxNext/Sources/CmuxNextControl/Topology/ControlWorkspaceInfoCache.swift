@@ -56,6 +56,7 @@ public final class ControlWorkspaceInfoCache {
         let (info, slots) = withObservationTracking { build(model) } onChange: { [weak self] in
             self?.stale.withLock { _ = $0.insert(generation) }
             // Runs synchronously inside the mutation; publish after it lands.
+            // task-owner: one main-actor hop per change; holds self weakly and only schedules the publish.
             Task { @MainActor in self?.onStale() }
         }
         entries[key] = Entry(model: model, info: info, slots: slots, generation: generation)
