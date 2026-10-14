@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDaemon
 import Foundation
 
 /// A chat's click on a file opens its page beside the chat (ChatBeside): in the pane right of the
@@ -21,8 +22,10 @@ extension FilePageService {
     }
 
     /// Whether a new tab of this page in `pane` is a store tab, the only kind a placement beside a
-    /// chat can move.
+    /// chat can move. A reconnecting daemon makes none, so the click takes the old path.
     func opensStoreTabs(in pane: PaneController) -> Bool {
-        pane.services.windowController(showing: pane) != nil && pane.daemon.isLocal && pane.services.pages.keepsRoutes(pane.daemon)
+        guard case .connected = pane.daemon.store.connectionState,
+              pane.daemon.supports(DaemonCapabilities.shared.pageTabs) else { return false }
+        return pane.services.windowController(showing: pane) != nil && pane.daemon.isLocal && pane.services.pages.keepsRoutes(pane.daemon)
     }
 }
