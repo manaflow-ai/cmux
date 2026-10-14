@@ -420,3 +420,129 @@ fn the_home_channels_page_opens_a_link_only_on_a_gesture() {
     assert_eq!(error(&opened)["code"], "origin.forbidden", "{opened}");
     assert_eq!(error(&opened)["details"]["reason"], "gesture_required", "{opened}");
 }
+
+/// The tree tab with public id `tab` in `screen`.
+fn tab_by_resource<'a>(screen: &'a Value, tab: &Value) -> &'a Value {
+    screen["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().unwrap())
+        .find(|candidate| candidate["tab_resource_id"] == *tab)
+        .unwrap_or_else(|| panic!("no tab {tab}: {screen}"))
+}
+
+fn selected_tab(screen: &Value, pane: &Value) -> Value {
+    let pane = pane_by_resource(screen, pane);
+    let active = pane["active_tab"].as_u64().unwrap() as usize;
+    pane["tabs"][active]["tab_resource_id"].clone()
+}
+
+/// In a session whose frontend renders browser tabs (the cmux app declares
+/// `frontend-browser-tabs-v1`), a link makes a frontend browser tab on the
+/// right side through the daemon's frontend tab path (no browser engine is
+/// needed), the next link navigates that tab through the frontend record,
+/// and a retry with the same key answers the first result even after the
+/// selection changed.
+#[test]
+fn open_url_uses_the_frontend_browser_path_when_the_app_renders_browsers() {
+    let server = HeadlessServer::start("open-url-frontend");
+    // The app's connection: it stays open and declares that it renders
+    // browser tabs. No cmux-browser provider is registered.
+    let mut app = Line::open(&server);
+    let info = app.send(&json!({"id": 1, "cmd": "set-client-info", "name": "app",
+                                "capabilities": ["frontend-browser-tabs-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    let (workspace, dock, right_panes) = docked_workspace(
+        &server,
+        "open-url-frontend",
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    let recent = right_panes[1].clone();
+    let other = right_panes[0].clone();
+    focus(&server, &recent, "open-url-frontend-focus-recent");
+    focus(&server, &dock, "open-url-frontend-focus-chat");
+    let before = screen(&server, &workspace);
+
+    let open = |url: &str, key: &str| {
+        v2(&server, "workspace.open_url", json!({"workspace": workspace, "url": url}), Some(key))
+    };
+    let opened = open("https://example.com/one", "open-url-frontend-1");
+    let first = value(&opened).clone();
+    assert_eq!(first["kind"], "browser", "{opened}");
+    assert_eq!(first["reused"], false, "{opened}");
+    assert_eq!(first["pane_id"], recent["resource_id"], "not the right-side pane used last: {opened}");
+    let tab = first["tab_id"].clone();
+    assert!(tab.as_str().is_some_and(|id| id.starts_with("tab_")), "{opened}");
+    assert!(first["browser_id"].as_str().is_some_and(|id| id.starts_with("browser_")), "{opened}");
+    let after = screen(&server, &workspace);
+    let created = tab_by_resource(&after, &tab);
+    assert_eq!(created["browser_renderer"], "frontend", "not a frontend browser tab: {after}");
+    assert_eq!(created["url"], "https://example.com/one", "{after}");
+    assert_eq!(selected_tab(&after, &recent["resource_id"]), tab, "not selected: {after}");
+    assert_eq!(after["active_pane"], dock["id"], "the keyboard focus left the chat: {after}");
+    assert_eq!(
+        pane_by_resource(&after, &dock["resource_id"])["tabs"].as_array().unwrap().len(),
+        1,
+        "a browser tab went into the agent chat dock: {after}"
+    );
+    assert_eq!(tab_count(&after), tab_count(&before) + 1, "{after}");
+
+    // The next link reuses that tab: the frontend record gets the new URL.
+    let again = open("https://example.com/two", "open-url-frontend-2");
+    let second = value(&again).clone();
+    assert_eq!(second["reused"], true, "{again}");
+    assert_eq!(second["tab_id"], tab, "{again}");
+    assert_eq!(second["browser_id"], first["browser_id"], "{again}");
+    let reused = screen(&server, &workspace);
+    assert_eq!(tab_by_resource(&reused, &tab)["url"], "https://example.com/two", "{reused}");
+    assert_eq!(tab_count(&reused), tab_count(&after), "the second link made a tab: {reused}");
+    assert_eq!(reused["active_pane"], dock["id"], "the keyboard focus left the chat: {reused}");
+
+    // The page then goes on to another URL (the app reports it), and the
+    // person selects another browser tab in the other right-side pane.
+    let created_surface = created["surface"].clone();
+    let navigated = raw(
+        &server,
+        json!({"cmd": "update-frontend-browser-tab", "surface": created_surface,
+               "url": "https://example.com/three"}),
+    );
+    assert_eq!(navigated["url"], "https://example.com/three", "{navigated}");
+    let other_browser = raw(
+        &server,
+        json!({"cmd": "new-frontend-browser-tab", "pane": other["id"], "engine": "webkit",
+               "url": "https://example.com/other"}),
+    );
+    let other_tab = other_browser["tab_resource_id"].clone();
+    focus(&server, &other, "open-url-frontend-focus-other");
+    focus(&server, &dock, "open-url-frontend-focus-chat-2");
+    let moved = screen(&server, &workspace);
+
+    // A retry of each request answers its first result: no second tab and
+    // no second navigation, although the selection changed.
+    let retried = open("https://example.com/one", "open-url-frontend-1");
+    assert_eq!(value(&retried), &first, "{retried}");
+    let retried = open("https://example.com/two", "open-url-frontend-2");
+    assert_eq!(value(&retried), &second, "{retried}");
+    let replayed = screen(&server, &workspace);
+    assert_eq!(tab_count(&replayed), tab_count(&moved), "a retry made a tab: {replayed}");
+    assert_eq!(tab_by_resource(&replayed, &tab)["url"], "https://example.com/three", "{replayed}");
+    assert_eq!(
+        tab_by_resource(&replayed, &other_tab)["url"],
+        "https://example.com/other",
+        "a retry navigated another tab: {replayed}"
+    );
+    // The same key with another link is a conflict.
+    let conflict = open("https://example.com/four", "open-url-frontend-2");
+    assert_eq!(error(&conflict)["code"], "idempotency.conflict", "{conflict}");
+
+    // A new link reuses the browser tab the person looked at last.
+    let third = open("https://example.com/five", "open-url-frontend-3");
+    assert_eq!(value(&third)["reused"], true, "{third}");
+    assert_eq!(value(&third)["tab_id"], other_tab, "{third}");
+    let last = screen(&server, &workspace);
+    assert_eq!(tab_by_resource(&last, &other_tab)["url"], "https://example.com/five", "{last}");
+    assert_eq!(tab_by_resource(&last, &tab)["url"], "https://example.com/three", "{last}");
+    assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
+    drop(app);
+}
