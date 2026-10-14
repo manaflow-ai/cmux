@@ -97,7 +97,8 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         return code;
     }
     if !plan.resolve.is_empty() {
-        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route) {
+        let route = super::resolve::SocketRoute { path: &socket, derived: socket_is_derived };
+        if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
             if let super::resolve::Failure::AppAction { action, target } = &failure {
