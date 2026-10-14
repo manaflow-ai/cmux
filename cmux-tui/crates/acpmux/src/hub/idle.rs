@@ -56,8 +56,6 @@ impl Hub {
             let weak = Arc::downgrade(self);
             let wake = self.idle_wake.clone();
             tokio::spawn(async move { Self::idle_reaper_loop(weak, wake).await });
-            #[cfg(unix)]
-            tokio::spawn(Self::budget_loop(Arc::downgrade(self)));
         }
         self.idle_wake.notify_one();
     }

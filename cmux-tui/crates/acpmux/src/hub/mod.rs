@@ -6,7 +6,6 @@
 
 mod adoption;
 mod aside;
-mod budget;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;

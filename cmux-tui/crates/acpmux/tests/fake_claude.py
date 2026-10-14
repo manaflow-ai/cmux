@@ -286,14 +286,6 @@ for line in sys.stdin:
                    "input": {"command": "npm run dev", "run_in_background": True}}]}})
             send({"type": "system", "subtype": "task_started", "task_id": "r2", "tool_use_id": "toolu_agrun",
                   "description": "npm run dev", "task_type": "local_bash"})
-        # "hog: PATH": a background process under this Claude Code holds 300 MB until it is
-        # killed; its pid goes to PATH.
-        if said.startswith("hog: "):
-            import subprocess
-            hog = subprocess.Popen([sys.executable, "-c",
-                                    "import time\nx = bytearray(300 * 1024 * 1024)\ntime.sleep(120)"])
-            with open(said[len("hog: "):], "w") as f:
-                f.write(str(hog.pid))
         # "limits-probe": the turn says the limit knobs this Claude Code started with.
         if said.strip() == "limits-probe":
             text = json.dumps({k: os.environ.get(k) for k in (

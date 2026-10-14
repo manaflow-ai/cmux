@@ -5,11 +5,13 @@
 //! session acpmux starts (direct, hosted or pooled; `agent::harness_command`)
 //! gets them lifted at spawn, so a new chat has them without a restart.
 //!
-//! The guard against a runaway is the session's resource budget
-//! (`SessionBudget`, checked in `hub/budget.rs`), not a count. A value the user set wins: a profile's
-//! env or the login environment for Claude; for Codex, a `-c`/`--config` of
-//! the same key in the profile's command line or the key in codex's own
-//! config (`config.toml`, its active profile, the project's).
+//! The guard against a runaway is to be a per-session resource limit the
+//! session's holder enforces (a cgroup, its own process group), never a
+//! count and never a process scan (plans/cmux-next/pty-holder.md 4). A value
+//! the user set wins: a profile's env or the login environment for Claude;
+//! for Codex, a `-c`/`--config` of the same key in the profile's command
+//! line or the key in codex's own config (`config.toml`, its active profile,
+//! the project's).
 
 /// Claude Code's environment knobs and the values acpmux starts it with
 /// (defaults are Claude Code 2.1.299's).
@@ -152,54 +154,4 @@ fn sets_codex_key(args: &[String], key: &str) -> bool {
         "-c" | "--config" => args.get(i + 1).is_some_and(|v| sets(v)),
         _ => a.strip_prefix("--config=").is_some_and(sets),
     })
-}
-
-/// What one session may use (`hub/budget.rs`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SessionBudget {
-    /// Resident memory of the harness and everything under it; 0 checks none.
-    pub memory_bytes: u64,
-    /// CPU cores the session's processes keep busy, per sample; 0 checks none.
-    pub cpu_cores: f64,
-    /// How often the budget is checked.
-    pub interval: std::time::Duration,
-    /// Processes started this soon after the harness are its own (a
-    /// launcher's agent, MCP servers), which the memory check never stops.
-    pub launch_grace: std::time::Duration,
-}
-
-impl SessionBudget {
-    /// Half the machine's memory and three quarters of its cores, every 10 s.
-    /// `ACPMUX_SESSION_MEMORY_MB` and `ACPMUX_SESSION_CPU_CORES` change them;
-    /// 0 turns that check off. None off unix, where nothing checks it yet.
-    pub fn from_env() -> Option<Self> {
-        if !cfg!(unix) {
-            return None;
-        }
-        let num = |key: &str| std::env::var(key).ok().and_then(|v| v.trim().parse::<f64>().ok());
-        let cores = std::thread::available_parallelism().map_or(1, |n| n.get()) as f64;
-        let budget = SessionBudget {
-            memory_bytes: num("ACPMUX_SESSION_MEMORY_MB")
-                .map_or(physical_memory() / 2, |mb| (mb * 1024.0 * 1024.0) as u64),
-            cpu_cores: num("ACPMUX_SESSION_CPU_CORES").unwrap_or(cores * 0.75),
-            interval: std::time::Duration::from_secs(10),
-            launch_grace: std::time::Duration::from_secs(10),
-        };
-        (budget.memory_bytes > 0 || budget.cpu_cores > 0.0).then_some(budget)
-    }
-}
-
-/// The machine's memory in bytes (0 when unknown, which turns the memory
-/// check off).
-#[cfg(unix)]
-fn physical_memory() -> u64 {
-    // SAFETY: sysconf only reads system configuration.
-    let (pages, size) =
-        unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES), libc::sysconf(libc::_SC_PAGESIZE)) };
-    u64::try_from(pages).unwrap_or(0).saturating_mul(u64::try_from(size).unwrap_or(0))
-}
-
-#[cfg(not(unix))]
-fn physical_memory() -> u64 {
-    0
 }
