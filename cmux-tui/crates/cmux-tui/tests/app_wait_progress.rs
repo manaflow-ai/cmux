@@ -15,11 +15,15 @@ use serde_json::Value;
 const WAIT_MS: &str = "3500";
 
 fn spawn(socket: &Path, output: &[&str]) -> Child {
+    spawn_command(socket, output, &["action", "run", "window.new"])
+}
+
+fn spawn_command(socket: &Path, output: &[&str], command: &[&str]) -> Child {
     Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
         .args(output)
         .arg("--app-socket")
         .arg(socket)
-        .args(["action", "run", "window.new"])
+        .args(command)
         .env("CMUX_TEST_APP_WAIT_TIMEOUT_MS", WAIT_MS)
         .env_remove("CMUX_TUI_TERMINAL_ID")
         .env_remove("CMUX_AGENT_SESSION")
@@ -42,8 +46,11 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
 
     let human = spawn(&socket, &[]);
     let json = spawn(&socket, &["--json"]);
+    // A control-plane read (5 s outside tests) is short: no progress notes.
+    let identify = spawn_command(&socket, &[], &["identify"]);
     let human = human.wait_with_output().unwrap();
     let json = json.wait_with_output().unwrap();
+    let identify = identify.wait_with_output().unwrap();
     drop(listener);
     let _ = std::fs::remove_dir_all(&dir);
 
@@ -53,7 +60,15 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
         stderr.contains("waiting for the cmux app to run window.new (2 s of 3 s)"),
         "no progress line: {stderr}"
     );
-    assert!(stderr.contains("cmux identify"), "no next command: {stderr}");
+    // The next command keeps the route this call took.
+    let next = format!("cmux --app-socket {} identify", socket.display());
+    assert!(stderr.contains(&next), "no routed next command: {stderr}");
+    let identify_stderr = String::from_utf8_lossy(&identify.stderr);
+    assert_eq!(identify.status.code(), Some(3), "{identify_stderr}");
+    assert!(
+        !identify_stderr.contains("waiting for"),
+        "a short read shows progress: {identify_stderr}"
+    );
     assert!(human.stdout.is_empty());
 
     // JSON output: stdout stays empty and every stderr line is a JSON object
@@ -76,5 +91,5 @@ fn a_silent_app_shows_progress_and_times_out_with_the_next_command() {
     assert_eq!(details["method"], "action.run", "{error}");
     assert_eq!(details["waiting_for"], "window.new", "{error}");
     assert_eq!(details["timeout_seconds"], 3, "{error}");
-    assert_eq!(details["next_command"], "cmux identify", "{error}");
+    assert_eq!(details["next_command"], next.as_str(), "{error}");
 }
