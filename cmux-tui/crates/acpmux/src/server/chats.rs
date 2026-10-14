@@ -63,7 +63,8 @@ pub(super) async fn route(
         return reply;
     }
     // A one-shot completion runs a harness CLI with the user's own login:
-    // the unix socket only, checked by `Hub::complete` (`crate::complete`).
+    // the unix socket only. `Hub::complete` is its one gate (it never reaches
+    // `remote_guard` or a peer).
     if m == crate::rpc::method::MUX_COMPLETE {
         return hub.complete(conn.origin, &params).await;
     }

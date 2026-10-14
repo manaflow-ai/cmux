@@ -14,9 +14,11 @@
 //! - [`run`]: the child under a deadline, its whole process group killed on
 //!   timeout, stdout capped.
 //!
-//! The unix socket only ([`allowed`], default deny), checked by
-//! `Hub::complete` and again by `server/remote_guard.rs`: the caller picks the
-//! prompt this machine sends with the user's own account. Relay analysis
+//! The unix socket only ([`allowed`], default deny). The method is answered
+//! at the connection's front door (`server/chats.rs`), before the request
+//! path's `remote_guard`, so `Hub::complete` checking [`allowed`] first is
+//! the one gate: the caller picks the prompt this machine sends with the
+//! user's own account. Relay analysis
 //! (skills/cmux-socket-policy/references/remote-relay-authorization.md): it
 //! runs a local process (a harness CLI, never a caller's command) and spends
 //! the local account's quota, so no relay or remote origin may call it:
