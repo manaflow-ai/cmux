@@ -113,6 +113,13 @@ impl ConversationStore {
         offset: u64,
         length: usize,
     ) -> anyhow::Result<ReadReply> {
-        self.attachment_read(&link.actor, &link.conversation, &link.hash, link.piece, offset, length)
+        self.attachment_read(
+            &link.actor,
+            &link.conversation,
+            &link.hash,
+            link.piece,
+            offset,
+            length,
+        )
     }
 }

@@ -105,7 +105,8 @@ fn respond(
         let want = usize::try_from(end - offset + 1).unwrap_or(usize::MAX).min(MAX_CHUNK_BYTES);
         // Each slice takes the store lock alone, so a long download never
         // holds other conversation work behind it.
-        let Ok(slice) = mux.with_conversations(|store| store.attachment_link_read(&link, offset, want))
+        let Ok(slice) =
+            mux.with_conversations(|store| store.attachment_link_read(&link, offset, want))
         else {
             return Ok(());
         };

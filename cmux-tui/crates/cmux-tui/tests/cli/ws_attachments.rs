@@ -26,7 +26,12 @@ fn video() -> Vec<u8> {
 const POSTER: &[u8] = b"\xff\xd8\xff\xe0 the first frame of the clip, as JPEG";
 
 /// One HTTP/1.1 request on the listener: (status, lowercase headers, body).
-fn http(addr: &str, method: &str, path: &str, range: Option<&str>) -> (u16, Vec<(String, String)>, Vec<u8>) {
+fn http(
+    addr: &str,
+    method: &str,
+    path: &str,
+    range: Option<&str>,
+) -> (u16, Vec<(String, String)>, Vec<u8>) {
     let mut stream = TcpStream::connect(addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
     let mut request = format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n");
@@ -73,7 +78,8 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
 
     // Upload: the video in two chunks and its poster, over the WebSocket.
     let bytes = video();
-    let poster = json!({"sha256": hex(POSTER), "byte_count": POSTER.len(), "mime_type": "image/jpeg"});
+    let poster =
+        json!({"sha256": hex(POSTER), "byte_count": POSTER.len(), "mime_type": "image/jpeg"});
     let begun = page.request(
         "conversation-attachment-upload",
         json!({"op": "begin", "conversation": conversation, "sha256": hex(&bytes),
@@ -94,7 +100,8 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
         "conversation-attachment-upload",
         json!({"op": "chunk", "upload": upload, "piece": "poster", "offset": 0, "data": b64(POSTER)}),
     );
-    let stored = page.request("conversation-attachment-upload", json!({"op": "commit", "upload": upload}));
+    let stored =
+        page.request("conversation-attachment-upload", json!({"op": "commit", "upload": upload}));
     assert_eq!(stored["stored"]["hash"], hex(&bytes), "{stored}");
     assert_eq!(stored["stored"]["poster"]["hash"], hex(POSTER), "{stored}");
 
@@ -116,7 +123,8 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
         "conversation-attachment-read",
         json!({"conversation": conversation, "hash": hex(&bytes), "offset": 1000, "length": 16}),
     );
-    let data = base64::engine::general_purpose::STANDARD.decode(read["data"].as_str().unwrap()).unwrap();
+    let data =
+        base64::engine::general_purpose::STANDARD.decode(read["data"].as_str().unwrap()).unwrap();
     assert_eq!(data, bytes[1000..1016], "{read}");
     assert_eq!(read["eof"], false);
 
@@ -126,9 +134,15 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
         json!({"conversation": conversation, "hash": hex(&bytes), "name": "clip.mp4"}),
     );
     let path = link["path"].as_str().unwrap().to_owned();
-    assert!(path.starts_with("/attachments/") && path.len() == "/attachments/".len() + 64, "{link}");
+    assert!(
+        path.starts_with("/attachments/") && path.len() == "/attachments/".len() + 64,
+        "{link}"
+    );
     assert_eq!(link["expires_in_ms"], 600_000, "{link}");
-    assert!(!path.contains(&conversation) && !path.contains(&hex(&bytes)), "the link names nothing: {path}");
+    assert!(
+        !path.contains(&conversation) && !path.contains(&hex(&bytes)),
+        "the link names nothing: {path}"
+    );
 
     let (status, headers, body) = http(&addr, "GET", &path, None);
     assert_eq!(status, 200);
@@ -136,7 +150,9 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
     assert_eq!(header(&headers, "content-type"), "video/mp4");
     assert_eq!(header(&headers, "accept-ranges"), "bytes");
     assert_eq!(header(&headers, "x-content-type-options"), "nosniff");
-    assert!(header(&headers, "content-disposition").starts_with("attachment; filename=\"clip.mp4\""));
+    assert!(
+        header(&headers, "content-disposition").starts_with("attachment; filename=\"clip.mp4\"")
+    );
 
     let (status, headers, body) = http(&addr, "GET", &path, Some("bytes=100-199"));
     assert_eq!(status, 206);
