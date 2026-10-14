@@ -24,9 +24,13 @@ use sha2::{Digest, Sha256};
 
 #[path = "conversation_import.rs"]
 mod import;
+#[path = "conversation_inbox.rs"]
+pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
 #[path = "conversation_links.rs"]
 pub(crate) mod links;
+#[path = "conversation_runs.rs"]
+pub(crate) mod runs;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -39,6 +43,15 @@ pub(crate) const SCHEMA_VERSION: i64 = 2;
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
 pub(crate) const LOCAL_USER: &str = "user_local";
+
+/// Whether `participant` may hold a minted credential (`conversation-bind`):
+/// an agent, or a person other than the server's own user. A device
+/// (`remote_`) comes only from pairing, and `user_local` is every unbound
+/// trusted connection already.
+pub(crate) fn credentialed(participant: &str) -> bool {
+    participant.starts_with("agent_")
+        || (participant.starts_with("user_") && participant != LOCAL_USER)
+}
 
 /// An op the conversation reducer refused. The control socket reports it
 /// with `error_code` [`ConversationRejected::CODE`] and the reason code as
@@ -208,6 +221,8 @@ impl ConversationStore {
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
         transaction.execute_batch(threads::SCHEMA)?;
+        transaction.execute_batch(inbox::SCHEMA)?;
+        transaction.execute_batch(runs::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -218,13 +233,14 @@ impl ConversationStore {
         Ok(Self { connection, attachments })
     }
 
-    /// Mints the credential of agent `participant`: a random token whose SHA-256
-    /// is stored (a new token replaces the old one). A connection becomes that
-    /// participant only by presenting the token (`conversation-bind`).
+    /// Mints the credential of `participant` (an agent, or a person other than
+    /// `user_local`): a random token whose SHA-256 is stored (a new token
+    /// replaces the old one). A connection becomes that participant only by
+    /// presenting the token (`conversation-bind`).
     pub(crate) fn mint_agent_token(&mut self, participant: &str) -> anyhow::Result<String> {
         anyhow::ensure!(
-            valid_participant_id(participant) && participant.starts_with("agent_"),
-            "bad request: participant must be an agent id"
+            valid_participant_id(participant) && credentialed(participant),
+            "bad request: participant must be an agent or another person"
         );
         let mut random = [0_u8; 32];
         getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("agent token randomness"))?;
@@ -724,6 +740,24 @@ pub enum ConversationEvent {
     /// `conversation.events` item, delivered only on that stream (never on
     /// the raw subscribe stream or the remote relay). Never stored.
     Draft { conversation: String, participant: String, item: Value },
+    /// A participant's own list state of one conversation changed (a pin, a
+    /// "marked unread"; `conversation-inbox-state-v1`). Not conversation
+    /// state: no rev, and `subscribe` delivers it only to connections whose
+    /// principal is `participant` (never the remote relay or
+    /// `conversation.events`).
+    Inbox {
+        conversation: String,
+        participant: String,
+        pinned: bool,
+        pin_position: Option<u64>,
+        marked_unread: bool,
+    },
+    /// An agent's run changed (`conversation-run-append`,
+    /// `conversation-runs-v1`): the run after the append and the steps it
+    /// wrote. Not a conversation change (no rev); `subscribe` delivers it
+    /// only to a connection that echoed `conversation-runs-v1` in
+    /// `set-client-info` (never the remote relay or `conversation.events`).
+    Run { conversation: String, run: Value, steps: Vec<Value> },
 }
 
 impl ConversationEvent {
@@ -744,7 +778,31 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
+            Self::Inbox { conversation, participant, pinned, pin_position, marked_unread } => {
+                let mut value = json!({
+                    "event": "conversation-inbox-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                    "pinned": pinned,
+                    "marked_unread": marked_unread,
+                });
+                if let Some(position) = pin_position {
+                    value["pin_position"] = json!(position);
+                }
+                value
+            }
+            Self::Run { conversation, run, steps } => json!({
+                "event": "conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
         }
+    }
+
+    /// Run events go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_run(&self) -> bool {
+        matches!(self, Self::Run { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

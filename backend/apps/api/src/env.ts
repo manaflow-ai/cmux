@@ -192,6 +192,8 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_STACK_AUTH?: string
   /** Owners (user ids, comma separated) whose Chiefs may run on Claude; the route bills one person's account. */
   readonly CHIEF_BRAIN_CLAUDE_OWNERS?: string
+  /** Secret: more such owners, changed without a deploy (a demo's test user changes on every reset). */
+  readonly CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA?: string
   /** Claude turns of all Chiefs per UTC day (default 500). */
   readonly CHIEF_BRAIN_CLAUDE_DAILY_TURNS?: string
   /** Overrides of the Claude route, its sign-in refresh URL and project (tests). */
