@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "96f449a2e0a19b963b1c5bfa0a6cde4c54fc75667f39f5c1caf4235eaf8a6fae",
+  "catalog_sha256": "4c30b5422ffbbe5d04df1c0aed9e1996983a3dba7f02252a3081ba46c29d23fc",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -79,13 +79,34 @@
     "browser.viewer.resize": {
       "class": "connection_control"
     },
+    "chief.avatar.get": {
+      "class": "read"
+    },
+    "chief.avatar.set": {
+      "class": "mutation"
+    },
+    "chief.create": {
+      "class": "mutation"
+    },
+    "chief.delete": {
+      "class": "mutation"
+    },
     "chief.engine.get": {
       "class": "read"
     },
     "chief.engine.set": {
       "class": "mutation"
     },
+    "chief.get": {
+      "class": "read"
+    },
+    "chief.list": {
+      "class": "read"
+    },
     "chief.stop": {
+      "class": "mutation"
+    },
+    "chief.update": {
       "class": "mutation"
     },
     "client.cell_pixels.set": {

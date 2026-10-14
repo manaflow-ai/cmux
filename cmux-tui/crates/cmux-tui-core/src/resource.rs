@@ -128,6 +128,20 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.list")]
+    ChiefList,
+    #[serde(rename = "chief.get")]
+    ChiefGet,
+    #[serde(rename = "chief.create")]
+    ChiefCreate,
+    #[serde(rename = "chief.update")]
+    ChiefUpdate,
+    #[serde(rename = "chief.delete")]
+    ChiefDelete,
+    #[serde(rename = "chief.avatar.set")]
+    ChiefAvatarSet,
+    #[serde(rename = "chief.avatar.get")]
+    ChiefAvatarGet,
     #[serde(rename = "credential.verify")]
     CredentialVerify,
     #[serde(rename = "credential.mint")]

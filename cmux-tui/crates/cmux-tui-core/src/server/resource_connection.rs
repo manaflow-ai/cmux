@@ -141,6 +141,9 @@ pub(super) fn handle_resource_connection_message(
         operation if chief_control::handles(operation) => {
             chief_control::handle(mux, client, request, writer)
         }
+        operation if super::chief_registry_resource::handles(operation) => {
+            super::chief_registry_resource::handle(mux, client, request, writer)
+        }
         ResourceOperation::SessionShutdown => {
             handle_resource_session_shutdown(mux, client, request, id, writer)
         }

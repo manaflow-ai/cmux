@@ -268,6 +268,13 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefList
+        | ResourceOperation::ChiefGet
+        | ResourceOperation::ChiefCreate
+        | ResourceOperation::ChiefUpdate
+        | ResourceOperation::ChiefDelete
+        | ResourceOperation::ChiefAvatarSet
+        | ResourceOperation::ChiefAvatarGet
         | ResourceOperation::ConversationList
         | ResourceOperation::ConversationGet
         | ResourceOperation::ConversationHistory

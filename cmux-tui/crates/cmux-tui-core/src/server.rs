@@ -260,6 +260,7 @@ pub use socket_path::{
 pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
+mod chief_registry_resource;
 mod chief_inspect;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
 mod url_open;
