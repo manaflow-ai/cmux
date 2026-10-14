@@ -186,18 +186,22 @@ pub(crate) fn closed_page(item: &Value) -> Option<&str> {
 /// Removes, in a reopen's commit, every other group that is only the page `page`
 /// ([`closed_page`]; a closed tab group of that one page forms its group again, so it stays):
 /// the page is open again, so no older close of it takes its Recently Closed row or reopens it
-/// a second time. Answers the public changes.
+/// a second time. Answers the public changes. Best effort: a group it cannot read stays (and
+/// so does every group, when the list cannot be read), so the reopen whose tabs already exist
+/// still commits.
 pub(crate) fn remove_other_closes(
     transaction: &Transaction<'_>,
     page: &str,
 ) -> anyhow::Result<Vec<Value>> {
     let mut changes = Vec::new();
-    for item in closed_items(transaction)? {
+    let Ok(items) = closed_items(transaction) else { return Ok(changes) };
+    for item in items {
         let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
         if closed_page(&item) != Some(page) {
             continue;
         }
-        let grouped = closed_record(transaction, id)?.is_some_and(|record| {
+        let Ok(record) = closed_record(transaction, id) else { continue };
+        let grouped = record.is_some_and(|record| {
             ["tab_group", "screen_group"]
                 .iter()
                 .any(|key| record.get(*key).is_some_and(Value::is_object))
