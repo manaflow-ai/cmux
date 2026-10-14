@@ -58,6 +58,9 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     `browser_host.unavailable`; the server does not start the host (the session daemon
     will supervise it, browser-host.md decision 1);
   - `window_list` (the app's windows, for `win_` targets);
+  - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
+    above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
+    the receipt (`rendered`, `bytes`, `title`);
   - one tool per app action that `action.list` offers to the CLI and to MCP
     (`surfaces.cli` and `surfaces.mcp` are `offered`), named `app_` plus its
     CLI name (`app_new_window`, `app_workspace_move_to_window`), with the action's
