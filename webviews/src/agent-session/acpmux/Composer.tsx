@@ -26,6 +26,8 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { ComposerQueue } from "./ComposerQueue";
+import { ComposerStrip } from "./strip/ComposerStrip";
+import { useComposerStripVariant } from "./strip/stripVariant";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -210,6 +212,9 @@ type Props = {
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
+  /// Shows a subagent the composer strip lists (its pane right of the chat); unset, its chips
+  /// cannot be clicked.
+  onSubagent?(id: string): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -253,6 +258,7 @@ export function Composer({
   handle,
   sessionId,
   blocked,
+  onSubagent,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -921,9 +927,22 @@ export function Composer({
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
-  // composer location strip), so the card holds one controls row.
+  // composer location strip), so the card holds one controls row. Unless the composer strip is
+  // `off`, it also holds the chat's pull requests and running subagents (strip/ComposerStrip.tsx).
+  const strip = useComposerStripVariant();
   const context = (
     <ComposerContext
+      items={
+        strip === "off" ? undefined : (
+          <ComposerStrip
+            key={sessionId}
+            snapshot={snapshot}
+            sessionId={sessionId}
+            variant={strip}
+            onSubagent={onSubagent}
+          />
+        )
+      }
       projectChoices={projectChoices}
       onBrowseProject={onBrowseProject}
       onNewWorktree={onNewWorktree}
@@ -949,6 +968,7 @@ export function Composer({
       ref={form}
       className="acpmux-composer"
       data-shell={shell ? "" : undefined}
+      data-composer-strip={strip === "off" ? undefined : strip}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();

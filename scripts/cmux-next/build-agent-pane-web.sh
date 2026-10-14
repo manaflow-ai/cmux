@@ -76,7 +76,7 @@ cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/a
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
 grep -v '^@import ' "$SRC/acpmux/changes/changes.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
+cat "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/bottomStack.css" "$SRC/acpmux/strip/composerStrip.css" "$SRC/acpmux/composerAttachments.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/subagents/subagents.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" "$SRC/acpmux/newtab/history.css" "$SRC/acpmux/threadMinimap/threadMinimap.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/turnChanges/turnChanges.css" "$SRC/acpmux/Inspector.css" >> "$WORK/styles.css"
 cat "$SRC/acpmux/addProject.css" "$SRC/acpmux/harnesses/harnesses.css" "$SRC/acpmux/replay/replay.css" "$ROOT/webviews/src/markdown-task-checkbox.css" >> "$WORK/styles.css"

@@ -1,0 +1,300 @@
+/* The composer strip (strip/ComposerStrip.tsx, hq#1957, Leo and Lawrence 2026-10-14): the location
+   strip on the composer card's top edge (composerLocation.css) also holds the chat's pull requests
+   and running subagents, after the folder and machine. The form names the variant
+   (data-composer-strip, strip/stripVariant.ts); without it the location strip is unchanged.
+     flat   a bar 2px above the card, its own fill a step past the card's, no rim of its own;
+     tab    the attached tab (the card's fill and rim, its seam masked out), hugging its items;
+     gooey  the tab, its bottom corners flaring into the card in concave fillets;
+     tray   a full-width plate under the card's top edge: the card rests on it, its rim whole.
+   The strip keeps one height (30px). The hugging variants animate their width (stripWidth.ts sets
+   --acpmux-strip-width, a registered length the form transitions), items fade and slide in and
+   out, all at most 150ms with a quick ease-out (Leo: Aside's toggle feels laggy), and nothing moves
+   under Reduce Motion. Queued prompts keep their own slot above the strip. Every edge is the
+   card's hairline color, clear under appearance.borders = none. */
+@property --acpmux-strip-width {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.acpmux-composer[data-composer-strip] {
+  --acpmux-strip-motion: min(150ms, var(--agent-motion-move, 150ms));
+  --acpmux-strip-ease: var(--agent-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  /* The card's corner radius (composerLocation.css), which the tray tucks under. */
+  --acpmux-strip-card-radius: 18px;
+  --acpmux-strip-fillet: 8px;
+}
+
+/* The items: a hairline after the folder and machine, then the pull requests and the subagents. */
+.acpmux-strip-items {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+}
+.acpmux-strip-items[data-empty] { display: none; }
+.acpmux-strip-items::before {
+  content: "";
+  flex: none;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px 0 2px;
+  background: color-mix(in srgb, var(--agent-text) 16%, transparent);
+}
+.acpmux-strip-prs,
+.acpmux-strip-agents,
+.acpmux-strip-pr-host,
+.acpmux-strip-more-anchor {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-strip-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin: 0;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: 16px;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: default;
+  outline: none;
+}
+.acpmux-strip-chip:hover,
+.acpmux-strip-chip[aria-expanded="true"] {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-text);
+}
+.acpmux-strip-chip:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: 0;
+  color: var(--agent-text);
+}
+.acpmux-strip-chip:disabled { opacity: 1; }
+.acpmux-strip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A pull request's title is cut at a fixed width; a subagent's name too. */
+.acpmux-strip-pr .acpmux-strip-pr-title { max-width: 150px; }
+.acpmux-strip-agent .acpmux-strip-label { max-width: 110px; }
+.acpmux-strip-number,
+.acpmux-strip-time { flex: none; font-variant-numeric: tabular-nums; }
+.acpmux-strip-chip .acpmux-strip-time { opacity: .8; }
+.acpmux-strip-more { padding-inline: 5px; font-variant-numeric: tabular-nums; }
+.acpmux-strip-glyph { display: inline-flex; flex: none; align-items: center; color: var(--agent-muted); }
+.acpmux-strip-glyph[data-state="open"] { color: var(--agent-success, var(--acpmux-add, var(--agent-ansi-2))); }
+.acpmux-strip-glyph[data-state="merged"] { color: var(--agent-ansi-5, var(--agent-text)); }
+.acpmux-strip-glyph[data-state="closed"],
+.acpmux-strip-glyph[data-status="failed"] { color: var(--agent-danger); }
+.acpmux-strip-glyph[data-status="running"] { color: var(--agent-text); }
+.acpmux-strip-glyph[data-status="waiting"] { color: var(--acpmux-warning); }
+.acpmux-strip-glyph[data-status="done"] { color: var(--agent-success, var(--acpmux-add, var(--agent-ansi-2))); }
+.acpmux-strip-chip .ui-ghost-icon { display: inline-flex; opacity: .8; }
+
+/* The popovers: the location menus' surface; a row is the chip's parts at menu size. */
+.acpmux-strip-menu { display: flex; flex-direction: column; min-width: 220px; }
+.acpmux-strip-menu-pr { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.acpmux-strip-menu-row {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-strip-menu-row .acpmux-strip-label { flex: 1 1 auto; }
+.acpmux-strip-menu-row .acpmux-strip-number,
+.acpmux-strip-menu-row .acpmux-strip-time { color: var(--agent-muted); }
+.acpmux-strip-menu-row:hover,
+.acpmux-strip-menu-row:focus-visible { background: var(--acpmux-menu-hover); outline: none; }
+.acpmux-strip-dismiss { flex: none; }
+
+/* Items come and go: a short fade and slide, never under Reduce Motion. A finished subagent fades
+   out before it leaves (subagentPresence.ts LEAVE_MS). */
+.acpmux-strip-chip[data-leaving] { opacity: 0; transform: translateY(3px); }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer[data-strip-ready] .acpmux-strip-chip {
+    animation: acpmux-strip-in var(--acpmux-strip-motion) var(--acpmux-strip-ease);
+  }
+  .acpmux-strip-chip[data-leaving] {
+    transition:
+      opacity var(--acpmux-strip-motion) var(--acpmux-strip-ease),
+      transform var(--acpmux-strip-motion) var(--acpmux-strip-ease);
+  }
+  .acpmux-composer[data-strip-ready]:is([data-composer-strip="tab"], [data-composer-strip="gooey"]) {
+    transition: --acpmux-strip-width var(--acpmux-strip-motion) var(--acpmux-strip-ease);
+  }
+}
+@keyframes acpmux-strip-in {
+  from { opacity: 0; transform: translateY(3px); }
+}
+
+/* Queued prompts keep their own slot above any strip variant: a whole rounded box with the
+   card's hairline, a little apart from the strip. */
+:root .acpmux-composer[data-composer-strip] > .acpmux-composer-queue {
+  margin-bottom: 4px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+}
+
+/* The strip's fill: the card's (composerLocation.css), the base the variants step from. */
+.acpmux-composer[data-composer-strip] > .acpmux-composer-strip {
+  --acpmux-strip-card-fill: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+}
+
+/* flat: its own bar, a step past the card's fill (the pull request dock's contrast), 2px above
+   the card, its own corners; the card keeps its whole rim. */
+:root .acpmux-composer[data-composer-strip="flat"] > .acpmux-composer-strip {
+  margin-bottom: 2px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text) 12%, var(--acpmux-composer-glass));
+  box-shadow: none;
+}
+
+/* tab and gooey: the attached tab, hugging its items. Its content row takes its natural width,
+   capped at the room the card leaves; the strip takes the measured width (stripWidth.ts) and
+   clips its row to it, so a growing strip uncovers a new item and a shrinking one closes over a
+   gone one. */
+:root .acpmux-composer:is([data-composer-strip="tab"], [data-composer-strip="gooey"]) > .acpmux-composer-strip {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--acpmux-strip-inset, 18px));
+  border-radius: 10px 10px 0 0;
+  box-shadow:
+    inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
+    inset var(--cmux-hairline, .5px) 0 0 var(--acpmux-strip-edge),
+    inset calc(-1 * var(--cmux-hairline, .5px)) 0 0 var(--acpmux-strip-edge);
+}
+:root .acpmux-composer[data-strip-ready]:is([data-composer-strip="tab"], [data-composer-strip="gooey"]) > .acpmux-composer-strip {
+  width: var(--acpmux-strip-width);
+}
+:root .acpmux-composer:is([data-composer-strip="tab"], [data-composer-strip="gooey"]) > .acpmux-composer-strip > .acpmux-composer-context {
+  flex: none;
+  width: max-content;
+  max-width: var(--acpmux-strip-room, 100%);
+}
+:root .acpmux-composer[data-strip-ready]:is([data-composer-strip="tab"], [data-composer-strip="gooey"]) > .acpmux-composer-strip > .acpmux-composer-context {
+  clip-path: inset(-2px calc(100% - var(--acpmux-strip-width)) -2px -2px);
+}
+/* The card's rim leaves out only the stretch the tab stands on. */
+:root .acpmux-composer[data-composer-strip="tab"] > .acpmux-composer-box::before {
+  --acpmux-seam: linear-gradient(#000 0 0) calc(var(--acpmux-strip-inset, 18px) + .5px) 0 /
+    max(0px, calc(var(--acpmux-strip-width) - 1px)) 2px no-repeat;
+}
+
+/* gooey: the tab's bottom corners flare into the card in concave fillets (a Liquid Glass "merged"
+   look). Each fillet is a small square beside the tab's foot filled with the tab's fill outside a
+   quarter circle; the tab's side hairline continues around the arc as a ring in the same
+   gradient. The card's rim leaves out the fillets' feet too. The ring is an approximation: it is
+   the hairline's width inside the arc, so where it meets the tab's side and the card's edge it can
+   sit half a device pixel off their lines. */
+/* The tab stands a fillet further in, so its fillets land on the card's straight edge, clear of its
+   rounded corners. */
+:root .acpmux-composer[data-composer-strip="gooey"] {
+  --acpmux-strip-inset: calc(18px + var(--acpmux-strip-fillet));
+}
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-strip {
+  --acpmux-strip-fill: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  overflow: visible;
+}
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-strip::before,
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-strip::after {
+  --acpmux-fillet-ring: radial-gradient(
+    circle at var(--acpmux-fillet-at),
+    transparent calc(var(--acpmux-strip-fillet) - var(--cmux-hairline, .5px)),
+    var(--acpmux-strip-edge) calc(var(--acpmux-strip-fillet) - var(--cmux-hairline, .5px)),
+    var(--acpmux-strip-edge) var(--acpmux-strip-fillet),
+    var(--acpmux-strip-fill) var(--acpmux-strip-fillet)
+  );
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: var(--acpmux-strip-fillet);
+  height: var(--acpmux-strip-fillet);
+  background: var(--acpmux-fillet-ring);
+  pointer-events: none;
+}
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-strip::before {
+  --acpmux-fillet-at: 0 0;
+  right: 100%;
+}
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-strip::after {
+  --acpmux-fillet-at: 100% 0;
+  left: 100%;
+}
+:root .acpmux-composer[data-composer-strip="gooey"] > .acpmux-composer-box::before {
+  --acpmux-seam: linear-gradient(#000 0 0)
+    calc(var(--acpmux-strip-inset, 18px) - var(--acpmux-strip-fillet) + .5px) 0 /
+    max(0px, calc(var(--acpmux-strip-width) + 2 * var(--acpmux-strip-fillet) - 1px)) 2px no-repeat;
+}
+
+/* tray: a full-width plate whose top corners take the card's radius and whose foot runs under the
+   card by that radius, so the card rests on it. The plate has no rim; the card keeps its whole
+   rim and draws over the plate. Under the card the plate is masked away (the card is translucent
+   over a backdrop), leaving only the corners the card's rounding uncovers. */
+:root .acpmux-composer[data-composer-strip="tray"] > .acpmux-composer-strip {
+  --acpmux-tray-tuck: var(--acpmux-strip-card-radius);
+  height: calc(var(--acpmux-strip-height) + var(--acpmux-tray-tuck));
+  margin: 0 0 calc(-1 * var(--acpmux-tray-tuck));
+  padding: 0 calc(var(--acpmux-tray-tuck) - 10px) var(--acpmux-tray-tuck);
+  border-radius: var(--acpmux-tray-tuck) var(--acpmux-tray-tuck) 0 0;
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-strip-card-fill));
+  box-shadow: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--acpmux-tray-tuck)) no-repeat,
+    radial-gradient(circle at 100% 100%, transparent var(--acpmux-tray-tuck), #000 calc(var(--acpmux-tray-tuck) + .5px)) left bottom / var(--acpmux-tray-tuck) var(--acpmux-tray-tuck) no-repeat,
+    radial-gradient(circle at 0 100%, transparent var(--acpmux-tray-tuck), #000 calc(var(--acpmux-tray-tuck) + .5px)) right bottom / var(--acpmux-tray-tuck) var(--acpmux-tray-tuck) no-repeat;
+  mask:
+    linear-gradient(#000 0 0) top / 100% calc(100% - var(--acpmux-tray-tuck)) no-repeat,
+    radial-gradient(circle at 100% 100%, transparent var(--acpmux-tray-tuck), #000 calc(var(--acpmux-tray-tuck) + .5px)) left bottom / var(--acpmux-tray-tuck) var(--acpmux-tray-tuck) no-repeat,
+    radial-gradient(circle at 0 100%, transparent var(--acpmux-tray-tuck), #000 calc(var(--acpmux-tray-tuck) + .5px)) right bottom / var(--acpmux-tray-tuck) var(--acpmux-tray-tuck) no-repeat;
+}
+:root .acpmux-composer[data-composer-strip="tray"] > .acpmux-composer-strip > .acpmux-composer-context {
+  height: var(--acpmux-strip-height);
+}
+
+/* flat and tray: the card draws its whole rim (no tab stands on it). */
+:root .acpmux-composer:is([data-composer-strip="flat"], [data-composer-strip="tray"]) > .acpmux-composer-box::before {
+  -webkit-mask: none;
+  mask: none;
+}
+
+/* Increase Contrast: the strips that carry no rim of their own take the card's hairline. */
+@media (prefers-contrast: more) {
+  :root .acpmux-composer[data-composer-strip="flat"] > .acpmux-composer-strip {
+    box-shadow: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-composer-edge);
+  }
+  :root .acpmux-composer[data-composer-strip="tray"] > .acpmux-composer-strip {
+    box-shadow:
+      inset 0 var(--cmux-hairline-ring, 1px) 0 var(--acpmux-composer-edge),
+      inset var(--cmux-hairline-ring, 1px) 0 0 var(--acpmux-composer-edge),
+      inset calc(-1 * var(--cmux-hairline-ring, 1px)) 0 0 var(--acpmux-composer-edge);
+  }
+}
+
+/* The items follow the folder and machine at once; the branch keeps the strip's far end. */
+.acpmux-composer[data-composer-strip] .acpmux-composer-context > .acpmux-location-leading { flex: 0 1 auto; }

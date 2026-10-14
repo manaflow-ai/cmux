@@ -48,6 +48,7 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  items,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -68,6 +69,9 @@ export function ComposerContext({
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// The composer strip's items after the folder and machine: the chat's pull requests and running
+  /// subagents (strip/ComposerStrip.tsx). Unset, the strip is the location strip alone.
+  items?: React.ReactNode;
 }) {
   const computers = useMemo(
     () => availableComputers(summary, sessions, peers, localName),
@@ -97,7 +101,10 @@ export function ComposerContext({
       ? undefined
       : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
-  if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
+  if (!currentComputer && !currentFolder && !projectChoices)
+    return (
+      <div className="acpmux-composer-strip">{items && <div className="acpmux-composer-context">{items}</div>}</div>
+    );
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
@@ -191,6 +198,7 @@ export function ComposerContext({
             }}
           />
         </div>
+        {items}
         {branch && <BranchPicker branch={branch} />}
       </div>
     </div>

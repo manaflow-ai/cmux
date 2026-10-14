@@ -181,7 +181,7 @@ import { sessionLink } from "./links";
 import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
-import { PullRequestDock } from "./summary/PullRequestDock";
+import { DockedPullRequests } from "./strip/ComposerStrip";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -4563,7 +4563,7 @@ function AcpmuxPane() {
   );
   const composer = !reviewing && !handoffLoading && (
     <>
-      <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+      <DockedPullRequests key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       <DictationNotice dictation={dictation} />
       {importError && (
         <p className="acpmux-composer-remote-note" role="alert">
@@ -4679,6 +4679,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          onSubagent={showSubagent}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
           draft={draft}
