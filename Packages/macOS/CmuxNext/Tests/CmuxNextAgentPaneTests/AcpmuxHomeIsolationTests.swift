@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -9,20 +10,27 @@ import Testing
 /// off, so NEXT's daemon stopped. An inherited socket without its home is another daemon's.
 struct AcpmuxHomeIsolationTests {
     static let user = URL(fileURLWithPath: "/Users/me", isDirectory: true)
-    static let nextSocket = "/Users/me/.acpmux/tags/cmux-next/acpmux.sock"
+    /// cmux NEXT's daemon socket, as its terminals export it.
+    static let nextSocket = "/Users/me/.acpmux/acpmux.sock"
+
+    /// A tagged DEV build's identity.
+    static func build(_ tag: String) -> BuildIdentity {
+        BuildIdentity(bundleID: "com.cmuxterm.app.debug.\(tag)", bundledTag: tag)
+    }
 
     private static func resolve(tag: String?, _ environment: [String: String]) throws -> AcpmuxEnvironment {
-        try #require(AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: URL(fileURLWithPath: "/App/bin"),
+        try #require(AcpmuxEnvironment.resolve(build: tag.map(Self.build), bundledBinDirectory: URL(fileURLWithPath: "/App/bin"),
                                                environment: environment, userHome: user, uid: 501,
                                                isExecutable: { _ in true }))
     }
 
     @Test func anInheritedSocketWithoutItsHomeIsAnotherDaemons() throws {
         let tagged = try Self.resolve(tag: "cgstrip", ["ACPMUX_SOCKET": Self.nextSocket])
-        #expect(tagged.home.path == "/Users/me/.acpmux/tags/cgstrip")
-        #expect(tagged.socketPath == "/Users/me/.acpmux/tags/cgstrip/acpmux.sock")
+        let home = Self.build("cgstrip").acpmuxHome(userHome: Self.user)
+        #expect(tagged.home.path == home.path)
+        #expect(tagged.socketPath == home.appendingPathComponent("acpmux.sock").path)
         #expect(tagged.childEnvironment["ACPMUX_SOCKET"] == tagged.socketPath)
-        let untagged = try Self.resolve(tag: nil, ["ACPMUX_SOCKET": Self.nextSocket])
+        let untagged = try Self.resolve(tag: nil, ["ACPMUX_SOCKET": "/tmp/elsewhere/acpmux.sock"])
         #expect(untagged.socketPath == "/Users/me/.acpmux/acpmux.sock")
     }
 
@@ -32,7 +40,7 @@ struct AcpmuxHomeIsolationTests {
         let sockets = try tags.map { try Self.resolve(tag: $0, inherited).socketPath }
         #expect(Set(sockets).count == tags.count, "\(sockets)")
         for (tag, socket) in zip(tags, sockets) {
-            #expect(socket.hasPrefix("/Users/me/.acpmux/tags/\(tag)/"), "\(tag): \(socket)")
+            #expect(socket.hasPrefix(Self.build(tag).acpmuxHome(userHome: Self.user).path + "/"), "\(tag): \(socket)")
         }
     }
 
@@ -43,10 +51,10 @@ struct AcpmuxHomeIsolationTests {
     }
 
     @Test func aDaemonOfAnotherHomeIsNotThisAppsDaemon() throws {
-        let home = URL(fileURLWithPath: "/Users/me/.acpmux/tags/cgstrip", isDirectory: true)
-        #expect(!AcpmuxStatus(["home": "/Users/me/.acpmux/tags/cmux-next", "build": "x"]).serves(home: home))
-        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/tags/cgstrip/"]).serves(home: home))
-        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/tags/../tags/cgstrip"]).serves(home: home))
+        let home = URL(fileURLWithPath: "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.cgstrip", isDirectory: true)
+        #expect(!AcpmuxStatus(["home": "/Users/me/.acpmux", "build": "x"]).serves(home: home))
+        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/builds/com.cmuxterm.app.debug.cgstrip/"]).serves(home: home))
+        #expect(AcpmuxStatus(["home": "/Users/me/.acpmux/builds/../builds/com.cmuxterm.app.debug.cgstrip"]).serves(home: home))
         // A daemon that does not report its home is taken at its socket's word.
         #expect(AcpmuxStatus([:]).serves(home: home))
     }
@@ -60,7 +68,7 @@ struct AcpmuxHomeIsolationTests {
             let name = row["name"] as? String ?? "?"
             let executables = Set(row["executables"] as? [String] ?? [])
             let got = AcpmuxEnvironment.resolve(
-                tag: row["tag"] as? String,
+                build: (row["bundle_id"] as? String).map { BuildIdentity(bundleID: $0, bundledTag: row["bundled_tag"] as? String) },
                 bundledBinDirectory: (row["bundled"] as? String).map { URL(fileURLWithPath: $0, isDirectory: true) },
                 environment: row["env"] as? [String: String] ?? [:],
                 userHome: URL(fileURLWithPath: try #require(row["user_home"] as? String), isDirectory: true),
@@ -98,9 +106,9 @@ struct AcpmuxOtherHomeDaemonTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: binA.appendingPathComponent("acpmux"))
         try FileManager.default.copyItem(at: binary, to: binB.appendingPathComponent("acpmux"))
-        let a = try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: binA,
+        let a = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: binA,
                                                        environment: ["ACPMUX_HOME": homeA.path, "ACPMUX_SOCKET": socket]))
-        let b = try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: binB,
+        let b = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: binB,
                                                        environment: ["ACPMUX_HOME": homeB.path, "ACPMUX_SOCKET": socket]))
 
         var started: Int32?
@@ -134,7 +142,7 @@ struct AcpmuxOtherHomeDaemonTests {
         }
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.copyItem(at: binary, to: bin.appendingPathComponent("acpmux"))
-        let environment = try #require(AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
+        let environment = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin,
                                                                  environment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]))
         var refused: (any Error)?
         var started: Int32?

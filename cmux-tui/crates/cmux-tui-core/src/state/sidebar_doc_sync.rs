@@ -32,12 +32,10 @@
 //! section (and an emptied group there); in Pinned and custom sections it
 //! stays.
 
-use std::collections::HashSet;
-
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use cmux_layout_reducer::sidebar_doc::migrate::LegacyWorkspace;
-use cmux_layout_reducer::sidebar_doc::reduce::{self, Changes};
+use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied, Batch};
 use cmux_layout_reducer::sidebar_doc::{
     Body, Doc, GroupPatch, Item, ItemId, Op, PINNED_SECTION_ID, Patch, Section, SectionPlace,
     Target, WorkspaceRef, group_item_id, machine_section_id,
@@ -47,8 +45,9 @@ use super::sidebar_doc_legacy::mint_item_id;
 use super::sidebar_doc_store as store;
 use super::values::local_registry_id;
 
-/// The dirty table, its triggers and the position index the neighbor
-/// queries use. Run at every open (after the personal and presentation
+/// The dirty table, its triggers, and the order index of the personal rows
+/// (the neighbor queries and row moves; it replaces the older position
+/// index, which an older binary makes again at its own open). Run at every open (after the personal and presentation
 /// tables exist); additive, so an older binary keeps working (and its own
 /// writes are marked too).
 pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -59,8 +58,9 @@ pub(crate) fn create_triggers(transaction: &Transaction<'_>) -> anyhow::Result<(
            b TEXT NOT NULL DEFAULT '',
            PRIMARY KEY(kind, a, b)
          );
-         CREATE INDEX IF NOT EXISTS sidebar_doc_personal_position
-           ON personal_workspaces(position);
+         DROP INDEX IF EXISTS sidebar_doc_personal_position;
+         CREATE INDEX IF NOT EXISTS personal_workspaces_order
+           ON personal_workspaces(position, session_id, workspace_key);
          CREATE TRIGGER IF NOT EXISTS sidebar_doc_row_insert AFTER INSERT ON personal_workspaces
          BEGIN INSERT OR IGNORE INTO sidebar_doc_dirty(kind, a, b)
                VALUES('ws', NEW.session_id, NEW.workspace_key); END;
@@ -129,16 +129,15 @@ pub(crate) fn clear_dirty(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// Apply one op to the running document; a refusal is logged and skipped
 /// (an old write the document cannot follow, for example a group of two
 /// machines, leaves the document as it was).
-fn try_apply(doc: &mut Doc, op: Op) {
+fn try_apply(batch: &mut Batch<'_>, op: Op) {
     let mut mint = mint_item_id;
-    match reduce::apply(doc, std::slice::from_ref(&op), &mut mint) {
-        Ok(outcome) => *doc = outcome.doc,
-        Err(refusal) => eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})"),
+    if let Err(refusal) = batch.apply(std::slice::from_ref(&op), &mut mint) {
+        eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})");
     }
 }
 
-/// Store `doc` (derived from `before` by the daemon) and queue its changes
-/// into the current commit's batch.
+/// Store `doc` (derived from `before` by a whole-document repair at open)
+/// and queue its changes into the current commit's batch.
 pub(crate) fn commit_derived(
     transaction: &Transaction<'_>,
     before: &Doc,
@@ -148,14 +147,29 @@ pub(crate) fn commit_derived(
     if changes.is_empty() {
         return Ok(());
     }
-    let events = store::write_changes(
-        transaction,
-        doc,
-        before.revision,
-        before.revision + 1,
-        &changes,
-        None,
-    )?;
+    let events =
+        store::write_changes(transaction, before.revision, before.revision + 1, &changes, None)?;
+    for event in &events {
+        super::closed_history_store::queue_change(transaction, event)?;
+    }
+    Ok(())
+}
+
+/// Store a finished batch's changes (the document is at `revision`) and
+/// queue them into the current commit's batch.
+fn commit_applied(
+    transaction: &Transaction<'_>,
+    previous_revision: u64,
+    revision: u64,
+    applied: &Applied,
+) -> anyhow::Result<()> {
+    if applied.changes.is_empty() {
+        return Ok(());
+    }
+    let events =
+        store::write_changes(transaction, previous_revision, revision, &applied.changes, None)?;
+    // One row per change: the open path queues outside a journaled commit,
+    // so its rows wait for the next commit, which an older binary may run.
     for event in &events {
         super::closed_history_store::queue_change(transaction, event)?;
     }
@@ -267,14 +281,8 @@ fn legacy_workspace(
 
 fn row_item<'a>(doc: &'a Doc, workspace: &LegacyWorkspace) -> Option<&'a Item> {
     let reference = workspace.reference();
-    doc.workspace_item(&reference).or_else(|| {
-        doc.items.iter().find(|item| {
-            item.body.workspace().is_some_and(|placed| {
-                placed.session_id == workspace.session_id
-                    && placed.placement_ref() == Some(workspace.workspace_key.as_str())
-            })
-        })
-    })
+    doc.workspace_item(&reference)
+        .or_else(|| doc.placement_item(&workspace.session_id, &workspace.workspace_key))
 }
 
 /// The document item of an old group id: `itm_g_<id>` (migrated or synced)
@@ -325,20 +333,28 @@ fn already_at(doc: &Doc, item: &Item, target: &Target) -> bool {
     if item.section != target.section || item.parent != target.parent {
         return false;
     }
-    let siblings = doc.children(&target.section, target.parent.as_deref());
-    let at = siblings.iter().position(|sibling| sibling.id == item.id);
-    match (&target.after, target.index, at) {
-        (Some(anchor), _, Some(at)) => at > 0 && siblings[at - 1].id == *anchor,
-        (None, Some(0), Some(at)) => at == 0,
-        (None, None, Some(_)) => true,
+    let Some(list) = doc.list_entries(&target.section, target.parent.as_deref()) else {
+        return false;
+    };
+    let previous = list.range(..(item.order.clone(), item.id.clone())).next_back();
+    match (&target.after, target.index) {
+        (Some(anchor), _) => previous.is_some_and(|(_, id)| id == anchor),
+        (None, Some(0)) => previous.is_none(),
+        (None, None) => true,
         _ => false,
     }
 }
 
-fn sync_row(connection: &Connection, doc: &mut Doc, local: &str, row: &Row) -> anyhow::Result<()> {
+fn sync_row(
+    connection: &Connection,
+    batch: &mut Batch<'_>,
+    local: &str,
+    row: &Row,
+) -> anyhow::Result<()> {
     let Some(workspace) = legacy_workspace(connection, local, &row.session, &row.key)? else {
         return Ok(());
     };
+    let doc = batch.doc();
     let placed = row_item(doc, &workspace).cloned();
     let group = row.group.as_deref().and_then(|group| group_item(doc, group)).cloned();
     let (section, parent) = match &group {
@@ -368,16 +384,16 @@ fn sync_row(connection: &Connection, doc: &mut Doc, local: &str, row: &Row) -> a
     let target = anchored(&section, parent.as_deref(), anchor_item.as_ref(), neighbor.is_some());
     match placed {
         Some(item) if already_at(doc, &item, &target) => {}
-        Some(item) => try_apply(doc, Op::Move { items: vec![item.id], to: target }),
+        Some(item) => try_apply(batch, Op::Move { items: vec![item.id], to: target }),
         None => {
             let reference = workspace.reference();
             if doc.section(&section).is_none() {
-                try_apply(doc, Op::Adopt { refs: vec![reference], to: None });
-                if let Some(item) = row_item(doc, &workspace).cloned() {
-                    try_apply(doc, Op::Move { items: vec![item.id], to: target });
+                try_apply(batch, Op::Adopt { refs: vec![reference], to: None });
+                if let Some(item) = row_item(batch.doc(), &workspace).cloned() {
+                    try_apply(batch, Op::Move { items: vec![item.id], to: target });
                 }
             } else {
-                try_apply(doc, Op::Adopt { refs: vec![reference], to: Some(target) });
+                try_apply(batch, Op::Adopt { refs: vec![reference], to: Some(target) });
             }
         }
     }
@@ -421,18 +437,18 @@ fn group_row(connection: &Connection, id: &str) -> anyhow::Result<Option<GroupRo
 
 fn sync_group(
     connection: &Connection,
-    doc: &mut Doc,
+    batch: &mut Batch<'_>,
     local: &str,
     id: &str,
     slot: bool,
 ) -> anyhow::Result<()> {
     let Some(group) = group_row(connection, id)? else {
-        if let Some(item) = group_item(doc, id).cloned() {
-            try_apply(doc, Op::GroupUngroup { id: item.id });
+        if let Some(item) = group_item(batch.doc(), id).cloned() {
+            try_apply(batch, Op::GroupUngroup { id: item.id });
         }
         return Ok(());
     };
-    if group_item(doc, id).is_none() {
+    if group_item(batch.doc(), id).is_none() {
         let machine: String = connection
             .query_row(
                 "SELECT session_id FROM personal_workspaces WHERE group_id = ?1
@@ -443,12 +459,12 @@ fn sync_group(
             .optional()?
             .unwrap_or_else(|| local.to_string());
         let section = machine_section_id(&machine);
-        if doc.section(&section).is_none() {
+        if batch.doc().section(&section).is_none() {
             let section = Section::machine(&machine);
-            try_apply(doc, Op::SectionAdd { section, place: SectionPlace::default() });
+            try_apply(batch, Op::SectionAdd { section, place: SectionPlace::default() });
         }
         try_apply(
-            doc,
+            batch,
             Op::GroupCreate {
                 id: Some(group_item_id(id)),
                 name: group.name.clone(),
@@ -460,7 +476,7 @@ fn sync_group(
             },
         );
     }
-    let Some(item) = group_item(doc, id).cloned() else { return Ok(()) };
+    let Some(item) = group_item(batch.doc(), id).cloned() else { return Ok(()) };
     if let Body::Group { name, color, icon, collapsed, profile } = &item.body {
         let field = |old: &Option<String>, new: &Option<String>| match (old == new, new) {
             (true, _) => Patch::Keep,
@@ -475,21 +491,22 @@ fn sync_group(
             profile: field(profile, &Some(group.profile.clone())),
         };
         if patch != GroupPatch::default() {
-            try_apply(doc, Op::GroupUpdate { id: item.id.clone(), patch });
+            try_apply(batch, Op::GroupUpdate { id: item.id.clone(), patch });
         }
     }
     let in_pinned = item.section == PINNED_SECTION_ID;
     if group.pinned && !in_pinned {
-        try_apply(doc, Op::Pin { items: vec![item.id] });
+        try_apply(batch, Op::Pin { items: vec![item.id] });
         return Ok(());
     }
     if !group.pinned && in_pinned {
-        try_apply(doc, Op::Unpin { items: vec![item.id.clone()] });
+        try_apply(batch, Op::Unpin { items: vec![item.id.clone()] });
     }
     // Its slot, while it is in its machine section's top level.
     if !slot {
         return Ok(());
     }
+    let doc = batch.doc();
     let Some(item) = doc.item(&item.id).cloned() else { return Ok(()) };
     if doc.section(&item.section).is_none_or(|section| section.kind.machine().is_none()) {
         return Ok(());
@@ -520,12 +537,17 @@ fn sync_group(
     let anchor_item = anchor.as_deref().and_then(|id| doc.item(id)).cloned();
     let target = anchored(&item.section, None, anchor_item.as_ref(), neighbor.is_some());
     if !already_at(doc, &item, &target) {
-        try_apply(doc, Op::Move { items: vec![item.id], to: target });
+        try_apply(batch, Op::Move { items: vec![item.id], to: target });
     }
     Ok(())
 }
 
-fn sync_flag(connection: &Connection, doc: &mut Doc, local: &str, key: &str) -> anyhow::Result<()> {
+fn sync_flag(
+    connection: &Connection,
+    batch: &mut Batch<'_>,
+    local: &str,
+    key: &str,
+) -> anyhow::Result<()> {
     let Some(id) = super::values::workspace_public_id_for_key(connection, key)? else {
         return Ok(());
     };
@@ -546,14 +568,14 @@ fn sync_flag(connection: &Connection, doc: &mut Doc, local: &str, key: &str) -> 
         return Ok(());
     }
     let reference = WorkspaceRef::new(local, &id);
-    if doc.workspace_item(&reference).is_none() {
-        try_apply(doc, Op::Adopt { refs: vec![reference.clone()], to: None });
+    if batch.doc().workspace_item(&reference).is_none() {
+        try_apply(batch, Op::Adopt { refs: vec![reference.clone()], to: None });
     }
-    if let Some(item) = doc.workspace_item(&reference)
+    if let Some(item) = batch.doc().workspace_item(&reference)
         && item.section != PINNED_SECTION_ID
     {
         let id = item.id.clone();
-        try_apply(doc, Op::Pin { items: vec![id] });
+        try_apply(batch, Op::Pin { items: vec![id] });
     }
     Ok(())
 }
@@ -577,8 +599,6 @@ pub(crate) fn sync_from_legacy(transaction: &Transaction<'_>) -> anyhow::Result<
     }
     transaction.execute("DELETE FROM sidebar_doc_dirty", [])?;
     let local = local_registry_id(transaction)?;
-    let before = store::read_doc(transaction)?;
-    let mut doc = before.clone();
     let groups: Vec<&str> =
         dirty.iter().filter(|(kind, ..)| kind == "group").map(|(_, a, _)| a.as_str()).collect();
     let mut rows = Vec::new();
@@ -588,23 +608,28 @@ pub(crate) fn sync_from_legacy(transaction: &Transaction<'_>) -> anyhow::Result<
         }
     }
     rows.sort_by_key(|row| row.position);
-    // Groups before their members; a group's slot after the rows (it can
-    // name a row placed here), in one pass when no row is dirty.
-    for group in &groups {
-        sync_group(transaction, &mut doc, &local, group, rows.is_empty())?;
-    }
-    for row in &rows {
-        sync_row(transaction, &mut doc, &local, row)?;
-    }
-    if !rows.is_empty() {
+    store::with_doc_mut(transaction, |doc| {
+        let previous_revision = doc.revision;
+        let mut batch = Batch::new(doc);
+        // Groups before their members; a group's slot after the rows (it
+        // can name a row placed here), in one pass when no row is dirty.
         for group in &groups {
-            sync_group(transaction, &mut doc, &local, group, true)?;
+            sync_group(transaction, &mut batch, &local, group, rows.is_empty())?;
         }
-    }
-    for (_, key, _) in dirty.iter().filter(|(kind, ..)| kind == "flag") {
-        sync_flag(transaction, &mut doc, &local, key)?;
-    }
-    commit_derived(transaction, &before, &doc)
+        for row in &rows {
+            sync_row(transaction, &mut batch, &local, row)?;
+        }
+        if !rows.is_empty() {
+            for group in &groups {
+                sync_group(transaction, &mut batch, &local, group, true)?;
+            }
+        }
+        for (_, key, _) in dirty.iter().filter(|(kind, ..)| kind == "flag") {
+            sync_flag(transaction, &mut batch, &local, key)?;
+        }
+        let applied = batch.finish();
+        commit_applied(transaction, previous_revision, doc.revision, &applied)
+    })
 }
 
 /// Workspaces of this machine that closed (tombstoned in this commit).
@@ -619,11 +644,14 @@ pub(crate) fn close_workspaces(
         return Ok(());
     }
     let local = local_registry_id(transaction)?;
-    let before = store::read_doc(transaction)?;
     let refs: Vec<WorkspaceRef> = ids.iter().map(|id| WorkspaceRef::new(&local, id)).collect();
-    let mut doc = before.clone();
-    try_apply(&mut doc, Op::Close { refs });
-    commit_derived(transaction, &before, &doc)
+    store::with_doc_mut(transaction, |doc| {
+        let previous_revision = doc.revision;
+        let mut batch = Batch::new(doc);
+        try_apply(&mut batch, Op::Close { refs });
+        let applied = batch.finish();
+        commit_applied(transaction, previous_revision, doc.revision, &applied)
+    })
 }
 
 /// The old key of a workspace item: this machine's by its public id, another
@@ -662,42 +690,49 @@ fn in_machine_section(doc: &Doc, item: &Item) -> bool {
     doc.section(&item.section).is_some_and(|section| section.kind.machine().is_some())
 }
 
-/// The personal row of the nearest workspace before `index` in document
-/// order, as `(session, key, position)`.
+/// The personal row of the nearest workspace before item `id` in document
+/// order, as `(session, key)`.
 fn previous_row(
     connection: &Connection,
     doc: &Doc,
     local: &str,
-    index: usize,
-) -> anyhow::Result<Option<(String, String, i64)>> {
-    for item in doc.items[..index].iter().rev() {
+    id: &str,
+) -> anyhow::Result<Option<(String, String)>> {
+    let mut cursor = doc.previous_in_order(id);
+    while let Some(item) = cursor {
         // Rows of items outside machine sections stay where they were, so
         // they are no anchor for the machine order.
         if !in_machine_section(doc, item) {
+            cursor = doc.last_before_section(&item.section);
             continue;
         }
-        let Some(reference) = item.body.workspace() else { continue };
-        let Some(key) = item_key(connection, local, reference)? else { continue };
-        if let Some(position) = position_of(connection, &reference.session_id, &key)? {
-            return Ok(Some((reference.session_id.clone(), key, position)));
+        if let Some(reference) = item.body.workspace()
+            && let Some(key) = item_key(connection, local, reference)?
+            && position_of(connection, &reference.session_id, &key)?.is_some()
+        {
+            return Ok(Some((reference.session_id.clone(), key)));
         }
+        cursor = doc.previous_in_order(&item.id);
     }
     Ok(None)
 }
 
-/// Write the items `changes` touched back to the old stores (see the module
+/// Write the items a commit changed back to the old stores (see the module
 /// doc). Returns whether an old row changed.
 pub(crate) fn write_back(
     transaction: &Transaction<'_>,
-    before: &Doc,
     after: &Doc,
-    changes: &Changes,
+    applied: &Applied,
 ) -> anyhow::Result<bool> {
     let local = local_registry_id(transaction)?;
     let mut wrote = false;
+    // The changed items in document order: a workspace's place follows the
+    // row of the workspace before it, which may have moved in this commit.
+    let mut changed: Vec<&Item> =
+        applied.changes.items.iter().filter_map(|item| after.item(&item.id)).collect();
+    changed.sort_by_cached_key(|item| after.display_key(item));
     // Groups first, so their members can name them.
-    let touched: HashSet<&str> = changes.items.iter().map(|item| item.id.as_str()).collect();
-    for item in after.items.iter().filter(|item| touched.contains(item.id.as_str())) {
+    for item in &changed {
         let Body::Group { name, color, icon, collapsed, profile } = &item.body else { continue };
         let id = legacy_group_id(&item.id);
         let profile = profile.clone().unwrap_or_else(|| {
@@ -723,8 +758,13 @@ pub(crate) fn write_back(
         }
         wrote = true;
     }
-    for id in &changes.deleted_items {
-        if before.item(id).is_some_and(|item| item.body.is_group()) {
+    for id in &applied.changes.deleted_items {
+        let was_group = applied
+            .previous_items
+            .get(id)
+            .and_then(Option::as_ref)
+            .is_some_and(|item| item.body.is_group());
+        if was_group {
             let group = legacy_group_id(id);
             transaction.execute(
                 "UPDATE personal_workspaces SET group_id = NULL WHERE group_id = ?1",
@@ -736,10 +776,7 @@ pub(crate) fn write_back(
         }
     }
     // Workspaces, in document order.
-    for (index, item) in after.items.iter().enumerate() {
-        if !touched.contains(item.id.as_str()) {
-            continue;
-        }
+    for item in &changed {
         let Some(reference) = item.body.workspace() else { continue };
         let Some(key) = item_key(transaction, &local, reference)? else { continue };
         let session = reference.session_id.as_str();
@@ -750,9 +787,21 @@ pub(crate) fn write_back(
             }
             transaction.execute(
                 "INSERT INTO personal_workspaces(session_id, workspace_key, position)
-                 VALUES(?1, ?2, (SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces))",
-                params![session, key],
+                 VALUES(?1, ?2, ?3)",
+                params![
+                    session,
+                    key,
+                    crate::workspace_registry::personal_store::next_workspace_position(
+                        transaction
+                    )?
+                ],
             )?;
+            // The new last row, and the live workspaces with no row (they
+            // follow every row and moved down by one): restated for
+            // `workspace_placement` readers without `sidebar-doc-v1`.
+            if let Some(index) = super::personal::row_index(transaction, session, &key)? {
+                super::placement_shift::queue(transaction, index, None)?;
+            }
             wrote = true;
         }
         // A loose workspace in Pinned or a custom section keeps its old row
@@ -764,44 +813,57 @@ pub(crate) fn write_back(
             continue;
         }
         let came_back = item.parent.is_none()
-            && before.item(&item.id).is_some_and(|old| !in_machine_section(before, old));
+            && applied
+                .previous_items
+                .get(&item.id)
+                .and_then(Option::as_ref)
+                .is_some_and(|old| !in_machine_section(after, old));
         if came_back {
             continue;
         }
+        let index_before = super::personal::row_index(transaction, session, &key)?;
         transaction.execute(
             "UPDATE personal_workspaces SET group_id = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
             params![session, key, group],
         )?;
         // Right after the row of the nearest earlier workspace.
-        let slot = match previous_row(transaction, after, &local, index)? {
-            Some((_, _, position)) => transaction.query_row(
-                "SELECT COUNT(*) FROM personal_workspaces
-                 WHERE position <= ?1 AND NOT (session_id = ?2 AND workspace_key = ?3)",
-                params![position, session, key],
-                |r| r.get::<_, i64>(0),
-            )?,
-            None => 0,
-        };
-        crate::workspace_registry::WorkspaceRegistry::move_personal_row_in(
+        let previous = previous_row(transaction, after, &local, &item.id)?;
+        crate::workspace_registry::WorkspaceRegistry::move_personal_row_after(
             transaction,
             session,
             &key,
-            usize::try_from(slot)?,
+            previous.as_ref().map(|(s, k)| (s.as_str(), k.as_str())),
         )?;
+        // The row (its group or place) and the rows it passed: restated for
+        // `workspace_placement` readers without `sidebar-doc-v1`.
+        if let Some(index_after) = super::personal::row_index(transaction, session, &key)? {
+            let index_before = index_before.unwrap_or(index_after);
+            super::placement_shift::queue(
+                transaction,
+                index_before.min(index_after),
+                Some(index_before.max(index_after)),
+            )?;
+        }
         wrote = true;
     }
     // Group slots: before the next loose workspace of the group's section.
-    for item in after.items.iter().filter(|item| touched.contains(item.id.as_str())) {
+    for item in &changed {
         if !item.body.is_group() || item.parent.is_some() {
             continue;
         }
         if !in_machine_section(after, item) {
             continue;
         }
-        let siblings = after.children(&item.section, None);
-        let at = siblings.iter().position(|sibling| sibling.id == item.id).unwrap_or(0);
         let mut slot = None;
-        for next in &siblings[at + 1..] {
+        let entry = (item.order.clone(), item.id.clone());
+        let next = after
+            .list_entries(&item.section, None)
+            .into_iter()
+            .flat_map(|set| {
+                set.range((std::ops::Bound::Excluded(entry.clone()), std::ops::Bound::Unbounded))
+            })
+            .filter_map(|(_, id)| after.item(id));
+        for next in next {
             let Some(reference) = next.body.workspace() else { continue };
             let Some(key) = item_key(transaction, &local, reference)? else { continue };
             if let Some(position) = position_of(transaction, &reference.session_id, &key)? {
