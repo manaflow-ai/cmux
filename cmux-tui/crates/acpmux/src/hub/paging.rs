@@ -120,7 +120,7 @@ pub struct EventPage {
 impl Hub {
     /// Read a page of matching records with `after < seq < before`.
     /// `newest` picks the last `limit` of them instead of the first. A page
-    /// also ends once its records' JSON reaches `max_bytes` (the reply a
+    /// also ends before its records' JSON would pass `max_bytes` (the reply a
     /// remote client downloads); it always holds at least one record.
     pub fn events_page(
         &self,
