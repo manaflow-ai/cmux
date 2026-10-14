@@ -223,6 +223,14 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
             ),
             SettingDescriptor(
+                PaneAnimationsSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help",
+                                        "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
+                kind: .toggle, default: .bool(PaneAnimationsSetting.fallback),
+                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
+            ),
+            SettingDescriptor(
                 ["layout", "paneSeparation"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
                 help: SettingsText.keyed("settings.layout.paneSeparation.help",
