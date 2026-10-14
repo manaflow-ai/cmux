@@ -218,13 +218,40 @@ def ground():
         sys.exit(f"FAIL cua-driver get_window_state: {json.dumps(reply)[:300]}")
 
 
-def sweep(direction):
+WHEEL = {"by": "line"}  # the variant that moved the list (chosen by find_wheel)
+
+
+def sweep(direction, steps=None):
     replies = []
-    for _ in range(opts.steps):
+    for _ in range(steps or opts.steps):
         r = cua("scroll", {"pid": Target.pid, "window_id": Target.window_id, "x": Target.point[0], "y": Target.point[1],
-                           "direction": direction, "amount": opts.notches, "by": "line"})
+                           "direction": direction, "amount": opts.notches, **WHEEL})
         replies.append(r)
+    summary.setdefault("wheel_reply_sample", json.dumps(replies[0])[:400] if replies else None)
     return [r for r in replies if not isinstance(r, dict) or r.get("error") or r.get("code")]
+
+
+def find_wheel():
+    """The first wheel variant whose sweep changes the visible rows (background first: no activation per call)."""
+    tried = []
+    for variant in ({"by": "line"}, {"by": "page"}, {"by": "line", "delivery_mode": "foreground"}):
+        WHEEL.clear()
+        WHEEL.update(variant)
+        before = row_titles()
+        if not tried and os.path.exists(os.path.join(SCRATCH, "rows.png")):
+            shutil.copy(os.path.join(SCRATCH, "rows.png"), os.path.join(opts.out, f"{opts.label}-window.png"))
+        bad = sweep("down", 6)
+        after = row_titles()
+        sweep("up", 6)
+        row_titles()
+        moved = bool(after) and after != before
+        tried.append({"variant": dict(variant), "before": len(before), "new_after": len(after - before), "moved": moved,
+                      "errors": [json.dumps(b)[:200] for b in bad[:2]]})
+        print(f"wheel variant {variant}: {tried[-1]}", flush=True)
+        if moved:
+            break
+    summary["wheel_variants"] = tried
+    return tried[-1]["moved"]
 
 
 def export_table(trace, schema):
@@ -358,12 +385,8 @@ try:
     summary["ticking_terminals"] = len(terms)
     note(len(terms) >= opts.ticking, f"{len(terms)} ticking terminals")
     # The wheel moves the list (untraced sweep).
-    before = row_titles()
-    sweep("down")
-    after = row_titles()
-    sweep("up")
-    summary["wheel_moves_list"] = bool(after) and after != before
-    note(summary["wheel_moves_list"], f"the wheel moves the list ({len(before)} rows before, {len(after - before)} new after)")
+    summary["wheel_moves_list"] = find_wheel()
+    note(summary["wheel_moves_list"], f"the wheel moves the list ({summary['wheel_variants'][-1]})")
     if not summary["wheel_moves_list"]:
         sys.exit("FAIL the wheel does not move the list: no gesture to measure")
     # CPU per tick, no input (10 s).
