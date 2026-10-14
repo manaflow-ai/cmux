@@ -3645,35 +3645,37 @@ struct RestorableAgentSessionIndex: Sendable {
         validator: CachedAgentProcessIdentityValidator,
         hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
     ) -> RestorableAgentProcessMatch {
-        let processPresence: RestorableAgentProcessPresence = switch processPresenceProvider(processID) {
+        let process = processArgumentsProvider(processID)
+        let scopeMatches = process.map {
+            $0.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
+        }
+        let matchesExpectedProcess = process.map {
+            validator.currentProcess(
+                $0,
+                matches: snapshot,
+                hermesSessionValidation: hermesSessionValidation
+            )
+        }
+        var evidence = RestorableAgentProcessEvidence(
+            processID: processID,
+            recordedIdentity: recordedProcessIdentity,
+            currentIdentity: currentProcessIdentity,
+            presence: .unknown,
+            scopeMatches: scopeMatches,
+            expectedProcessMatches: matchesExpectedProcess
+        )
+        let matcher = RestorableAgentProcessMatcher()
+        let processMatch = matcher.match(evidence)
+        guard processMatch == .unknown else { return processMatch }
+
+        // Close fallbacks can load this index synchronously. Probe the process
+        // table only when the already-captured evidence cannot settle liveness.
+        evidence.presence = switch processPresenceProvider(processID) {
         case .present: .present
         case .absent: .absent
         case .unknown: .unknown
         }
-        guard let process = processArgumentsProvider(processID) else {
-            return RestorableAgentProcessMatcher().match(.init(
-                processID: processID,
-                recordedIdentity: recordedProcessIdentity,
-                currentIdentity: currentProcessIdentity,
-                presence: processPresence,
-                scopeMatches: nil,
-                expectedProcessMatches: nil
-            ))
-        }
-        let scopeMatches = process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId)
-        let matchesExpectedProcess = validator.currentProcess(
-            process,
-            matches: snapshot,
-            hermesSessionValidation: hermesSessionValidation
-        )
-        return RestorableAgentProcessMatcher().match(.init(
-            processID: processID,
-            recordedIdentity: recordedProcessIdentity,
-            currentIdentity: currentProcessIdentity,
-            presence: processPresence,
-            scopeMatches: scopeMatches,
-            expectedProcessMatches: matchesExpectedProcess
-        ))
+        return matcher.match(evidence)
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {

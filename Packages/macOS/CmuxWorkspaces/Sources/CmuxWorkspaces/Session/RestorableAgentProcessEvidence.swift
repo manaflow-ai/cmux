@@ -8,8 +8,8 @@ public struct RestorableAgentProcessEvidence: Sendable {
     public let recordedIdentity: AgentPIDProcessIdentity?
     /// The process generation observed during restore, when available.
     public let currentIdentity: AgentPIDProcessIdentity?
-    /// Whether the process ID is currently occupied.
-    public let presence: RestorableAgentProcessPresence
+    /// Whether the process ID is occupied, updated when a presence probe becomes necessary.
+    public var presence: RestorableAgentProcessPresence
     /// Whether argv/environment identify the recorded cmux surface, when inspectable.
     public let scopeMatches: Bool?
     /// Whether argv/environment identify the expected agent session, when inspectable.
@@ -40,4 +40,3 @@ public struct RestorableAgentProcessEvidence: Sendable {
         self.expectedProcessMatches = expectedProcessMatches
     }
 }
-
