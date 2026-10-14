@@ -139,6 +139,11 @@ export function narrowProblems(document: Document): string[] {
     for (const value of document.querySelectorAll(".acpmux-effort .acpmux-picker-button > span, .acpmux-model-name"))
       if (!visible(value) || value.scrollWidth > value.clientWidth + 1)
         problems.push(`“${value.textContent?.trim()}” is not shown in full in a wide pane`);
+  // The model goes to its icon only where the row cannot hold its controls (a pane under about
+  // 328 px): with room to spare its name shows, even if it ends in an ellipsis.
+  if (view.innerWidth >= 340)
+    for (const name of document.querySelectorAll(".acpmux-model-name"))
+      if (!visible(name)) problems.push("the model is cut to its icon in a pane with room for its name");
   // The turn's own controls never shrink: a squeezed Send is the first thing a narrow pane breaks.
   for (const selector of [".acpmux-send", ".acpmux-cancel", ".acpmux-steer", ".acpmux-mic"])
     for (const control of document.querySelectorAll(selector)) {
