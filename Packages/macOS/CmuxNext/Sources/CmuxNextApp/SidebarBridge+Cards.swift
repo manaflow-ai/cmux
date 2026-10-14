@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -9,7 +10,8 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry,
+                                                 settings: services.settings)
     }
 }
 
@@ -32,10 +34,11 @@ enum SidebarCardFeed {
     /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
     /// one task, so the bridge cancels both together. `registry` gives the
     /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+                      settings: SettingsController? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
         guard window != nil else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew, settings: settings)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 

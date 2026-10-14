@@ -68,7 +68,9 @@ async function render(state: Partial<ActivityState>) {
   const { initialActivityState } = await import("../src/agent-activity/model");
   act(() => root?.unmount());
   root = createRoot(host);
-  act(() => root!.render(<ActivityView state={{ ...initialActivityState(), ...state }} dispatch={(a) => dispatched.push(a)} />));
+  act(() =>
+    root!.render(<ActivityView state={{ ...initialActivityState(), ...state }} dispatch={(a) => dispatched.push(a)} />),
+  );
 }
 
 const rows = () => [...host.querySelectorAll<HTMLElement>("[data-lane]")];
@@ -110,7 +112,7 @@ describe("Agent Activity lanes", () => {
 
   test("counts the sessions that need a person", async () => {
     await render({ lanes });
-    expect(host.querySelector(".lanes-attention")?.textContent).toBe("3 need you");
+    expect(host.querySelector(".lanes-attention")?.textContent).toBe("Needs you: 3");
   });
 
   test("a click opens that session's chat", async () => {
@@ -126,7 +128,10 @@ describe("Agent Activity lanes", () => {
 
   test("Computer use switches to the computer-use view and back", async () => {
     await render({ lanes });
-    const tab = (name: string) => [...host.querySelectorAll<HTMLInputElement>(".page-view input")].find((i) => i.labels?.[0]?.textContent === name)!;
+    const tab = (name: string) =>
+      [...host.querySelectorAll<HTMLInputElement>(".page-view input")].find(
+        (i) => i.labels?.[0]?.textContent === name,
+      )!;
     act(() => tab("Computer use").click());
     expect(host.querySelector(".lanes")).toBeNull();
     act(() => tab("Lanes").click());

@@ -19,6 +19,7 @@ final class AgentTurnStateFeed {
 
     private let socket: String
     private let turns: AgentTurnStateStore
+    private let lanes: AgentLaneStore
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
@@ -26,9 +27,10 @@ final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
-    init(socketPath: String, turns: AgentTurnStateStore = .shared) {
+    init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
         socket = socketPath
         self.turns = turns
+        self.lanes = lanes
     }
 
     /// Starts the watch (idempotent). `localHost` is this Mac's
@@ -90,10 +92,11 @@ final class AgentTurnStateFeed {
     /// One decoded line of the watch (decoded off the main actor).
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state, last message and the muted sessions.
-        case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String])
+        case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
+                  lanes: [String: AgentActivityLane])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
         /// message and mute.
-        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?)
+        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, lane: AgentActivityLane?)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
@@ -101,27 +104,38 @@ final class AgentTurnStateFeed {
                 var states = AgentTurnStates()
                 states.reset(result)
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
-                             titles: AgentTurnStates.titles(result))
+                             titles: AgentTurnStates.titles(result), lanes: Self.lanes(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
+                let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
-                               title: change.title)
+                               title: change.title, lane: summary.flatMap { AgentActivityLane.of(summary: $0, title: change.title) })
             } else {
                 return nil
             }
+        }
+
+        /// The lane of every session of a watch result (this Mac's and its acpmux peers').
+        static func lanes(_ result: [String: Any]) -> [String: AgentActivityLane] {
+            var lanes: [String: AgentActivityLane] = [:]
+            for summary in (result["sessions"] as? [Any] ?? []).compactMap({ $0 as? [String: Any] }) {
+                if let lane = AgentActivityLane.of(summary: summary, title: AgentTurnStates.title(summary)) { lanes[lane.id] = lane }
+            }
+            return lanes
         }
     }
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles):
+        case .page(let states, let lastMessages, let muted, let titles, let lanes):
             backoff.reset()
             if !turns.watching { turns.watching = true }
             if turns.states != states { turns.states = states }
             if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
             if turns.muted != muted { turns.muted = muted }
             if turns.titles != titles { turns.titles = titles }
-        case .change(let session, let state, let lastMessage, let muted, let title):
+            if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
+        case .change(let session, let state, let lastMessage, let muted, let title, let lane):
             // Most session records leave the indicator as it was: write (and so redraw the
             // tabs and rows that observe the store) only when the state differs.
             if turns.states[session] != state { turns.states.set(session, state) }
@@ -130,6 +144,7 @@ final class AgentTurnStateFeed {
                 if muted { turns.muted.insert(session) } else { turns.muted.remove(session) }
             }
             if turns.titles[session] != title { turns.titles[session] = title }
+            if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
         }
     }
 
@@ -141,6 +156,7 @@ final class AgentTurnStateFeed {
         turns.states.clear()
         turns.lastMessages = [:]
         turns.muted = []
+        lanes.lanes = [:]
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()

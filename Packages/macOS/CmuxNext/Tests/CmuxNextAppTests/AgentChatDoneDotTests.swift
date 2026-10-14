@@ -74,7 +74,7 @@ struct AgentChatDoneDotTests {
 /// A stand-in acpmux on a unix socket: answers the app's `initialize` and
 /// `_acpmux/watch` with `sessions`, then sends `_acpmux/session_changed` on
 /// `push`. One client.
-nonisolated private final class StandInAcpmux {
+nonisolated final class StandInAcpmux {
     let path: String
     private let listener: Int32
     /// The accepted connection, -1 until the app connects.

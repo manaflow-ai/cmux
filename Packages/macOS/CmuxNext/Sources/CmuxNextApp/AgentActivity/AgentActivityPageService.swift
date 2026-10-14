@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -32,7 +33,35 @@ final class AgentActivityPageService {
     }
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> AgentActivityPageTab {
-        AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        let page = AgentActivityPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: makeSource())
+        followLanes(page)
+        return page
+    }
+
+    /// The lanes view (cx-v9k2f): every acpmux session with its lane while Labs preview features
+    /// are on (off by default until it is styled), and a row click opens that chat.
+    private func followLanes(_ page: AgentActivityPageTab) {
+        let model = page.model
+        model.onJump = { [weak self] lane in self?.jump(to: lane) }
+        guard let settings = services.settings else { return }
+        let lanes = AgentLaneStore.shared
+        // task-owner: the page tab (cancelled in `close`); event-driven (Observation)
+        page.lanesFeed = Task { [weak model] in
+            for await value in ObservationStream({ settings.snapshot.previewFeatures ? lanes.sorted : nil }) {
+                guard let model else { return }
+                model.lanes = value
+            }
+        }
+    }
+
+    /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the
+    /// `cmux://session/<id>` path every session link takes).
+    func jump(to lane: AgentActivityLane) {
+        do {
+            try DeepLinkNavigator(services: services).open(DeepLink(.session(lane.id, turn: nil)), background: false)
+        } catch {
+            services.registry.refuse(String(describing: error))
+        }
     }
 
     private func makeSource() -> any AgentActivitySource {
