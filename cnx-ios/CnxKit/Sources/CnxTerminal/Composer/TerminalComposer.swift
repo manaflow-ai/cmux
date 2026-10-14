@@ -65,7 +65,11 @@ struct TerminalComposer: View {
     private var plusMenu: some View {
         // ChatGPT's order: Camera, Photos, Files. Paste leads only when the
         // pasteboard holds an image or a file (SPEC P9).
-        let pasteFirst = UIPasteboard.general.hasImages || UIPasteboard.general.hasURLs
+        // Paste is offered only for an image or a file (text pastes into the
+        // field itself), and then first (R1-8). Reading the types does not
+        // trigger the paste prompt.
+        let pasteFirst = UIPasteboard.general.hasImages
+            || UIPasteboard.general.contains(pasteboardTypes: [UTType.fileURL.identifier])
         return Menu {
             if pasteFirst {
                 Section { pasteButton }
@@ -82,9 +86,6 @@ struct TerminalComposer: View {
                 }
                 Button("Photos", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
                 Button("Files", systemImage: "folder") { model.showFileImporter = true }
-            }
-            if !pasteFirst {
-                Section { pasteButton }
             }
         } label: {
             Image(systemName: "plus")

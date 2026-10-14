@@ -53,6 +53,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private let tuiClip = UIView()
     private let tuiHost = UIView()
     private let bottomStack = UIView()
+    private let bottomBacking = UIView()
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -105,6 +106,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var fling: FlingAnimator?
     /// When the key bar shows (SPEC M4) and the constraints that apply it.
     private var keyBarRule = KeyBarVisibility()
+    private var tuiSizing = TerminalTUISizing()
     private var keyBarHidden: NSLayoutConstraint!
     private var keyBarPinned: NSLayoutConstraint!
     /// A drag that began while following the prompt with the keyboard up:
@@ -177,6 +179,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyBarClip.clipsToBounds = true
         keyBarClip.translatesAutoresizingMaskIntoConstraints = false
         bottomStack.translatesAutoresizingMaskIntoConstraints = false
+        // The terminal background under the whole bottom chrome, from the
+        // composer card's top to the page's bottom: rows scrolled under it are
+        // not legible between and below the toolbar pills or at the
+        // composer's corners (R1-2). Above the card the soft edge fades.
+        bottomBacking.backgroundColor = CnxGhosttyApp.background
+        bottomBacking.isUserInteractionEnabled = false
+        bottomBacking.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomBacking)
         view.addSubview(bottomStack)
         // The bottom soft edge follows the composer like a system toolbar.
         let edge = UIScrollEdgeElementContainerInteraction()
@@ -261,6 +271,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
+            bottomBacking.topAnchor.constraint(equalTo: bottomStack.topAnchor),
+            bottomBacking.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomBacking.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomBacking.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             bottomStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stackRestingLimit,
@@ -376,8 +390,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard chrome == .embedded, insets != embeddedInsets else { return }
         embeddedInsets = insets
         tuiTop.constant = insets.top
-        statusScrimHeight?.constant = insets.top + 18
-        if insets.top > 0 { statusScrim.gradient.locations = [0, NSNumber(value: Double(insets.top / (insets.top + 18))), 1] }
+        // Solid under the status bar, then an 18 pt fade that ends at the top
+        // inset: row 0 at rest is at full brightness, and only rows scrolled
+        // up under the status bar fade (R1-5).
+        statusScrimHeight?.constant = insets.top
+        if insets.top > 18 { statusScrim.gradient.locations = [0, NSNumber(value: Double((insets.top - 18) / insets.top)), 1] }
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
@@ -387,6 +404,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Top of the content area (under the navigation bar or the status bar).
     private var chromeTop: CGFloat {
         chrome == .embedded ? embeddedInsets.top : view.safeAreaInsets.top
+    }
+
+    /// The composer stack's top with the keyboard down (the key bar folded).
+    private var restingStackTop: CGFloat {
+        let composerHeight = composerHost.view.bounds.height > 0 ? composerHost.view.bounds.height : 64
+        return restingComposerBottom - composerHeight
     }
 
     /// The composer's bottom with the keyboard down.
@@ -638,11 +661,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
 
-        // TUI rows: toolbar bottom to composer top with the keyboard down.
-        let composerHeight = composerHost.view.bounds.height > 0 ? composerHost.view.bounds.height : 64
-        let keyboardDownComposerTop = restingComposerBottom - composerHeight
-        let available = keyboardDownComposerTop - chromeTop
-        let newTUIRows = max(1, Int(floor(available / cellHeight)))
+        // TUI rows: toolbar bottom to the composer's top where it settled
+        // (keyboard down, or up once the keyboard finished showing: R1-1).
+        let newTUIRows = tuiSizing.rows(restingStackTop: restingStackTop, chromeTop: chromeTop, cellHeight: cellHeight)
         let columns = cell.width > 0 ? max(1, Int(floor((bounds.width - 2 * Self.sidePadding) / cell.width))) : 0
         if newTUIRows != tuiRows || columns != gridColumns {
             tuiRows = newTUIRows
@@ -876,6 +897,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
         }
         if tui {
+            tuiSizing.tuiStarted()
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
             placesFromReport = false
@@ -904,6 +926,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             updateViewport(visibleMinY: scrollView.contentOffset.y)
         }
         surface.drawNow()
+        // The TUI's rows follow the settled keyboard (R1-1); the shell's do not.
+        view.setNeedsLayout()
     }
 
     // MARK: Scrolling
@@ -1009,6 +1033,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     @objc private func keyboardDidChange() {
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        // The keyboard settled: a TUI gets the rows above the composer now,
+        // one resize (R1-1).
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY, restingStackTop: restingStackTop, isTUI: model.isTUI)
         view.setNeedsLayout()
         view.layoutIfNeeded()
         updateViewport(visibleMinY: scrollView.contentOffset.y)

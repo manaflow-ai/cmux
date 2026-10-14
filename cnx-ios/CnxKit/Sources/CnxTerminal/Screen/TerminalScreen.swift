@@ -81,7 +81,7 @@ public struct TerminalScreen: View {
     private var moreMenu: some View {
         Menu {
             Section {
-                Button("Files and links", systemImage: "folder") { model.showArtifacts = true }
+                Button("Files and Links", systemImage: "folder") { model.showArtifacts = true }
                 Button("Paste", systemImage: "doc.on.clipboard") { model.controller?.surface.paste(nil) }
                 Button("Send Ctrl-C", systemImage: "xmark.octagon") { model.keyBar(.chord("c")) }
                 Button("Clear", systemImage: "clear") { model.keyBar(.chord("l")) }

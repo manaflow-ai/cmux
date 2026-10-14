@@ -182,7 +182,7 @@ class Journey:
             tab = [e for e in els if e.label == "Workspaces" and e.kind == "RadioButton"]
             if tab:
                 self.sim.tap_el(tab[0]); time.sleep(1.0); continue
-            # A sheet the AX tree does not show (system pickers, Files and links): swipe it down,
+            # A sheet the AX tree does not show (system pickers, Files and Links): swipe it down,
             # from the top of a full sheet or from a half sheet's grabber.
             y0 = 300 if sheet_try % 2 == 0 else 425
             sheet_try += 1
@@ -238,6 +238,10 @@ class Journey:
         check(hits, f"key bar has no pinned {label!r} (expected left of the More keys scroller at x {lo:.0f})")
         return hits[0]
 
+    # The key bar scroller's keys in order (CnxTerminal KeyBarKey.middle).
+    SCROLLER_KEYS = ["Tab", "Shift Tab", "Up Arrow", "Down Arrow", "Left Arrow", "Right Arrow", "Control D", "Control Z",
+                     "Control L", "Alt", "|", "~", "/", "-", "Paste", "`", "{", "}", "[", "]", "Control R", "Control B"]
+
     def keybar_reveal(self, label):
         if label in self.PINNED_KEYS:
             return self.keybar_pinned(label)
@@ -247,16 +251,22 @@ class Journey:
         # the scroller forward, then back, until the key is listed.
         sc = [e for e in self.sim.find(label="More keys") if e.frame[2] > 40]
         y = sc[0].center[1] if sc else None
-        for direction in (1, -1):
-            for _ in range(6):
-                if self.sim.find(label=label, kind="Button") or y is None:
-                    break
-                lo, hi = lane
-                if direction > 0:
-                    self.sim.drag(hi - 8, y, lo + 8, y, duration=0.4, hold=0.2)
-                else:
-                    self.sim.drag(lo + 8, y, hi - 8, y, duration=0.4, hold=0.2)
-                time.sleep(0.4)
+        # One key width (40 pt key + 6 pt gap) per drag, so the snapping row
+        # never overshoots past the key, toward the key by the row's order (R1-6).
+        step = 46
+        for _ in range(len(self.SCROLLER_KEYS) + 2):
+            if y is None or self.sim.find(label=label, kind="Button"):
+                break
+            shown = [e.label for e in self.sim.tree() if (e.ident or "").startswith("terminal.key.")
+                     and e.label in self.SCROLLER_KEYS]
+            if label in self.SCROLLER_KEYS and shown:
+                direction = 1 if self.SCROLLER_KEYS.index(label) > self.SCROLLER_KEYS.index(shown[0]) else -1
+            else:
+                direction = 1
+            lo, hi = lane
+            start = (lo + hi) / 2 + direction * step / 2
+            self.sim.drag(start, y, start - direction * step, y, duration=0.5, hold=0.3)
+            time.sleep(0.4)
         e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=lane, tries=30)
         check(e, f"key bar has no {label!r}")
         return e
@@ -590,6 +600,20 @@ class Journey:
                 "metric_relaunch_attach_s": round(attached, 2)}
 
     def s_term_keys(self):
+        try:
+            return self._term_keys()
+        finally:
+            # Leave a clean line for the next step whatever happened (R1-6):
+            # ^C drops a half-typed command, then the keyboard goes.
+            try:
+                pinned = self.sim.find(ident="terminal.key.ctrl-c") or self.sim.find(label="Control C", kind="Button")
+                if pinned:
+                    self.sim.tap_el(pinned[0]); time.sleep(0.5)
+                self.hide_keyboard()
+            except Exception:
+                pass
+
+    def _term_keys(self):
         self.open_seed_workspace()
         term = self.seed["term1"]
         notes, problems = [], []
@@ -739,12 +763,12 @@ class Journey:
         self.sim.tap_q(label="Files and Links", timeout=6)
         time.sleep(2.5)
         notes = []
-        if not self.sim.find(contains="Files and links"):
-            notes.append("the Files and links sheet is invisible to accessibility (VoiceOver cannot use it); read by OCR")
+        if not self.sim.find(contains="Files and Links"):
+            notes.append("the Files and Links sheet is invisible to accessibility (VoiceOver cannot use it); read by OCR")
         rows = self.sim.ocr_find(os.path.basename(sample), timeout=6)
         link = self.sim.ocr_find("cmux.com")
         try:
-            check(rows, f"Files and links did not list {sample}")
+            check(rows, f"Files and Links did not list {sample}")
             # The terminal now draws from the top (design/terminal B1), so its
             # own `ls` line can show above the half sheet: tap the sheet's row.
             rows = sorted(rows, key=lambda o: -o[1])

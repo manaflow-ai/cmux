@@ -42,6 +42,25 @@ enum KeyBarKey: Hashable, Sendable {
         }
     }
 
+    /// A stable accessibility identifier suffix (`terminal.key.<id>`).
+    var identifier: String {
+        switch self {
+        case .escape: "escape"
+        case .tab: "tab"
+        case .shiftTab: "shift-tab"
+        case .control: "control"
+        case .alternate: "alt"
+        case .up: "up"
+        case .down: "down"
+        case .left: "left"
+        case .right: "right"
+        case .paste: "paste"
+        case .hideKeyboard: "hide-keyboard"
+        case .chord(let letter): "ctrl-" + String(letter).lowercased()
+        case .symbol(let text): "symbol-" + text.unicodeScalars.map { String($0.value) }.joined(separator: "-")
+        }
+    }
+
     /// Arrows repeat while held.
     var repeats: Bool {
         switch self {

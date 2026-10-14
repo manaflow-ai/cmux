@@ -26,6 +26,9 @@ public struct KeyBarClipping: Sendable {
 /// at a hard edge), the trailing one while more keys wait to the right.
 public struct KeyBarScrollEdges: Equatable, Sendable {
     public static let fade: CGFloat = 12
+    /// The trailing fade: about two thirds of a key, so a key the row cuts
+    /// at rest fades out instead of ending in a hard edge (R1-4).
+    public static let trailingFade: CGFloat = 28
 
     public var offset: CGFloat
     public var contentWidth: CGFloat
