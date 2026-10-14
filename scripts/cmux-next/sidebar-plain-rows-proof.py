@@ -11,13 +11,13 @@ never opens Home or the Chief pane) on a GUI host and builds one sidebar:
   web          a terminal tab, then a browser tab in front on a local page with a favicon
   mixed        the same, plus a second terminal tab: three tab rows
   custom icon  a workspace the user gave an icon (`workspace update --icon`)
-  group        two workspaces in a group, collapsed while it holds the active workspace
+  group        two workspaces in a group, collapsed while it holds the active workspace (the
+               active member stays listed under the header with the selection fill)
 
 Tab rows are listed (`sidebar.showWorkspaceTabs`). It captures the window with $NX_CAPTURE (the
 real window server pixels) in Catppuccin Latte and Catppuccin Mocha, and writes
 `debug.sidebar_rows` beside each shot. With --expect plain it checks what the rows draw: no
-icon on a row except a favicon (browser rows) and the user's own icon, and the collapsed group
-header paints the selection. Run it on the base build too (no --expect) for the before shots.
+icon on a row except a favicon (browser rows) and the user's own icon. Run it on the base build too (no --expect) for the before shots.
 
 Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
   sidebar-plain-rows-proof.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS/LABEL" [--expect plain]
@@ -169,12 +169,15 @@ def new_workspace(name):
     return made
 
 
-def tab_rows(workspace):
-    return [r for r in rows("tab") if workspace and workspace in str(r.get("key"))]
+def tab_rows(title):
+    """The tab rows under the workspace row titled `title` (rows key tabs by the sidebar's workspace id)."""
+    key = next((str(r.get("key")) for r in rows("workspace") if r.get("title") == title), None)
+    sidebar_id = key[key.find("(") + 1:key.rfind(")")] if key else None
+    return [r for r in rows("tab") if sidebar_id and str(r.get("key")).startswith(f"tab({sidebar_id},")]
 
 
 def open_page(workspace):
-    """A browser tab on the test page in `workspace`; on this branch, waits for its favicon."""
+    """A browser tab on the test page in the workspace titled `workspace`; on this branch, waits for its favicon."""
     count = len(tab_rows(workspace))
     action("openBrowser.webkit", {"url": ORIGIN + "/"})
     if not opts.expect:
@@ -206,15 +209,15 @@ try:
     # A Claude Code session starts in the terminal (its hook), so the row has an agent brand.
     cli("agent", "hook", "emit", "--source", "claude", "--event", "SessionStart", "--terminal", terminal or "")
 
-    web = new_workspace("web")
+    new_workspace("web")
     if not rows("tab"):
         action("sidebar.workspaceTabs.toggle")
     wait(lambda: rows("tab"), 10)
-    check(bool(open_page(web)), "the web workspace shows its page (and its favicon on this branch)")
+    check(bool(open_page("web")), "the web workspace shows its page (and its favicon on this branch)")
 
-    mixed = new_workspace("mixed")
+    new_workspace("mixed")
     action("newSurface")
-    check(bool(open_page(mixed)), "the mixed workspace has a browser tab (and its favicon on this branch)")
+    check(bool(open_page("mixed")), "the mixed workspace has a browser tab (and its favicon on this branch)")
 
     new_workspace("custom icon")
     cli("workspace", "current", "update", "--icon", "\U0001F680")
@@ -255,9 +258,9 @@ try:
         check(not stray, f"no row draws a default glyph (stray {stray})")
         check(any(d[1] == "favicon" for d in drawn), "a browser row draws its favicon")
         check(any(d == ("custom icon", "emoji") for d in drawn), "the user's icon draws on its workspace")
-        header = next((r for r in state.get("rows") or [] if group and group in str(r.get("key")) and str(r.get("key")).startswith("group(")), None)
-        check(bool(header) and header.get("selected") is True and header.get("fill") is True,
-              f"the collapsed group header holding the active workspace paints the selection ({header})")
+        member = next((r for r in state.get("rows") or [] if r.get("title") == "group member B"), None)
+        check(bool(member) and member.get("selected") is True and member.get("fill") is True,
+              f"the collapsed group lists its active member with the selection fill ({member})")
 finally:
     server.shutdown()
     print(f"{len(failures)} failure(s)", flush=True)

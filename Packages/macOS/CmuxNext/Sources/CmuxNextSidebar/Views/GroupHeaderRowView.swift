@@ -140,7 +140,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
-    override var debugFill: Bool { super.debugFill || (isSelected && collapsed) || isHovered || isEditing || isDropTarget }
+    override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
     override var titleFrame: NSRect { name.frame }
@@ -179,10 +179,6 @@ final class GroupHeaderRowView: SidebarRowView {
             if thin { return paintThin(tokens) }
             let chip = tint.headerChip
             var fill = chip.fill
-            // The selected row's background, over the bar: a collapsed group that holds the
-            // active workspace stands for it (`SidebarLayout.selectedRowKey`), so the user
-            // finds it as a selected row (cx-fo2t, cx-im75u). No ring, icon or bold.
-            if isSelected && collapsed { fill = tokens.selectionFill.composited(over: fill) }
             if isHovered || isEditing { fill = tokens.hoverFill.composited(over: fill) }
             if isDropTarget { fill = tokens.pressedFill.composited(over: fill) }
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
@@ -221,8 +217,7 @@ final class GroupHeaderRowView: SidebarRowView {
         addButton.tintOverride = ink
         dot.isHidden = true
         ChromeHover.paint(pill, Borders.color(tokens.separator.nsColor), animated: false)
-        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isSelected && collapsed ? tokens.selectionFill.nsColor
-            : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
+        paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.borderColor = tokens.focusRing.nsColor.cgColor
