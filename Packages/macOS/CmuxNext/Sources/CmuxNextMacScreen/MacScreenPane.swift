@@ -18,7 +18,7 @@ public final class MacScreenPaneModel {
     }
 
     public let session: ScreenSession?
-    public let name: String
+    public internal(set) var name: String
     public var gate: Gate
     /// The streamed Mac's displays (pixel sizes) and the one shown.
     public internal(set) var displays: [CGSize] = []

@@ -12,7 +12,10 @@ public final class RemoteInputSurface {
         set { capture.controller.sink = newValue }
     }
 
-    public init() {}
+    public init() {
+        // The release chord (Control-Option-Escape) gives the keyboard back.
+        capture.controller.onReleaseKeyboard = { [weak capture] in capture?.releaseKeyboard() }
+    }
 
     /// The view to place over the picture; it takes the keyboard on click.
     public var view: NSView { capture }

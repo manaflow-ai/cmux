@@ -16,10 +16,20 @@ final class SignalSocket: @unchecked Sendable {
     // @unchecked: URLSessionWebSocketTask is thread-safe; nothing else is mutable.
     private let task: URLSessionWebSocketTask
 
+    /// Requests carry the room secret (a header) and the answers TURN
+    /// credentials: no disk cache, no cookies, nothing kept after the process.
+    static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpCookieStorage = nil
+        return URLSession(configuration: configuration)
+    }()
+
     init(pairing: VNCPairing, role: String) {
         var request = URLRequest(url: pairing.url("ws", query: [URLQueryItem(name: "role", value: role)]))
         request.setValue(pairing.secret, forHTTPHeaderField: "x-room-secret")
-        task = URLSession.shared.webSocketTask(with: request)
+        task = Self.session.webSocketTask(with: request)
         task.maximumMessageSize = 1 << 20
     }
 
@@ -69,7 +79,7 @@ final class SignalSocket: @unchecked Sendable {
     static func iceServers(_ pairing: VNCPairing) async throws -> [ICEServerConfig] {
         var request = URLRequest(url: pairing.url("ice"))
         request.setValue(pairing.secret, forHTTPHeaderField: "x-room-secret")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             throw VNCWebRTCError.signaling("ICE servers: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
         }

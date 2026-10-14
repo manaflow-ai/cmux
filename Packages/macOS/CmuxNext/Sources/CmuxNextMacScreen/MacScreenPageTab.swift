@@ -60,6 +60,12 @@ public final class MacScreenPageTab: BrowserTab {
         #endif
     }
 
+    /// The saved Mac was renamed.
+    func rename(_ name: String) {
+        pane?.model.name = name
+        state.title = name
+    }
+
     /// Shows `pane` in this tab (once).
     public func install(_ pane: MacScreenPane) {
         guard self.pane == nil else { return }

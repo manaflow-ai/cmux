@@ -25,6 +25,7 @@ public struct MacScreenHomeView: View {
     @State private var renameText = ""
     @State private var confirmReset = false
     @State private var showLink = false
+    @State private var forgetting: SavedMac?
     @State private var copied = false
 
     public init(store: MacScreenStore, host: MacScreenShareHost, actions: MacScreenHomeActions) {
@@ -48,6 +49,15 @@ public struct MacScreenHomeView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { host.refreshPermissions() }
+        .confirmationDialog(String(format: L.t("macScreen.home.forgetTitle", "Forget %@?"), forgetting?.name ?? ""),
+                            isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })) {
+            Button(L.t("macScreen.home.forget", "Forget This Mac"), role: .destructive) {
+                if let mac = forgetting { store.forget(mac.id) }
+                forgetting = nil
+            }
+        } message: {
+            Text(L.t("macScreen.home.forgetBody", "To show it again, pair it with its link."))
+        }
         .alert(L.t("macScreen.home.renameTitle", "Rename Mac"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField(L.t("macScreen.home.renameField", "Name"), text: $renameText)
             Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
@@ -104,7 +114,7 @@ public struct MacScreenHomeView: View {
                     renaming = mac
                 }
                 Divider()
-                Button(L.t("macScreen.home.forget", "Forget This Mac"), role: .destructive) { store.forget(mac.id) }
+                Button(L.t("macScreen.home.forget", "Forget This Mac"), role: .destructive) { forgetting = mac }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }

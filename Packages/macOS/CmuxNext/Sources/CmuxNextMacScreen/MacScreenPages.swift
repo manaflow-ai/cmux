@@ -20,12 +20,17 @@ public final class MacScreenPages {
     /// Records a person asked to open in a new tab, until that tab's page is
     /// made (its key is not known before): record URL -> when it was asked.
     private var openingByPerson: [String: Date] = [:]
+    /// Open Mac tabs, for renames.
+    private let tabs = NSHashTable<MacScreenPageTab>.weakObjects()
     /// How long a person's new-tab request may wait for its page.
     static let openingWindow: TimeInterval = 5
 
     public init(store: MacScreenStore) {
         self.store = store
         host = MacScreenShareHost(store: store)
+        store.onRenamed = { [weak self] id, name in
+            for tab in self?.tabs.allObjects ?? [] where tab.record.macID == id { tab.rename(name) }
+        }
     }
 
     /// At launch: Share This Mac resumes when the person left it on.
@@ -61,6 +66,7 @@ public final class MacScreenPages {
         let page: MacScreenPageTab
         if let macID = record.macID {
             let tab = MacScreenPageTab(id: id, engine: engine, profile: profile, record: record)
+            tabs.add(tab)
             // A person's open is matched now, while it is fresh; the pane waits for the saved Macs.
             let person = takePersonOpen(url: url, key: key)
             Task { [weak self, weak tab] in
@@ -82,8 +88,10 @@ public final class MacScreenPages {
                 self?.openingByPerson[target] = Date()
                 if !newTab(MacScreenRecord(macID: mac).url) { self?.openingByPerson[target] = nil }
             }
-            page = MacScreenPageTab(id: id, engine: engine, profile: profile,
-                                    home: NSHostingView(rootView: MacScreenHomeView(store: store, host: host, actions: actions)))
+            let home = NSHostingView(rootView: MacScreenHomeView(store: store, host: host, actions: actions))
+            // The page fills the tab; its content never sizes the tab's layout.
+            home.sizingOptions = []
+            page = MacScreenPageTab(id: id, engine: engine, profile: profile, home: home)
         }
         // Another Mac Screen record (CLI navigate, a link) shows in this tab, unconfirmed.
         page.onShowRecord = show

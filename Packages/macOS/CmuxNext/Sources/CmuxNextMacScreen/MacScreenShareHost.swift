@@ -48,6 +48,7 @@ public final class MacScreenShareHost {
     /// Delivers the host's events in order on the main actor.
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
+    @ObservationIgnored private var termination: (any NSObjectProtocol)?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-host")
     /// Permission checks; tests replace them.
@@ -67,6 +68,12 @@ public final class MacScreenShareHost {
         if activation == nil {
             activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshPermissions() } // main-proof: observer on queue: .main
+            }
+        }
+        if termination == nil {
+            // Quitting ends the viewer's session now, so it does not wait out a WebRTC timeout.
+            termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.host?.disconnectViewer() } // main-proof: observer on queue: .main
             }
         }
         if store.shareEnabled { start() }

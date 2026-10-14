@@ -126,6 +126,8 @@ public final class MacScreenStore {
     public private(set) var shareEnabled = false
     @ObservationIgnored private let file: URL
     @ObservationIgnored public let secrets: any MacScreenSecrets
+    /// A saved Mac was renamed (open tabs take the new name).
+    @ObservationIgnored public var onRenamed: ((UUID, String) -> Void)?
 
     public init(file: URL, secrets: any MacScreenSecrets) {
         self.file = file
@@ -205,6 +207,7 @@ public final class MacScreenStore {
         guard !name.isEmpty, let index = macs.firstIndex(where: { $0.id == id }) else { return }
         macs[index].name = name
         save()
+        onRenamed?(id, name)
     }
 
     /// Keeps a session's view choices and when it last connected.

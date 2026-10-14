@@ -11,12 +11,10 @@ extension AppServices {
         return pages
     }
 
-    /// Selects `target`'s Mac Screen home tab, else opens one there.
-    /// `target` is the pane the action ran on, else the active window's focused pane.
+    /// New Mac Screen Tab: the home page in the pane the action ran on, else the active window's focused pane.
     func openMacScreen(in target: PaneController?) {
         guard let pane = target ?? windows.active?.focusedPane else { return registry.refuse(RefusalStrings.noWindowOpen) }
-        let home = pane.pane.tabs.first { $0.url.flatMap(URL.init(string:)).flatMap(MacScreenRecord.init(url:)).map { $0.macID == nil } == true }
-        if let home { pane.select(StripTabID(home.id)) } else { pane.newBrowserTab(url: MacScreenRecord.homeURL) }
+        pane.newBrowserTab(url: MacScreenRecord.homeURL)
     }
 
     func registerMacScreenDebug(on router: ControlRouter?) {
