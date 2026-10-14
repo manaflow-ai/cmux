@@ -42,6 +42,16 @@ import Testing
         #expect(layout.rowCount == 400)
     }
 
+    /// User report (2026-10-14): Codex CLI's cursor is in its input box with
+    /// two hint rows drawn below it; those rows end the document, so the
+    /// last one rests above the composer instead of under it.
+    @Test func rowsDrawnBelowTheCursorEndTheDocument() {
+        let layout = TerminalDocumentLayout.make(totalRows: 400, cursorRow: 396, leadingBlankRows: 0, lastContentRow: 398)
+        #expect(layout.endRow == 399)
+        // Blank rows below the cursor do not.
+        #expect(TerminalDocumentLayout.make(totalRows: 400, cursorRow: 396, leadingBlankRows: 0, lastContentRow: 390).endRow == 397)
+    }
+
     @Test func unknownCursorUsesTheTotal() {
         let layout = TerminalDocumentLayout.make(totalRows: 50, cursorRow: nil, leadingBlankRows: 10)
         #expect(layout.originRow == 10)

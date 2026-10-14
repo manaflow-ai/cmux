@@ -816,7 +816,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             let last = min(scrollbar.total - 1, cursor ?? (scrollbar.total - 1))
             blank = surface.leadingBlankRows(through: max(0, last)) ?? blank
         }
-        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank)
+        // Rows an inline TUI draws below the cursor (Codex CLI's hints).
+        var lastContent: Int?
+        if let cursor, cursor + 1 <= scrollbar.total - 1 {
+            lastContent = surface.lastNonBlankRow(from: cursor + 1, through: scrollbar.total - 1)
+        }
+        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
+                                               lastContentRow: lastContent)
         guard next != document else { return }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
