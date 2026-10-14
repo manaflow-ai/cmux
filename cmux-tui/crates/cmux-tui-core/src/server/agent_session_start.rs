@@ -242,7 +242,10 @@ pub(super) fn start(
 /// Otherwise `needs_keyed_start` with [`keyed_restart_reason`] (never the
 /// run id or any key material). Nothing listening is acpmux not running: the
 /// gate never starts an acpmux without a key.
-fn keyed_gate(socket: &std::path::Path, params: &StartParams) -> Result<(), (Refusal, Option<Value>)> {
+fn keyed_gate(
+    socket: &std::path::Path,
+    params: &StartParams,
+) -> Result<(), (Refusal, Option<Value>)> {
     if !params.require_person_key {
         return Ok(());
     }
