@@ -4,9 +4,9 @@ Fresh designer, 2026-10-14. Build under review: `origin/feat-cnx-ios` at `ddc58d
 
 ## Checklist
 
-- [ ] R3-1 pull-down with keyboard up, plain shell (scrolls above keyboard; drag into keyboard dismisses on prompt)
-- [ ] R3-1 pull-down with keyboard up, after a TUI
-- [ ] R3-2 no black frame keyboard show/hide over `top`; judge ~1.5 s old 24 rows after hide
+- [x] R3-1 plain shell: PASS (01, v1): 250 pt pull 59-80 -> 33-57 -> 5-29; drag into keyboard dismissed, prompt on composer
+- [x] R3-1 after top: PASS (02): prompt above composer after q; one pull reaches rows 1-24
+- [x] R3-2: FAIL (03, 04, v2): hide #1 black 29.33-29.57 s; show #2 black 44.97-45.17 s; hide #2 and show #1 clean
 - [ ] R3-3 Files and Links: no wrapped fragments incl. scrollback
 - [ ] R3-4 relaunch handoff cut (no blend), stale cursor block
 - [ ] R3-5 key bar spacing after swipe (no end hole)
