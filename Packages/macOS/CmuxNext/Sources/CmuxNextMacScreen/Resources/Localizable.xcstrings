@@ -7337,6 +7337,137 @@
         }
       }
     },
+    "macScreen.home.status.linkUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتعذر قراءة رابط جهاز Mac هذا من سلسلة المفاتيح. افتح قفلها وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link ovog Mac računara se ne može pročitati iz Privjeska ključeva. Otključajte ga i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macs link kan ikke læses fra nøgleringen. Lås den op, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Link dieses Mac kann nicht aus dem Schlüsselbund gelesen werden. Entsperre ihn und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac’s link can’t be read from the Keychain. Unlock it and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede leer el enlace de este Mac desde el llavero. Desbloquéalo e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de lire le lien de ce Mac dans le trousseau. Déverrouillez-le et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere il link di questo Mac dal portachiavi. Sbloccalo e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このMacのリンクをキーチェーンから読み取れません。ロックを解除して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអានតំណរបស់ Mac នេះពី Keychain បានទេ។ សូមដោះសោវា ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키체인에서 이 Mac의 링크를 읽을 수 없습니다. 잠금을 해제하고 다시 시도하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macens kobling kan ikke leses fra nøkkelringen. Lås den opp og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można odczytać łącza tego Maca z pęku kluczy. Odblokuj go i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível ler o link deste Mac nas Chaves. Desbloqueie-as e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удается прочитать ссылку этого Mac из связки ключей. Разблокируйте ее и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถอ่านลิงก์ของ Mac เครื่องนี้จากพวงกุญแจได้ ปลดล็อคแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac’in bağlantısı Anahtar Zinciri’nden okunamıyor. Kilidini açıp yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається прочитати посилання цього Mac зі зв’язки ключів. Розблокуйте її та спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đọc liên kết của máy Mac này từ chuỗi khóa. Hãy mở khóa và thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法从钥匙串读取这台 Mac 的链接。请解锁后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法從鑰匙圈讀取這台 Mac 的連結。請解鎖後再試一次。"
+          }
+        }
+      }
+    },
     "macScreen.home.status.off": {
       "extractionState": "manual",
       "localizations": {

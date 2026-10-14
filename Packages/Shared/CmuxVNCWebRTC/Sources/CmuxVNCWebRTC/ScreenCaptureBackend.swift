@@ -30,6 +30,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
                       displays: @escaping @Sendable ([CGSize], Int) -> Void) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let found = content.displays.sorted { $0.frame.minX < $1.frame.minX }
+        // No shareable display (all asleep, or capture refused): fail the session, never index an empty list.
+        guard !found.isEmpty else { throw CocoaError(.featureUnsupported, userInfo: [NSLocalizedDescriptionKey: "no display to capture"]) }
         let main = found.firstIndex { $0.displayID == CGMainDisplayID() } ?? 0
         lock.withLock {
             self.displays = found

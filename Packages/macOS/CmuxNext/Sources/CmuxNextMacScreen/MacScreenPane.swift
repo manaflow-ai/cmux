@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxScreenKit
 import CmuxNextRemoteView
+import CmuxNextWakeups
 public import Observation
 import SwiftUI
 
@@ -70,7 +71,7 @@ public final class MacScreenPane {
     private var visible = false
     /// The person pressed Disconnect: only Reconnect connects again.
     private var stoppedByPerson = false
-    private var hideTask: Task<Void, Never>?
+    private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
     private var wasConnected = false
 
     /// A paired Mac's screen. `confirmed` is false for tabs opened by
@@ -147,9 +148,9 @@ public final class MacScreenPane {
     private func observePhase(_ session: ScreenSession) {
         withObservationTracking {
             _ = session.phase
-        } onChange: { [weak self] in
+        } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, let session else { return }
                 if case .connected = session.phase {
                     if !wasConnected { handlers.connected(session.preferences) }
                     wasConnected = true
@@ -168,37 +169,33 @@ public final class MacScreenPane {
 
     /// The tab is shown: connect (unless a person stopped it or it waits for Connect).
     public func resume() {
-        hideTask?.cancel()
-        hideTask = nil
+        hideTimer.cancel()
         guard !visible else { return }
         visible = true
         guard let session, model.gate == .open, !stoppedByPerson else { return }
         switch session.phase {
-        case .connected:
-            if session.stream == nil { session.connect() }
-        case .connecting:
+        case .connected, .connecting:
             if session.stream == nil && !session.isReconnecting { session.connect() }
         case .failed, .ended:
             session.connect()
         }
     }
 
-    /// The tab is hidden: the stream stays for `hiddenGrace`, then ends.
+    /// The tab is hidden: the stream stays for `hiddenGrace`, then ends
+    /// (pending reconnects too); showing the tab connects again.
     public func pause() {
         guard visible else { return }
         visible = false
         view.input.releaseKeyboard()
-        hideTask?.cancel()
-        hideTask = Task { [weak self, grace = hiddenGrace] in
-            try? await Task.sleep(for: grace) // intentional bounded delay: keep a briefly hidden tab live
-            guard !Task.isCancelled, let self, !visible else { return }
-            session?.disconnect(silently: true)
+        hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
+            guard let self, !visible else { return }
+            session?.disconnect()
         }
     }
 
     /// The tab closed: end the session now.
     public func close() {
-        hideTask?.cancel()
+        hideTimer.cancel()
         visible = false
         session?.close()
     }
@@ -295,7 +292,7 @@ public final class MacScreenPaneView: NSView {
     /// Lays out again when the chrome's state changes the card or the picture.
     private func observe() {
         withObservationTracking {
-            _ = chrome.showsCard
+            _ = model.card
             _ = model.gate
             _ = model.hasFrame
         } onChange: { [weak self] in

@@ -22,11 +22,26 @@ public nonisolated struct SavedMac: Codable, Identifiable, Hashable, Sendable {
     }
 }
 
+/// A secret read: found, not there, or the store refused (locked, access denied).
+public enum MacScreenSecretRead: Equatable {
+    case found(VNCPairing)
+    case missing
+    case failed(Int32)
+}
+
 /// Where pairing secrets live. The app uses the login Keychain; tests use memory.
 public protocol MacScreenSecrets: AnyObject {
-    func pairing(for account: String) -> VNCPairing?
+    func read(_ account: String) -> MacScreenSecretRead
     func save(_ pairing: VNCPairing, for account: String)
     func remove(_ account: String)
+}
+
+extension MacScreenSecrets {
+    /// The pairing, or nil when it is missing or unreadable.
+    public func pairing(for account: String) -> VNCPairing? {
+        if case let .found(pairing) = read(account) { return pairing }
+        return nil
+    }
 }
 
 /// Generic passwords under one service (the app's bundle id, so tagged
@@ -38,13 +53,16 @@ public final class KeychainMacScreenSecrets: MacScreenSecrets {
         self.service = service
     }
 
-    public func pairing(for account: String) -> VNCPairing? {
+    public func read(_ account: String) -> MacScreenSecretRead {
         var query = baseQuery(account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(VNCPairing.self, from: data)
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return .missing }
+        guard status == errSecSuccess, let data = result as? Data else { return .failed(status) }
+        guard let pairing = try? JSONDecoder().decode(VNCPairing.self, from: data) else { return .missing }
+        return .found(pairing)
     }
 
     public func save(_ pairing: VNCPairing, for account: String) {
@@ -70,8 +88,13 @@ public final class KeychainMacScreenSecrets: MacScreenSecrets {
 /// Secrets in memory, for tests and previews.
 public final class MemoryMacScreenSecrets: MacScreenSecrets {
     private var items: [String: VNCPairing] = [:]
+    /// Accounts whose reads fail (a locked or denied Keychain), for tests.
+    public var failing: Set<String> = []
     public init() {}
-    public func pairing(for account: String) -> VNCPairing? { items[account] }
+    public func read(_ account: String) -> MacScreenSecretRead {
+        if failing.contains(account) { return .failed(-25308) }
+        return items[account].map(MacScreenSecretRead.found) ?? .missing
+    }
     public func save(_ pairing: VNCPairing, for account: String) { items[account] = pairing }
     public func remove(_ account: String) { items[account] = nil }
 }
@@ -90,12 +113,15 @@ public final class MacScreenStore {
         case ownLink
     }
 
-    private struct File: Codable {
+    private struct File: Codable, Sendable {
         var macs: [SavedMac] = []
         var shareEnabled = false
     }
 
     public private(set) var macs: [SavedMac] = []
+    /// The list was read from disk (`load()`); until then it is empty.
+    public private(set) var isLoaded = false
+    @ObservationIgnored private var loadTask: Task<Void, Never>?
     /// Share This Mac is on (the person turned it on and has not turned it off).
     public private(set) var shareEnabled = false
     @ObservationIgnored private let file: URL
@@ -104,10 +130,28 @@ public final class MacScreenStore {
     public init(file: URL, secrets: any MacScreenSecrets) {
         self.file = file
         self.secrets = secrets
-        if let data = try? Data(contentsOf: file), let stored = try? JSONDecoder().decode(File.self, from: data) {
-            macs = stored.macs
-            shareEnabled = stored.shareEnabled
+    }
+
+    /// Reads the list off the main thread, once; later calls wait for the first.
+    public func load() async {
+        if isLoaded { return }
+        if loadTask == nil {
+            let file = file
+            loadTask = Task { [weak self] in
+                let stored = await Task.detached { () -> File? in
+                    guard let data = try? Data(contentsOf: file) else { return nil }
+                    return try? JSONDecoder().decode(File.self, from: data)
+                }.value
+                guard let self else { return }
+                if let stored {
+                    // Anything added before the read finished stays.
+                    macs = stored.macs + macs.filter { mac in !stored.macs.contains { $0.id == mac.id } }
+                    shareEnabled = shareEnabled || stored.shareEnabled
+                }
+                isLoaded = true
+            }
         }
+        await loadTask?.value
     }
 
     /// `<Application Support>/<bundle id>/mac-screen.json` and the login
@@ -187,16 +231,22 @@ public final class MacScreenStore {
         save()
     }
 
-    /// This Mac's own pairing: kept across launches, so paired Macs stay paired.
-    public func hostPairing(name: String) -> VNCPairing {
-        if var saved = secrets.pairing(for: Self.hostAccount), saved.isStream {
+    /// This Mac's own pairing: kept across launches, so paired Macs stay
+    /// paired. A new one only when there is none; nil when the Keychain
+    /// cannot be read (resetting then would unpair every device).
+    public func hostPairing(name: String) -> VNCPairing? {
+        switch secrets.read(Self.hostAccount) {
+        case var .found(saved) where saved.isStream:
             if saved.name != name {
                 saved.name = name
                 secrets.save(saved, for: Self.hostAccount)
             }
             return saved
+        case .found, .missing:
+            return resetHostPairing(name: name)
+        case .failed:
+            return nil
         }
-        return resetHostPairing(name: name)
     }
 
     /// A new room and secret: every Mac paired with the old link loses access.
@@ -207,9 +257,19 @@ public final class MacScreenStore {
         return pairing
     }
 
+    /// Writes the list off the main thread, in order.
     private func save() {
         guard let data = try? JSONEncoder().encode(File(macs: macs, shareEnabled: shareEnabled)) else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: file, options: .atomic)
+        let file = file, previous = saveTask
+        saveTask = Task.detached {
+            await previous?.value
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+        }
     }
+
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+
+    /// Waits for pending writes (tests).
+    public func flush() async { await saveTask?.value }
 }

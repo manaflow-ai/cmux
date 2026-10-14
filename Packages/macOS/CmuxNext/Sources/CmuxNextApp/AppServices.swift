@@ -94,7 +94,7 @@ final class AppServices {
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// `cmux://mac-screen`: paired Macs' screens and Share This Mac.
-    private(set) lazy var macScreenPages = MacScreenPageService(services: self)
+    private(set) lazy var macScreenPages = AppServices.makeMacScreenPages(self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.

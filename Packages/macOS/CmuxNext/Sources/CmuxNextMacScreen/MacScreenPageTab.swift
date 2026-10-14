@@ -22,8 +22,12 @@ public final class MacScreenPageTab: BrowserTab {
     @ObservationIgnored public let record: MacScreenRecord
     @ObservationIgnored public let contentView: NSView
     @ObservationIgnored public var onNavigate: ((URL) -> Void)?
-    /// The screen; nil for the home page.
-    @ObservationIgnored public let pane: MacScreenPane?
+    /// Shows another Mac Screen record in this tab (never a web page).
+    @ObservationIgnored public var onShowRecord: ((URL) -> Void)?
+    /// The screen; nil for the home page, and until the saved Macs are read.
+    @ObservationIgnored public private(set) var pane: MacScreenPane?
+    @ObservationIgnored private var visible = false
+    @ObservationIgnored private var focused = false
 
     /// The home page.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, home: NSView) {
@@ -39,18 +43,33 @@ public final class MacScreenPageTab: BrowserTab {
         #endif
     }
 
-    /// One paired Mac's screen.
-    public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, record: MacScreenRecord, pane: MacScreenPane) {
+    /// One paired Mac's screen; `install(_:)` puts it in once the saved Macs are read.
+    public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, record: MacScreenRecord) {
         self.id = id
         engineKind = engine
         profileID = profile
         self.record = record
-        self.pane = pane
-        contentView = pane.view
-        state = Self.state(url: record.url, title: pane.model.name)
+        pane = nil
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.black.cgColor
+        contentView = container
+        state = Self.state(url: record.url, title: L.t("macScreen.tab.homeTitle", "Mac Screen"))
         #if DEBUG
         Self.live.add(self)
         #endif
+    }
+
+    /// Shows `pane` in this tab (once).
+    public func install(_ pane: MacScreenPane) {
+        guard self.pane == nil else { return }
+        self.pane = pane
+        pane.view.frame = contentView.bounds
+        pane.view.autoresizingMask = [.width, .height]
+        contentView.addSubview(pane.view)
+        state.title = pane.model.name
+        if visible { pane.resume() }
+        if focused { setFocused(true) }
     }
 
     private static func state(url: URL, title: String) -> BrowserTabState {
@@ -65,7 +84,10 @@ public final class MacScreenPageTab: BrowserTab {
     #endif
 
     public func load(_ url: URL) {
-        if MacScreenRecord.matches(url), MacScreenRecord(url: url) == record { return }
+        if MacScreenRecord.matches(url) {
+            if MacScreenRecord(url: url) != record { onShowRecord?(url) }
+            return
+        }
         onNavigate?(url)
     }
 
@@ -76,11 +98,13 @@ public final class MacScreenPageTab: BrowserTab {
     public func stop() {}
 
     public func setFocused(_ focused: Bool) {
+        self.focused = focused
         guard focused, let window = contentView.window else { return }
         window.makeFirstResponder(pane?.focusTarget ?? contentView)
     }
 
     public func setContentVisible(_ visible: Bool) {
+        self.visible = visible
         contentView.isHidden = !visible
         if visible { pane?.resume() } else { pane?.pause() }
     }

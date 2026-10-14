@@ -28,10 +28,15 @@ public final class MacScreenShareHost {
         case roomLost
         /// The screen could not be captured.
         case sourceFailed(String)
+        /// This Mac's link could not be read from the Keychain (locked or denied).
+        case linkUnavailable
     }
 
-    public private(set) var status = Status.off {
-        didSet { indicator.setVisible(status == .viewing) }
+    public private(set) var status = Status.off
+    /// A viewer's session is open (from its channel opening to its end),
+    /// whatever the status says: the menu bar indicator follows this.
+    public private(set) var indicatorVisible = false {
+        didSet { indicator.setVisible(indicatorVisible) }
     }
     public private(set) var screenRecordingGranted = false
     public private(set) var accessibilityGranted = false
@@ -40,6 +45,8 @@ public final class MacScreenShareHost {
     @ObservationIgnored private let store: MacScreenStore
     @ObservationIgnored private var host: ScreenStreamHost?
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// Delivers the host's events in order on the main actor.
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-host")
@@ -73,8 +80,12 @@ public final class MacScreenShareHost {
         store.setShareEnabled(enabled)
         if enabled {
             refreshPermissions()
-            if !screenRecordingGranted { requestScreenRecording() }
-            if !accessibilityGranted { requestAccessibility() }
+            // One system prompt at a time: Screen Recording first; Accessibility has its own row.
+            if !screenRecordingGranted {
+                requestScreenRecording()
+            } else if !accessibilityGranted {
+                requestAccessibility()
+            }
             start()
         } else {
             stop()
@@ -84,7 +95,7 @@ public final class MacScreenShareHost {
     public func refreshPermissions() {
         screenRecordingGranted = checkScreenRecording()
         accessibilityGranted = checkAccessibility()
-        if store.shareEnabled, status == .needsPermission, screenRecordingGranted { start() }
+        if store.shareEnabled, status == .needsPermission || status == .linkUnavailable, screenRecordingGranted { start() }
     }
 
     public func requestScreenRecording() {
@@ -116,21 +127,26 @@ public final class MacScreenShareHost {
 
     private func start() {
         guard task == nil else { return }
-        guard screenRecordingGranted else {
-            status = .needsPermission
-            link = store.hostPairing(name: Self.computerName).link
+        guard let pairing = store.hostPairing(name: Self.computerName) else {
+            status = .linkUnavailable
+            link = nil
             return
         }
-        let pairing = store.hostPairing(name: Self.computerName)
         link = pairing.link
+        guard screenRecordingGranted else {
+            status = .needsPermission
+            return
+        }
         status = .starting
         let logger = logger
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         let host = ScreenStreamHost(pairing: pairing, backend: { ScreenCaptureBackend(log: log) }, log: log)
-        host.onEvent = { [weak self, weak host] event in
-            Task { @MainActor [weak self] in
-                guard let host else { return }
-                self?.handle(event, from: host)
+        let (events, sink) = AsyncStream.makeStream(of: ScreenStreamHost.Event.self, bufferingPolicy: .bufferingNewest(64))
+        host.onEvent = { event in sink.yield(event) }
+        eventTask = Task { [weak self, weak host] in
+            for await event in events {
+                guard let self, let host else { return }
+                handle(event, from: host)
             }
         }
         self.host = host
@@ -144,6 +160,9 @@ public final class MacScreenShareHost {
         host?.onEvent = nil
         host?.disconnectViewer()
         host = nil
+        eventTask?.cancel()
+        eventTask = nil
+        indicatorVisible = false
         status = .off
         link = nil
         logger.info("stopped sharing this Mac's screen")
@@ -152,16 +171,24 @@ public final class MacScreenShareHost {
     private func handle(_ event: ScreenStreamHost.Event, from source: ScreenStreamHost) {
         guard source === host else { return }
         switch event {
-        case .waiting: if status != .viewing { status = .waiting }
-        case .roomLost: if status != .viewing { status = .roomLost }
-        case .viewerConnected: status = .viewing
-        case .viewerEnded: status = .waiting
-        case let .sourceFailed(message): status = .sourceFailed(message)
+        case .waiting: if !indicatorVisible { status = .waiting }
+        case .roomLost: if !indicatorVisible { status = .roomLost }
+        case .viewerConnected:
+            indicatorVisible = true
+            status = .viewing
+        case .viewerEnded:
+            indicatorVisible = false
+            if case .sourceFailed = status { break }
+            status = .waiting
+        case let .sourceFailed(message):
+            // No picture, so no control either: end the viewer's session.
+            status = .sourceFailed(message)
+            source.disconnectViewer()
         }
     }
 
     /// The Mac's name from Sharing settings (fast; no DNS).
     public static var computerName: String {
-        (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? Host.current().localizedName ?? "Mac"
+        (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"
     }
 }

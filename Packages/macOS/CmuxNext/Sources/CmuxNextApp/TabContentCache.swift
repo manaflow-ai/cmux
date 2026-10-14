@@ -382,6 +382,7 @@ final class TabContentCache {
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
+        pageRequests.services?.macScreenPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()

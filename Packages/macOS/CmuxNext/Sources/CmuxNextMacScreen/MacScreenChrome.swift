@@ -240,7 +240,7 @@ struct MacScreenCardView: View {
             Text(String(format: L.t("macScreen.card.confirmTitle", "Show %@?"), model.name)).font(.headline)
             Text(L.t("macScreen.card.confirmBody", "This tab was opened for you. Connect to see and control this Mac."))
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
-            Button(L.t("macScreen.card.connect", "Connect"), action: actions.confirm).keyboardShortcut(.defaultAction)
+            Button(L.t("macScreen.card.connect", "Connect"), action: actions.confirm)
                 .accessibilityIdentifier("macScreen.card.confirm")
         case .missing:
             Image(systemName: "questionmark.square.dashed").font(.system(size: 28))

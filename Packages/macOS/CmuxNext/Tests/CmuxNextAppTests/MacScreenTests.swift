@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowser
 @testable import CmuxNextMacScreen
 import CmuxScreenKit
 import Foundation
@@ -45,16 +46,20 @@ struct MacScreenStoreTests {
         VNCPairing.generate(name: name, kind: kind)
     }
 
-    @Test func addsAStreamLinkAndKeepsTheSecretOutOfTheFile() throws {
+    @Test func addsAStreamLinkAndKeepsTheSecretOutOfTheFile() async throws {
         let (store, file, secrets) = makeStore()
         let pairing = link()
         let mac = try store.add(link: pairing.link.absoluteString).get()
         #expect(mac.name == "Studio")
         #expect(secrets.pairing(for: mac.id.uuidString) == pairing)
+        await store.flush()
         let saved = try String(contentsOf: file, encoding: .utf8)
         #expect(!saved.contains(pairing.secret))
         #expect(!saved.contains(pairing.room))
         let reloaded = MacScreenStore(file: file, secrets: secrets)
+        #expect(!reloaded.isLoaded && reloaded.macs.isEmpty)
+        await reloaded.load()
+        #expect(reloaded.isLoaded)
         #expect(reloaded.macs.map(\.id) == [mac.id])
         #expect(reloaded.pairing(for: mac.id) == pairing)
     }
@@ -78,9 +83,9 @@ struct MacScreenStoreTests {
         #expect(store.macs.first?.name == "New name")
     }
 
-    @Test func refusesThisMacsOwnLink() {
+    @Test func refusesThisMacsOwnLink() throws {
         let (store, _, _) = makeStore()
-        let own = store.hostPairing(name: "This Mac")
+        let own = try #require(store.hostPairing(name: "This Mac"))
         #expect(store.add(link: own.link.absoluteString) == .failure(.ownLink))
     }
 
@@ -92,17 +97,51 @@ struct MacScreenStoreTests {
         #expect(secrets.pairing(for: mac.id.uuidString) == nil)
     }
 
-    @Test func hostPairingIsStableUntilReset() {
+    @Test func hostPairingIsStableUntilReset() async throws {
         let (store, file, secrets) = makeStore()
-        let first = store.hostPairing(name: "Mac A")
+        let first = try #require(store.hostPairing(name: "Mac A"))
         #expect(first.isStream)
         #expect(store.hostPairing(name: "Mac A") == first)
-        let renamed = store.hostPairing(name: "Mac B")
+        let renamed = try #require(store.hostPairing(name: "Mac B"))
         #expect(renamed.room == first.room && renamed.name == "Mac B")
         let reset = store.resetHostPairing(name: "Mac B")
         #expect(reset.room != first.room && reset.secret != first.secret)
         store.setShareEnabled(true)
-        #expect(MacScreenStore(file: file, secrets: secrets).shareEnabled)
+        await store.flush()
+        let reloaded = MacScreenStore(file: file, secrets: secrets)
+        await reloaded.load()
+        #expect(reloaded.shareEnabled)
+    }
+}
+
+extension MacScreenStoreTests {
+    /// A locked or denied Keychain never resets this Mac's link (that would unpair every device).
+    @Test func unreadableKeychainKeepsTheLink() throws {
+        let (store, _, secrets) = makeStore()
+        let first = try #require(store.hostPairing(name: "Mac"))
+        secrets.failing = ["host"]
+        #expect(store.hostPairing(name: "Mac") == nil)
+        secrets.failing = []
+        #expect(store.hostPairing(name: "Mac") == first)
+    }
+}
+
+/// A pairing link typed in the address bar is a URL, never a search: its room secret must not reach a search engine.
+struct MacScreenAddressTests {
+    @Test(arguments: [
+        "cmux-vnc://pair?signal=https://s.example&room=00112233445566778899aabbccddeeff&secret=abcdefghijklmnopqrstuvwxyzABCDEF0123&name=Mac",
+        "cmux://mac-screen",
+        "cmux://mac-screen?mac=7A235AB3-718A-4CDE-B720-35F643A6B6D5",
+    ])
+    func macScreenAddressesResolveToURLs(_ text: String) {
+        let url = BrowserURLResolver().url(for: text)
+        #expect(url?.absoluteString == text)
+        #expect(!OmniboxRemoteSuggestions.allows(text, resolver: OmniboxResolver()))
+    }
+
+    @Test(arguments: ["cmux-vnc://other", "cmux://history-elsewhere", "javascript:alert(1)"])
+    func otherSchemesStillSearch(_ text: String) {
+        #expect(BrowserURLResolver().url(for: text) == nil)
     }
 }
 

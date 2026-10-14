@@ -236,6 +236,7 @@ public struct MacScreenHomeView: View {
         case .viewing: L.t("macScreen.home.status.viewing", "A paired device is viewing and controlling this Mac")
         case .roomLost: L.t("macScreen.home.status.roomLost", "Offline. Reconnecting…")
         case let .sourceFailed(message): String(format: L.t("macScreen.home.status.failed", "Can’t capture the screen: %@"), message)
+        case .linkUnavailable: L.t("macScreen.home.status.linkUnavailable", "This Mac’s link can’t be read from the Keychain. Unlock it and try again.")
         }
     }
 
@@ -244,7 +245,7 @@ public struct MacScreenHomeView: View {
         case .waiting: .green
         case .viewing: .blue
         case .starting, .roomLost, .needsPermission: .orange
-        case .sourceFailed: .red
+        case .sourceFailed, .linkUnavailable: .red
         case .off: .gray
         }
     }

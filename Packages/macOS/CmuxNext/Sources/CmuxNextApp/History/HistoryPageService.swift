@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
@@ -121,10 +122,12 @@ extension TabContentCache {
                 chrome?.addressBar.showPageURL()
                 return true
             }
-            // A Mac Screen pairing link typed or pasted in the address bar pairs that Mac and shows it.
-            if url.scheme == "cmux-vnc", let self, let tab = tabModel(key) {
-                guard let record = services.macScreenPages.pair(link: url) else { return true }
-                services.macScreenPages.confirm(key, url: record.url)
+            // A Mac Screen pairing link a person typed or pasted in the address bar pairs that
+            // Mac and shows it. Automation (CLI bookmarks, scripts) never saves a Mac this way.
+            if url.scheme?.lowercased() == "cmux-vnc" {
+                guard let self, let tab = tabModel(key), RemoteViewPageService.isPersonInput(ActionRunScope.current),
+                      let record = services.macScreenPages.pair(link: url) else { return true }
+                services.macScreenPages.confirm(key, url: record.url, byPerson: true)
                 showAppPage(record.url, in: tab)
                 return true
             }
@@ -133,7 +136,7 @@ extension TabContentCache {
             guard let self, let tab = tabModel(key) else { return true }
             // Typed in the address bar (or a bookmark a person opened).
             if RemoteViewTabRecord.matches(url) { services.remoteViewPages.confirm(key, url: url) }
-            if MacScreenRecord.matches(url) { services.macScreenPages.confirm(key, url: url) }
+            if MacScreenRecord.matches(url) { services.macScreenPages.confirm(key, url: url, byPerson: RemoteViewPageService.isPersonInput(ActionRunScope.current)) }
             showAppPage(url, in: tab)
             return true
         }
@@ -209,7 +212,7 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(target, in: tab)
                 },
-                newTab: { [weak services] target in _ = services?.windows.active?.focusedPane?.newBrowserTab(url: target) },
+                newTab: { [weak services] target in services?.windows.active?.focusedPane?.newBrowserTab(url: target) ?? false },
                 closeTab: { [weak self] in self?.pageRequests.closeTab(key) })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
