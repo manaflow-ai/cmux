@@ -348,7 +348,8 @@ fn status_target(
 
 /// `workspace group …`: personal workspace groups of the home session.
 /// `add` and `remove` place a workspace with `workspace.place`.
-/// `workspace list [--order session|personal]`.
+/// `workspace list [--order personal|session]`: the sidebar order unless
+/// `--order session`.
 pub(super) fn workspace_list(
     selectors: &Selectors,
     flags: &mut Flags,
