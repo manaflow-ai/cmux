@@ -7,11 +7,11 @@
 #
 # Terminals survive because each one lives in its own `__terminal-host`
 # process: SIGTERM ends only the daemon, cmux-devbox-boot restarts it from the
-# new binary within a second, and the new daemon adopts the live hosts. The
-# script changes nothing (SKIP) when the machine's supervisor would not
-# restart the daemon with the current contract or the running daemon is not
-# serving, and restores the replaced binary when the new daemon crashes or
-# never listens.
+# new binary within a second, and the new daemon adopts the live hosts. A
+# crash-looping daemon is handled by a bounded canary: the old binary is
+# checksummed into the run directory, the published binary is staged and
+# checksummed, and only the daemon child is stopped. The supervisor is never
+# restarted as a control group, and terminal hosts are never killed.
 #
 # Usage: cmux-tui-upgrade.sh <target-sha256> <target-commit> <run-dir> [state-mount]
 # <run-dir> holds install.cmd (the pinned install command) and receives
@@ -36,6 +36,12 @@ d=json.load(sys.stdin); print(len(d if isinstance(d,list) else (d.get("terminals
 exe_sha() { sha256sum "/proc/$1/exe" 2>/dev/null | cut -d' ' -f1; }
 bin_sha() { sha256sum "$BIN" 2>/dev/null | cut -d' ' -f1; }
 listening() { ss -ltnH 2>/dev/null | grep -q ':1337 '; }
+healthy() {
+  listening || return 1
+  timeout --signal=TERM --kill-after=1s 10s \
+    sudo -n -u "$( [ "$H" = /root ] && echo root || echo cmux )" \
+    env HOME="$H" "$BIN" server status --session cloud >/dev/null 2>&1
+}
 state_mount_user() { [ "$H" = /root ] && echo root || echo cmux; }
 STATE_MOUNT_UPDATED=0
 STATE_MOUNT_PREV="$RUN/cmux-tui-state-mount.prev"
@@ -67,10 +73,45 @@ wait_serving() {
   [ -n "$N" ] || return 1
   i=0; while [ $i -lt 600 ]; do
     [ "$(daemon_pid)" = "$N" ] || return 1
-    if listening; then sleep 5; [ "$(daemon_pid)" = "$N" ] && echo "$N" && return 0; return 1; fi
+    if healthy; then [ "$(daemon_pid)" = "$N" ] && echo "$N" && return 0; return 1; fi
     sleep 1; i=$((i+1))
   done
   return 1
+}
+
+stop_child() {
+  [ -n "${1:-}" ] || return 0
+  kill -TERM "$1" 2>/dev/null || true
+  i=0
+  while kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -KILL "$1" 2>/dev/null || true
+}
+
+canary_crash_loop() {
+  OLD_SHA=$(bin_sha)
+  HOSTS_BEFORE=$(host_pids)
+  [ -n "$OLD_SHA" ] || finish "FAIL canary-old-binary-unreadable"
+  cp -p "$BIN" "$RUN/cmux-tui.prev" || finish "FAIL canary-backup-copy"
+  [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL canary-backup-checksum"
+  say "canary before old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE]"
+  D=$(daemon_pid); [ -n "$D" ] && stop_child "$D"
+  if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
+    [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL canary-install"
+  fi
+  [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL canary-pin-mismatch"
+  say "canary staged target=$TARGET_SHA"
+  if N=$(wait_serving "$TARGET_SHA"); then
+    LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
+    [ -z "$LOST" ] || finish "FAIL canary-lost-hosts=[${LOST# }] daemon=$N"
+    finish "OK canary daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
+  fi
+  cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" || finish "FAIL canary-rollback-copy"
+  [ "$(bin_sha)" = "$OLD_SHA" ] || finish "FAIL canary-rollback-checksum"
+  X=$(daemon_pid); [ -n "$X" ] && stop_child "$X"
+  if N=$(wait_serving "$OLD_SHA"); then
+    finish "ROLLBACK canary-target-unhealthy old-daemon=$N"
+  fi
+  finish "FAIL canary-target-and-rollback-unhealthy inspect=$RUN/log"
 }
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
@@ -78,14 +119,16 @@ BIN="$H/.cmux/bin/cmux-tui"
 install_state_mount
 # A crash-looping daemon is between restarts most of the time.
 D=""; i=0; while [ -z "$D" ] && [ $i -lt 10 ]; do D=$(daemon_pid); [ -n "$D" ] || sleep 0.5; i=$((i+1)); done
-[ -n "$D" ] || { [ "$STATE_MOUNT_UPDATED" = 1 ] && finish "OK state-mount-updated no-daemon"; finish "SKIP no-daemon"; }
+[ -n "$D" ] || { canary_crash_loop; }
 tr '\0' ' ' < /proc/$D/cmdline | grep -q -- --remote-ws-trusted-carrier || finish "SKIP no-trusted-carrier"
 if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
   # The next restart runs the binary on disk, so it must match too.
   [ "$(bin_sha)" = "$TARGET_SHA" ] || sh "$RUN/install.cmd" >> "$RUN/log" 2>&1
   [ "$(bin_sha)" = "$TARGET_SHA" ] && finish "OK already-current daemon=$D" || finish "FAIL daemon-current-but-binary-not"
 fi
-wait_listener || finish "SKIP daemon-not-listening (nothing changed)"
+if ! wait_listener; then
+  canary_crash_loop
+fi
 FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
 [ "$FREE" -ge 300 ] || finish "SKIP disk-free=${FREE}MB"
 HOSTS_BEFORE=$(host_pids)
@@ -100,9 +143,7 @@ if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
 fi
 [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL pin-mismatch"
 D=$(daemon_pid)
-kill -TERM "$D"
-i=0; while kill -0 "$D" 2>/dev/null && [ $i -lt 600 ]; do sleep 0.1; i=$((i+1)); done
-kill -0 "$D" 2>/dev/null && finish "PENDING old-daemon-ignored-TERM daemon=$D (new binary installed, applies on next restart)"
+stop_child "$D"
 
 if N=$(wait_serving "$TARGET_SHA"); then
   LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
@@ -120,7 +161,7 @@ say "new daemon did not serve; restoring $OLD_SHA"
 restore_state_mount
 cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" && [ "$(bin_sha)" = "$OLD_SHA" ] \
   || finish "FAIL rollback-restore (target binary may remain; inspect $RUN/log)"
-X=$(daemon_pid); [ -n "$X" ] && kill -TERM "$X"
+X=$(daemon_pid); [ -n "$X" ] && stop_child "$X"
 N=$(wait_serving "$OLD_SHA") \
   || finish "FAIL rollback-daemon-unhealthy (old binary restored but does not serve; on-disk state may be migrated)"
 finish "ROLLBACK new-daemon-unstable; old daemon serving daemon=$N"

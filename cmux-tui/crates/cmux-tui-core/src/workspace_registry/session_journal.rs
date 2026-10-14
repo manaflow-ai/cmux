@@ -1392,6 +1392,9 @@ fn query_session_journal_without_output_after(
     if sequence >= through {
         return Ok((Vec::new(), through));
     }
+    if let Some(result) = archived_non_output_after(connection, sequence, through, limit)? {
+        return Ok(result);
+    }
     // Sealed segments are decoded whole; filter them after decoding.
     let archived = archived_records_after(connection, sequence, limit)?;
     if archived.first().is_some_and(|record| record.sequence <= through) {
@@ -1442,6 +1445,82 @@ fn query_session_journal_without_output_after(
         records.last().map_or(through, |record| record.sequence)
     };
     Ok((records, reached))
+}
+
+/// Uses the seal-time kind map to skip output-only compressed segments without
+/// inflating them. A missing map means an older segment, so callers retain the
+/// validating legacy decoder for that range.
+fn archived_non_output_after(
+    connection: &Connection,
+    sequence: u64,
+    through: u64,
+    limit: usize,
+) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
+    let mut statement = connection.prepare(
+        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                content, uncompressed_bytes, sha256
+         FROM journal_segments
+         WHERE end_sequence > ?1 AND start_sequence <= ?2
+         ORDER BY start_sequence ASC",
+    )?;
+    let rows = statement
+        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], journal_segment_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    let archive_end: i64 = connection.query_row(
+        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+        [],
+        |row| row.get(0),
+    )?;
+    // The active table owns the tail. Let the normal indexed query handle
+    // mixed archive/active ranges; this fast path is only for a fully sealed
+    // range and never claims an empty/active range as covered.
+    if rows.is_empty() || i64::try_from(sequence)? >= archive_end || archive_end < i64::try_from(through)? {
+        return Ok(None);
+    }
+    let first_start = rows.first().map(|row| row.1).unwrap_or_default();
+    anyhow::ensure!(
+        first_start <= i64::try_from(sequence.saturating_add(1))?,
+        "journal segments contain a gap before sequence {first_start}"
+    );
+    let mut previous_end = None;
+    for row in &rows {
+        if let Some(previous_end) = previous_end {
+            anyhow::ensure!(row.1 == previous_end + 1, "journal segments contain a gap before sequence {}", row.1);
+        }
+        previous_end = Some(row.2);
+    }
+    let mut reached = sequence;
+    let mut records = Vec::new();
+    for row in rows {
+        let segment_id = row.0.clone();
+        let known: Option<bool> = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
+                        EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1 AND kind != 'terminal.output')",
+                [segment_id.as_str()],
+                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, bool>(1)?)),
+            )
+            .ok()
+            .and_then(|(present, non_output)| present.then_some(non_output));
+        let Some(has_non_output) = known else { return Ok(None) };
+        let end = u64::try_from(row.2)?.min(through);
+        if !has_non_output {
+            reached = reached.max(end);
+            continue;
+        }
+        let decoded = decode_journal_segment(row)?;
+        for record in decoded.records.into_iter().filter(|r| {
+            r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
+        }) {
+            reached = record.sequence;
+            records.push(record);
+            if records.len() == limit {
+                return Ok(Some((records, reached)));
+            }
+        }
+        reached = reached.max(end);
+    }
+    Ok(Some((records, reached.max(through.min(reached)))))
 }
 
 fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {

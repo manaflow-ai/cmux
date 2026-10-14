@@ -143,7 +143,10 @@ HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.time
 DAEMON_HEALTH_INTERVAL=5
 DAEMON_HEALTH_TIMEOUT=5
 DAEMON_HEALTH_FAILURE_LIMIT=3
-DAEMON_HEALTH_STARTUP_GRACE=6
+# Registry replay is data-dependent. A published 12 GB registry took about
+# three minutes before the socket became ready; keep a bounded canary window
+# large enough for that legitimate startup.
+DAEMON_HEALTH_STARTUP_GRACE=48
 
 # Selects the daemon's user, home and binary; keep identical to
 # cmuxTuiLayoutSelector() in web/services/vms/drivers/cmuxTuiDaemon.ts.

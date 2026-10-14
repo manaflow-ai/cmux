@@ -645,7 +645,7 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain("server status --session cloud");
     expect(devboxBoot).toContain('timeout --signal=TERM --kill-after=1s');
     expect(devboxBoot).toContain("DAEMON_HEALTH_FAILURE_LIMIT=3");
-    expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=6");
+    expect(devboxBoot).toContain("DAEMON_HEALTH_STARTUP_GRACE=48");
     expect(devboxBoot).toContain("daemon_health_failures=$((daemon_health_failures + 1))");
     expect(devboxBoot).toContain("health probe failed $DAEMON_HEALTH_FAILURE_LIMIT times");
     expect(devboxBoot).toContain("stop_daemon\n  start_daemon");
@@ -662,17 +662,26 @@ describe("devbox image template", () => {
     // a VM or touching the host daemon.
     const prefix = devboxBoot.slice(0, devboxBoot.indexOf("\nannounce_loop &"));
     const fixture = `${prefix}
+set -e
+DAEMON_HEALTH_STARTUP_GRACE=6
+daemon_health_grace=6
 daemon_pid=fixture
 restart_count=0
 daemon_health_probe() { return 1; }
 stop_daemon() { daemon_pid=""; }
 start_daemon() { restart_count=$((restart_count + 1)); daemon_pid=fixture; daemon_health_ticks=0; daemon_health_failures=0; daemon_health_grace=$DAEMON_HEALTH_STARTUP_GRACE; }
 for i in $(seq 1 44); do check_daemon_health; done
+test "$restart_count" = 0
+test "$daemon_pid" = fixture
+for i in $(seq 45 45); do check_daemon_health; done
 test "$restart_count" = 1
 test "$daemon_pid" = fixture
 `;
     const result = await runChild("/bin/sh", ["-c", fixture], { timeout: 20_000 });
-    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({
+      status: 0,
+      stderr: "cmux-devbox-boot: cmux-tui health probe failed 3 times; restarting daemon\n",
+    });
   });
 
   test("the Freestyle boot path supervises the daemon through systemd", () => {

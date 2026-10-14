@@ -12,7 +12,7 @@ import Testing
 struct CloudStaleInventoryMaterializationTests {
     @Test("a stale graph never materializes an interactive restored terminal")
     func staleGraphIsNotInteractive() {
-        #expect(!CmuxTuiSurfaceProvider.shouldReprojectRestoredPanes(observation: .stale(reason: "link timeout")))
-        #expect(CmuxTuiSurfaceProvider.shouldReprojectRestoredPanes(observation: .current))
+        #expect(CmuxTuiSurfaceProvider.shouldShowRecoverableCloudFailure(observation: .stale(reason: "link timeout")))
+        #expect(!CmuxTuiSurfaceProvider.shouldShowRecoverableCloudFailure(observation: .current))
     }
 }

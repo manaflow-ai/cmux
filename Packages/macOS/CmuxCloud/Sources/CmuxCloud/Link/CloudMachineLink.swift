@@ -2,6 +2,7 @@ import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
+import Darwin
 
 /// One headless cmux-tui carrier for a remote machine, over SSH or the Cloud network.
 /// Native panes and control requests share its daemon-owned session and local socket.
@@ -82,6 +83,7 @@ public actor CloudMachineLink {
         case failureMessage(String)
         case exited(status: Int32, output: String)
         case timedOut
+        case requestTimedOut
         case inputTooLarge
 
         public var errorDescription: String? {
@@ -99,6 +101,8 @@ public actor CloudMachineLink {
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
+            case .requestTimedOut:
+                return "cmux-tui did not answer the request before its deadline. The link will be checked before retrying."
             }
         }
     }
@@ -318,6 +322,16 @@ public actor CloudMachineLink {
     }
 
     public func disconnect() async {
+        let oldResource = resourceConnection
+        let oldProcess = process
+        let oldProcessExit = processExit
+        let oldEventStreamID = eventStreamID
+        let oldReleaseHubLease = releaseHubLease
+        resourceConnection = nil
+        process = nil
+        processExit = nil
+        eventStreamID = nil
+        releaseHubLease = nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -332,17 +346,12 @@ public actor CloudMachineLink {
         stderrGeneration = nil
         stderrTail.removeAll(keepingCapacity: true)
         changesContinuation.finish()
-        await cancelEventsStream()
-        if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
-            if self.process === process {
-                self.process = nil
-                self.processExit = nil
-            }
+        if let oldEventStreamID { await oldResource?.cancelStream(oldEventStreamID) }
+        if let oldProcess, let oldProcessExit {
+            await Self.terminateAndWait(oldProcess, exit: oldProcessExit)
         }
-        await resourceConnection?.close()
-        resourceConnection = nil
-        await releaseHubLeaseOnce()
+        await oldResource?.close()
+        await oldReleaseHubLease?()
     }
 
     /// Records a cursor only after the owner has accepted the corresponding
@@ -442,15 +451,24 @@ public actor CloudMachineLink {
                 let channel = try await self.controlConnection()
                 return try await channel.request(arguments, timeout: timeout)
             }
-        } catch LinkError.timedOut {
-            // A request deadline means the daemon stopped servicing this
-            // transport, not merely that one read was slow. Drop the local
-            // process and socket so the manager can establish a fresh link on
-            // the next refresh. Mutations are never replayed here: the remote
-            // side may have committed them, and durable cursor/idempotency
-            // state remains authoritative for the next connection.
-            await disconnect()
-            throw LinkError.timedOut
+        } catch LinkError.requestTimedOut {
+            // A caller's deadline is not proof that the shared link is wedged.
+            // Probe the same channel before retiring it; terminal.wait and
+            // wait_exit are expected to outlive short request budgets.
+            guard timeout > .zero, let channel = resourceConnection else {
+                throw LinkError.requestTimedOut
+            }
+            do {
+                _ = try await channel.request(CloudTuiRequest("session.ping"), timeout: .seconds(2))
+            } catch {
+                // Never replay the original request: its remote outcome is
+                // ambiguous. Retire only this link so a manager can establish
+                // a replacement while durable workspace/terminal state stays
+                // on the machine.
+                guard resourceConnection === channel else { throw LinkError.requestTimedOut }
+                await disconnect()
+            }
+            throw LinkError.requestTimedOut
         }
     }
 
@@ -735,6 +753,22 @@ public actor CloudMachineLink {
     ) async {
         let exitTask = Task.detached { await exit.result }
         if process.isRunning { process.terminate() }
+        let deadlineExpired = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = await exit.result
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                return true
+            }
+            let result = await group.next() ?? true
+            group.cancelAll()
+            return result
+        }
+        if deadlineExpired && process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
         _ = await exitTask.value
     }
 

@@ -5,6 +5,39 @@ import Testing
 
 @Suite("Cloud machine link timeout recovery")
 struct CloudMachineLinkTimeoutRecoveryTests {
+    @Test("a request deadline does not drop a healthy shared link")
+    func requestTimeoutKeepsHealthyLink() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-link-request-timeout-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socketPath = "/tmp/cmux-link-request-timeout-\(UUID().uuidString.lowercased()).sock"
+        let listener = try Self.makeListener(at: socketPath)
+        defer { Darwin.close(listener); unlink(socketPath) }
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        printf '%s\\n' '{"event":"connection-snapshot","local_socket":"\(socketPath)"}'
+        exec tail -f /dev/null
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let server = Task.detached { Self.serve(listener: listener, respondsToPing: true) }
+        let link = CloudMachineLink(machineID: "healthy-timeout-machine", clientURL: client, paths: CloudTuiClientPaths(home: root))
+        _ = try await link.connect(route: "ws://127.0.0.1:1337/v1/link", session: "cloud", carrier: true, timeout: .seconds(2))
+        do {
+            _ = try await link.run(arguments: CloudTuiRequest("terminal.wait"), timeout: .milliseconds(100))
+            Issue.record("the intentionally short request must time out")
+        } catch CloudMachineLink.LinkError.requestTimedOut {
+            // Expected: the health probe below receives a response on the same channel.
+        }
+        #expect(await link.isConnected)
+        _ = try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .seconds(1))
+        #expect(await link.isConnected)
+        await link.disconnect()
+        server.cancel()
+        await server.value
+    }
+
     @Test("a timed out control request drops the wedged link for replacement")
     func timeoutDisconnectsLink() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -28,7 +61,7 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
 
         let server = Task.detached(priority: .userInitiated) {
-            Self.serve(listener: listener)
+            Self.serve(listener: listener, respondsToPing: false)
         }
         let link = CloudMachineLink(
             machineID: "timeout-machine",
@@ -45,7 +78,7 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         do {
             _ = try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .milliseconds(100))
             Issue.record("the unresponsive control request must time out")
-        } catch CloudMachineLink.LinkError.timedOut {
+        } catch CloudMachineLink.LinkError.requestTimedOut {
             // Expected: the timeout is the health boundary for this local link.
         }
         #expect(await link.isConnected == false)
@@ -80,7 +113,7 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         return fd
     }
 
-    private static func serve(listener: Int32) {
+    private static func serve(listener: Int32, respondsToPing: Bool) {
         let peer = accept(listener, nil, nil)
         guard peer >= 0 else { return }
         defer { Darwin.close(peer) }
@@ -97,7 +130,17 @@ struct CloudMachineLinkTimeoutRecoveryTests {
                     line.removeAll(keepingCapacity: true)
                     continue
                 }
-                if object["operation"] as? String == "session.events",
+                if (object["operation"] as? String == "session.ping" && respondsToPing) {
+                    let response: [String: Any] = [
+                        "protocol": "cmux.protocol/2", "type": "response", "id": id,
+                        "ok": true, "result": [:],
+                    ]
+                    if let data = try? JSONSerialization.data(withJSONObject: response) {
+                        _ = data.withUnsafeBytes { Darwin.write(peer, $0.baseAddress, data.count) }
+                        var newline = UInt8(0x0A)
+                        _ = withUnsafeBytes(of: &newline) { Darwin.write(peer, $0.baseAddress, 1) }
+                    }
+                } else if object["operation"] as? String == "session.events",
                    let params = object["params"] as? [String: Any],
                    let streamID = params["stream_id"] as? String
                 {
