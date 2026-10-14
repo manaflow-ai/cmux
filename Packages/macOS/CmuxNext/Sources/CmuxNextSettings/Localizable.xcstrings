@@ -91428,6 +91428,268 @@
           }
         }
       }
+    },
+    "settings.app.hideDockIconWithoutWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء أيقونة Dock عند عدم وجود نوافذ مفتوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij ikonu u Docku kada nema otvorenih prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbol, når ingen vinduer er åbne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Symbol ausblenden, wenn keine Fenster geöffnet sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Dock Icon When No Windows Are Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar el icono del Dock cuando no haya ventanas abiertas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer l’icône du Dock quand aucune fenêtre n’est ouverte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi l’icona nel Dock quando non ci sono finestre aperte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開いていないときは Dock アイコンを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់រូបតំណាង Dock នៅពេលគ្មានវីនដូបើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 윈도우가 없을 때 Dock 아이콘 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbolet når ingen vinduer er åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj ikonę w Docku, gdy żadne okno nie jest otwarte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar ícone do Dock quando não houver janelas abertas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывать значок в Dock, когда нет открытых окон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนไอคอนใน Dock เมื่อไม่มีหน้าต่างเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık pencere yokken Dock simgesini gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховати значок у Dock, коли немає відкритих вікон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn biểu tượng Dock khi không có cửa sổ nào mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的窗口时隐藏程序坞图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的視窗時隱藏 Dock 圖像"
+          }
+        }
+      }
+    },
+    "settings.app.hideDockIconWithoutWindows.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل cmux العمل في شريط القائمة، خارج Dock ومبدّل التطبيقات، حتى تُفتح نافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nastavlja raditi u traci menija, izvan Docka i prebacivača aplikacija, dok se ne otvori prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kører videre i menulinjen, uden for Dock og appskifteren, indtil et vindue åbnes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux läuft in der Menüleiste weiter, außerhalb von Dock und App-Umschalter, bis sich ein Fenster öffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sigue ejecutándose en la barra de menús, fuera del Dock y del selector de apps, hasta que se abra una ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux continue de tourner dans la barre des menus, hors du Dock et du sélecteur d’apps, jusqu’à l’ouverture d’une fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux resta attivo nella barra dei menu, fuori dal Dock e dal selettore di app, finché non si apre una finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開くまで、cmux は Dock とアプリスイッチャーに表示されず、メニューバーで動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បន្តដំណើរការនៅក្នុងរបារម៉ឺនុយ ក្រៅ Dock និងកម្មវិធីប្ដូរកម្មវិធី រហូតដល់មានវីនដូបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 열릴 때까지 cmux는 Dock과 앱 전환기에 표시되지 않고 메뉴 막대에서 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fortsetter å kjøre i menylinjen, utenfor Dock og appveksleren, til et vindu åpnes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux działa dalej na pasku menu, poza Dockiem i przełącznikiem aplikacji, dopóki nie otworzy się okno."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux continua em execução na barra de menus, fora do Dock e do alternador de apps, até que uma janela seja aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux продолжает работать в строке меню, вне Dock и переключателя приложений, пока не откроется окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังทำงานต่อในแถบเมนู โดยไม่อยู่ใน Dock และตัวสลับแอป จนกว่าจะมีหน้าต่างเปิดขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, bir pencere açılana kadar Dock ve uygulama değiştiricinin dışında, menü çubuğunda çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux і далі працює в рядку меню, поза Dock і перемикачем програм, доки не відкриється вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tiếp tục chạy trên thanh menu, không có trong Dock và trình chuyển ứng dụng, cho đến khi một cửa sổ mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在打开窗口之前，cmux 会在菜单栏中继续运行，不显示在程序坞和应用切换器中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在開啟視窗之前，cmux 會在選單列中繼續執行，不顯示在 Dock 和 App 切換器中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
