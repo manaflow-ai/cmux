@@ -102,6 +102,12 @@ fn is_wire(rec: &EventRecord) -> bool {
     (rec.dir == "in" || rec.dir == "out") && !live_update
 }
 
+/// About what a record adds to a page's JSON: its message plus the envelope
+/// (`sessionId`, `seq`, `at`, `dir`, `kind`).
+fn record_bytes(rec: &EventRecord) -> usize {
+    serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
+}
+
 /// One page of a session's log, oldest first.
 #[derive(Debug, Default)]
 pub struct EventPage {
@@ -113,18 +119,31 @@ pub struct EventPage {
 
 impl Hub {
     /// Read a page of matching records with `after < seq < before`.
-    /// `newest` picks the last `limit` of them instead of the first.
+    /// `newest` picks the last `limit` of them instead of the first. A page
+    /// also ends once its records' JSON reaches `max_bytes` (the reply a
+    /// remote client downloads); it always holds at least one record.
     pub fn events_page(
         &self,
         id: &str,
         after: u64,
         before: Option<u64>,
         limit: usize,
+        max_bytes: Option<usize>,
         newest: bool,
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        // Whether the page is full before `rec`: by count, or by size once it holds a record.
+        let mut full = |rec: &EventRecord, found: usize| {
+            if found == limit {
+                return true;
+            }
+            let Some(max) = max_bytes else { return false };
+            bytes += record_bytes(rec);
+            found > 0 && bytes > max
+        };
         if limit == 0 || !newest {
             let mut found = 0usize;
             self.store.scan(id, after, &mut |rec| {
@@ -134,7 +153,7 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
-                if found == limit {
+                if full(&rec, found) {
                     page.has_more = true;
                     return false;
                 }
@@ -149,7 +168,7 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
-            if found.len() == limit {
+            if full(&rec, found.len()) {
                 page.has_more = true;
                 return false;
             }
