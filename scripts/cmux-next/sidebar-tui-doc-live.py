@@ -478,8 +478,12 @@ def main() -> int:
                          if ws_item(doc, ids[n])["section"] == machine]
         params = {"machine": "current", "session": "current", "items": [machine_items[-1]["id"]],
                   "to": {"section": machine, "before": machine_items[0]["id"]}}
+        drawn_before = tui.order()
         moved = daemon.cli("--json", "raw", "operation", "sidebar.move", "--params-json", json.dumps(params))
         check("CLI sidebar.move after the stream ends exits 0", moved.returncode == 0, moved.stderr + moved.stdout)
+        check("the move changes the document order (the next check is not trivially true)",
+              doc_order(daemon.ok("sidebar.get"), names_by_id) != drawn_before,
+              {"drawn": drawn_before, "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
         check("TUI order == sidebar.get order (stream ends past the limit: idle-tick read)",
               bool(wait_for("fallback", matches_doc, timeout=15)),
               {"tui": tui.order(), "doc": doc_order(daemon.ok("sidebar.get"), names_by_id)})
