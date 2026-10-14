@@ -88,6 +88,17 @@
       ],
       "packages": []
     },
+    "CmuxNextAgentLanes": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
+      "targets": [
+        "CmuxNextAgentActivity",
+        "CmuxNextBridge",
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextAgentPane": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
@@ -140,6 +151,7 @@
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
+        "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentQuestion",
         "CmuxNextApps",
@@ -215,6 +227,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentCursor",
+        "CmuxNextAgentLanes",
         "CmuxNextApp",
         "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",

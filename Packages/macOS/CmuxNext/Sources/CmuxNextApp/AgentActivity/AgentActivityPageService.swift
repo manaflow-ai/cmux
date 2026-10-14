@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
-import CmuxNextCompat
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -39,19 +38,11 @@ final class AgentActivityPageService {
     }
 
     /// The lanes view (cx-v9k2f): every acpmux session with its lane while Labs preview features
-    /// are on (off by default until it is styled), and a row click opens that chat.
+    /// are on, and a row click opens that chat.
     private func followLanes(_ page: AgentActivityPageTab) {
-        let model = page.model
-        model.onJump = { [weak self] lane in self?.jump(to: lane) }
+        page.model.onJump = { [weak self] lane in self?.jump(to: lane) }
         guard let settings = services.settings else { return }
-        let lanes = AgentLaneStore.shared
-        // task-owner: the page tab (cancelled in `close`); event-driven (Observation)
-        page.lanesFeed = Task { [weak model] in
-            for await value in ObservationStream({ settings.snapshot.previewFeatures ? lanes.sorted : nil }) {
-                guard let model else { return }
-                model.lanes = value
-            }
-        }
+        page.lanesFeed = page.model.follow(.shared) { settings.snapshot.previewFeatures }
     }
 
     /// Reveals the tab that shows a lane's chat, else opens it in the focused pane (the

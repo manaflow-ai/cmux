@@ -1,7 +1,5 @@
-import CmuxNextAgentActivity
-import CmuxNextAgentPane
-import CmuxNextBridge
-import CmuxNextDaemon
+public import CmuxNextAgentActivity
+public import CmuxNextBridge
 import CmuxNextWakeups
 import Foundation
 import os
@@ -13,9 +11,11 @@ import os
 /// When the socket is absent it waits for a directory change on the socket's
 /// path; a lost connection clears the states and reconnects with `Backoff`.
 @MainActor
-final class AgentTurnStateFeed {
+public final class AgentTurnStateFeed {
     /// The app's one feed (nil until `ChatsFeed.started` makes it).
-    static var shared: AgentTurnStateFeed?
+    public static var shared: AgentTurnStateFeed?
+    /// Each drain's line count and main-actor time (the App's `debug.timings`, cx-9c8m.6).
+    public static var drained: ((Int, Duration) -> Void)?
 
     private let socket: String
     private let turns: AgentTurnStateStore
@@ -27,7 +27,7 @@ final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
-    init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
+    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
@@ -35,7 +35,7 @@ final class AgentTurnStateFeed {
 
     /// Starts the watch (idempotent). `localHost` is this Mac's
     /// `install:<id>`: only its chat tabs read these states.
-    func start(localHost: @autoclosure () -> String?) {
+    public func start(localHost: @autoclosure () -> String?) {
         if turns.localHost == nil { turns.localHost = localHost() }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
@@ -66,7 +66,7 @@ final class AgentTurnStateFeed {
         connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
             let started = ContinuousClock.now
-            defer { DebugTimings.turnStatesApplied(lines: drain.values.count, ContinuousClock.now - started) }
+            defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
             for message in drain.values { handle(message) }
             // Dropped lines leave the states incomplete: reconnect for a fresh page.
             if drain.overflowed, !drain.closed { connection.cancel() }

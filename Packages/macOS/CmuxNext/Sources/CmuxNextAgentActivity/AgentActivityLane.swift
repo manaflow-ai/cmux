@@ -49,6 +49,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
 
     /// The `mux.parent` tag acpmux sessions started by a coordinator carry.
     public static let parentTag = "mux.parent"
+    /// "Lanes", the view's name (the sidebar item's title too).
+    public static var lanesTitle: String { AgentActivityStrings.lanes }
 
     /// The lane of one `_acpmux/watch` / `session_changed` summary; nil when acpmux decided none
     /// (a closed session, or an acpmux from before `lane`). `id` names the session when the

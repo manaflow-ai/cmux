@@ -1,4 +1,5 @@
 import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextSidebar
