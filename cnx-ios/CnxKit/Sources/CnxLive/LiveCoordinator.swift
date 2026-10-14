@@ -263,7 +263,24 @@ public final class LiveCoordinator {
     /// so nothing on screen is reset while this runs.
     private func startTeam(_ teamID: String, warm: Bool = false) async {
         do {
-            // Both registrations at once (one round trip, not two).
+            // One round trip: both registrations, this team's Macs and the account's Macs.
+            if let boot = try await api.bootstrap(teamID: teamID, devices: [
+                (identity.link, "phone", deviceName), (identity.presence, "phone", "\(deviceName) (presence)"),
+            ]) {
+                ConnectTimeline.shared.mark("registered", detail: "bootstrap")
+                guard !Task.isCancelled, store.activeTeamID == teamID else { return }
+                if !warm { link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link) }
+                registeredTeamID = teamID
+                push.attach(api: api, deviceID: identity.link)
+                checkRelay()
+                ConnectTimeline.shared.mark("macs_loaded", detail: "\(boot.macs.count)")
+                applyMacs(boot.macs, teamID: teamID)
+                store.teamDataState = .loaded
+                if let mine = boot.myMacs { applyDiscovered(mine) }
+                startPresence(teamID)
+                return
+            }
+            // A service before 0.8.0: the separate calls, both registrations at once.
             async let linkDevice: Void = api.registerDevice(id: identity.link, kind: "phone", name: deviceName, teamID: teamID)
             async let presenceDevice: Void = api.registerDevice(id: identity.presence, kind: "phone", name: "\(deviceName) (presence)", teamID: teamID)
             try await linkDevice
@@ -283,11 +300,7 @@ public final class LiveCoordinator {
             applyMacs(macs, teamID: teamID)
             store.teamDataState = .loaded
             log.info("team \(teamID, privacy: .private) registered, \(macs.count, privacy: .public) Macs")
-            let listener = PresenceListener(api: api, teamID: teamID, deviceID: identity.presence, clock: clock) { [weak self] update in
-                self?.presenceUpdate(update, teamID: teamID)
-            }
-            presence = listener
-            listener.start()
+            startPresence(teamID)
         } catch {
             guard !Task.isCancelled else { return }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
@@ -298,6 +311,14 @@ public final class LiveCoordinator {
             guard store.activeTeamID == teamID, registeredTeamID == nil || warm else { return }
             await startTeam(teamID, warm: warm)
         }
+    }
+
+    private func startPresence(_ teamID: String) {
+        let listener = PresenceListener(api: api, teamID: teamID, deviceID: identity.presence, clock: clock) { [weak self] update in
+            self?.presenceUpdate(update, teamID: teamID)
+        }
+        presence = listener
+        listener.start()
     }
 
     /// Retry after a failed team load (the Workspaces Retry button).
@@ -384,21 +405,27 @@ public final class LiveCoordinator {
         do {
             let macs = try await api.myMacs()
             guard !Task.isCancelled else { return }
-            let found = macs.compactMap { mac -> DiscoveredMac? in
-                guard let teamID = mac.teamId else { return nil }
-                return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
-            }
-            store.mergeDiscoveredMacs(found, personal: personal)
-            if store.accountMacCount != found.count { store.accountMacCount = found.count }
-            if let team = store.teamToFollow(found, previouslyOnline: previouslyOnline, pinnedTeamID: pinnedTeamID) {
-                follow(team, macName: found.first { $0.teamID == team.id && $0.isOnline }?.name ?? "Your Mac")
-            }
-            previouslyOnline = Set(found.filter(\.isOnline).map(\.placement))
-            retarget()
+            applyDiscovered(macs)
         } catch {
             guard !Task.isCancelled else { return }
             log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The account's Macs everywhere (`/me/macs`, or the bootstrap's copy): shows each in its
+    /// team and moves to the team of an online Mac while the active team has none.
+    private func applyDiscovered(_ macs: [LiveAPI.Mac]) {
+        let found = macs.compactMap { mac -> DiscoveredMac? in
+            guard let teamID = mac.teamId else { return nil }
+            return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
+        }
+        store.mergeDiscoveredMacs(found, personal: personal)
+        if store.accountMacCount != found.count { store.accountMacCount = found.count }
+        if let team = store.teamToFollow(found, previouslyOnline: previouslyOnline, pinnedTeamID: pinnedTeamID) {
+            follow(team, macName: found.first { $0.teamID == team.id && $0.isOnline }?.name ?? "Your Mac")
+        }
+        previouslyOnline = Set(found.filter(\.isOnline).map(\.placement))
+        retarget()
     }
 
     private func follow(_ team: Team, macName: String) {
