@@ -645,6 +645,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         if thread.clicked(p) { return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
+        // MessagesLab 0fffbd2 (Host.swift clicked): "Show all N lines" on a folded long message
+        // expands it in place, "Show less" folds it again.
+        if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
