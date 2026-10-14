@@ -44,6 +44,9 @@ parser.add_argument("--trace", action="store_true", help="record an Animation Hi
 opts = parser.parse_args()
 WANTED = set(opts.scenarios.split(","))
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
+# One cua-driver session for every call: each `cua-driver call` otherwise gets its own implicit session, and a pixel
+# drag then has no screenshot context (job 1014-101119-0fef0c: drag replied {"code": "screenshot_context_missing"}).
+CUA_SESSION = "sbv2-drag-record"
 APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
 SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
@@ -120,7 +123,7 @@ def row_id(row):
 
 
 def cua(tool, args, timeout=60):
-    out = subprocess.run([CUA, "call", tool, json.dumps(args)], capture_output=True, text=True, timeout=timeout)
+    out = subprocess.run([CUA, "call", tool, json.dumps({"session": CUA_SESSION, **args})], capture_output=True, text=True, timeout=timeout)
     try:
         return json.loads(out.stdout)
     except ValueError:
@@ -144,6 +147,15 @@ class Target:
         cls.pid, cls.window_id = pid, main["window_id"]
         cls.scale = width / main["bounds"]["width"] if width else 1.0
         print(f"cua target pid={pid} window={cls.window_id} bounds={main['bounds']} scale={cls.scale:.3f}", flush=True)
+
+
+def ground():
+    """A fresh screenshot context for the next pixel action (the drag's coordinates are in its pixels)."""
+    shot = os.path.join(SCRATCH, "ground.png")
+    reply = cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id, "screenshot_out_file": shot,
+                                     "max_elements": 1}, timeout=120)
+    if not isinstance(reply, dict) or reply.get("error") or reply.get("code"):
+        fail_harness(f"cua-driver get_window_state before the drag failed: {json.dumps(reply)[:400]}")
 
 
 def real_drag(a, b, seconds):
@@ -176,6 +188,7 @@ def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
         # recorded a still sidebar), so time the scenario from the drag the app reports, not from the call.
         if window().get("drag_active"):
             fail_harness("a drag from the previous scenario is still active before the cua-driver call")
+        ground()
         reply = {}
         worker = threading.Thread(target=lambda: reply.update(value=real_drag(path[0], path[-1], seconds)))
         called = time.monotonic()
@@ -190,7 +203,7 @@ def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
             threading.Timer(max(0.0, escape_at - 0.2), lambda: rpc("debug.key", {"key": "escape"})).start()
         worker.join(seconds + 70)  # no polling while the pointer moves (it would add main-thread work to the trace)
         value = reply.get("value")
-        failed = not isinstance(value, dict) or value.get("error") or value.get("isError")
+        failed = not isinstance(value, dict) or value.get("error") or value.get("isError") or value.get("code")
         print(f"cua drag {'FAILED' if failed else 'reply'}: {json.dumps(value)[:500]}", flush=True)
         if not wait(lambda: not window().get("drag_active"), 10):
             fail_harness("the drag was still active 10 s after the cua-driver gesture ended")
