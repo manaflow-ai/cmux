@@ -337,7 +337,17 @@ another machine's section (`cross_machine`); an app section takes no items
 sections keep a closed workspace or an empty group (`keeps_closed`); a
 machine section shows only live workspaces. `sidebar.get` reads it as
 `{revision, sections, items}` (each section and item carries its
-forward-compatible keys in `extra`). `sidebar.move {items, to}`, `sidebar.pin`,
+forward-compatible keys in `extra`). Each section has `scroll`: `fixed`
+(it stays visible, in the fixed stack at the top, or at the bottom for the
+bottom region) or `flow` (it scrolls with the main list); the default is by
+kind and region (built-in and Pinned fixed, machine flow, custom and app
+fixed at the top and bottom and flow in the middle), and `section.move` into
+another region moves a default value with it. `max_rows` (1 to 50) lets a
+section grow with its content up to that many rows, then scroll inside
+itself; without it the section grows without limit. A `url` item's body has
+`icon_url` (its favicon, set by `sidebar.item.update`); an older client's
+`extra.icon_url` moves into the body when the item is added and, for stored
+items, once at open. `sidebar.move {items, to}`, `sidebar.pin`,
 `sidebar.unpin` (to the item's own machine section), the `sidebar.item.*`,
 `sidebar.section.*` and `sidebar.group.*` mutations and `sidebar.adopt
 {refs, to?}` are one reducer op each; `sidebar.apply {ops}` applies a list

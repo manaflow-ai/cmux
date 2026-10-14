@@ -9859,7 +9859,16 @@
           "type": {
             "kind": "primitive",
             "name": "uint32"
-          }
+          },
+          "description": "1 to 50: the section grows with its content up to this many rows (or tile lines), then scrolls inside itself. Absent: it grows without limit (the fixed stack as a whole is capped at half the sidebar height, then each fixed section scrolls inside itself)."
+        },
+        "scroll": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "fixed (stays visible: in the fixed stack at the top, or at the bottom for the bottom region) or flow (scrolls with the main list). Default by kind and region: builtin and pinned fixed, machine flow, custom and app fixed in the top and bottom regions and flow in the middle."
         },
         "room": {
           "required": false,
@@ -9937,7 +9946,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
+          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?, icon_url?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
         },
         "shows_label": {
           "required": true,
@@ -10044,7 +10053,7 @@
               "name": "SidebarSectionSnapshot"
             }
           },
-          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, room?, order, keeps_closed}; unknown keys are kept."
+          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, scroll, room?, order, keeps_closed}; unknown keys are kept."
         },
         "items": {
           "required": true,
@@ -24378,7 +24387,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "{shows_label?, span?, label?, title?}; title is a url item's."
+            "description": "{shows_label?, span?, label?, title?, icon_url?}; title and icon_url are a url item's (another body is invalid_value); null clears them."
           }
         },
         "extra": false,
@@ -24546,7 +24555,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; unknown keys are kept."
+            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, scroll? (fixed|flow; default by kind and region), room?, keeps_closed?}; unknown keys are kept."
           },
           "place": {
             "required": false,
@@ -24721,7 +24730,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "{title?, shows_title?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; null clears title, columns, max_rows and room."
+            "description": "{title?, shows_title?, look?, arrangement?, columns?, max_rows?, scroll? (fixed|flow), room?, keeps_closed?}; null clears title, columns, max_rows and room. A section.move into another region moves a scroll the user never changed to that region's default."
           }
         },
         "extra": false,
