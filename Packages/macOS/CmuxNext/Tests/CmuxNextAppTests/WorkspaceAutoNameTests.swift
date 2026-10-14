@@ -82,43 +82,61 @@ struct WorkspaceAutoNameTests {
         #expect(Self.live.label(name: "workspace-3", title: nil, front: .browser(title: "Secret", offTheRecord: true)) == "Secret")
     }
 
-    // MARK: Persist (variant B): rename once, never a user-named workspace
+    // MARK: Persist (variant B): only a generated chat title, once, on this Mac, never a user-named workspace
 
-    @Test func persistRenamesADefaultNamedWorkspaceOnceItsNameIsAvailable() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
-        #expect(Self.persist.persistedName(name: "workspace-3", title: nil, front: front, alreadyRenamed: false) == "Fix the sidebar drag")
+    private static func persisted(_ front: WorkspaceAutoName.Front?, name: String = "workspace-3", title: String? = nil,
+                                  local: Bool = true, alreadyRenamed: Bool = false, rule: WorkspaceAutoName = persist) -> String? {
+        rule.persistedName(name: name, title: title, front: front, isLocalMachine: local, alreadyRenamed: alreadyRenamed)
+    }
+
+    private static let titledChat = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag", generatedTitle: "Fix the sidebar drag")
+
+    @Test func persistRenamesOnceAChatHasAGeneratedTitle() {
+        #expect(Self.persisted(Self.titledChat) == "Fix the sidebar drag")
+        #expect(Self.persisted(Self.titledChat, alreadyRenamed: true) == nil)
+    }
+
+    @Test func persistNeverWritesAChatsFirstPrompt() {
+        // The chat's title is only its first prompt (`AgentTurnStates.title`'s fallback): the row shows it, nothing is written.
+        let promptOnly = WorkspaceAutoName.Front.chat(userName: nil, title: "can you look at why the build fails", generatedTitle: nil)
+        #expect(Self.persisted(promptOnly) == nil)
+        #expect(Self.persist.label(name: "workspace-3", title: nil, front: promptOnly) == "can you look at why the build fails")
+    }
+
+    @Test func persistNeverWritesTheTabsOwnName() {
+        #expect(Self.persisted(.chat(userName: "Release notes", title: "Draft", generatedTitle: nil)) == nil)
     }
 
     @Test func persistWaitsWhileNoNameIsAvailable() {
-        #expect(Self.persist.persistedName(name: "workspace-3", title: nil, front: .chat(userName: nil, title: nil), alreadyRenamed: false) == nil)
-        #expect(Self.persist.persistedName(name: "workspace-3", title: nil, front: nil, alreadyRenamed: false) == nil)
+        #expect(Self.persisted(.chat(userName: nil, title: nil)) == nil)
+        #expect(Self.persisted(nil) == nil)
     }
 
-    @Test func persistNeverRenamesTwice() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "A new topic")
-        #expect(Self.persist.persistedName(name: "workspace-3", title: nil, front: front, alreadyRenamed: true) == nil)
+    @Test func persistNeverRenamesFromATerminalOrBrowser() {
+        #expect(Self.persisted(Self.terminal(title: "zsh", cwd: "/Users/me/src/cmux")) == nil)
+        #expect(Self.persisted(Self.terminal(title: "vim notes.md")) == nil)
+        #expect(Self.persisted(.browser(title: "GitHub", offTheRecord: false)) == nil)
+        #expect(Self.persisted(.browser(title: "Secret", offTheRecord: true)) == nil)
     }
 
-    @Test func persistNeverRenamesAUserNamedWorkspace() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Fix the sidebar drag")
-        #expect(Self.persist.persistedName(name: "api", title: nil, front: front, alreadyRenamed: false) == nil)
-        #expect(Self.persist.persistedName(name: "workspace-3", title: "Mine", front: front, alreadyRenamed: false) == nil)
+    @Test func persistNeverRenamesAUserNamedOrTitledWorkspace() {
+        #expect(Self.persisted(Self.titledChat, name: "api") == nil)
+        #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
     }
 
-    @Test func persistNeverWritesAnIncognitoPageTitle() {
-        let front = WorkspaceAutoName.Front.browser(title: "Secret", offTheRecord: true)
-        #expect(Self.persist.persistedName(name: "workspace-3", title: nil, front: front, alreadyRenamed: false) == nil)
+    @Test func persistNeverRenamesAnotherMachinesWorkspace() {
+        #expect(Self.persisted(Self.titledChat, local: false) == nil)
     }
 
     @Test func liveVariantAndSettingOffNeverRename() {
-        let front = WorkspaceAutoName.Front.chat(userName: nil, title: "Plan")
-        #expect(Self.live.persistedName(name: "workspace-3", title: nil, front: front, alreadyRenamed: false) == nil)
-        let off = WorkspaceAutoName(enabled: false, variant: .persist)
-        #expect(off.persistedName(name: "workspace-3", title: nil, front: front, alreadyRenamed: false) == nil)
+        #expect(Self.persisted(Self.titledChat, rule: Self.live) == nil)
+        #expect(Self.persisted(Self.titledChat, rule: WorkspaceAutoName(enabled: false, variant: .persist)) == nil)
     }
 
-    @Test func persistNamesATerminalWorkspaceByItsFolder() {
-        let front = Self.terminal(title: "zsh", cwd: "/Users/me/src/cmux")
-        #expect(Self.persist.persistedName(name: "workspace-12", title: nil, front: front, alreadyRenamed: false) == "cmux")
+    @Test func aRenameIsDroppedWhenTheUserNamedTheWorkspaceMeanwhile() {
+        #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: nil))
+        #expect(Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: ""))
+        #expect(!Self.persist.confirmsRename(currentName: "api", currentTitle: nil))
+        #expect(!Self.persist.confirmsRename(currentName: "workspace-3", currentTitle: "Mine"))
     }
 }
