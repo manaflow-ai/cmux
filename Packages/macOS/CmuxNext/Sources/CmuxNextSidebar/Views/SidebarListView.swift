@@ -58,6 +58,10 @@ final class SidebarListView: NSView {
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
+    /// Per-display-frame samples for the drag feel proof (`debug.sidebar_rows` motion).
+    lazy var motionProbe = SidebarMotionProbe(list: self)
+    /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
+    var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?

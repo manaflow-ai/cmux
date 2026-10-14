@@ -13,6 +13,7 @@ import CmuxNextSidebar
 /// folder's titles by the folder's title.
 enum DebugSidebarRows {
     static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
+        if let motion = params["motion"]?.stringValue { return self.motion(motion == "start", services: services) }
         guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
         let menu = services.windows.controllers.first.flatMap {
             $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))
@@ -21,6 +22,19 @@ enum DebugSidebarRows {
         let submenus = (menu?.items ?? []).compactMap { item in item.submenu.map { (item.title, titles($0)) } }
         return .object(["menu": menu.map(titles) ?? .null,
                         "submenus": .object(Dictionary(submenus, uniquingKeysWith: { first, _ in first }))])
+    }
+
+    /// `{"motion": "start"|"stop"}`: the first window's per-display-frame
+    /// sidebar samples (SidebarMotionFrame); stop returns them as
+    /// {t, scroll, lift, work_ms, views: {key: [x, y, w, h]}}.
+    private static func motion(_ start: Bool, services: AppServices) -> JSONValue {
+        guard let sidebar = services.windows.controllers.first?.sidebar.container.sidebarView else { return .null }
+        func box(_ r: CGRect) -> JSONValue { .array([r.minX, r.minY, r.width, r.height].map { .number(Double($0)) }) }
+        let frames = sidebar.debugMotion(start: start)
+        return .object(["frames": .array(frames.map { frame in
+            .object(["t": .number(frame.time), "scroll": .number(Double(frame.scrollY)), "lift": frame.lift.map(box) ?? .null,
+                     "work_ms": .number(frame.dragWorkMs), "views": .object(frame.views.mapValues(box))])
+        })])
     }
 
     private static func rows(services: AppServices) -> JSONValue {

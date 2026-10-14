@@ -53,6 +53,8 @@ extension SidebarListView {
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
+        drag.restFrame = rowFrame
+        drag.morphs = rows.count == 1
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -66,12 +68,14 @@ extension SidebarListView {
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
+        let started = CACurrentMediaTime()
+        defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
         if SidebarListPinDrop.holds(self, drag, at: windowPoint) { return }
         if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
-        if drag.tileSource != nil {
+        if !drag.restShaped {
             SidebarReorderLift.follow(drag.lift, origin: CGPoint(x: point.x - drag.grabOffsetX, y: point.y - drag.grabOffsetY), visible: visibleRect)
         } else {
             SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
@@ -167,6 +171,35 @@ extension SidebarListView {
         drag.target = target
         drag.blockTarget = blockTarget
         reload(animated: true)
+        morphLift(drag, point: point)
+    }
+
+    /// Shapes the card as the drop will look (DESIGN "Drag feel" 2): the
+    /// block slot it opens (a tile, a chip, an item row), else its list row,
+    /// indented under a group's line when it goes into a group. The pointer
+    /// keeps the same relative grab point on the card.
+    func morphLift(_ drag: Drag, point: NSPoint) {
+        guard drag.morphs || drag.tileSource != nil else { return }
+        var shape = drag.restFrame
+        var rest = true
+        if let gap = drag.blockTarget, let slot = blockSlotFrame(gap) {
+            shape = slot
+            rest = false
+        } else if drag.tileSource != nil || drag.restShaped == false {
+            shape = NSRect(x: inset, y: 0, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+        }
+        if rest, case let .position(position)? = drag.target, position.group != nil {
+            shape.origin.x = inset + SidebarStyle.groupGutter
+            shape.size.width = max(0, bounds.width - inset * 2 - SidebarStyle.groupGutter)
+        }
+        let old = drag.lift.frame
+        guard shape.size != old.size || (rest && shape.minX != old.minX) else { return }
+        let sx = old.width > 0 ? shape.width / old.width : 1, sy = old.height > 0 ? shape.height / old.height : 1
+        drag.grabOffsetX *= sx
+        drag.grabOffsetY *= sy
+        drag.restShaped = rest
+        let x = rest ? shape.minX : point.x - drag.grabOffsetX
+        drag.lift.morph(to: NSRect(x: x, y: point.y - drag.grabOffsetY, width: shape.width, height: shape.height))
     }
 
     func cancelDrag() {

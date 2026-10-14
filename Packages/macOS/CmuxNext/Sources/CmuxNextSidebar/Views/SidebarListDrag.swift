@@ -7,7 +7,7 @@ final class SidebarListDrag {
     let grabbedKey: SidebarRowKey
     /// Keys hidden while dragging (the lifted rows).
     let hiddenKeys: Set<SidebarRowKey>
-    let grabOffsetY: CGFloat
+    var grabOffsetY: CGFloat
     /// Press x from the row's leading edge; with `grabOffsetY`, the
     /// point a window-drag hand-off keeps under the pointer.
     var grabOffsetX: CGFloat = 0
@@ -57,6 +57,14 @@ final class SidebarListDrag {
     var blockTarget: SidebarBlockGap?
     /// Each block's laid-out items without the dragged one, at the drag's begin (its hit test's base).
     var blockBases: [String: SidebarRegionLayout] = [:]
+    /// The lifted card's shape as a list row (list coordinates; x and size):
+    /// a row drag's own row, a tile drag's row look. The card morphs to it
+    /// over the list and to a slot's shape over a block (`SidebarListView.morphLift`).
+    var restFrame: CGRect = .zero
+    /// The card is shaped as its list row; else as a block slot, and it follows the pointer on both axes.
+    var restShaped = true
+    /// One card drags only: a group or a workspace with tab rows keeps its block shape.
+    var morphs = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?

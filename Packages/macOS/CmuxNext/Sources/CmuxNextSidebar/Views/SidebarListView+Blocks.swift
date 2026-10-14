@@ -152,6 +152,20 @@ extension SidebarListView {
         return convert(slot.bounds, from: slot)
     }
 
+    /// The gap slot's frame in the list as the block lays it out with the gap
+    /// (its final frame, not its animated one): the shape a card morphs to.
+    func blockSlotFrame(_ gap: SidebarBlockGap) -> NSRect? {
+        guard let row = displayed.row(for: .block(gap.section)), let content = blockContent(gap.section, includeGap: true) else { return nil }
+        let layout = SidebarRegionView.layout(of: content, width: bounds.width)
+        let slot = layout.rows.first { row in
+            switch row.kind {
+            case let .tile(id, _), let .chip(id, _), let .item(id, _): id == SidebarListBlocks.gapID
+            default: false
+            }
+        }
+        return slot.map { $0.frame.offsetBy(dx: 0, dy: row.y) }
+    }
+
     /// Each block's height at the list's width.
     func blockHeights(includeGap: Bool) -> [String: CGFloat] {
         guard let blocks else { return [:] }
@@ -192,6 +206,8 @@ extension SidebarListView {
             drag.grabOffsetX = origin.x - frame.minX
             drag.lastY = origin.y
             drag.tileSource = (section, id)
+            drag.restFrame = NSRect(x: inset, y: frame.minY, width: max(0, bounds.width - inset * 2), height: metrics.rowHeight)
+            drag.restShaped = false
             drag.tileRegion = region
             region.docPressedItem = id
             drag.docItems = [id.rawValue]
@@ -236,7 +252,7 @@ extension SidebarListView {
     /// Where a dropped card settles: the block's gap, the list's gap (a tile
     /// dropped among rows), else its own rows at the slot (nil: `land` finds them).
     func settleFrame(_ drag: SidebarListDrag) -> NSRect? {
-        if let gap = drag.blockTarget { return blockGapFrame(gap) }
+        if let gap = drag.blockTarget { return blockSlotFrame(gap) ?? blockGapFrame(gap) }
         if drag.tileSource != nil, let y = displayed.gapY, displayed.gapHeight > 0 {
             return NSRect(x: inset, y: y, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight)
         }

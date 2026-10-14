@@ -119,6 +119,13 @@ extension SidebarView {
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
 
+    /// Starts (`start` true) or stops the per-display-frame motion samples; stop returns them.
+    public func debugMotion(start: Bool) -> [SidebarMotionFrame] {
+        guard start else { return list.motionProbe.stop() }
+        list.motionProbe.start()
+        return []
+    }
+
     public func debugRows() -> (rows: [SidebarDebugRow], selection: [String], dragging: [String]) {
         let rows = list.displayed.rows.map { row -> SidebarDebugRow in
             let view = list.rowViews[row.key]

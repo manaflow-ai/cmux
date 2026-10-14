@@ -121,6 +121,38 @@ final class DragLiftView: NSView {
         Motion.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
     }
 
+    /// Springs the card to `frame` (the shape the drop will take: a list row,
+    /// a tile, a group member) with the one move spring (DESIGN "Drag feel" 2).
+    /// The model frame changes at once and additive springs carry what is on
+    /// screen from the old frame, so the pointer follow (model origin only)
+    /// keeps composing with the morph and nothing jumps. Reduce Motion: a
+    /// crossfade instead of the shape spring.
+    func morph(to frame: NSRect) {
+        guard frame != self.frame else { return }
+        let layers = [layer, card.layer, content.layer].compactMap { $0 }
+        let before = layers.map { ($0, $0.position, $0.bounds.size) }
+        Motion.withoutAnimation {
+            self.frame = frame
+            layoutSubtreeIfNeeded()
+        }
+        guard Motion.policy.animatesMovement else {
+            if let layer { Motion.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
+            return
+        }
+        morphs += 1
+        for (layer, position, size) in before {
+            let dp = NSValue(point: NSPoint(x: position.x - layer.position.x, y: position.y - layer.position.y))
+            let ds = NSValue(size: NSSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height))
+            for (path, delta, zero) in [("position", dp, NSValue(point: .zero)), ("bounds.size", ds, NSValue(size: .zero))] {
+                let animation = Motion.springAnimation(.move, path, from: delta, to: zero)
+                animation.isAdditive = true
+                layer.add(animation, forKey: "morph.\(path).\(morphs)")
+            }
+        }
+    }
+
+    private var morphs = 0
+
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1

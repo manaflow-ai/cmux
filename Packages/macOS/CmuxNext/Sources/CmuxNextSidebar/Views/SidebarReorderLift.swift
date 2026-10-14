@@ -24,7 +24,7 @@ import QuartzCore
         frame.origin.y = min(max(origin.y, visible.minY - frame.height / 2), visible.maxY - frame.height / 2)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        lift.frame = frame
+        lift.setFrameOrigin(frame.origin) // the position only: a running morph's additive springs keep their shape
         CATransaction.commit()
     }
 
@@ -34,7 +34,7 @@ import QuartzCore
         frame.origin.y = min(max(y, visible.minY - frame.height / 2), visible.maxY - frame.height / 2)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        lift.frame = frame
+        lift.setFrameOrigin(frame.origin)
         CATransaction.commit()
     }
 
