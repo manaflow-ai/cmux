@@ -230,12 +230,14 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
     assert_eq!(env["CMUX_MUX_SOCKET"], "/tmp/brain-daemon.sock", "{env}");
     assert_eq!(env["CMUX_CHIEF_OWNER_SOCKET"], "/tmp/brain-owner.sock", "{env}");
     assert_eq!(env["OPTCHAT_SUBAGENT"], "1", "{env}");
-    // The daemon's own directory as it sees it (`current_exe`): on Linux the
-    // resolved path, so a target directory behind a symlink (the Testbox's
-    // warm target disk) names its real place.
+    // The daemon's own directory first: compared resolved, since its
+    // `current_exe` resolves a symlinked target directory on Linux (the
+    // Testbox's warm target disk) and keeps it on macOS.
+    let path = env["PATH"].as_str().unwrap();
+    let (first, rest) = path.split_once(':').unwrap();
     let exe = std::fs::canonicalize(env!("CARGO_BIN_EXE_acpmux")).unwrap();
-    let bundle = exe.parent().unwrap();
-    assert_eq!(env["PATH"], format!("{}:/usr/bin:/bin", bundle.display()), "{env}");
+    assert_eq!(std::fs::canonicalize(first).unwrap(), exe.parent().unwrap(), "{env}");
+    assert_eq!(rest, "/usr/bin:/bin", "{env}");
 }
 
 #[tokio::test]
