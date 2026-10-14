@@ -307,6 +307,7 @@ Surface and pane:
 | `surface.closed` | Surface closed. |
 | `surface.moved` | Surface moved to another pane, workspace, or window. |
 | `surface.reordered` | Surface order changed inside a pane. |
+| `surface.renamed` | A tab's custom title was set, replaced or cleared, whether typed into the tab, sent over the socket, chosen by an agent hook or mirrored from a daemon. The payload carries `previous_title`, `title` (null when cleared) and `title_source` (`user`, `auto` or `remote`). A socket rename also still produces `surface.action`. |
 | `surface.action` | Surface or tab action command completed. |
 | `surface.input_sent` | Text was sent through the socket API. Text is redacted. |
 | `surface.key_sent` | Key was sent through the socket API. |

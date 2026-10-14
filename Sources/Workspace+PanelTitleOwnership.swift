@@ -53,6 +53,7 @@ extension Workspace {
         }
 
         applyFocusedPanelTitle(panelId: panelId)
+        publishPanelCustomTitleChange(panelId: panelId, previous: previous, source: source)
 
         // A repeated remote or automatic observation only changes provenance.
         // A repeated USER edit remains an idempotent intent and must still reach
