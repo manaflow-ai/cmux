@@ -76,12 +76,14 @@ await requireBrowserLane("agent-pane-sent-images.test.ts", async () => {
 
   /// The sent prompts' bubbles: their text and how many image thumbnails each shows.
   const bubbles = (page: Page) =>
-    page.locator(".cv-user").evaluateAll((rows) =>
-      rows.map((row) => [
-        row.querySelector(".cv-user__bubble")?.textContent?.trim(),
-        row.querySelectorAll(".cv-user__images img").length,
-      ]),
-    );
+    page
+      .locator(".cv-user")
+      .evaluateAll((rows) =>
+        rows.map((row) => [
+          row.querySelector(".cv-user__bubble")?.textContent?.trim(),
+          row.querySelectorAll(".cv-user__images img").length,
+        ]),
+      );
 
   test("a sent prompt keeps its images: thumbnails that open the viewer, and Edit sends them again", async () => {
     const page = await newChat();
