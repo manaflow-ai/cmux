@@ -63,7 +63,12 @@ pub(super) async fn handle_request(
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    let remote_authenticated = conn.origin.web_class() && conn.auth.authenticated();
+    // Held to the Web's rules: a Web connection, or a peer forwarding for its
+    // own Web client (`via: web`); a peer forwarding its unix socket or app
+    // keeps the person rule.
+    let remote_authenticated = conn.auth.authenticated()
+        && super::remote_guard::control_of(conn.origin, conn.auth, &params)
+            == crate::hub::Control::Web;
     let verdict = hub.person_check(conn.is_person(), remote_authenticated, m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate

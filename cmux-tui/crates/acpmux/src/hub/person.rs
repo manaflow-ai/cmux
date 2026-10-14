@@ -518,11 +518,12 @@ pub(crate) fn asking_policy_value(v: Option<&Value>) -> bool {
 
 impl Hub {
     /// The one person check (module docs). `person`: the connection
-    /// presented this launch's key. `remote_authenticated`: a remote (Web
-    /// class) connection that proved a credential (`server/conn_auth.rs`),
+    /// presented this launch's key. `remote_authenticated`: a connection
+    /// held to the Web's rules (a Web connection, or a peer forwarding for its
+    /// Web client) that proved a credential (`server/conn_auth.rs`),
     /// which may set any mode of the Codex bridge (Lawrence, 2026-10-13:
     /// "remote connection must be authed, and should be able to pretty much
-    /// use yolo mode"; `web_modes::any_mode_for_web`). The unix socket (the
+    /// use yolo mode"; `Hub::any_mode_for_web`). The unix socket (the
     /// CLI, scripts, agents) still needs the person for a mode that does not ask.
     pub async fn person_check(
         &self,
@@ -664,7 +665,7 @@ impl Hub {
                     return Ok(());
                 };
                 let family = crate::web_modes::family_of(&s.meta());
-                if remote_authenticated && crate::web_modes::any_mode_for_web(&s.meta()) {
+                if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }
                 if self.web_modes().config_value_asks(&family, id, value) {

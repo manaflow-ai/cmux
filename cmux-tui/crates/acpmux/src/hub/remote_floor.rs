@@ -83,7 +83,7 @@ impl Hub {
     /// and a mode the harness reported without declaring any.
     pub(super) fn session_asks_now(&self, session: &Session, meta: &SessionMeta) -> bool {
         // An authenticated remote connection runs the bridge in any mode.
-        if crate::web_modes::any_mode_for_web(meta) {
+        if self.any_mode_for_web(meta) {
             return true;
         }
         let table = self.web_modes();

@@ -99,7 +99,7 @@ pub(super) async fn check(
     params: &mut Value,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
-    // of the Codex bridge, `web_modes::any_mode_for_web`): none without a proof.
+    // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
     }
@@ -229,7 +229,7 @@ fn family_of(m: &crate::store::SessionMeta) -> String {
 
 /// Whether a session's mode asks: none reported, or listed for its family.
 async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
-    crate::web_modes::any_mode_for_web(m) || hub.web_modes().session_asks(m)
+    hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }
 
 /// After a request ran: every reply to a non-unix connection is redacted
@@ -498,7 +498,7 @@ async fn web_starts_asking(
             let id = params.get("configId").and_then(Value::as_str);
             (Some(id.unwrap_or_default()), params.get("value").and_then(Value::as_str))
         };
-        return if crate::web_modes::any_mode_for_web(&meta)
+        return if hub.any_mode_for_web(&meta)
             || hub.web_modes().config_value_asks(&family_of(&meta), id, value)
         {
             Ok(())

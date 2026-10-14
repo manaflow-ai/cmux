@@ -141,3 +141,32 @@ async fn an_unauthenticated_connection_gets_no_bridge_session() {
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// Only a connection held to the Web's rules widens without the person: the
+/// unix socket (the CLI, scripts, agents) and a peer forwarding its own unix
+/// socket client still need the person key for a mode that does not ask.
+#[tokio::test]
+async fn the_unix_socket_and_a_peers_local_client_still_need_the_person() {
+    let d = dir("person");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge").await;
+    let s =
+        created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}")).to_owned();
+    let widen = json!({"sessionId": s, "modeId": "agent-full-access"});
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let r = local.call("session/set_mode", widen.clone()).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "unix socket: {r}");
+    let mut peer = Client::new(&hub, Origin::Peer, ConnAuth::PeerToken);
+    let r = peer.call("session/set_mode", widen.clone()).await;
+    assert_eq!(
+        r["error"]["data"]["reason"], "permission.person_required",
+        "peer without via web: {r}"
+    );
+    // The same peer forwarding for its own Web client is held to the Web's rules.
+    let mut via_web = widen;
+    via_web["_meta"] = json!({"acpmux": {"via": "web"}});
+    let r = peer.call("session/set_mode", via_web).await;
+    assert!(r.get("error").is_none(), "peer via web: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}

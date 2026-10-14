@@ -226,8 +226,11 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
-/// Whether a Web connection may run `m` in ANY mode: a session of Codex
-/// through `codex app-server`, bridged in process (`codex_app_server.rs`).
+/// Whether a Web connection may run a session in ANY mode: Codex through
+/// `codex app-server`, bridged in process (`codex_app_server.rs`), both as
+/// recorded at its creation (`harness_argv`) and as its harness name runs
+/// now (`now`: the profile the next spawn uses; a failover or a changed PATH
+/// that points the name elsewhere ends it).
 /// Lawrence, 2026-10-13: "remote connection must be authed, and should be
 /// able to pretty much use yolo mode". A Web control request reaches the
 /// mode checks only from an authenticated connection (`server/conn_auth.rs`:
@@ -235,8 +238,12 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
 /// refuses it again), so these sessions take every mode of the bridge,
 /// agent-full-access included. The codex-acp adapter stays refused
 /// (`REFUSED_FAMILIES`): it is being replaced.
-pub(crate) fn any_mode_for_web(m: &SessionMeta) -> bool {
+pub(crate) fn any_mode_for_web(
+    m: &SessionMeta,
+    now: Option<&crate::config::HarnessProfile>,
+) -> bool {
     crate::codex_app_server::is_profile_launch(&m.harness_argv)
+        && now.is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
 }
 
 /// A session's current mode: its ACP mode, else its `mode` config option.

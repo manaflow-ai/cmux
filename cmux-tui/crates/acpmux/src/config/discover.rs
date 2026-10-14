@@ -301,6 +301,20 @@ pub fn discover_harnesses_from(
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
         }
+        // The name the bridge had before it became `codex`, for sessions and
+        // presets that recorded it.
+        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![codex.clone(), "app-server".into()],
+            env: BTreeMap::new(),
+            description: Some("Codex through codex app-server, in process (same as codex)".into()),
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        });
         agents.insert(
             "codex".to_owned(),
             HarnessProfile {
@@ -322,6 +336,9 @@ pub fn discover_harnesses_from(
 
 /// The harness name of the Codex ACP adapter once `codex` is the bridge.
 pub const CODEX_ACP: &str = "codex-acp";
+
+/// The bridge's name before the flip (kept for what recorded it).
+pub const CODEX_APP_SERVER: &str = "codex-app-server";
 
 /// True when the program at `path` resolves (through links) to Cursor's
 /// `cursor-agent` binary.
