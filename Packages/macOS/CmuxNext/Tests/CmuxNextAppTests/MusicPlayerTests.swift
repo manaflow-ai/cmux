@@ -61,15 +61,38 @@ import Testing
         #expect(player.nowPlaying == nil, "a stopped player stays on the card")
     }
 
-    @Test func aStreamPlaysWithoutAScrubber() throws {
+    @Test func aStreamPlaysWithoutAScrubber() async throws {
         let player = MusicPlayer(labels: Self.labels)
         defer { player.stop() }
         let stream = try #require(URL(string: "http://127.0.0.1:9/radio/lofi.mp3"))
         #expect(MusicPlayer.tracks(from: [stream]) == [stream], "a stream URL is not a track")
         player.play([stream])
         let shown = try #require(player.nowPlaying, "a stream is not on the card")
-        #expect(shown.title == "lofi" && shown.isPlaying)
+        #expect(shown.title == "lofi")
         #expect(!shown.canSeek, "a live stream offers the scrubber")
+        // Nothing answers there: the card stops claiming it plays.
+        try await PasswordManagerRouteTests.until({ player.nowPlaying?.isPlaying == false }) { "\(String(describing: player.nowPlaying))" }
+    }
+
+    @Test func aSongThatCannotPlayIsSkipped() async throws {
+        let folder = try Self.folder(["Good.wav"])
+        let player = MusicPlayer(labels: Self.labels)
+        defer { player.stop() }
+        player.play([folder.appendingPathComponent("Moved.wav")] + MusicPlayer.tracks(from: [folder]))
+        try await PasswordManagerRouteTests.until({ player.nowPlaying?.title == "Good" }) { "\(String(describing: player.nowPlaying))" }
+    }
+
+    @Test func theQueueEndsPausedAndPlayStartsItAgain() async throws {
+        let folder = try Self.folder(["A.wav", "B.wav"])
+        let player = MusicPlayer(labels: Self.labels)
+        defer { player.stop() }
+        player.play(MusicPlayer.tracks(from: [folder]))
+        player.perform(.next)
+        player.perform(.seek(1.9))
+        try await PasswordManagerRouteTests.until({ player.nowPlaying?.isPlaying == false }) { "\(String(describing: player.nowPlaying))" }
+        #expect(player.nowPlaying?.title == "B", "the queue did not end on its last song")
+        player.perform(.playPause)
+        #expect(player.nowPlaying?.title == "A" && player.nowPlaying?.isPlaying == true, "Play after the end did not start the queue again")
     }
 
     @Test func thePlayerHasTheCardWhileItPlaysAndATabOnlyByPlayingAloud() throws {
