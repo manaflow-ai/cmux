@@ -13,7 +13,6 @@ final class MacScreenShareIndicator: NSObject {
             let image = NSImage(systemSymbolName: "display", accessibilityDescription: L.t("macScreen.indicator.title", "This Mac is being controlled"))
             image?.isTemplate = true
             item.button?.image = image
-            item.button?.contentTintColor = .systemBlue
             item.button?.toolTip = L.t("macScreen.indicator.title", "This Mac is being controlled")
             let menu = NSMenu()
             let title = NSMenuItem(title: L.t("macScreen.indicator.title", "This Mac is being controlled"), action: nil, keyEquivalent: "")

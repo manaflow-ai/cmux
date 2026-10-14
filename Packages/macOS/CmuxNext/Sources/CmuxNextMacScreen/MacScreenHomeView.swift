@@ -60,6 +60,7 @@ public struct MacScreenHomeView: View {
         }
         .alert(L.t("macScreen.home.renameTitle", "Rename Mac"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField(L.t("macScreen.home.renameField", "Name"), text: $renameText)
+                .focusEffectDisabled()
             Button(L.t("macScreen.home.cancel", "Cancel"), role: .cancel) { renaming = nil }
             Button(L.t("macScreen.home.rename", "Rename")) {
                 if let mac = renaming { store.rename(mac.id, to: renameText) }
@@ -142,6 +143,7 @@ public struct MacScreenHomeView: View {
                 HStack {
                     TextField(L.t("macScreen.home.linkPlaceholder", "cmux-vnc://pair?…"), text: $linkText)
                         .textFieldStyle(.roundedBorder)
+                        .focusEffectDisabled()
                         .onSubmit(pair)
                         // An error describes the link that was tried; editing the field clears it.
                         .onChange(of: linkText) { addError = nil }

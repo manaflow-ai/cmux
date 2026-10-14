@@ -99,8 +99,10 @@ final class RemoteVNCSession {
         alert.addButton(withTitle: RemoteVNCStrings.cancel)
         let user = NSTextField(string: saved?.username ?? "")
         user.placeholderString = RemoteVNCStrings.userPlaceholder
+        user.focusRingType = .none
         let password = NSSecureTextField(string: "")
         password.placeholderString = RemoteVNCStrings.passwordPlaceholder
+        password.focusRingType = .none
         let stack = NSStackView(views: [user, password])
         stack.orientation = .vertical
         stack.spacing = 8
