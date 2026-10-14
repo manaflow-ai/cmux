@@ -46,3 +46,16 @@ Apple sign-in, device removal, notarized Mac app); Chief over the link approved.
 4. E2E: `cnx-ios/verify/e2e/run.sh` (once the e2erig agent lands it).
 5. Rules: one simulator per agent (delete when done); real cmux-next builds only for live checks;
    process headroom guard (procs < 6500).
+
+## Update 2026-10-13 ~22:40 PT
+
+- Merged into `feat-cnx-ios`: fastconn (Worker 0.8.0, batched requests, warm connect), termlive
+  (input lane; mock terminal removed), push entitlement limited to TestFlight builds (`a986e386`).
+  Head `a074414f`; production iOS build `~/cnx-ios-builds/20261014-a074414f18-prod/` (not installed: phone away).
+- Mac: PR https://github.com/manaflow-ai/cmux/pull/20414 (not merged; user says "merge" after trying).
+  Production Mac build `~/cnx-ios-builds/20261014-127d9ed1df-mac-prod/cmux NEXT iOS Test.app`
+  (`dev.cmuxterm.app.next.iostest`, prod Worker). B15 (signed, notarized) blocked: nightly-next notarization paused.
+- nx-remote host `cmux-lawrence-2` unreachable (no alias/DNS); Swift tests run on `mini-cmuxs-mac-mini-2`
+  with the locally built xcframework copied over.
+- Open: cmux-tui drops terminal input under a fast flood ("Broken pipe"), see `verify/terminal-input-lane.md`;
+  phone UI to remove stale Macs (API ready); design loops: workspaces (implementing), onboarding (designer).
