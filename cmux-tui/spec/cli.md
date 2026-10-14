@@ -568,6 +568,8 @@ projection <selector> show|put
 
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
+sidebar section-scroll <section> fixed|flow   (sidebar.section.update {scroll})
+sidebar section-max-rows <section> <1-50>|none   (sidebar.section.update {max_rows}; none grows without limit)
 
 provider authority install
 

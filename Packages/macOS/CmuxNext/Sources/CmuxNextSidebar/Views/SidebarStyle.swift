@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
-    static var horizontalInset: CGFloat { Metrics.space3 }
+    static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -33,7 +33,7 @@ enum SidebarStyle {
     static var railGlyphSize: CGFloat { Metrics.iconSize + 1 }
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
-    static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
+    static var favoriteWell: CGFloat { SidebarDensityTokens.rowHeight + Metrics.space1 }
     /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
     static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
