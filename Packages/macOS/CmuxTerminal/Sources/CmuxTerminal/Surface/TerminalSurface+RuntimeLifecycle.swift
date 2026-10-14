@@ -482,9 +482,10 @@ extension TerminalSurface {
 #endif
         let beforeNativeFree: @Sendable () async -> Void = {
             await retiredRemoteOutputLane.drain()
-            if let processExitFence,
-               await processExitFence(),
-               let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) {
+            guard let surface = UnsafeMutableRawPointer(bitPattern: surfaceBits) else {
+                return
+            }
+            if let processExitFence, await processExitFence() {
                 let resetBytes = SSHTerminalModeResetSequence().terminalBytes
                 resetBytes.withUnsafeBytes { rawBuffer in
                     guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
