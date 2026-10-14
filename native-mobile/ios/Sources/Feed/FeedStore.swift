@@ -71,6 +71,9 @@ final class FeedStore {
 
     var unreadCount: Int { items.filter { !$0.read }.count }
 
+    static let answersKey = "feed.answers"
+    @ObservationIgnored private var answers = FeedAnswerMemory(data: UserDefaults.standard.data(forKey: FeedStore.answersKey), limit: 300)
+
     func attach(_ connection: HostConnection) {
         self.connection = connection
         items = []
@@ -115,7 +118,7 @@ final class FeedStore {
             options: kind == .question || kind == .permission ? FeedTextParser.options(in: notification.body) : [],
             createdAt: notification.createdAtMs.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date(),
             read: notification.acknowledged ?? false,
-            answered: nil
+            answered: answers.answer(for: "n-\(notification.id)")
         )
         insert(item)
         if enrich { Task { await self.enrich(item.id) } }
@@ -219,6 +222,8 @@ final class FeedStore {
     private func markAnswered(_ item: FeedItem, _ text: String) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index].answered = text
+        answers.record(text, for: item.id)
+        UserDefaults.standard.set(try? answers.encoded(), forKey: Self.answersKey)
         let wasUnread = !items[index].read
         items[index].read = true
         // Acknowledge on the Mac too, as Mark as Read does; otherwise the
@@ -256,4 +261,34 @@ final class FeedStore {
         default: agent.capitalized
         }
     }
+}
+
+/// What the user answered on posts, by post id, so a relaunch still shows
+/// "You replied" instead of an open question. Oldest entries drop first.
+struct FeedAnswerMemory: Codable, Equatable {
+    private var entries: [Entry] = []
+    let limit: Int
+
+    private struct Entry: Codable, Equatable {
+        var id: String
+        var answer: String
+    }
+
+    init(limit: Int) { self.limit = limit }
+
+    init(data: Data?, limit: Int) {
+        let decoded = data.flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
+        entries = Array(decoded.suffix(limit))
+        self.limit = limit
+    }
+
+    func answer(for id: String) -> String? { entries.last { $0.id == id }?.answer }
+
+    mutating func record(_ answer: String, for id: String) {
+        entries.removeAll { $0.id == id }
+        entries.append(Entry(id: id, answer: answer))
+        if entries.count > limit { entries.removeFirst(entries.count - limit) }
+    }
+
+    func encoded() throws -> Data { try JSONEncoder().encode(entries) }
 }
