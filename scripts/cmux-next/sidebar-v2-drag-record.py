@@ -172,15 +172,19 @@ def gesture(path, hold=0.35, seconds=1.2, escape_at=None):
         worker = threading.Thread(target=lambda: reply.update(value=real_drag(path[0], path[-1], seconds)))
         called = time.monotonic()
         worker.start()
-        began = wait(lambda: window().get("dragging"), 15)
-        print(f"real drag: {'began %.2fs after the call' % (time.monotonic() - called) if began else 'NO drag began within 15 s'}", flush=True)
-        if began and escape_at is not None:
+        began = wait(lambda: window().get("dragging"), 5)
+        if not began:
+            # A dead harness must not record a still sidebar as data: stop the run here.
+            worker.join(seconds + 70)
+            sys.exit(f"FAIL real drag: the app reported no drag within 5 s of the cua-driver call (reply: {json.dumps(reply.get('value'))[:500]})")
+        print(f"real drag: began {time.monotonic() - called:.2f}s after the call", flush=True)
+        if escape_at is not None:
             threading.Timer(max(0.0, escape_at - 0.2), lambda: rpc("debug.key", {"key": "escape"})).start()
         worker.join(seconds + 70)  # no polling while the pointer moves (it would add main-thread work to the trace)
         value = reply.get("value")
         failed = not isinstance(value, dict) or value.get("error") or value.get("isError")
         print(f"cua drag {'FAILED' if failed else 'reply'}: {json.dumps(value)[:500]}", flush=True)
-        if began and not wait(lambda: not window().get("dragging"), 10):
+        if not wait(lambda: not window().get("dragging"), 10):
             print("real drag: still dragging 10 s after the gesture", flush=True)
         return
     if escape_at is not None:
