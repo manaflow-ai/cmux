@@ -3818,11 +3818,12 @@ jobs:
           # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
           # publish-nightly-identity-legacy as the artifacts
           # cmux-nightly-identity-pending-meta/-bundle of its run: the newest
-          # unexpired one is continued first (never resubmitted) while it is
-          # under 6 hours old.
+          # unexpired one from a nightly-next run of this repository (never a
+          # fork's) is continued first (never resubmitted) while it is under 6
+          # hours old.
           pending_args=()
           pending="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
-            --jq '[.artifacts[] | select(.expired == false)] | sort_by(.created_at) | last | select(. != null) | "\(.id) \(.workflow_run.id)"' || true)"
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | select(. != null) | "\(.id) \(.workflow_run.id)"' || true)"
           if [ -n "$pending" ]; then
             read -r meta_id meta_run <<<"$pending"
             mkdir -p pending
@@ -3900,7 +3901,7 @@ jobs:
     # -bundle) and a later run continues that exact submission
     # (legacy-identity-target: action continue); it is never resubmitted and
     # never counted as a failure.
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -4021,6 +4022,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$PENDING_RUN" =~ ^[0-9]+$ ]] || { echo "invalid pending run '$PENDING_RUN'" >&2; exit 1; }
+          # Only this repository's own nightly.yml run on nightly-next made it.
+          origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN" --jq '"\(.path) \(.event) \(.head_branch) \(.head_repository.full_name)"')"
+          case "$origin" in
+            ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
+            *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
+          esac
           gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending
           python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
           mkdir -p legacy-app legacy-out
@@ -4207,7 +4214,9 @@ jobs:
         run: |
           set -euo pipefail
           refused=false
-          if grep -Eq '"status" *: *"(Invalid|Rejected)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then refused=true; fi
+          # Apple answered (Accepted with a later check failing, Invalid or
+          # Rejected): this submission can never publish, so a new one starts.
+          if grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then refused=true; fi
           if [ "$PUBLISHED" != true ] && [ "$refused" != true ]; then
             echo "pending submission of run $PENDING_RUN kept (not resolved)"; exit 0
           fi
@@ -4217,8 +4226,23 @@ jobs:
           done
           echo "retired the pending submission of run $PENDING_RUN (published=$PUBLISHED refused=$refused)"
 
-      - name: Report a failed publication
+      # A real failure: a new copy failed, or Apple answered about the continued
+      # one. An error before Apple answered about a continued submission (for
+      # example notarytool info failed) is only a warning: the submission is
+      # kept and counts nothing.
+      - name: Classify the failure
+        id: classify
         if: failure()
+        run: |
+          real=true
+          if [ "$LEGACY_ACTION" = continue ] && ! grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
+            real=false
+            echo "::warning title=cmux NIGHTLY-identity continuation error (cx-x7hwx)::Apple did not answer about the pending submission of run $PENDING_RUN; it is kept for the next run"
+          fi
+          echo "real=$real" >> "$GITHUB_OUTPUT"
+
+      - name: Report a failed publication
+        if: failure() && steps.classify.outputs.real == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}

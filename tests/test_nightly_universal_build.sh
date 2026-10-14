@@ -985,7 +985,9 @@ for expected in \
   "- name: Keep the pending cmux NIGHTLY-identity submission" \
   "name: cmux-nightly-identity-pending-meta" \
   "name: cmux-nightly-identity-pending-bundle" \
-  "Build \${process.env.BUILD} failed:"; do
+  "Build \${process.env.BUILD} failed:" \
+  "if: failure() && steps.classify.outputs.real == 'true'" \
+  ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY"; do
   if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
     echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
     exit 1
@@ -994,6 +996,7 @@ done
 for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6" \
+  '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   'grep -c "^Build $build failed:"'; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
