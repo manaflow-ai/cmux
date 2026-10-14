@@ -104,7 +104,7 @@ describe("plan card price", () => {
     expect(planCardPrice("max", false, undefined)).toEqual({ amount: "$200", unit: "perMonth", annual: false });
     expect(planCardPrice("pro", true, { amountUsd: 50, interval: "month" })).toEqual({ amount: "$50", unit: "perMonth", annual: false });
     expect(planCardPrice("pro", true, { amountUsd: 500, interval: "year" })).toEqual({ amount: "$41.67", unit: "perMonth", annual: true });
-    expect(planCardPrice("team", true, { amountUsd: 60, interval: "month" })).toEqual({ amount: "$60", unit: "perSeatMonth", annual: false });
+    expect(planCardPrice("team", true, { amountUsd: 60, interval: "month" })).toEqual({ amount: "$60", unit: "perMonth", annual: false });
     expect(planCardPrice("pro", true, null)).toBeNull();
   });
 });

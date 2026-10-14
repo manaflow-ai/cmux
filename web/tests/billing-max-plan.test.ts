@@ -31,7 +31,7 @@ describe("Max as a personal plan", () => {
     for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {
       const result = resolveVmEntitlements(user, {}, options);
       expect(result.planId).toBe("max");
-      expect(result.maxActiveVms).toBe(15);
+      expect(result.maxActiveVms).toBe(5);
       expect(result.billingTeamId).toBe("team-1");
     }
   });
@@ -66,7 +66,7 @@ describe("Max as a personal plan", () => {
     expect(result.resourcePool).toBeNull();
   });
 
-  test("a Team subscription adds five shared VMs and one resource pool per paid seat", () => {
+  test("a Team subscription provides five shared VMs and one resource pool", () => {
     const user = {
       update: async () => undefined,
       id: "user-team",
@@ -80,8 +80,8 @@ describe("Max as a personal plan", () => {
 
     const result = resolveVmEntitlements(user, {}, { requestedBillingTeamId: "team-paid" });
     expect(result.planId).toBe("team");
-    expect(result.maxActiveVms).toBe(15);
-    expect(result.resourcePool).toEqual({ vcpus: 60, memoryMb: 3 * 40 * 1024 });
+    expect(result.maxActiveVms).toBe(5);
+    expect(result.resourcePool).toEqual({ vcpus: 20, memoryMb: 40 * 1024 });
   });
 
   test("legacy memory overrides cannot sell Max sizes to Pro", () => {

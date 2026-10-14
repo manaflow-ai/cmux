@@ -35,8 +35,8 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("max", {})).toBe(5);
   });
 
-  test("a Team subscription gets 5 machines per paid seat", () => {
-    expect(maxActiveVmsForPlan("team", {}, { seats: 4 })).toBe(20);
+  test("a Team subscription gets one shared five-machine allowance", () => {
+    expect(maxActiveVmsForPlan("team", {}, { seats: 4 })).toBe(5);
     expect(maxActiveVmsForPlan("team", {}, { seats: 1 })).toBe(5);
     expect(maxActiveVmsForPlan("team", {}, { seats: null })).toBe(5);
     expect(maxActiveVmsForPlan("team", {}, { seats: 0 })).toBe(5);
@@ -44,8 +44,8 @@ describe("free plan VM allowance", () => {
     expect(maxActiveVmsForPlan("pro", {}, { seats: 4 })).toBe(5);
     expect(maxActiveVmsForPlan("free", {}, { seats: 4 })).toBe(0);
     // Retired overrides cannot erase paid seats.
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(15);
-    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" }, { seats: 4 })).toBe(20);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PLAN_TEAM_MAX_ACTIVE_VMS: "2" }, { seats: 3 })).toBe(5);
+    expect(maxActiveVmsForPlan("team", { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1" }, { seats: 4 })).toBe(5);
   });
 
   test("retired paid overrides cannot change the product allowance", () => {

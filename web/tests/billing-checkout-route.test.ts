@@ -973,7 +973,7 @@ describe("billing checkout route", () => {
 
     expect(resolveTeamPrice).toHaveBeenCalledWith("month");
     expect(createdStripeSessions[0]).toMatchObject({
-      line_items: [{ price: "price_team_month", quantity: 2 }],
+      line_items: [{ price: "price_team_month", quantity: 1 }],
       metadata: { billingInterval: "month" },
       subscription_data: { metadata: { billingInterval: "month" } },
       cancel_url: "https://cmux.test/pricing?billing=cancelled&interval=month",

@@ -94,7 +94,7 @@ describe("explicit team checkout", () => {
     const params = sessionParams();
     expect(params.client_reference_id).toBe("team-b");
     expect(params.line_items).toEqual([
-      { price: "price_team_month", quantity: 5, adjustable_quantity: { enabled: true, minimum: 1 } },
+      { price: "price_team_month", quantity: 1 },
     ]);
     expect(params.metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID, plan: "team" });
     expect((params.subscription_data as { metadata: unknown }).metadata).toMatchObject({ stackTeamId: "team-b", stackUserId: USER_ID });
