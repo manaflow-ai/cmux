@@ -573,3 +573,79 @@ fn a_chief_with_self_edit_reads_of_chief_profile_in_its_launcher_prompt() {
         std::fs::read_to_string(&agents_md).is_ok_and(|text| text.contains(&line))
     });
 }
+
+/// S5 gap 4: the person's `harnesses` grant reaches the spawn path. A Chief
+/// whose record allows spawn but only the codex harness asks for a claude
+/// subagent: the spawn is refused with the allowed list and starts no
+/// session. The record is the real daemon's; the brain and spawner are the
+/// host's; acpmux is the in-repo fake, only to show that nothing started.
+#[test]
+#[ignore = "needs CMUX_TUI_BIN"]
+fn a_spawn_on_a_harness_outside_the_grant_starts_nothing() {
+    use optchat_chief::subagents::{Spawner, SubagentSettings};
+    use optchat_chief::tools::Orchestrator;
+    let daemon = Daemon::start();
+    let mut me = Conn::open(&daemon.socket);
+    let made = me.v2(
+        "chief.profile.create",
+        json!({"display_name": "Builder", "tools": ["spawn", "tell"], "harnesses": ["codex"]}),
+        Some("make-builder"),
+    );
+    let builder = made["value"]["id"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    me.req(json!({"cmd": "conversation-create", "idempotency_key": "dm-builder",
+                  "actor": "user_local", "title": "Builder", "participants": [
+                      {"id": "user_local", "kind": "human", "display_name": "Ada"},
+                      {"id": builder, "kind": "agent", "display_name": "Builder", "agent_class": "mux"}]}));
+    let token = me.token_file(dir.path(), &builder);
+    let tools = Arc::new(
+        ChiefTools::start(
+            Some(ProfileClient::new(daemon.socket.clone(), Some(token), builder.clone())),
+            false,
+            &|_| {},
+        )
+        .expect("the brain reads its record"),
+    );
+
+    let mut h = common::Harness::new(Box::new(|_, _| Vec::new()));
+    h.connect();
+    let spawner = Arc::new(
+        Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: "claude".into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: None,
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        )
+        .with_harness_grant(tools),
+    );
+    let worker = {
+        let spawner = spawner.clone();
+        std::thread::spawn(move || spawner.spawn(vec!["build it".into()], None))
+    };
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(20)) {
+            h.brain.step(input);
+        }
+    }
+    let answer = worker.join().unwrap();
+    let text = match &answer {
+        Ok(text) | Err(text) => text.clone(),
+    };
+    assert!(
+        text.contains("has not given this Chief's subagents the claude harness; it may use codex"),
+        "{answer:?}"
+    );
+    let started = h.agents.inner.lock().unwrap().specs.len();
+    assert_eq!(started, 0, "a refused spawn starts no session");
+}
