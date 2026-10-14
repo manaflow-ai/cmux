@@ -3,6 +3,22 @@
 use super::*;
 
 const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
+/// Debug builds only: overrides [`JOURNAL_MAINTENANCE_INTERVAL`] so behavior
+/// tests through the binary see maintenance ticks in seconds. Release builds
+/// ignore it.
+#[cfg(debug_assertions)]
+const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
+
+fn journal_maintenance_interval() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    JOURNAL_MAINTENANCE_INTERVAL
+}
 const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
 const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
 
@@ -28,6 +44,7 @@ impl JournalMaintenance {
         });
         let worker_control = control.clone();
         let weak_mux = Arc::downgrade(mux);
+        let interval = journal_maintenance_interval();
         let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
             move || loop {
                 let mut stopped =
@@ -37,7 +54,7 @@ impl JournalMaintenance {
                 }
                 let (next, timeout) = worker_control
                     .changed
-                    .wait_timeout(stopped, JOURNAL_MAINTENANCE_INTERVAL)
+                    .wait_timeout(stopped, interval)
                     .unwrap_or_else(PoisonError::into_inner);
                 stopped = next;
                 if *stopped {
