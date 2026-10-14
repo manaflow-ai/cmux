@@ -85,16 +85,14 @@ struct AgentTabContent {
         }
     }
 
-    /// `view` as it settled in this pane (its chats and chips in), each time a New Tab page shows
-    /// here: what the next New Tab page draws until it paints (cx-ec99). The page's own snapshot,
-    /// its clear areas left clear, as the pane paints the window's background under it. Kept from
-    /// the first page's first paint, flattened onto the theme's background, it showed under every
-    /// later Cmd-T for a frame or two: another color, "No chats yet", no model (Leo 2026-10-13).
+    /// `view` 400 ms after it painted here (its chats and chips in), clear areas left clear (the pane
+    /// paints under it): what the next New Tab page draws until it paints (cx-ec99). The first page's
+    /// first paint on the theme's color showed under each Cmd-T: no chats, no model (Leo 2026-10-13).
     private func rememberNewTabFrame(of view: AgentPaneView) {
         let images = pane.services.agentTabs.launchImages
         view.model.whenPainted { [weak view, weak paneView = pane.view] in
             let settle = DemandTimer(owner: "newTab.frame.settle")
-            settle.schedule(after: Self.newTabFrameSettle) { @MainActor in
+            settle.schedule(after: .milliseconds(400)) { @MainActor in
                 withExtendedLifetime(settle) {}
                 guard let view, let paneView, view.model.newTab != nil, view.isDescendant(of: paneView.contentHost) else { return }
                 let size = paneView.contentHost.bounds.size, appearance = Self.appearance(of: paneView)
@@ -103,9 +101,6 @@ struct AgentTabContent {
             }
         }
     }
-
-    /// How long a shown New Tab page draws before its frame is kept: its rows and chips are in.
-    private static let newTabFrameSettle: Duration = .milliseconds(400)
 
     private static func appearance(of view: NSView) -> NSAppearance.Name? {
         view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
