@@ -15,6 +15,7 @@ import { FreestyleTlsRuleLimitRestoreError, inlineEgressFirewallRules, inlineEgr
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
@@ -57,6 +58,7 @@ import {
   type VMStatus,
   type ProviderReadOptions,
   type VmPauseState,
+  type VmHealthInventory,
 } from "./types";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
@@ -1048,6 +1050,7 @@ export class FreestyleProvider implements VMProvider {
 
   readonly privateNetworking: VMPrivateNetworking;
   private readonly resourceStats: FreestyleResourceStatsReader;
+  readonly healthInventory: VmHealthInventory;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -1056,6 +1059,7 @@ export class FreestyleProvider implements VMProvider {
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
     this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
+    this.healthInventory = freestyleHealthInventory(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
