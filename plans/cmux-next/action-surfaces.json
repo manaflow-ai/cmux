@@ -24745,6 +24745,60 @@
       "title_table" : "HistoryActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action music-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "music.open",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Play Music…",
+      "title_key" : "action.music.open",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action music-stop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "music.stop",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Music",
+      "title_key" : "action.music.stop",
+      "title_table" : "MusicActions"
+    },
+    {
       "cli" : "ownerVerb",
       "cli_name" : "action tab-stash",
       "context_menu" : "offered",
