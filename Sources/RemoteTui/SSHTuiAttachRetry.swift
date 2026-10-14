@@ -10,8 +10,10 @@ import Foundation
 /// and retries after a short backoff. Only an error that retrying cannot fix,
 /// or a run of failures that outlasts the backoff schedule, reaches the sidebar.
 struct SSHTuiAttachRetryPolicy: Sendable {
-    /// Delay before each retry; the attach gives up once these run out.
+    /// Delay before each retry; the attach reports its error once these run out.
     let delays: [Duration]
+    /// Cadence of the quiet retries that follow a reported, retryable error.
+    var reportedFailureRetryInterval: Duration = .seconds(30)
 
     static let standard = SSHTuiAttachRetryPolicy(
         delays: [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(15)]
@@ -24,20 +26,22 @@ struct SSHTuiAttachRetryPolicy: Sendable {
         return delays[failureCount - 1]
     }
 
-    /// Errors that no later attempt can fix.
+    /// Errors worth another attempt while the workspace is still connecting.
     static func isRetryable(_ error: Error) -> Bool {
-        if error is CancellationError { return false }
-        if let failure = error as? CloudDiagnosticFailure, failure == .unsupported { return false }
-        if let failure = error as? CloudMachineLink.LinkError {
-            switch failure {
-            // The carrier already waited out its own connect deadline
-            // (minutes, with internal retries); another lap only delays the report.
-            case .clientMissing, .timedOut: return false
-            default: break
-            }
-        }
-        if CloudMachineAccessLoss(error: error) != nil { return false }
+        if isPermanent(error) { return false }
+        // The carrier already waited out its own connect deadline (minutes,
+        // with internal retries); another fast lap only delays the report.
+        if case CloudMachineLink.LinkError.timedOut? = error as? CloudMachineLink.LinkError { return false }
         return true
+    }
+
+    /// Errors that no later attempt can fix, so a reported failure stops
+    /// retrying in the background and waits for Reconnect or a link-up.
+    static func isPermanent(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let failure = error as? CloudDiagnosticFailure, failure == .unsupported { return true }
+        if case CloudMachineLink.LinkError.clientMissing? = error as? CloudMachineLink.LinkError { return true }
+        return CloudMachineAccessLoss(error: error) != nil
     }
 
     /// Whether a waiting or failed attach should retry now instead of

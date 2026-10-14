@@ -34,6 +34,11 @@ struct SSHTuiAttachRetryTests {
         // The carrier already spent its connect deadline; report instead of another lap.
         #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.timedOut) == nil)
         #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.requestTimedOut) == .seconds(1))
+        // A spent carrier deadline is reported, but still retried quietly afterwards.
+        #expect(!SSHTuiAttachRetryPolicy.isPermanent(CloudMachineLink.LinkError.timedOut))
+        #expect(SSHTuiAttachRetryPolicy.isPermanent(CloudDiagnosticFailure.unsupported))
+        #expect(SSHTuiAttachRetryPolicy.isPermanent(CloudMachineLink.LinkError.clientMissing))
+        #expect(!SSHTuiAttachRetryPolicy.isPermanent(CloudMachineLink.LinkError.failureMessage("Connection refused")))
     }
 
     @Test("Only a link that came up after the failure retries early")

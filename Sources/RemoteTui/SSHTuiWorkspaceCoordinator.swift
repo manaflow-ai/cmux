@@ -134,14 +134,47 @@ final class SSHTuiWorkspaceCoordinator {
                 self.recoveries.removeValue(forKey: workspace.id)
                 workspace.applyRemoteConnectionStateUpdate(.disconnected, detail: nil, target: configuration.displayTarget)
             case .failed(let error):
-                // Park so a later link-up still recovers the workspace and
-                // retracts this error, without waiting for a manual Reconnect.
-                self.recoveries[workspace.id] = Recovery(
-                    workspace: workspace, configuration: configuration, machine: machine,
-                    linkWasConnectedAtFailure: self.catalog.machines[machine]?.linkState == .connected,
-                    backoff: nil
-                )
                 workspace.applyRemoteConnectionStateUpdate(.error, detail: CloudMachineLink.errorText(error), target: configuration.displayTarget)
+                guard !SSHTuiAttachRetryPolicy.isPermanent(error) else {
+                    // Park so a later link-up still recovers the workspace
+                    // and retracts this error, without a manual Reconnect.
+                    self.recoveries[workspace.id] = Recovery(
+                        workspace: workspace, configuration: configuration, machine: machine,
+                        linkWasConnectedAtFailure: self.catalog.machines[machine]?.linkState == .connected,
+                        backoff: nil
+                    )
+                    return
+                }
+                await self.retryQuietlyAfterReportedFailure(workspace: workspace, configuration: configuration,
+                                                            machine: machine, attemptID: attemptID)
+            }
+        }
+    }
+
+    /// Keeps a reported, retryable failure trying on a slow cadence while the
+    /// workspace stays `.error`, so a host that comes back recovers and the
+    /// error retracts without a manual Reconnect. A link-up ends each wait early.
+    private func retryQuietlyAfterReportedFailure(workspace: Workspace, configuration: WorkspaceRemoteConfiguration,
+                                                  machine: SurfaceMachineID, attemptID: UUID) async {
+        while !Task.isCancelled, workspace.sshTuiConnectionAttemptID == attemptID {
+            let backoff = SSHTuiAttachBackoff()
+            recoveries[workspace.id] = Recovery(
+                workspace: workspace, configuration: configuration, machine: machine,
+                linkWasConnectedAtFailure: catalog.machines[machine]?.linkState == .connected,
+                backoff: backoff
+            )
+            await backoff.wait(retryPolicy.reportedFailureRetryInterval, clock: clock)
+            guard !Task.isCancelled, workspace.sshTuiConnectionAttemptID == attemptID else { return }
+            if recoveries[workspace.id]?.backoff === backoff { recoveries.removeValue(forKey: workspace.id) }
+            do {
+                try await attach(workspace: workspace, configuration: configuration, attemptID: attemptID, restoring: true)
+                return
+            } catch {
+                guard workspace.sshTuiConnectionAttemptID == attemptID, !(error is CancellationError) else { return }
+                if SSHTuiAttachRetryPolicy.isPermanent(error) {
+                    workspace.applyRemoteConnectionStateUpdate(.error, detail: CloudMachineLink.errorText(error), target: configuration.displayTarget)
+                    return
+                }
             }
         }
     }
