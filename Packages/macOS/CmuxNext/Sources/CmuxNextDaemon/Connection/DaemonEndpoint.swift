@@ -345,8 +345,7 @@ public struct DaemonCapabilities: Sendable {
     /// `terminal-clipboard-reply` and the targeted read events
     /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
     public let terminalClipboardRead = "terminal-clipboard-read-v1"
-    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
-    /// `ClientHello.originClaimCapability`).
+    /// The page relay's origin claim (`ResourceRelay.originClaimCapability`, `ClientHello.originClaimCapability`).
     public let originClaim = "origin-claim-v1"
     /// Page ids on page relays and the per-page allow list (`page-router-v1`;
     /// `DaemonClientRole.pageRouterCapability`).
@@ -355,9 +354,7 @@ public struct DaemonCapabilities: Sendable {
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
     public let terminalResources = "terminal-resources-v1"
-    /// `stash.*` (a native OneTab): browser tabs closed into named groups, restored, deleted
-    /// and imported from OneTab. The app shows no stash UI without it.
-    public let stash = "stash-v1"
+    public let stash = "stash-v1" // stash.* (StateResourceClient+Stash.swift); no stash UI without it
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
