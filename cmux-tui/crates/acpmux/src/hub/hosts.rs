@@ -132,7 +132,8 @@ impl Hub {
     }
 
     /// Reattach every running agent host. Called once at daemon start,
-    /// before agents may spawn.
+    /// before agents may spawn; a prompt to a kept session may still adopt
+    /// its host first (`readopt`).
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
         // Pooled sessions of a previous daemon were never taken: end them.
         self.sweep_pool_hosts().await;
@@ -165,6 +166,16 @@ impl Hub {
                 }
                 continue;
             };
+            // This runs after the ready line, so a prompt can reach the host
+            // first (`ensure_child` -> `readopt`, under the spawn lock). One
+            // adoption per host: a second link would replace the first
+            // child, and the requests open on it would be lost.
+            let _spawning = session.spawn_lock.lock().await;
+            if let Some(child) = session.child.lock().await.as_ref()
+                && child.is_alive().await
+            {
+                continue;
+            }
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
             }
