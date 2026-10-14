@@ -343,11 +343,14 @@ fn handle_websocket_connection_with_permit(
     // A page-bound credential admits its page only: the page's raw commands and its
     // `cmux.protocol/2` allow list, nothing else (page-credential-scoped-v1). It matched only
     // because the handshake named that page.
-    if admission == CredentialMatch::Page {
-        hello.scope_to_page(handshake_page.as_deref().unwrap_or_default());
-    }
-    if let Some(page) = handshake_page {
-        origin_gate::set_page(&mux, client, page);
+    match handshake_page {
+        Some(page) if admission == CredentialMatch::Page => {
+            hello.scope_to_page(&page);
+            origin_gate::set_scoped_page(&mux, client, page);
+        }
+        Some(page) => origin_gate::set_page(&mux, client, page),
+        // A page-bound credential matched only a handshake that named its page.
+        None => {}
     }
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),

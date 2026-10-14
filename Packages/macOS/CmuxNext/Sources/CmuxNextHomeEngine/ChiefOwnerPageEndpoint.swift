@@ -23,22 +23,33 @@ public nonisolated struct ChiefOwnerPageEndpoint: Sendable, Equatable {
 }
 
 extension ChiefConversationOwner {
-    /// Why the owner has no page endpoint yet (the page tries again).
-    public nonisolated struct NotConnected: Error, Sendable {}
+    /// What the Channels page gets from this owner.
+    public enum PageEndpointOutcome: Sendable, Equatable {
+        /// The owner's listener and a credential bound to the page.
+        case ready(ChiefOwnerPageEndpoint)
+        /// The owner is starting or reconnecting: the page tries again.
+        case starting
+        /// No owner endpoint (too old, refused, or never started): the page uses the build
+        /// daemon only, as before, never a dead end.
+        case unavailable
+    }
 
-    /// The page `page`'s endpoint on this owner; nil when the owner is too old
-    /// for a scoped credential (the page then shows the build daemon's
-    /// conversations only, as before). Throws `NotConnected` while the owner
-    /// is starting or reconnecting, and the request's error on a lost
-    /// connection, so the page waits for the owner instead of showing the
-    /// wrong conversations.
-    public func pageEndpoint(page: String) async throws -> ChiefOwnerPageEndpoint? {
-        guard let connection else { throw NotConnected() }
+    /// The page `page`'s endpoint on this owner. While the owner starts or reconnects the page
+    /// waits for it (it would show the wrong conversations otherwise); a refusal or an owner
+    /// that cannot start leaves the page on the build daemon.
+    public func pageEndpoint(page: String) async -> PageEndpointOutcome {
+        guard let connection else { return isRunning ? .starting : .unavailable }
         guard supports(DaemonCapabilities.shared.wsListen),
-              supports(DaemonCapabilities.shared.scopedPageCredential) else { return nil }
-        // The owner's listener admits this page's Origin only (loopback, like the build daemon's).
-        let listener = try await connection.request(WsListenRequest(allowOrigin: "cmux-page://cmux.\(page)"))
-        let credential = try await connection.request(ScopedPageCredentialRequest(page: page))
-        return ChiefOwnerPageEndpoint(url: listener.url, token: credential.credential)
+              supports(DaemonCapabilities.shared.scopedPageCredential) else { return .unavailable }
+        do {
+            // The owner's listener admits this page's Origin only (loopback, like the build daemon's).
+            let listener = try await connection.request(WsListenRequest(allowOrigin: "cmux-page://cmux.\(page)"))
+            let credential = try await connection.request(ScopedPageCredentialRequest(page: page))
+            return .ready(ChiefOwnerPageEndpoint(url: listener.url, token: credential.credential))
+        } catch let error as DaemonError where error.isLostConnection {
+            return .starting
+        } catch {
+            return .unavailable
+        }
     }
 }

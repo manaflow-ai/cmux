@@ -49,15 +49,14 @@ final class DaemonCredentialPageProvider: PageProvider {
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op == "cmux.host.credential.load" else { throw PageError.unknownOp(op) }
         let credential = try await daemonCredential()
-        // An owner too old for it adds nothing (the build daemon only); one still starting retries.
         guard case .object(var fields) = credential, let chief else { return credential }
-        let endpoint: ChiefOwnerPageEndpoint?
-        do { endpoint = try await chief.pageEndpoint(page: "home-channels") } catch {
-            throw PageError.unavailable(Self.chiefStarting)
+        switch await chief.pageEndpoint(page: "home-channels") {
+        case .starting: throw PageError.unavailable(Self.chiefStarting)
+        case .unavailable: return credential
+        case .ready(let owner):
+            fields["owner"] = .object(["url": .string(owner.url), "token": .string(owner.token)])
+            return .object(fields)
         }
-        guard let owner = endpoint else { return credential }
-        fields["owner"] = .object(["url": .string(owner.url), "token": .string(owner.token)])
-        return .object(fields)
     }
 
     private func daemonCredential() async throws -> CmuxNextSettings.JSONValue {

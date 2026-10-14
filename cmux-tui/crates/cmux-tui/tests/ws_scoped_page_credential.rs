@@ -137,6 +137,8 @@ impl Line {
 struct Page {
     socket: tungstenite::WebSocket<TcpStream>,
     next: u64,
+    /// Every event line the page heard, in order.
+    events: Vec<Value>,
 }
 
 impl Page {
@@ -149,7 +151,7 @@ impl Page {
         }
         let (mut socket, _) = tungstenite::client(handshake, stream).ok()?;
         socket.send(Message::Text(json!({"auth": {"token": token}}).to_string().into())).ok()?;
-        let mut page = Self { socket, next: 1 };
+        let mut page = Self { socket, next: 1, events: Vec::new() };
         // Authenticated only when the daemon answers a request.
         let identify = page.try_rpc(json!({"cmd": "identify"}))?;
         (identify["ok"] == true).then_some(page)
@@ -170,7 +172,9 @@ impl Page {
             match self.socket.read() {
                 Ok(Message::Text(text)) => {
                     let value: Value = serde_json::from_str(&text).unwrap();
-                    if value.get("event").is_none() && value["id"] == id {
+                    if value.get("event").is_some() {
+                        self.events.push(value);
+                    } else if value["id"] == id {
                         return Some(value);
                     }
                 }
@@ -182,6 +186,22 @@ impl Page {
 
     fn rpc(&mut self, request: Value) -> Value {
         self.try_rpc(request).expect("the daemon closed the page WebSocket")
+    }
+
+    /// Reads events until one named `name` (the read timeout bounds the wait).
+    fn until_event(&mut self, name: &str) {
+        while !self.events.iter().any(|event| event["event"] == name) {
+            match self.socket.read().expect("no event") {
+                Message::Text(text) => {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    if value.get("event").is_some() {
+                        self.events.push(value);
+                    }
+                }
+                Message::Close(frame) => panic!("closed: {frame:?}"),
+                _ => {}
+            }
+        }
     }
 }
 
@@ -230,6 +250,18 @@ fn a_page_bound_credential_admits_only_its_page_and_never_the_person() {
         assert_eq!(refused["error_code"], "origin.forbidden", "{request}: {refused}");
     }
     assert_eq!(page.rpc(json!({"cmd": "subscribe"}))["ok"], true);
+    // Its stream carries its page's conversation events only: a workspace change made
+    // before the conversation never reaches it.
+    let workspace = app.rpc(json!({"cmd": "new-workspace"}));
+    assert_eq!(workspace["ok"], true, "{workspace}");
+    let created = page.rpc(json!({"cmd": "conversation-create", "idempotency_key": "spc-1",
+        "title": "Scoped", "participants": [
+            {"id": "user_local", "kind": "human", "display_name": "You"},
+            {"id": "agent_mux", "kind": "agent", "display_name": "Chief", "agent_class": "mux"}]}));
+    assert_eq!(created["ok"], true, "{created}");
+    page.until_event("conversation-changed");
+    let names: Vec<&str> = page.events.iter().filter_map(|event| event["event"].as_str()).collect();
+    assert!(names.iter().all(|name| name.starts_with("conversation-")), "{names:?}");
     // It is never the person: no Cloud command.
     let cloud = page.rpc(json!({"cmd": "cloud-session-status"}));
     assert_eq!(cloud["ok"], false, "{cloud}");
