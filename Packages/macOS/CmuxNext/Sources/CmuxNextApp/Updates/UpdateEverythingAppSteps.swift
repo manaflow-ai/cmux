@@ -24,8 +24,7 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
     /// This Mac, then every connected SSH and Cloud machine, all asked at once. A machine whose
     /// daemon does not answer within 45 s shows only its daemon update.
     func plan() async -> UpdateEverythingPlan {
-        var bundled: String?
-        if let binary = try? DaemonLauncherBinary.resolve() { bundled = await BundledCmuxTUI.commit(binary: binary) }
+        let bundled = await Self.bundledCommit()
         let targets: [(String, String, UpdateEverythingMachine.Kind, DaemonService)] =
             [(MachineRegistry.localID, UpdateEverythingMachine.thisMac, .local, services.machines.local)]
             + services.machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
@@ -63,6 +62,12 @@ final class UpdateEverythingAppSteps: UpdateEverythingSteps {
         let updater = services.updater
         guard updater.installUnavailableReason == nil, case .ready(let version) = updater.flow.phase else { return nil }
         return UpdateEverythingChange(name: Self.appName, from: updater.status.version, to: updater.stagedVersion ?? version)
+    }
+
+    /// The commit of the cmux-tui this app bundles, which machines' daemons update to.
+    private static func bundledCommit() async -> String? {
+        guard let binary = try? DaemonLauncherBinary.resolve() else { return nil }
+        return await BundledCmuxTUI.commit(binary: binary)
     }
 
     private func machine(id: String, name: String, kind: UpdateEverythingMachine.Kind, daemon: DaemonService,
