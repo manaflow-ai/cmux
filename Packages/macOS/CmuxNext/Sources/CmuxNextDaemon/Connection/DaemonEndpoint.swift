@@ -243,6 +243,10 @@ public struct DaemonCapabilities: Sendable {
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
     public let pageCredential = "page-credential-v1"
+    /// `page-credential {page}`: any trusted local connection gets a single-use credential bound
+    /// to one page (its Origin only, never the Cloud lease); the Chief home's owner, whose app
+    /// connection is not the verified app, hands the Channels page one.
+    public let scopedPageCredential = "page-credential-scoped-v1"
     /// `ws-listen`: a running owner opens its loopback page listener on
     /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
     public let wsListen = "ws-listen-v1"
@@ -298,6 +302,15 @@ public struct DaemonCapabilities: Sendable {
     /// .cmux-scratch/sidebar-rewrite/CONTRACT.md). Without it the sidebar
     /// keeps the personal order and `sidebar-layout-v1` path.
     public let sidebarDoc = "sidebar-doc-v1"
+    /// The client orders rows from the sidebar document only, so the daemon
+    /// sends no `workspace_placement` restatement (cmux-tui
+    /// state/placement_shift.rs). Echoed only when this build orders rows
+    /// from the document (`echoesPlacementShift`), never advertised alone.
+    public let placementShift = "placement-shift-v1"
+    /// Set once at launch, before the first connection, by the App when this
+    /// build has the sidebar document mirror (its rows come from the document,
+    /// never from `workspace_placement`).
+    nonisolated(unsafe) public static var echoesPlacementShift = false
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
@@ -364,7 +377,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
@@ -393,6 +406,8 @@ public struct DaemonCapabilities: Sendable {
 
     /// What a connection echoes in `set-client-info`.
     public func handshakeCapabilities(_ advertised: [String], resolvesShellIntegration: Bool) -> [String] {
-        resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised
+        // The document path echoes `placement-shift-v1` together with `sidebar-doc-v1`.
+        let document = Self.echoesPlacementShift && advertised.contains(sidebarDoc) ? [placementShift] : []
+        return (resolvesShellIntegration ? advertised + [terminalFrontendShellIntegration] : advertised) + document
     }
 }

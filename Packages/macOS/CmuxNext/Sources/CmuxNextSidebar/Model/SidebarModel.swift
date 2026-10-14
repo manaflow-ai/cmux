@@ -20,6 +20,8 @@ public final class SidebarModel {
             return storedSections
         }
         set {
+            // An unchanged set is no structural change (an intent that edits nothing).
+            guard newValue != storedSections else { return }
             withMutation(keyPath: \.sections) {
                 storedSections = newValue
                 sectionsRevision &+= 1
@@ -270,29 +272,37 @@ public final class SidebarModel {
             let collapsed = collapsedSections.contains(shown[index].id)
             if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
         }
-        if storedSections != shown { sections = shown }
+        sections = shown // the setter skips an unchanged list
     }
 
     /// Row content of workspaces already listed (status, title, unread,
     /// progress, icon), written in place without a structural change, then
-    /// told to `onRowsPatched`. Returns false and writes nothing when one of
-    /// them is not listed or the change moves rows (filter, folder buckets,
-    /// listed tabs, row state); the caller then sets the sections.
+    /// told to `onRowsPatched`. A row this window does not list (another
+    /// window's workspace, a top-region tile) is skipped. Returns false and
+    /// writes nothing when the change moves rows (filter, folder buckets,
+    /// listed tabs); the caller then sets the sections.
     public func patchWorkspaces(_ rows: [SidebarWorkspace]) -> Bool {
         guard !rows.isEmpty else { return true }
-        guard filterText.isEmpty else { return false }
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         guard let index = rowIndex else { return false }
+        // A filter may match or drop a listed row: shown again; a row this window does not list changes nothing.
+        guard filterText.isEmpty else { return !rows.contains { !index.paths(of: $0.id).isEmpty } }
         var patched: [SidebarWorkspace] = []
         var writes: [(SidebarRowIndex.Path, SidebarWorkspace)] = []
         for var row in rows {
-            guard let path = index.path(of: row.id) else { return false }
+            let paths = index.paths(of: row.id)
+            guard let path = paths.first else { continue }
             let old = SidebarRowIndex.workspace(at: path, in: storedSections)
             row.rowState = old.rowState
             row.machineID = old.machineID
             guard row != old else { continue }
             guard !Self.movesRows(from: old, to: row, groupsByFolder: groupsByFolder, listsTabs: showWorkspaceTabs) else { return false }
-            writes.append((path, row))
+            for path in paths {
+                // Each listed copy keeps its own row state (a saved stale row beside the live one).
+                var copy = row
+                copy.rowState = SidebarRowIndex.workspace(at: path, in: storedSections).rowState
+                writes.append((path, copy))
+            }
             patched.append(row)
         }
         for (path, row) in writes { SidebarRowIndex.set(row, at: path, in: &storedSections) }

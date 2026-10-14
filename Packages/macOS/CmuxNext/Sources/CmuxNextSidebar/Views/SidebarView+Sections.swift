@@ -89,7 +89,8 @@ extension SidebarView {
         for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
-                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
+                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
+                                      fontSize: SidebarStyle.titleFont.pointSize)
         }
         if model.docDrag != nil {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band

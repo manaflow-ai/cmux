@@ -41,6 +41,8 @@ enum PersonalSidebar {
     /// order), whatever its room; in the shown (mixed) order with
     /// `personal-mixed-order-v1`.
     static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry) -> [String]? {
+        // The sidebar document orders the rows: never the personal (`workspace_placement`) order on its path.
+        if let ordered = SidebarDocWiring.orderedIDs(of: daemon) { return ordered }
         let personal = machines.local.store.personal
         guard personal.isLoaded, let session = daemon.store.registryID else { return nil }
         if machines.local.store.supportsPersonalMixedOrder {

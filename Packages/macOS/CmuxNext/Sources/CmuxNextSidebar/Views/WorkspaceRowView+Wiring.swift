@@ -15,8 +15,9 @@ extension WorkspaceRowView {
         onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }
     }
 
-    /// Reads the agent mark, presence dot, row badge and stack size settings; one shared observation
-    /// (`SidebarTunablesWatch`) redraws the live rows when one changes, not one new registration per configure.
+    /// Reads the agent mark, presence dot, row badge and stack size settings;
+    /// one shared observation (`SidebarTunablesWatch`) redraws the live rows
+    /// when one changes, not one new registration per configure.
     func observedTunables() -> SidebarTunablesWatch.Values {
         SidebarTunablesWatch.shared.values(for: self)
     }

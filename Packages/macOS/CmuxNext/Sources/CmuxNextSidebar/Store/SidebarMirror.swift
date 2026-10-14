@@ -35,6 +35,9 @@ public final class SidebarMirror {
         owned = Handle(pointer: handle)
     }
 
+    /// This build links the mirror FFI (rows come from the sidebar document when the daemon serves it).
+    public static let isLinked = true
+
     public static func make() -> SidebarMirror? {
         guard let handle = cmux_sidebar_mirror_new() else { return nil }
         return SidebarMirror(handle: handle)
@@ -61,6 +64,7 @@ public final class SidebarMirror {
     private func view(raw: Data) -> Data? { call("view", cmux_sidebar_mirror_view, raw) }
     private func dragBegin(raw: Data) -> Data? { call("drag_begin", cmux_sidebar_mirror_drag_begin, raw) }
     #else
+    public static let isLinked = false
     public static func make() -> SidebarMirror? { nil }
 
     private func load(raw: Data) -> Data? { nil }

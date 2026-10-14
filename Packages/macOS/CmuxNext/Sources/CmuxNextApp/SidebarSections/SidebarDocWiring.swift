@@ -72,6 +72,14 @@ enum SidebarDocWiring {
         return true
     }
 
+    /// Every workspace of `daemon` in the document's order (window membership order), whatever its room; nil off the document path.
+    static func orderedIDs(of daemon: DaemonService) -> [String]? {
+        guard isActive, let shown = SidebarDocStore.current?.shown, let session = daemon.store.registryID else { return nil }
+        let listed = docSections.sections(shown, session: session, workspaces: daemon.store.workspaces).flatMap(\.workspaces).map(\.id)
+        let seen = Set(listed)
+        return listed + daemon.store.workspaces.map(\.id).filter { !seen.contains($0) }
+    }
+
     static func liveRefs(_ machines: MachineRegistry) -> [SidebarDocWorkspaceRef] {
         machines.daemons.flatMap { daemon in daemon.store.workspaces.compactMap { SidebarDocSections.ref(of: $0, session: daemon.store.registryID) } }
     }

@@ -1,6 +1,13 @@
 import Foundation
 import Observation
 
+/// Read by every row mapping of `SidebarRowFeed` under its observation;
+/// writing it fires (and so removes) that observation.
+@Observable
+fileprivate final class SidebarRowWatchCancel {
+    var epoch: UInt64 = 0
+}
+
 /// Row content observed one workspace at a time, so a status change of one
 /// workspace (agent status, OSC 7501, title, unread, progress, favicon) maps
 /// that one row again and never re-runs the structural sidebar pass.
@@ -10,9 +17,20 @@ import Observation
 /// it gets the last mapped row (or a stub for a new one) and reads nothing
 /// observable, so it does not observe any row's status. After the pass,
 /// outside its tracking, `fill` maps the new rows under their own
-/// observation and refreshes the others with the pass's new inputs. A change
-/// a row read marks it dirty; one flush per main-actor turn maps the dirty
-/// rows again and hands the changed ones to `onChange`.
+/// observation. A known row is already current: anything it read would have
+/// marked it dirty. Only when the pass's by-value inputs change (`beginPass`)
+/// is every row mapped and observed again. A change a row read marks it
+/// dirty; one flush per main-actor turn maps the dirty rows again (each
+/// observation fires once and is armed again, so none piles up) and hands
+/// the changed ones to `onChange`.
+///
+/// Each row has one live observation at most: before a row is observed
+/// again while its observation is still armed (the inputs changed), and
+/// when a row is forgotten, the feed fires that observation through the
+/// row's `Cancel` signal, so the registrar drops it, and the stale
+/// callback is ignored by its generation. Observation tracking has no
+/// cancel call; without this every inputs change left one registration per
+/// unchanged row behind.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
@@ -23,6 +41,9 @@ public final class SidebarRowFeed {
         var row: SidebarWorkspace
         /// The row's mapping has an observation armed.
         var armed = false
+        /// The armed observation's generation; a callback of an older one is stale.
+        var generation: UInt64 = 0
+        let cancel = SidebarRowWatchCancel()
         /// The pass that last named the row.
         var pass: UInt64
 
@@ -37,6 +58,9 @@ public final class SidebarRowFeed {
     private var dirty: Set<WorkspaceID> = []
     private var flushScheduled = false
     private var pass: UInt64 = 0
+    /// The by-value inputs of the last pass, and whether a pass since the last `fill` changed them.
+    private var inputs: AnyHashable?
+    private var inputsChanged = false
     /// Rows mapped again since the last structural pass (the next `fill` maps only new rows).
     private var named: [WorkspaceID] = []
     /// Changed rows, at most once per main-actor turn.
@@ -45,9 +69,23 @@ public final class SidebarRowFeed {
     public init() {}
 
     /// Starts a structural pass (call first in the pass's tracked closure).
-    public func beginPass() {
+    /// `inputs` are the values the pass hands every row's mapping by value
+    /// (the muted set, the New Tab pages, whether unread shows): when they
+    /// change, `fill` maps and observes every row again. Everything else a
+    /// mapping needs it must read itself, so its own observation covers it.
+    public func beginPass(inputs: AnyHashable) {
         pass &+= 1
         named.removeAll(keepingCapacity: true)
+        if inputs != self.inputs { inputsChanged = true }
+        self.inputs = inputs
+    }
+
+    /// Forgets every row and stops reporting (the window closed).
+    public func reset() {
+        onChange = nil
+        for entry in entries.values { disarm(entry) }
+        entries.removeAll()
+        dirty.removeAll()
     }
 
     /// The row of `id` for the structural pass: the last mapped row, or a
@@ -65,43 +103,64 @@ public final class SidebarRowFeed {
         return stub
     }
 
-    /// `sections` with every row the last pass named mapped now: a new row
-    /// under its own observation, a known one again with the pass's inputs
-    /// (muted set, page faces, tab selection). Forgets rows the pass did not
-    /// name. Each row keeps its row state from `sections`. Call outside any
-    /// observation tracking.
+    /// `sections` with every row the last pass named filled in: a new row
+    /// mapped under its own observation, a known one as last mapped (all of
+    /// them again when the pass's inputs changed). Forgets rows the pass did
+    /// not name. Each row keeps its row state from `sections`. Call outside
+    /// any observation tracking.
     public func fill(_ sections: [SidebarSection]) -> [SidebarSection] {
         SidebarPerfCounters.add(.rebuilds)
         return SidebarPerfCounters.timed { fillNow(sections) }
     }
 
     private func fillNow(_ sections: [SidebarSection]) -> [SidebarSection] {
-        for (id, entry) in entries where entry.pass != pass { entries[id] = nil }
+        for (id, entry) in entries where entry.pass != pass {
+            disarm(entry)
+            entries[id] = nil
+        }
         var rows: [SidebarWorkspace] = []
         rows.reserveCapacity(named.count)
+        let remap = inputsChanged
+        inputsChanged = false
         for id in named {
             guard let entry = entries[id] else { continue }
-            entry.row = entry.armed ? entry.make() : arm(id, entry)
+            if remap || !entry.armed { entry.row = arm(id, entry) }
             rows.append(entry.row)
         }
         dirty.subtract(named)
         return SidebarRowIndex.patching(rows, in: sections)
     }
 
-    /// Maps `entry` under an observation that marks it dirty on its next change.
+    /// Maps `entry` under an observation that marks it dirty on its next
+    /// change; an observation still armed is removed first (one per row).
     private func arm(_ id: WorkspaceID, _ entry: Entry) -> SidebarWorkspace {
+        disarm(entry)
         entry.armed = true
-        return withObservationTracking { entry.make() } onChange: { [weak self] in
+        let generation = entry.generation
+        let cancel = entry.cancel
+        return withObservationTracking {
+            _ = cancel.epoch
+            return entry.make()
+        } onChange: { [weak self] in
             if Thread.isMainThread {
-                MainActor.assumeIsolated { self?.markDirty(id) } // main-proof: checked on the line above
+                MainActor.assumeIsolated { self?.markDirty(id, generation: generation) } // main-proof: checked on the line above
             } else {
-                Task { @MainActor [weak self] in self?.markDirty(id) }
+                Task { @MainActor [weak self] in self?.markDirty(id, generation: generation) }
             }
         }
     }
 
-    private func markDirty(_ id: WorkspaceID) {
-        guard let entry = entries[id] else { return }
+    /// Removes `entry`'s armed observation: the write fires it (the registrar
+    /// drops it) and the new generation makes its callback a no-op.
+    private func disarm(_ entry: Entry) {
+        entry.generation &+= 1
+        guard entry.armed else { return }
+        entry.armed = false
+        entry.cancel.epoch &+= 1
+    }
+
+    private func markDirty(_ id: WorkspaceID, generation: UInt64) {
+        guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
         dirty.insert(id)
         guard !flushScheduled else { return }
