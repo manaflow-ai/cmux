@@ -79,6 +79,27 @@ pub fn default_compactor_harness(turn: &str, family: Family, claude: &str) -> St
     }
 }
 
+/// The compactor's harness at host start, from acpmux's start-up `answer`:
+/// the set one (`OPTCHAT_COMPACTOR_HARNESS`, else engine.json's
+/// `compactor_harness`), else `default_compactor_harness` of the turns'
+/// engine harness (engine.json's `harness`, else the host's `turn`). On a
+/// machine whose only Claude login is the subrouter, a Chief set to
+/// `claude-sr` compacts there too, not on a `claude` that is not signed in
+/// (cosmic-gray 2026-10-14).
+pub fn compactor_harness_for(
+    answer: &serde_json::Value,
+    set: Option<&str>,
+    turn: &str,
+    engine: &crate::engine::EngineChoice,
+) -> String {
+    if let Some(set) = set {
+        return set.to_owned();
+    }
+    let turn = engine.harness.as_deref().unwrap_or(turn);
+    let family = crate::harness_gate::plan(answer, turn).family;
+    default_compactor_harness(turn, family, default_harness(answer))
+}
+
 /// `ACPMUX_PROBE_HARNESSES` of the acpmux daemon this host starts: the
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
@@ -682,13 +703,15 @@ fn start(
                 sub_harness = harness.clone();
             }
         }
-        // The compactor runs on a Claude route unless set otherwise, whatever
-        // the turns run on (engine.json may swap them to codex per turn).
-        if compactor_set.is_none() {
-            let turn_family = crate::harness_gate::plan(&answer, &harness).family;
-            compactor_harness =
-                default_compactor_harness(&harness, turn_family, default_harness(&answer));
-        }
+        // The compactor runs on a Claude route unless set otherwise: the
+        // turns' engine harness when it is one, else the default route
+        // (engine.json may swap the turns to codex per turn).
+        compactor_harness = compactor_harness_for(
+            &answer,
+            compactor_set.as_deref(),
+            &harness,
+            &engine_choice_file,
+        );
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
             plan(&compactor_harness, "compactor"),
