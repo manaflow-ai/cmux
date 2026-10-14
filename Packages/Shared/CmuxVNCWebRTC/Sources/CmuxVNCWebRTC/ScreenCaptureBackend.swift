@@ -23,14 +23,12 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private let input = EventInjector()
     /// Stopped by the viewer: no recovery after that.
     private var stopped = false
-    private var reconfiguration: CGDisplayReconfigurationCallBack?
+    /// The display-change callback, and the backend it holds (retained, so a
+    /// callback never reaches a freed backend) until `stop()` removes it.
+    private var reconfiguration: (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?
 
     public init(log: @escaping @Sendable (String) -> Void) {
         self.log = log
-    }
-
-    deinit {
-        if let reconfiguration { CGDisplayRemoveReconfigurationCallback(reconfiguration, Unmanaged.passUnretained(self).toOpaque()) }
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -60,8 +58,13 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             let backend = Unmanaged<ScreenCaptureBackend>.fromOpaque(context).takeUnretainedValue()
             backend.recover("displays changed")
         }
-        lock.withLock { reconfiguration = callback }
-        CGDisplayRegisterReconfigurationCallback(callback, Unmanaged.passUnretained(self).toOpaque())
+        // Registered under the lock, and never after stop(): stop() then always removes it.
+        lock.withLock {
+            guard !stopped, reconfiguration == nil else { return }
+            let context = Unmanaged.passRetained(self)
+            reconfiguration = (callback, context)
+            CGDisplayRegisterReconfigurationCallback(callback, context.toOpaque())
+        }
     }
 
     /// Captures the current display again (after a reconfiguration or a stream error).
@@ -108,9 +111,15 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
-        let previous = lock.withLock { () -> SCStream? in
+        // stop() may have run while this capture started: it then ends here, never stored.
+        let (previous, late) = lock.withLock { () -> (SCStream?, Bool) in
+            if stopped { return (nil, true) }
             defer { self.stream = stream }
-            return self.stream
+            return (self.stream, false)
+        }
+        if late {
+            try? await stream.stopCapture()
+            return
         }
         if let previous { try? await previous.stopCapture() }
         input.display = display.frame
@@ -142,15 +151,19 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     public func stop() {
-        let (stream, callback) = lock.withLock { () -> (SCStream?, CGDisplayReconfigurationCallBack?) in
+        let (stream, reconfiguration) = lock.withLock { () -> (SCStream?, (callback: CGDisplayReconfigurationCallBack, context: Unmanaged<ScreenCaptureBackend>)?) in
             defer {
                 self.stream = nil
                 stopped = true
-                reconfiguration = nil
+                self.reconfiguration = nil
             }
-            return (self.stream, reconfiguration)
+            return (self.stream, self.reconfiguration)
         }
-        if let callback { CGDisplayRemoveReconfigurationCallback(callback, Unmanaged.passUnretained(self).toOpaque()) }
+        if let reconfiguration {
+            // No callback runs after removal returns, so the hold it had can go.
+            CGDisplayRemoveReconfigurationCallback(reconfiguration.callback, reconfiguration.context.toOpaque())
+            reconfiguration.context.release()
+        }
         if let stream { Task { try? await stream.stopCapture() } }
     }
 }
