@@ -35,6 +35,7 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod offers;
 mod secrets;
 mod seen;
 mod session;
@@ -48,6 +49,7 @@ mod start_defaults;
 pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
+mod tags;
 mod tap;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -173,6 +175,8 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
+    pub provenance: Option<Value>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -183,7 +187,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`.
+/// `turn_result`; and the shells it runs in the background (`idle.rs`).
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -198,6 +202,7 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {
@@ -265,8 +270,7 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
-    /// The `sandbox-exec` remote chains run Claude Code under
-    /// (`remote_sandbox.rs`).
+    /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
@@ -282,6 +286,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Chats agents offered the person, still open (`offers.rs`).
+    pub(super) offers: offers::Offers,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -338,6 +344,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            offers: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
@@ -753,34 +760,6 @@ impl Hub {
             remote: None,
         });
         (record, stored)
-    }
-
-    /// Orchestrator tags with optional expiry.
-    pub fn set_tags(
-        &self,
-        session: &Session,
-        set: Option<&serde_json::Map<String, Value>>,
-        remove: &[String],
-        ttl_seconds: Option<u64>,
-    ) {
-        {
-            let mut m = session.meta.lock().unwrap();
-            let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
-            if let Some(set) = set {
-                for (k, v) in set {
-                    let value = match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
-                }
-            }
-            for k in remove {
-                m.tags.remove(k);
-            }
-        }
-        self.save_meta(session);
-        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
     }
 
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
