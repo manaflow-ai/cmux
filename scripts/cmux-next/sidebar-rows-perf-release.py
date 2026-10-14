@@ -203,10 +203,19 @@ class Target:
 
 
 def row_titles():
-    reply = cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id, "include_screenshot": False,
-                                     "query": "perf-"}, timeout=120)
+    # With a screenshot: a pixel wheel call needs the screenshot context of the last window state.
+    reply = cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id, "query": "perf-",
+                                     "screenshot_out_file": os.path.join(SCRATCH, "rows.png")}, timeout=120)
     text = json.dumps(reply)
     return set(re.findall(r"perf-(?:tick-)?\d+", text))
+
+
+def ground():
+    """A fresh screenshot context for the pixel wheel calls (cua-driver refuses them without one)."""
+    reply = cua("get_window_state", {"pid": Target.pid, "window_id": Target.window_id, "max_elements": 1,
+                                     "screenshot_out_file": os.path.join(SCRATCH, "ground.png")}, timeout=120)
+    if not isinstance(reply, dict) or reply.get("error") or reply.get("code"):
+        sys.exit(f"FAIL cua-driver get_window_state: {json.dumps(reply)[:300]}")
 
 
 def sweep(direction):
@@ -306,6 +315,7 @@ def record(name, ticks, terms, profile):
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid),
                              "--time-limit", "60s", "--output", path, "--no-prompt"],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=dict(os.environ, TMPDIR=xct_tmp + "/"))
+    ground()
     time.sleep(4)  # harness: the recorder attaches before the gesture
     began = time.monotonic()
     bad = sweep("down") + sweep("up")
@@ -354,6 +364,8 @@ try:
     sweep("up")
     summary["wheel_moves_list"] = bool(after) and after != before
     note(summary["wheel_moves_list"], f"the wheel moves the list ({len(before)} rows before, {len(after - before)} new after)")
+    if not summary["wheel_moves_list"]:
+        sys.exit("FAIL the wheel does not move the list: no gesture to measure")
     # CPU per tick, no input (10 s).
     pid = Target.pid
     cpu0 = cpu_ns(pid)
