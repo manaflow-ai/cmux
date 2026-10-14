@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609.
+// cmux-tui mux protocol 12, IR a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -842,6 +842,26 @@ pub struct ConversationImportResult {
     pub conversation: T::ConversationSummary,
     pub imported: Vec<u64>,
     pub skipped: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveRequest {
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationLinkResolveResult {
+    pub conversation: T::ConversationSummary,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub message: Option<T::ConversationMessage>,
+    pub path: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub truncated: Option<bool>,
+    pub url: String,
 }
 
 #[rustfmt::skip]
@@ -2433,6 +2453,8 @@ pub struct RegisterBrowserProviderRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bearer_token: Optional<String>,
     pub endpoint: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hosting: Optional<T::BrowserProviderHosting>,
     pub provider_id: String,
     pub targets: Vec<T::BrowserProviderTarget>,
 }
@@ -3919,6 +3941,10 @@ impl CmuxClient {
         self.execute(&CONVERSATION_IMPORT_METADATA, &request)
     }
 
+    pub fn conversation_link_resolve(&mut self, request: ConversationLinkResolveRequest) -> Result<ConversationLinkResolveResult> {
+        self.execute(&CONVERSATION_LINK_RESOLVE_METADATA, &request)
+    }
+
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
         self.execute(&CONVERSATION_LIST_METADATA, &request)
     }
@@ -4537,6 +4563,9 @@ impl CmuxClient {
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        if !request.hosting.is_missing() {
+            self.require_capability_field("register-browser-provider", "browser-provider-native-hosting-v1")?;
+        }
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 
