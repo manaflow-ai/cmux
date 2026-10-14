@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// Pointer rules of the browser toolbar and its omnibar (cx-d0d.80). Every
