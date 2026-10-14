@@ -57,6 +57,7 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   };
 }
 
+/** Build repository and provider layers that record pause/resume side effects. */
 function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";

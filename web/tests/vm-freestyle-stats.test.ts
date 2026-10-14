@@ -21,6 +21,7 @@ type ReadStatsOptions = {
   readonly resourceOutput?: unknown;
 };
 
+/** Run the stats workflow with a controlled provider and optional guest sample. */
 async function readStats(
   state: string,
   sample: Record<string, unknown> | undefined,
