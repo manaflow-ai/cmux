@@ -430,6 +430,86 @@ async fn tail_pages_read_only_the_newest_segments() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The JSON the daemon sends to open a chat stays within a budget however long the chat is: a remote
+/// session (cmux server, a peer over ssh) carries exactly this reply over the network. The pane asks
+/// for the newest records up to `maxBytes`; a 5000-turn chat whose tool outputs are large still opens
+/// on its last turn within 160 KiB, and the page says there is more.
+#[tokio::test]
+async fn opening_a_long_chat_stays_within_its_payload_budget() {
+    use acpmux::store::EventRecord;
+    let (hub, mut c, dir) = setup_segmented(8 * 1024 * 1024).await;
+    let id = new_session(&mut c, "long").await;
+    let mut seq = hub.resolve("long").unwrap().meta().last_seq;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    let cfg = segmented_config(8 * 1024 * 1024);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let output = "x".repeat(4000);
+    let mut append = |dir: &str, kind: &str, msg: Value| {
+        seq += 1;
+        store
+            .append(
+                &id,
+                &EventRecord {
+                    seq,
+                    at: seq,
+                    dir: dir.into(),
+                    kind: kind.into(),
+                    msg,
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+    };
+    let update = |body: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1", "update": body}});
+    for turn in 0..5000 {
+        append("mux", "user_message", json!({"text": format!("Question {turn}")}));
+        append("mux", "turn_started", json!({}));
+        let call = format!("call-{turn}");
+        append(
+            "in",
+            "tool_call",
+            update(json!({"sessionUpdate": "tool_call", "toolCallId": call,
+            "title": "cat build.log", "kind": "read", "status": "in_progress"})),
+        );
+        append(
+            "in",
+            "tool_call_update",
+            update(json!({"sessionUpdate": "tool_call_update",
+            "toolCallId": call, "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": output}}]})),
+        );
+        append(
+            "in",
+            "agent_message_chunk",
+            update(json!({"sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": format!("Answer {turn}")}})),
+        );
+        append("mux", "turn_result", json!({"status": "completed"}));
+    }
+    let last = seq;
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let mut a = connect(&hub).await;
+    let att = a
+        .request(
+            method::MUX_ATTACH,
+            json!({"sessionId": id, "limit": 400, "maxBytes": 128 * 1024, "eventStream": true,
+                "kinds": ["transcript", "available_commands_update", "usage_update",
+                    "config_option_update", "secret_request", "secret_decision"]}),
+        )
+        .await
+        .unwrap();
+    let wire = serde_json::to_string(&att).unwrap().len();
+    assert!(wire <= 160 * 1024, "opening sent {} KiB", wire / 1024);
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    assert!(events.len() >= 6, "the page holds at least the last turn: {}", events.len());
+    assert_eq!(att["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Measurement, not a check (cx-2lv1k): what opening and scrolling a long chat costs the daemon.
 /// 3000 turns of about 60 records each in the default 8 MiB segments; prints milliseconds.
 /// `scripts/ci/cargo-test-selected.sh -p acpmux --test hub_integration history_page_cost -- --ignored --nocapture`
