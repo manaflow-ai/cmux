@@ -234,22 +234,34 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return true
     }
 
-    /// Shown by TabsKit as a glass toast (a tab that could not be created): one short
-    /// line (`TabNotice`). It clears itself after `noticeLifetime`, or on a tap (TabsKit
-    /// calls `clearNotice()`).
-    public private(set) var notice: String?
-    public func clearNotice() { notice = nil }
+    /// The workspace's toast (a tab that could not be opened or closed): one short line
+    /// (`TabNotice`). `WorkspaceScreen` draws it as a `cnxDismissibleToast` above the
+    /// bottom chrome; it clears after `noticeLifetime`, on a swipe or on a tap.
+    public private(set) var toastText: String?
+    /// TabsKit's own toast is never used: it draws at the top, over the title and Back
+    /// (upstream request U6), so the kit always sees no notice.
+    public var notice: String? { nil }
+    public func clearNotice() { toastText = nil }
 
     /// How long a toast stays (a UI timeout, not synchronization).
     static let noticeLifetime: Duration = .seconds(4)
 
     private func show(_ text: String) {
-        notice = text
+        toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.noticeLifetime)
-            if self?.notice == text { withAnimation { self?.clearNotice() } }
+            if self?.toastText == text { withAnimation { self?.clearNotice() } }
         }
     }
+
+    #if DEBUG
+    /// `-cnx-toast-demo`: the live report's refusal as a toast that stays until dismissed
+    /// (placement and gesture captures).
+    func showDemoToast() {
+        toastText = TabNotice(action: .open(optionTitle: "New Claude Chat"), macName: macName,
+                              reason: "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder").text
+    }
+    #endif
 
     /// The short line in the toast; the Mac's reason goes to the log only.
     private func show(_ notice: TabNotice) {
@@ -260,7 +272,34 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Opens the tab on the Mac and activates it once the Mac lists it (so a
     /// terminal attaches at once and a chat is bound to its session). A
     /// refusal shows as a notice; nothing phone-only is ever added.
+    ///
+    /// TabsKit puts a placeholder card in the grid while `createTab` is running and
+    /// reflows the grid around it (upstream request U7). So `createTab` returns at once
+    /// with no tab, and the request runs here: the grid keeps its cards until the Mac
+    /// lists the new tab, the workspace screen shows "Opening…" meanwhile
+    /// (`pendingTabTitle`), and a refusal leaves the grid exactly as it was. Once the Mac
+    /// lists the tab it becomes active and `openedTab` asks the screen to open it.
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        guard pendingTabTitle == nil else { return nil }
+        pendingTabTitle = option.title
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let id = await self.requestTab(option)
+            self.pendingTabTitle = nil
+            if let id { self.openedTab = id }
+        }
+        return nil
+    }
+
+    /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
+    public private(set) var pendingTabTitle: String?
+    /// A tab the Mac just created and this phone made active: the screen leaves the
+    /// grid for it, then clears this.
+    public var openedTab: TabsKitTab.ID?
+
+    /// Asks the Mac for the tab and waits for it. Nothing is added here before the Mac
+    /// answers; a refusal shows a toast and changes nothing.
+    func requestTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
         guard let workspace else {
             show("This workspace is no longer on \(macName).")
             return nil

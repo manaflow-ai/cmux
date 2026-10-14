@@ -230,3 +230,31 @@ placement still covers the page's top chrome while it shows.
 
 **Default:** unchanged until a client opts in, or the new placement applies to every client if the
 owner prefers (a notice over Back is never wanted).
+
+## U7. No placeholder card until the client confirms the new tab
+
+**Today:** in the grid, (+) → an option calls `newTabFromOverview`
+(`UI/TabsView.swift`), which sets `pendingNewTab` at once: the grid lays out
+`tabs.count + 1` cards with a placeholder slot, and every existing card reflows
+(labels truncate and slide). When `createTab` returns `nil` (refused), the
+placeholder is removed with the reflow animation, so the grid reshapes twice for
+nothing. A live user report (build 38484, one tab, "New Claude Chat" refused by
+the Mac's cwd policy) shows the existing card's label splitting into "Resp…" and
+"…Chat" and the card ghosting before everything snaps back.
+
+**Host workaround (cnx-ios, now):** `WorkspaceTabsSource.createTab` returns
+`nil` at once and runs the request itself, showing "Opening a Claude chat…" in
+the workspace screen; it activates the tab and leaves the grid only after the Mac
+lists it. TabsKit's placeholder still exists for the instant between (+) and
+that `nil`.
+
+**Ask:**
+
+1. Opt-in pending style: `TabsDataSource.newTabPendingStyle` = `.placeholderCard`
+   (today's default) or `.button` (no grid change; (+) shows a spinner and is
+   disabled until `createTab` returns).
+2. With `.button`, a refused create (`nil`) changes nothing in the grid: no
+   relayout, no label animation. A confirmed create zooms from the new card once
+   it is in `tabs`.
+
+**Default:** unchanged (`.placeholderCard`) for existing clients.

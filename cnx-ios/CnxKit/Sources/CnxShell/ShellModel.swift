@@ -91,6 +91,11 @@ final class ShellModel {
         let delay = UserDefaults.standard.double(forKey: "cnx-mock-create-delay")
         let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
+        // `-cnx-refuse-next-tab`: the next tab request is refused like the live report's
+        // (the Mac's cwd policy), for the new-tab captures.
+        if CommandLine.arguments.contains("-cnx-refuse-next-tab") {
+            mock.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+        }
         offlineCreation = mockMode ? mock : UnavailableWorkspaceCreationBackend()
         #else
         offlineCreation = UnavailableWorkspaceCreationBackend()
