@@ -4951,6 +4951,10 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
+  // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the docked
+  // panel's place.
+  const summaryCovered =
+    summaryCard.docked && (Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen);
   const summaryPanel = (
     <SummaryCard
       // Another chat closes this one's gallery, as it does the image viewer.
@@ -5185,7 +5189,7 @@ function AcpmuxPane() {
                           configureQuickActions({ quickActions: before }),
                         );
                       }}
-                      summary={<SummaryButton card={summaryCard} />}
+                      summary={<SummaryButton card={summaryCard} covered={summaryCovered} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -5281,7 +5285,7 @@ function AcpmuxPane() {
           )}
         </div>
         {/* Beside the chat and its composer; hidden under the Inspector and diff review, as they take the chat's place. */}
-        {summaryCard.docked && !replaying && !inspectorOpen && !diffFiles && summaryPanel}
+        {summaryCard.docked && !summaryCovered && summaryPanel}
         {artifact && (
           <ArtifactPanel
             key={artifact.opened}

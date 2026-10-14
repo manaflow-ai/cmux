@@ -6,9 +6,10 @@
 //
 // Hiding the docked panel is one choice for every chat (localStorage, shared by the panes, which
 // follow each other's change), so hiding it once is enough. The popover is the pane's own moment.
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
 
-/// The docked panel's width, and the narrowest chat column beside it.
+/// The docked panel's width (summary.css's dock `flex` basis: change both), and the narrowest chat
+/// column beside it.
 export const DOCK_WIDTH = 300;
 const CHAT_MIN_WIDTH = 660;
 
@@ -86,7 +87,9 @@ export function useSummaryCard(docked: boolean) {
   const show = useCallback(() => (docked ? setHidden(false) : setPopover(true)), [docked]);
   const close = useCallback(() => (docked ? setHidden(true) : setPopover(false)), [docked]);
   const toggle = useCallback(() => (shown ? close() : show()), [shown, close, show]);
-  return { shown, docked, toggle, show, close };
+  // The panel's id, for the header's button (aria-controls).
+  const id = useId();
+  return { id, shown, docked, toggle, show, close };
 }
 
 export type SummaryCardControl = ReturnType<typeof useSummaryCard>;

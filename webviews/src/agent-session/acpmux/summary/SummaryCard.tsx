@@ -69,17 +69,20 @@ export function SummaryCard({
     const away = (event: Event) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || panel.current?.contains(target)) return;
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery")) return;
+      // The image viewer the gallery opened is its own too.
+      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-image-viewer")) return;
       close();
     };
     document.addEventListener("pointerdown", away, true);
     return () => document.removeEventListener("pointerdown", away, true);
   }, [popover, close]);
-  // Escape closes the popover (the gallery's own Escape first) and gives the header's button the focus.
+  // Escape closes the popover (the gallery's own Escape first). Focus in the panel goes to the
+  // header's button; focus elsewhere (the composer) stays where it is.
   useEscapeCloses(popover && !gallery, () => {
+    const inside = panel.current?.contains(document.activeElement) ?? false;
     const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
     close();
-    button?.focus();
+    if (inside) button?.focus();
   });
   if (!shown) return null;
   const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
@@ -94,6 +97,7 @@ export function SummaryCard({
     <>
       <aside
         ref={panel}
+        id={card.id}
         className="acpmux-summary-card"
         aria-label={title}
         data-placement={card.docked ? "dock" : "popover"}

@@ -1,11 +1,13 @@
 /* The header's summary button and the chat's summary (summary/SummaryButton.tsx, SummaryCard.tsx): titled lists, docked as a column right of the chat and its composer (a flat side panel, as the artifact panel is), or in a narrow pane a popover at the pane's top right, over the transcript and never over the composer (it lives in .acpmux-stage, the composer below it). Rows are 28px, text truncates, every control has the theme's hover, press and focus steps on the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
 .acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-summary-button:hover:enabled,.acpmux-summary-button[aria-pressed="true"],.acpmux-summary-button[aria-expanded="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-summary-button:disabled{opacity:.4}
 .acpmux-summary-card{--acpmux-summary-bg:var(--surface-popup);display:flex;flex-direction:column;box-sizing:border-box;color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 .acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
+/* 300px: cardState.ts DOCK_WIDTH, the room check. */
 .acpmux-summary-card[data-placement=dock]{--acpmux-summary-bg:var(--agent-page-bg);flex:0 0 300px;min-width:0;background:var(--acpmux-summary-bg);box-shadow:inset .5px 0 0 var(--agent-border)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 14px}
@@ -20,7 +22,7 @@
 .acpmux-summary-card[data-placement=dock]>.acpmux-summary-card__body{padding:0 8px 12px;border-top:0}
 /* New terminal and New browser: the panel's first row, two filled buttons that read as actions, not list rows. */
 .acpmux-summary-actions{display:flex;gap:6px;padding:8px 2px 4px}
-.acpmux-summary-action{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 10px;box-sizing:border-box;border:.5px solid var(--agent-border);border-radius:8px;background:var(--acpmux-composer-tray);color:var(--agent-text);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-action{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 10px;box-sizing:border-box;border:.5px solid var(--agent-border);border-radius:7px;background:var(--acpmux-composer-tray);color:var(--agent-text);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-action>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-summary-action>svg{flex:none}
 .acpmux-summary-action:hover{background:var(--acpmux-composer-hover)}
