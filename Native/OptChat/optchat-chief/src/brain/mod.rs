@@ -303,9 +303,10 @@ pub struct Settings {
 }
 
 /// The longest a turn waits for view lines that are still building
-/// (chief 2026-10-10: a user turn never waits more than 10 s on compaction);
+/// (chief 2026-10-10: 10 s; hq-6d 2026-10-14, Lawrence "the chief responds
+/// too slow": 1 s, the turn starts and the compactor catches up after);
 /// then it reads them unsummarized and the next turn gets their summaries.
-pub const SETTLE_BOUND: Duration = Duration::from_secs(10);
+pub const SETTLE_BOUND: Duration = Duration::from_secs(1);
 /// How often a turn waiting for the compactor updates `settle.json`.
 const PROGRESS_TICK: Duration = Duration::from_secs(2);
 
