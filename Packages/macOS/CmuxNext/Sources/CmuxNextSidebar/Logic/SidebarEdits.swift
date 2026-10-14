@@ -314,7 +314,7 @@ public nonisolated enum SidebarEdits {
         for s in sections.indices {
             sections[s].nodes.removeAll { node in
                 if case let .group(group) = node {
-                    return group.workspaces.isEmpty && !group.isPinned && group.id != keeping
+                    return group.workspaces.isEmpty && group.items.isEmpty && !group.isPinned && group.id != keeping
                 }
                 return false
             }

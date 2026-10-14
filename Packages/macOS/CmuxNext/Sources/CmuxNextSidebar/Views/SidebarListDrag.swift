@@ -123,7 +123,7 @@ final class SidebarListDrag {
         switch payload {
         case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
         case let .group(group): model.group(group) != nil
-        case let .item(id): model.sections.contains { $0.nodes.contains { $0.id == .item(id) } }
+        case let .item(id): model.sections.contains { $0.nodes.contains { $0.listedItems.contains { $0.id == id } } }
             || (tileSource.flatMap { model.layout.section(LayoutSectionID($0.section)) }?.items.contains { $0.id.rawValue == id } ?? false)
         }
     }

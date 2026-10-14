@@ -197,6 +197,7 @@ final class SidebarListView: NSView {
                 case let .group(group):
                     groups[group.id] = group
                     for ws in group.workspaces { workspaces[ws.id] = ws }
+                    for member in group.items { listItems[member.item.id] = member.item } // a group's link, tab or app member row
                 case let .item(item): listItems[item.id] = item
                 }
             }
@@ -254,7 +255,7 @@ final class SidebarListView: NSView {
         // A block's region draws its own insets, as the band did.
         if case .block = row.key { return NSRect(x: 0, y: row.y, width: bounds.width, height: row.height) }
         let gutter: CGFloat = switch row.key {
-        case .workspace, .tab: row.group == nil ? 0 : SidebarStyle.groupGutter
+        case .workspace, .tab, .item: row.group == nil ? 0 : SidebarStyle.groupGutter
         default: 0
         }
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)

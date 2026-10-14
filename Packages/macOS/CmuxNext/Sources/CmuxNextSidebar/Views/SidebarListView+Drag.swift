@@ -25,13 +25,14 @@ extension SidebarListView {
             payload = .group(group)
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
+            for member in groups[group]?.items ?? [] { hidden.insert(.item(member.item.id)) }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
         case let .item(item):
             // A listed document item drags only on the document.
             guard model.docDrag != nil, let row = displayed.row(for: press.key) else { return }
             payload = .item(item)
             hidden = [press.key]
-            origin = .position(DropPosition(section: row.section, index: row.siblingIndex))
+            origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
         case .tab, .section, .emptySection, .folder, .block:
             return
         }

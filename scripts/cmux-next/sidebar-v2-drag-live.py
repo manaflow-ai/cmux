@@ -372,6 +372,49 @@ try:
     else:
         record("link item into the list", False, f"link={link} list anchor={anchor and anchor.get('title')} after cmux action run sidebar.item.add ({added[:200]})")
 
+    # 5b. A link dropped onto a group in Pinned (step 2's Grp: its undo toast redoes, so Grp stays in Pinned) lists as a
+    # member row of that group: the same item row as a loose link, indented in the group, with the open tab's favicon.
+    # The link is step 5's (its undo toast redoes, so it is a list row now), else a new one from the Pinned band.
+    def member_link(gid):
+        return next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("item") and r.get("in_list")
+                     and r.get("group") == gid), None)
+
+    loose_link = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("item") and r.get("in_list")
+                       and not r.get("group") and r.get("kind") == "url"), None)
+    source = loose_link and loose_link["window_frame"]
+    if not source:
+        print("link add:", cli("action", "run", "sidebar.item.add", "--item", "https://github.com", "--section", "sec_pinned")[:400], flush=True)
+        tile = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
+        source = tile and tile["window_frame"]
+    grp_header = group_id and next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")
+                                    and r.get("group") == group_id), None)
+    if source and grp_header:
+        drag(center(source), center(grp_header["window_frame"]), "v2-5b-link-into-pinned-group")
+        member = wait(lambda: member_link(group_id), 5)
+        shot("v2-5b-link-member-row")
+        record("link onto a Pinned group lists as its member row", bool(member) and member.get("kind") == "url"
+               and member["window_frame"]["x"] > grp_header["window_frame"]["x"],
+               f"member={member and (member.get('key'), member.get('kind'), member.get('group'), member.get('window_frame'))} "
+               f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
+        if member:
+            key = member.get("key")
+            tab_icon = wait(lambda: ((rpc("debug.sidebar_rows") or {}).get("open_tab_favicons") or {}).get("https://github.com"), 20)
+            stored = wait(lambda: (lambda value: value if value and value == tab_icon else None)(doc_icon_url("https://github.com")), 20)
+            drawn = wait(lambda: next((r for r in window().get("rows", []) if r.get("key") == key and r.get("group") == group_id
+                                       and r.get("icon") == "favicon" and r.get("icon_address") == tab_icon), None), 20)
+            ok = bool(tab_icon) and not str(tab_icon).endswith("/favicon.ico") and stored == tab_icon and bool(drawn)
+            record("link member row draws the open tab's favicon", ok,
+                   f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('https://github.com')} row icon_address="
+                   f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
+            member = member_link(group_id) or member
+            rpc("debug.mouse", {"x": center(member["window_frame"])[0], "y": center(member["window_frame"])[1], "action": "click"})
+            opened = wait(lambda: "github.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
+            shot("v2-5b-link-member-opened")
+            record("link member row opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
+            undo("link onto a Pinned group", lambda: member_link(group_id) is None)
+    else:
+        record("link onto a Pinned group lists as its member row", False, f"link source={source} Grp header={grp_header} group_id={group_id}")
+
     # 6. Cross-machine drop: needs a second machine section.
     machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]
     if len(machines) >= 2:

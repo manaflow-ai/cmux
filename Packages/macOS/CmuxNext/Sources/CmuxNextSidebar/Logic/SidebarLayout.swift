@@ -239,6 +239,15 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     ))
                     y += h + m.rowSpacing
                 case let .group(group):
+                    // The member rows in document order: workspaces with the group's link, tab and app items
+                    // (an item matches no workspace filter; a dragged item leaves its slot).
+                    let shown = Set(entry.children.map(\.id))
+                    let members = group.members.filter { member in
+                        switch member {
+                        case let .workspace(ws): shown.contains(ws.id)
+                        case let .item(item): !filtering && item.id != o.excludedItem
+                        }
+                    }
                     let groupCollapsed = group.isCollapsed && !filtering
                     var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
@@ -253,7 +262,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         // of a collapsed group. This preserves orientation and
                         // selection without reopening the rest of the group.
                         guard let activeID = o.activeWorkspaceID,
-                              let childIndex = entry.children.firstIndex(where: { $0.id == activeID }),
+                              let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
                               let ws = entry.children.first(where: { $0.id == activeID }) else { return }
                         let content = o.rowContent(ws, machine: machineLabel)
                         let h = m.height(for: content)
@@ -266,14 +275,28 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y += h + m.rowSpacing
                         return
                     }
-                    for (childIndex, ws) in entry.children.enumerated() {
+                    for (childIndex, member) in members.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
+                        guard case let .workspace(ws) = member else {
+                            guard case let .item(item) = member else { continue }
+                            // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
+                            let content = WorkspaceRowContent()
+                            let h = m.height(for: content)
+                            rows.append(SidebarRow(
+                                key: .item(item.id), y: y, height: h, section: section.id,
+                                group: group.id, siblingIndex: childIndex, parentIndex: index,
+                                isLastInGroup: childIndex == members.count - 1,
+                                isCollapsed: false, childCount: 0, groupColor: group.color, content: content
+                            ))
+                            y += h + m.rowSpacing
+                            continue
+                        }
                         let content = o.rowContent(ws, machine: machineLabel)
-                    let h = m.height(for: content)
+                        let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: childIndex == entry.children.count - 1,
+                            isLastInGroup: childIndex == members.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
                             tabDisclosure: disclosure(ws), content: content
                         ))
@@ -290,7 +313,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             }
                         }
                     }
-                    openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
+                    openGapIfNeeded(section: section.id, group: group.id, index: members.count)
                     y += m.groupBottomPadding
                 }
             }

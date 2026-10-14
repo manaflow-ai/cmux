@@ -27,6 +27,33 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var members: [SidebarDocWorkspaceRef]
         /// The document section that holds it.
         public var section: String = ""
+        /// The document item ids of the workspace members, in order (`members`).
+        public var memberItems: [String] = []
+        /// The url, tab and app members (any item that is not a workspace or a group), in order.
+        public var listed: [Listed] = []
+
+        /// A url, tab or app member and the workspace member's item it follows (nil: first).
+        public struct Listed: Hashable, Sendable {
+            public var item: SidebarListItem
+            public var after: String?
+        }
+
+        mutating func add(_ id: String, _ item: SidebarDocItem) {
+            if let ref = item.body.workspace {
+                members.append(ref)
+                memberItems.append(id)
+            } else if SidebarDocProjection.listsAsRow(item.body) {
+                listed.append(Listed(item: SidebarDocProjection.listItem(item), after: memberItems.last))
+            }
+        }
+    }
+
+    /// An item that lists as a row (a link, a tab, an app, ...): not a workspace or a group.
+    static func listsAsRow(_ body: SidebarDocBody) -> Bool {
+        switch body {
+        case .workspace, .group: false
+        case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other: true
+        }
     }
 
     /// The bands' sections, with the workspace list's place.
@@ -86,9 +113,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 {
                 bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id))
-            } else if row.depth > 0, let ref = item.body.workspace, let last = bandGroups.indices.last,
-                      bandGroups[last].id == (row.parent ?? item.parent) {
-                bandGroups[last].members.append(ref)
+            } else if row.depth > 0, let last = bandGroups.indices.last, bandGroups[last].id == (row.parent ?? item.parent) {
+                bandGroups[last].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -116,7 +142,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             items[ref] = id
             if let parent = row.parent ?? item.parent, row.depth > 0 {
                 guard var nodes = machines[session], let last = nodes.indices.last, case .group(var group) = nodes[last], group.id == parent else { return }
-                group.members.append(ref)
+                group.add(id, item)
                 nodes[last] = .group(group)
                 machines[session] = nodes
             } else {
@@ -126,9 +152,13 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [],
                                                                 section: row.section)))
         case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other:
-            // Any item may sit in a machine section: it lists as a row.
-            guard row.depth == 0 else { return }
-            machines[session, default: []].append(.link(Self.listItem(item)))
+            // Any item may sit in a machine section: it lists as a row, a group's member row inside a group.
+            guard row.depth > 0 else { return machines[session, default: []].append(.link(Self.listItem(item))) }
+            guard let parent = row.parent ?? item.parent, var nodes = machines[session], let last = nodes.indices.last,
+                  case .group(var group) = nodes[last], group.id == parent else { return }
+            group.add(id, item)
+            nodes[last] = .group(group)
+            machines[session] = nodes
         }
     }
 

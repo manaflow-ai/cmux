@@ -54,7 +54,45 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return arranged
+        return Self.withMemberItems(arranged, projection, drag: drag)
+    }
+
+    /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
+    /// workspace member it follows in the document, else the nearest one before it that lists here.
+    @MainActor private static func withMemberItems(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                   drag: SidebarDocDrag) -> [SidebarSection] {
+        var byGroup: [String: Group] = [:]
+        for group in projection.bandGroups where !group.listed.isEmpty { byGroup[group.id] = group }
+        for nodes in projection.machines.values {
+            for case .group(let group) in nodes where !group.listed.isEmpty { byGroup[group.id] = group }
+        }
+        guard !byGroup.isEmpty else { return sections }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                guard case .group(var group) = node, let placed = byGroup[group.id.rawValue] else { return node }
+                var shown: [String: WorkspaceID] = [:]
+                for workspace in group.workspaces { if let item = drag.item(.workspace(workspace.id)) { shown[item] = workspace.id } }
+                group.items = placed.listed.map { listed in
+                    var anchor: WorkspaceID?
+                    if let after = listed.after, let index = placed.memberItems.firstIndex(of: after) {
+                        anchor = placed.memberItems[...index].reversed().lazy.compactMap { shown[$0] }.first
+                    }
+                    return SidebarGroupItem(item: titled(listed.item), after: anchor)
+                }
+                return .group(group)
+            }
+            return section
+        }
+    }
+
+    /// A built-in's or app's row takes its own title when the document stores none.
+    @MainActor private static func titled(_ listed: SidebarListItem) -> SidebarListItem {
+        var listed = listed
+        if listed.title == listed.ref.value, listed.ref.kind != LayoutItemRef.urlKind {
+            listed.title = SidebarItemInfo.fallback(for: listed.ref).title
+        }
+        return listed
     }
 
     /// A machine section's nodes in document order with its link rows; nodes
@@ -80,11 +118,8 @@ extension SidebarDocProjection {
                 if let node = byItem.removeValue(forKey: item) { nodes.append(node) }
             case .group(let group):
                 if let node = byItem.removeValue(forKey: group.id) { nodes.append(node) }
-            case .link(var listed):
-                if listed.title == listed.ref.value, listed.ref.kind != LayoutItemRef.urlKind {
-                    listed.title = SidebarItemInfo.fallback(for: listed.ref).title
-                }
-                nodes.append(.item(listed))
+            case .link(let listed):
+                nodes.append(.item(titled(listed)))
             }
         }
         // Mapped rows the walk did not reach keep their mapped order after the placed ones.
@@ -105,8 +140,10 @@ extension SidebarModel {
     /// A document item the list draws as a row (a link in a machine list), as a layout item a click runs.
     public func listedItem(_ id: LayoutItemID) -> LayoutItem? {
         for section in sections {
-            for case .item(let item) in section.nodes where item.id == id.rawValue {
-                return LayoutItem(id: id, ref: item.ref, label: item.title)
+            for node in section.nodes {
+                for item in node.listedItems where item.id == id.rawValue { // a group's member item too
+                    return LayoutItem(id: id, ref: item.ref, label: item.title)
+                }
             }
         }
         return nil
