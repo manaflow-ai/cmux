@@ -231,7 +231,8 @@ extension TabStripView {
             return nil
         }
         if let group = chipGroup(at: point) {
-            if let menu = contextMenuProvider?(.group(group)) { return menu }
+            // The group editor bubble, as Chrome's (Lawrence 2026-10-14); Option-right-click keeps the full menu.
+            if event.modifierFlags.contains(.option), let menu = contextMenuProvider?(.group(group)) { return menu }
             showGroupEditor(for: group)
             return nil
         }

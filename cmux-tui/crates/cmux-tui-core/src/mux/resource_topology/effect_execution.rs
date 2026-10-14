@@ -720,6 +720,7 @@ impl Mux {
                     pane.active_at = active_at;
                     let index = pane.tabs.len() - 1;
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
+                    state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =
                         state.screen_of(target).expect("live pane belongs to a screen");
                     let workspace = state.workspaces[workspace_index].id;
@@ -928,6 +929,7 @@ impl Mux {
                 active_at,
                 focused_at: 0,
             });
+            state.register_placed_tab_identity(surface.id);
             stamp_pane_focus(self, &mut state, pane_id);
             Self::rebuild_split_screen_index(&mut state);
             let entity = crate::server::tree_entity_json(
