@@ -39,15 +39,16 @@ UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after
 
 The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
   window 1: rj-term (3000 numbered lines; a counter loop with a pid file in a right split; `top`
-            in a nested down split; selected at the end), rj-split (four terminals in nested
-            right/down splits at uneven ratios, two tabs in one pane, the first selected), rj-web (two browser
+            in a nested down split; the counter's pane focused; selected at the end), rj-split (four terminals in nested
+            right/down splits at uneven ratios, two tabs in one pane, the first selected, one tab renamed, one pinned), rj-web (two browser
             tabs from a local server: a page loaded from its address, then two link clicks
             (a -> b -> c), whose history length and Cmd-[ / Cmd-] walk are checked after
             seeding and after each reopen; and a tall page that scrolls itself the first
             time), rj-agent (an
             agent chat with the acpmux test agent: three turns and a draft); the window at a set
             frame;
-  window 2: rj-w2 (a terminal with a marker line and a browser tab), at another frame.
+  window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
+            from 100%), at another frame.
 
 Restore has settled when the topology is loaded with every rj-* tab back, the launch window has
 handed over (`debug.windows`) and every shown terminal view is attached live (`debug.surfaces`).
@@ -614,8 +615,10 @@ def seed_term():
         if down.get("terminal_id"):
             write(down["terminal_id"], "top -s 1\n")
             TOP["terminal"] = down["terminal_id"]
-    # The pane a person left focused: the first one, not the split made last.
-    cli("pane", ws["pane_id"], "focus")
+    # The pane a person left focused: the counter's, neither the first pane nor the split made
+    # last (a restore that falls back to either must fail focus.pane).
+    if right.get("pane_id"):
+        cli("pane", right["pane_id"], "focus")
 
 
 def seed_split():
@@ -1005,7 +1008,7 @@ def snapshot(label):
                     if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
-    # The focused pane, by its place (rj-term's first pane, focused by the seed).
+    # The focused pane, by its place (rj-term's counter pane, focused by the seed).
     focused_pane = focus.get("pane") or focus.get("pane_id")
     items["focus.pane"] = pane_names.get(focused_pane, f"not an rj pane: {focused_pane}" if focused_pane else None)
     raw["focus"] = focus
@@ -1204,7 +1207,9 @@ def seeded(before):
         return any(cond(k, v) for k, v in before.items())
     checks = {
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
-                 ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
+                 ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int)),
+                 ("top drawing", before.get("top.running") is True and before.get("top.in_view") is True),
+                 ("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1")],
         "web": [("history page at /hist-c after two link clicks", before.get("page[hist].path") == "/hist-c"),
                 # Chromium's Back needs it. A capture slot's window is never key, so a posted
                 # window-level click does not reach a WebKit page there; WebKit's Back keeps
@@ -1219,6 +1224,9 @@ def seeded(before):
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
+                  # The name and pin rows compare equal emptiness as a pass: they need the seed to show.
+                  ("a tab renamed rj-renamed", has(lambda k, v: k.startswith("ws[rj-split].") and k.endswith(".name") and v == "rj-renamed")),
+                  ("a pinned tab", has(lambda k, v: k.startswith("ws[rj-split].") and k.endswith(".pinned") and v is True)),
                   # The geometry rows only mean something if the app draws the uneven splits.
                   ("rj-split drawn uneven", uneven(before, "ws[rj-split].s0.pane0", "ws[rj-split].s0.pane2")
                    and uneven(before, "ws[rj-split].s0.pane2", "ws[rj-split].s0.pane3"))],
