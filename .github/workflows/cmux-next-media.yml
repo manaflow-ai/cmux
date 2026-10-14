@@ -369,12 +369,18 @@ jobs:
           data = json.loads(pathlib.Path(sys.argv[1]).read_text())
           status = data.get("status", "unknown")
           tours = ", ".join(data.get("tours", [])) or "none"
-          # Name only the tours with a failed step, not every tour that ran.
+          # Name only the tours (and side) that failed, not every tour that ran.
           failed = set()
           for path in pathlib.Path(sys.argv[1]).parent.glob("*/manifest.json"):
-              manifest = json.loads(path.read_text())
-              if manifest.get("error") or any(step.get("status") == "failed" for step in manifest.get("steps", [])):
-                  failed.add(manifest.get("comparison") or manifest.get("name") or path.parent.name)
+              try:
+                  manifest = json.loads(path.read_text())
+                  steps = [step for step in manifest.get("steps") or [] if isinstance(step, dict)]
+              except (OSError, ValueError, AttributeError):
+                  failed.add(path.parent.name)
+                  continue
+              if manifest.get("error") or manifest.get("frames_error") or not steps \
+                      or any(step.get("status") == "failed" for step in steps):
+                  failed.add(path.parent.name)
           if status == "recorder-failed":
               print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
           elif status == "no-ui-paths":

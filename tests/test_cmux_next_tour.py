@@ -89,8 +89,9 @@ esac
 ROUTE_LAUNCHER = r'''import runpy, sys
 sys.path.insert(0, sys.argv[1])
 import tour
+route = sys.argv[2]
 def probe(self, scratch):
-    self.capture_prefix, self.capture_mode = [sys.argv[2]], "direct"
+    self.capture_prefix, self.capture_mode = [route], "direct"
 tour.Session.probe_capture = probe
 sys.argv = [tour.__file__] + sys.argv[3:]
 sys.exit(tour.main())

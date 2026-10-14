@@ -22,14 +22,13 @@ optionally:
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and does not fail the tour
 
-Screenshots cover the main window's rectangle on screen, so child windows
-(browser pages, overlays) are in them; with no window frame they cover the
-main display. Capture runs in the console user's session, as the E2E
+Screenshots are the DEV app's own drawing of its main window
+(`debug.window_snapshot`, which needs no grant), child windows it owns
+included, so nothing covering the window (permission prompts, other jobs'
+windows) is in them. A build that cannot snapshot falls back to the window's
+rectangle on screen, captured in the console user's session as the E2E
 recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
-works when the runner user is not the console user. With no screen capture
-route (no Screen Recording grant), the DEV app draws its own main window
-(`debug.window_snapshot`, which needs no grant); child windows the app owns
-are in that image too.
+works when the runner user is not the console user.
 
 Exit status: 0 when every required step passed, 1 otherwise. The media is
 written either way.
@@ -260,7 +259,7 @@ class Screen:
                   'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
                   'JSON.stringify([f.size.width, f.size.height])')
         try:
-            done = session.capture(["osascript", "-l", "JavaScript", "-e", script])
+            done = self.session.capture(["osascript", "-l", "JavaScript", "-e", script])
             self.primary_width, self.primary_height = (float(value) for value in json.loads(done.stdout)[:2])
         except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
             self.primary_width = self.primary_height = None
@@ -645,7 +644,8 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         manifest["capture_mode"], manifest["frame_interval"] = screen.mode, recorder.interval
         print(f"[{tour['name']}] screen capture: {screen.mode}", flush=True)
         if screen.rect is None:
-            manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
+            manifest["frames_error"] = (f"no app window on screen within {WINDOW_TIMEOUT:.0f}s" if screen.app
+                                        else "the app window is not on the primary display, or its size is unknown")
         else:
             recorder.start()
         for index, step in enumerate(tour["steps"], 1):
