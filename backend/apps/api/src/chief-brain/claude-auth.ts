@@ -1,4 +1,5 @@
 import type { Env } from "../env.ts"
+import { bedrockBody, eventStreamToSse } from "./bedrock-stream.ts"
 
 /**
  * Sign-in for the metered Claude route (`/api/claude-david/v1/messages` on the Chatmux service,
@@ -55,9 +56,13 @@ const secretOf = (env: Env): { accessToken: string; refreshToken: string } | nul
 /** Whether this deployment can reach the metered Claude route at all (the secret is set). */
 export const claudeConfigured = (env: Env): boolean => secretOf(env) !== null
 
-/** Owners whose Chiefs may run on Claude (CHIEF_BRAIN_CLAUDE_OWNERS, comma separated user ids): the route bills one person's account. */
+/**
+ * Owners whose Chiefs may run on Claude: CHIEF_BRAIN_CLAUDE_OWNERS (a var, in wrangler.jsonc) plus
+ * CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA (a secret, set with `wrangler secret put` and no deploy, for owners
+ * that change often, such as a demo's test user), comma separated user ids. The route bills one person's account.
+ */
 export const claudeAllowed = (env: Env, owner: string | null): boolean =>
-  claudeConfigured(env) && owner !== null && (env.CHIEF_BRAIN_CLAUDE_OWNERS ?? "").split(",").map((s) => s.trim()).includes(owner)
+  claudeConfigured(env) && owner !== null && owner !== "" && `${env.CHIEF_BRAIN_CLAUDE_OWNERS ?? ""},${env.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""}`.split(",").map((s) => s.trim()).filter(Boolean).includes(owner)
 
 const row = (sql: SqlStorage, k: string) => sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, k).toArray()[0]?.value
 const put = (sql: SqlStorage, k: string, v: string) => sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v)
@@ -102,16 +107,19 @@ export const holderAuth = async (env: Env, sql: SqlStorage, now = Date.now()): P
 
 /**
  * A fetch for the Anthropic client that signs requests for the metered route: the placeholder API
- * key is removed and `X-Stack-Auth` set. `auth` throws ClaudeAuthError on failure.
+ * key is removed and `X-Stack-Auth` set; the body and the answer are converted for Bedrock
+ * (bedrock-stream.ts). `auth` throws ClaudeAuthError on failure.
  */
 export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<void>): typeof fetch =>
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
-    headers.delete("x-api-key")
-    headers.delete("authorization")
+    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
     headers.set("X-Stack-Auth", await auth())
     headers.set("x-coderouter-client", "cmux-cloud-chief")
-    const res = await fetch(input, { ...init, headers })
+    const body = typeof init?.body === "string" ? bedrockBody(init.body) : init?.body
+    const res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) await refused().catch(() => undefined)
-    return res
+    // The route answers Bedrock's event stream; the Anthropic client reads Messages events.
+    if (!res.ok || !res.body || !(res.headers.get("content-type") ?? "").includes("amazon.eventstream")) return res
+    return new Response(eventStreamToSse(res.body), { status: res.status, headers: { "content-type": "text/event-stream" } })
   }) as typeof fetch
