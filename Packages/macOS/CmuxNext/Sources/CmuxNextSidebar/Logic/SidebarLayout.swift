@@ -35,6 +35,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
 
+    /// Replaces a workspace row's content in place, keeping its frame
+    /// (a row update whose height is unchanged, `SidebarListView.patchRows`).
+    mutating func setContent(_ content: WorkspaceRowContent, for key: SidebarRowKey) {
+        guard let i = index[key] else { return }
+        rows[i].content = content
+    }
+
     /// Row whose hit area contains `y`, or nil in padding, a section or
     /// group gap, or the drop gap. A row's hit area is its frame plus half
     /// the `rowSpacing` to a neighbor on each side, so consecutive rows'
@@ -144,7 +151,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
-            let machineLabel = flat && section.machine?.kind != .local ? section.machine.map { machine in o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name } : nil
+            let machineLabel = Self.machineLabel(section, options: o)
             // Without a header there is nothing to expand it from: a list the
             // old "Projects" header folded shows again.
             let collapsed = showsHeader && section.isCollapsed && !filtering
