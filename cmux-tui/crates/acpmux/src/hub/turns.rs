@@ -920,8 +920,15 @@ impl Hub {
         self.append(session, "mux", "model", json!({"modelId": model_id}));
         super::start_defaults::model_applied(session, model_id);
         // The harness runs this model now, also when its reply lists no models.
-        if let Some(Value::Object(models)) = session.meta.lock().unwrap().models.as_mut() {
-            models.insert("currentModelId".into(), json!(model_id));
+        let reported = match session.meta.lock().unwrap().models.as_mut() {
+            Some(Value::Object(models)) => {
+                models.insert("currentModelId".into(), json!(model_id));
+                true
+            }
+            _ => false,
+        };
+        if reported {
+            self.save_meta(session);
         }
         Ok(r)
     }

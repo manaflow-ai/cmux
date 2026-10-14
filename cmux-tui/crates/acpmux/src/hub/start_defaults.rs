@@ -43,14 +43,42 @@ pub(super) fn model_applied(session: &Session, model: &str) {
     applied.effort = None;
 }
 
-/// Whether a profile chooses its model itself in its argv (`--model`, `-m`,
-/// `model=…`) or env (`*MODEL*`): then no start model is set over it.
-pub(super) fn profile_sets_model(profile: &HarnessProfile) -> bool {
-    profile
-        .argv
-        .iter()
-        .any(|a| a == "--model" || a == "-m" || a.starts_with("--model=") || a.contains("model="))
-        || profile.env.keys().any(|k| k.to_ascii_uppercase().contains("MODEL"))
+/// Env keys that choose a harness's main model (not a background or
+/// subagent model such as `ANTHROPIC_SMALL_FAST_MODEL`).
+const MAIN_MODEL_ENV: [&str; 5] =
+    ["ANTHROPIC_MODEL", "OPENAI_MODEL", "CODEX_MODEL", "GEMINI_MODEL", "MODEL"];
+
+/// Interpreters whose `-m` names a module, not a model.
+const INTERPRETERS: [&str; 7] = ["python", "node", "ruby", "perl", "bun", "deno", "uv"];
+
+/// Whether a profile chooses its main model itself: `--model`, `--model=…`,
+/// `-m` (not after an interpreter), `-c`/`--config model=…` in its argv, or a
+/// main-model key in its env or its defaults' env. Then no start model is
+/// set over it.
+pub(super) fn profile_sets_model(
+    profile: &HarnessProfile,
+    defaults_env: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    let argv = &profile.argv;
+    let program = argv.first().map(|a| {
+        std::path::Path::new(a)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_lowercase())
+            .unwrap_or_default()
+    });
+    let interpreter =
+        program.as_deref().is_some_and(|p| INTERPRETERS.iter().any(|i| p.starts_with(i)));
+    let in_argv = argv.iter().enumerate().any(|(i, a)| {
+        a == "--model"
+            || a.starts_with("--model=")
+            || (a == "-m" && !interpreter)
+            || ((a == "-c" || a == "--config")
+                && argv.get(i + 1).is_some_and(|v| v.trim_start().starts_with("model=")))
+    });
+    let in_env = |env: &std::collections::BTreeMap<String, String>| {
+        env.keys().any(|k| MAIN_MODEL_ENV.contains(&k.to_ascii_uppercase().as_str()))
+    };
+    in_argv || in_env(&profile.env) || in_env(defaults_env)
 }
 
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
@@ -156,8 +184,12 @@ impl Hub {
             return;
         }
         let mut cfg = self.config.write().await;
+        if !cfg.harnesses.contains_key(&meta.harness) {
+            return;
+        }
+        let defaults_env = cfg.defaults_for(&meta.harness).env;
         let Some(profile) = cfg.harnesses.get(&meta.harness) else { return };
-        let model_pinned = profile.model.is_some() || profile_sets_model(profile);
+        let model_pinned = profile.model.is_some() || profile_sets_model(profile, &defaults_env);
         let effort_pinned = profile.effort.is_some();
         let model = model.filter(|m| usable(m) && !model_pinned);
         let effort = effort.filter(|e| usable(e) && !effort_pinned);
@@ -206,11 +238,14 @@ impl Hub {
         };
         let runs = model.or(start_model.as_ref().map(|m| m.value.as_str()));
         // A saved effort the running model lacks (a pick made on another
-        // model) gives way to that model's own default.
+        // model) gives way to that model's own default; a model the catalog
+        // does not describe (a router's own model) takes no saved effort.
+        let described =
+            |m: &str| curated.as_ref().is_none_or(|c| c.models.iter().any(|x| x.id == m));
         let start_effort = saved
             .effort
             .clone()
-            .filter(|e| effort_fits(curated.as_ref(), runs, e))
+            .filter(|e| runs.is_none_or(described) && effort_fits(curated.as_ref(), runs, e))
             .map(|value| StartValue { value, source: StartSource::Saved })
             .or_else(|| {
                 curated
@@ -230,10 +265,10 @@ impl Hub {
         agent: &str,
         profile: &HarnessProfile,
     ) -> Option<Value> {
-        if profile_sets_model(profile) {
+        let saved = cfg.defaults_for(agent);
+        if profile_sets_model(profile, &saved.env) {
             return None;
         }
-        let saved = cfg.defaults_for(agent);
         let pinned = profile.model.clone();
         let (model, effort) = self.start_defaults(agent, profile, &saved, pinned.as_deref());
         let model = match pinned {

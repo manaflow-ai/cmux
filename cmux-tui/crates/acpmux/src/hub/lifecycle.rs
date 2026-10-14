@@ -51,7 +51,7 @@ impl Hub {
             || !eligible
             || profile.model.is_some()
             || spawn_model
-            || super::start_defaults::profile_sets_model(&profile);
+            || super::start_defaults::profile_sets_model(&profile, &defaults.env);
         let effort_pinned = effort.is_some() || !eligible || profile.effort.is_some();
         let pinned_model =
             if model_pinned { model.or_else(|| defaults.model.clone()) } else { None };
