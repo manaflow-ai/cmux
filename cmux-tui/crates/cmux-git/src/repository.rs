@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use crate::MAX_SMALL_OUTPUT_BYTES;
 use crate::parse;
-use crate::run::{DEADLINE, GitFailure, GitOutput, Override, run_git_within};
+use crate::run::{
+    DEADLINE, GitFailure, GitOutput, Override, run_git_records_within, run_git_within,
+};
 
 /// A repository's top level, which every run works from, and the config
 /// overrides every run carries. A repository opened with
@@ -169,39 +171,52 @@ impl Repository {
     /// the submodule's own clean filter. Submodules are found from each
     /// index's gitlinks, since `.gitmodules` need not list them.
     pub fn with_submodule_filters(&self) -> Result<Self, GitFailure> {
-        self.with_submodule_filters_limited(MAX_INDEX_LISTING_BYTES)
+        self.with_submodule_filters_limited(MAX_GITLINK_LISTING_BYTES)
     }
 
-    /// [`Repository::with_submodule_filters`] with its listing limit given.
+    /// [`Repository::with_submodule_filters`] keeping at most
+    /// `max_listing_bytes` of each index's gitlink entries; the index's
+    /// other files never count.
     pub fn with_submodule_filters_limited(
         &self,
         max_listing_bytes: usize,
     ) -> Result<Self, GitFailure> {
-        let mut overrides = self.overrides.clone();
+        let mut blanked = BTreeSet::new();
         let mut pending = vec![self.root.clone()];
         let mut found = 0;
         while let Some(root) = pending.pop() {
             let arguments = ["ls-files", "--stage", "-z"];
             let left = remaining(self.deadline);
-            let output = run_git_within(&root, &[], &arguments, max_listing_bytes, left)?;
+            let is_gitlink: fn(&[u8]) -> bool = |entry| entry.starts_with(b"160000 ");
+            let output = run_git_records_within(
+                &root,
+                &[],
+                &arguments,
+                max_listing_bytes,
+                left,
+                is_gitlink,
+            )?;
             if output.truncated {
-                return Err(GitFailure::Exit("too many files to look for submodules".to_string()));
+                return Err(GitFailure::Exit("too many submodules".to_string()));
             }
             for entry in output.stdout.split(|byte| *byte == 0) {
-                // A gitlink, checked out (an uninitialized one is an empty folder).
+                // Checked out: an uninitialized one is an empty folder.
                 let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else { continue };
                 let checkout = root.join(path_from_bytes(&entry[tab + 1..]));
-                if !entry.starts_with(b"160000 ") || !checkout.join(".git").exists() {
+                if !checkout.join(".git").exists() {
                     continue;
                 }
                 found += 1;
                 if found > MAX_SUBMODULES {
                     return Err(GitFailure::Exit("too many submodules".to_string()));
                 }
-                overrides.extend(filter_overrides_within(&checkout, remaining(self.deadline))?);
+                blanked.extend(filter_overrides_within(&checkout, remaining(self.deadline))?);
                 pending.push(checkout);
             }
         }
+        let mut overrides = self.overrides.clone();
+        blanked.retain(|setting| !overrides.contains(setting));
+        overrides.extend(blanked);
         Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
     }
 
@@ -221,9 +236,9 @@ impl Repository {
     }
 }
 
-/// The most index entries [`Repository::with_submodule_filters`] reads from
-/// one index.
-const MAX_INDEX_LISTING_BYTES: usize = 32 * 1024 * 1024;
+/// The most gitlink entries [`Repository::with_submodule_filters`] keeps
+/// from one index.
+const MAX_GITLINK_LISTING_BYTES: usize = 1024 * 1024;
 /// The most submodules [`Repository::with_submodule_filters`] blanks.
 const MAX_SUBMODULES: usize = 256;
 

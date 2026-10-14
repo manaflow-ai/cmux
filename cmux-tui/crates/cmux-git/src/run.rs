@@ -72,6 +72,31 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
+    run(directory, overrides, arguments, max_stdout, deadline, None)
+}
+
+/// [`run_git_within`] for NUL-terminated output that keeps only the records
+/// `keep` accepts, each still NUL-terminated. `max_kept` bounds the kept
+/// records, so a long listing with few matches is never cut.
+pub fn run_git_records_within(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_kept: usize,
+    deadline: Duration,
+    keep: fn(&[u8]) -> bool,
+) -> Result<GitOutput, GitFailure> {
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep))
+}
+
+fn run(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+    keep: Option<fn(&[u8]) -> bool>,
+) -> Result<GitOutput, GitFailure> {
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
@@ -117,7 +142,10 @@ pub fn run_git_within(
         stop(&mut child);
         return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
     };
-    let stdout = thread::spawn(move || drain(stdout, max_stdout));
+    let stdout = thread::spawn(move || match keep {
+        Some(keep) => drain_records(stdout, max_stdout, keep),
+        None => drain(stdout, max_stdout),
+    });
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
     let status = match child.wait_timeout(deadline) {
         Ok(Some(status)) => status,
@@ -190,6 +218,57 @@ fn stop(child: &mut Child) {
     }
     let _ = child.kill();
     let _ = child.wait();
+}
+
+/// The longest record [`drain_records`] looks at; a longer one is no path
+/// and is dropped.
+const MAX_RECORD_BYTES: usize = 64 * 1024;
+
+/// Reads NUL-terminated records to the end, keeping those `keep` accepts up
+/// to `limit` bytes.
+fn drain_records(mut reader: impl Read, limit: usize, keep: fn(&[u8]) -> bool) -> (Vec<u8>, bool) {
+    let mut kept = Vec::new();
+    let mut truncated = false;
+    let mut record = Vec::new();
+    let mut oversized = false;
+    let mut accept = |record: &[u8], kept: &mut Vec<u8>| {
+        if !keep(record) {
+            return;
+        }
+        if kept.len() + record.len() + 1 > limit {
+            truncated = true;
+        } else {
+            kept.extend_from_slice(record);
+            kept.push(0);
+        }
+    };
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                for &byte in &chunk[..read] {
+                    if byte == 0 {
+                        if !oversized {
+                            accept(&record, &mut kept);
+                        }
+                        record.clear();
+                        oversized = false;
+                    } else if record.len() < MAX_RECORD_BYTES {
+                        record.push(byte);
+                    } else {
+                        oversized = true;
+                    }
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(_) => break,
+        }
+    }
+    if !record.is_empty() && !oversized {
+        accept(&record, &mut kept);
+    }
+    (kept, truncated)
 }
 
 /// Reads to the end, keeping at most `limit` bytes so git never blocks on a
