@@ -318,7 +318,7 @@
   height: 20px;
   padding: 0 6px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   color: var(--agent-soft);
   font: inherit;
