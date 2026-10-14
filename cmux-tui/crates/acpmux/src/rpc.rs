@@ -212,6 +212,9 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    /// Stop one of a session's background subagents (a Claude background
+    /// agent or workflow): `{sessionId, subagentSessionId}`.
+    pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     pub const MUX_INFO: &str = "_acpmux/info";
@@ -241,6 +244,9 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Personal stats over every session log (`stats.rs`); the local unix
+    /// socket only (the app reaches it there), never a WebSocket origin.
+    pub const MUX_STATS: &str = "_acpmux/stats";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";

@@ -219,7 +219,6 @@ describe("one subtle elevation scale", () => {
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).
     ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box", "--elevation-1"],
-    ["agent-session/acpmux/composerLocation.css", ".acpmux-composer-box:focus-within", "--elevation-1"],
     [
       "agent-session/acpmux/composerLocation.css",
       ".acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface",

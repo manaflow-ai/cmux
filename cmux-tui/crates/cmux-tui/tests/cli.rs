@@ -3701,6 +3701,9 @@ mod conversation_threads;
 #[path = "cli/conversation_tree.rs"]
 mod conversation_tree;
 #[cfg(unix)]
+#[path = "cli/dock_tab_placement.rs"]
+mod dock_tab_placement;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]

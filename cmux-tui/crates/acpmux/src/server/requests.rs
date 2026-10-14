@@ -927,10 +927,10 @@ async fn dispatch_request(
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched, from the
-        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the unix
+        // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));
