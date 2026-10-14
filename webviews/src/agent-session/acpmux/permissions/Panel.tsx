@@ -237,7 +237,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       {pending.map((group) => {
         const notes: StringKey[] = [];
         if (group.decisions.includes("allow_chat")) notes.push("permission.alwaysScope");
-        if (!group.decisions.includes("allow_once")) notes.push("permission.denyOnly");
         const buttons =
           group.state === "pending" ? (
             <div className="acpmux-ask-actions">
@@ -269,6 +268,9 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
               />
             ))}
             {group.state === "collecting" && <output className="acpmux-ask-note">{t("permission.collecting")}</output>}
+            {group.state === "pending" && !group.decisions.includes("allow_once") && (
+              <output className="acpmux-ask-note">{t("permission.denyOnly")}</output>
+            )}
           </fieldset>
         );
       })}

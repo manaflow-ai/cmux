@@ -760,7 +760,8 @@ pre.cv-math-source {
   min-height: 0;
   min-inline-size: 0;
   margin: 0;
-  padding: 3px 4px 3px 8px;
+  padding-block: 3px;
+  padding-inline: 8px 4px;
   border: 0.5px solid var(--cv-card-ring);
   border-radius: 8px;
   background: var(--cv-card-fill);
@@ -774,7 +775,7 @@ pre.cv-math-source {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 0;
+  min-inline-size: 0;
   min-height: 28px;
 }
 .acpmux-ask-toggle {
@@ -783,7 +784,7 @@ pre.cv-math-source {
   flex: 1;
   align-items: center;
   gap: 6px;
-  min-width: 0;
+  min-inline-size: 0;
   border-radius: 5px;
   cursor: default;
 }
@@ -795,6 +796,9 @@ pre.cv-math-source {
 .acpmux-ask-chevron.is-open {
   transform: rotate(90deg);
 }
+.acpmux-ask-chevron:not(.is-open):dir(rtl) {
+  transform: scaleX(-1);
+}
 .acpmux-ask-icon {
   display: flex;
   flex: none;
@@ -804,7 +808,7 @@ pre.cv-math-source {
   color: var(--cv-text);
 }
 .acpmux-ask-subject {
-  min-width: 0;
+  min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -822,7 +826,7 @@ pre.cv-math-source {
   display: flex;
   flex: none;
   gap: 4px;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .acpmux-ask-action {
   all: unset;
@@ -859,7 +863,8 @@ pre.cv-math-source {
   gap: 6px;
   max-height: 220px;
   overflow: auto;
-  padding: 2px 4px 6px 18px;
+  padding-block: 2px 6px;
+  padding-inline: 18px 4px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
 }
@@ -868,7 +873,7 @@ pre.cv-math-source {
   margin: 0;
 }
 .acpmux-ask-details ul {
-  padding-left: 16px;
+  padding-inline-start: 16px;
   overflow-wrap: anywhere;
 }
 .acpmux-ask-input {
@@ -878,7 +883,8 @@ pre.cv-math-source {
   font-family: var(--cv-mono);
 }
 .acpmux-ask-note {
-  padding: 0 0 4px 18px;
+  padding-block: 0 4px;
+  padding-inline-start: 18px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
 }
