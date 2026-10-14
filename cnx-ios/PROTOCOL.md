@@ -343,6 +343,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   channel. A newer `browser` channel that asks for the lane takes it, and the
   older tab's video returns to its channel with a keyframe. A hostd without
   the lane, or an older one, ignores the field and streams on the channel.
+  `"video_tag": N` (u32, random per channel): hostd appends it to each of
+  this tab's lane access units as an H.264 SEI NAL unit after the slices
+  (user data unregistered, UUID `cnx-video-tag-v1` in ASCII, then N as 8
+  lowercase hex digits, then the stop bit `0x80`; no byte is zero, so no
+  emulation prevention). The phone keeps a lane frame only when it carries
+  its own channel's tag, strips the SEI before decoding, and starts at its
+  first keyframe; it never learns when the lane switched tabs otherwise.
 - `echo`: test service.
 - `version` (link protocol 2, added 2026-10-14): one data frame
   `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it

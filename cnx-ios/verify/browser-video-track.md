@@ -279,12 +279,20 @@ A correctness-first review of the branch found, and these commits fixed:
 - **Extra keyframes after a roam.** One roam is announced twice, and a
   signaling move announces an empty list; only a new first endpoint moves
   the path epoch now, and path-change PLIs are rate limited.
-- **Tab switch ordering.** The phone subscribed to the lane before it sent
-  the new tab's `open`, so the keyframe request could reach the old tab's
-  claim. It subscribes after. Remaining: frames are not tagged by claim, so
-  for about one round trip after a switch the new tab's view can show the
-  old tab's frames until the new claim's first keyframe (follow-up: a
-  claim id in a header extension, or a new SSRC per claim).
+- **Tab switch.** The phone's new tab took the lane's frames before the
+  Mac's claim for it existed (`Link::open` only queues the request), so it
+  could show the old tab's frames, and a refused `open` left the old tab
+  with no video at all. Each `browser` open now carries a random
+  `video_tag`; hostd appends it to that tab's lane access units as an
+  H.264 SEI after the slices (`media/tag.rs`); every viewer subscribes
+  beside the others and keeps only its own frames, from its first
+  keyframe. The packetizer, the carriers and the receiver core never look
+  inside, and the SEI is stripped before decoding. A second review found
+  the first fix (subscribing after the `open`) cosmetic.
+- **Lost tails.** Starting the deadline only at a hole made a frame whose
+  marker was lost, with nothing sent after it (a still page), wait
+  forever. A hole now waits from when it was found and an incomplete tail
+  from the newest arrival.
 - **hostd** treated a lagged keyframe receiver as no request, and reopened
   the frame gate up to 100 ms after the lane drained.
 
