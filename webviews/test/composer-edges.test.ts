@@ -2,7 +2,8 @@
 // border hunt). #20303 gave the card a 0 8px 24px drop shadow and an inset text-color rim that
 // ignored appearance.borders = none, and the permission cards a .5px border plus a shadow:
 //   - no surface casts a drop shadow (every box-shadow layer is inset), the New Tab box included;
-//   - the composer card's resting edge is the --acpmux-composer-edge hairline;
+//   - each keeps one thin Liquid Glass-like rim (Leo: don't strip it to zero): the composer card's
+//     resting edge is the --acpmux-composer-edge hairline, a permission card's a .5px border;
 //   - under appearance.borders = none (`data-borders="none"` on the root) neither surface draws
 //     a visible edge at rest: every shadow layer and border is clear. Focus still steps the card's
 //     edge toward the accent (composerStates.css): a focus state, not a border.
@@ -149,5 +150,15 @@ await requireBrowserLane("composer-edges.test.ts", async () => {
     expect(measured.shadows).toHaveLength(1);
     expect(measured.shadows[0]!.inset).toBe(true);
     expect(measured.shadows[0]!.alpha).toBeGreaterThan(0);
+  });
+
+  test("permission card: one .5px hairline by default", async () => {
+    const page = await open("agent-pane.permission-panel", "pending", ".acpmux-permission-surface");
+    const measured = await page.evaluate(edges, ".acpmux-permission-surface");
+    await page.close();
+    expect(measured.border.width).toBeGreaterThan(0);
+    expect(measured.border.width).toBeLessThanOrEqual(1);
+    expect(measured.border.alpha).toBeGreaterThan(0);
+    expect(measured.shadows).toEqual([]);
   });
 });
