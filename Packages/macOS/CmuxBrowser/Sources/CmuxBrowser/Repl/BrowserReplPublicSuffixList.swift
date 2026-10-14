@@ -21,6 +21,12 @@ public final class BrowserReplPublicSuffixList: Sendable {
     /// a wider one.
     public static let system = BrowserReplPublicSuffixList(isPublicSuffix: SystemPublicSuffixes.contains)
 
+    /// Whether `label` (`com`, `md`) is a top-level domain on the list.
+    public func isTopLevelDomain(_ label: String) -> Bool {
+        let normalized = BrowserReplHostName.normalize(label)
+        return !normalized.isEmpty && !normalized.contains(".") && isPublicSuffix(normalized)
+    }
+
     /// The site of `host`: its registrable domain (`x.co.at` for
     /// `a.x.co.at`), or the host itself when it has none: an IP address, a
     /// single label such as `localhost`, a public suffix itself, or a name

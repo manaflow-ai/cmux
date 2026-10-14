@@ -181,6 +181,13 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         for pane in ownedPaneIds { if let state = underlying.paneForegroundStates[pane] { result[pane] = state } }
         return result
     }
+    var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] {
+        var result: [Int: RemoteTmuxAgentStatus] = [:]
+        for pane in ownedPaneIds {
+            if let status = underlying.paneAgentStatuses[pane] { result[pane] = status }
+        }
+        return result
+    }
     // Retention is deliberately UNSCOPED: a retained pane's window just closed, so
     // its ownership is exactly what's undecidable — over-retaining merely delays a
     // sibling surface's teardown until the next `list-windows` snapshot, whereas
@@ -305,6 +312,7 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
     func unsubscribePanePath(paneId: Int) { underlying.unsubscribePanePath(paneId: paneId) }
     func unsubscribePaneReflow(paneId: Int) { underlying.unsubscribePaneReflow(paneId: paneId) }
     func unsubscribePaneHeader(paneId: Int) { underlying.unsubscribePaneHeader(paneId: paneId) }
+    func unsubscribePaneAgent(paneId: Int) { underlying.unsubscribePaneAgent(paneId: paneId) }
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
         underlying.setPaneColors(colors, paneId: paneId)
     }
@@ -341,6 +349,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
         pairs[RemoteTmuxControlConnection.mirrorMarkerEnvironmentKey] = "1"
         for command in RemoteTmuxControlConnection.mirrorEnvironmentCommands(target: target, pairs: pairs) {
             guard underlying.send(command) else { return }
+        }
+        let installTarget = scopedSessionId.map { "$\($0)" } ?? scopedSessionName
+        if let command = RemoteTmuxAgentHookInstaller.installCommand(sessionTarget: installTarget) {
+            underlying.send(command)
         }
     }
     /// Applies a reorder of *this session's* windows to the stored home-session order.
@@ -429,6 +441,10 @@ final class RemoteTmuxSessionChannel: RemoteTmuxSessionSource {
             onSessionChanged: { _, _ in
                 // The shared stream's %session-changed describes the hidden view session,
                 // not this real session; per-session rename is driven by the coordinator.
+            },
+            onPaneAgent: { [weak self] paneId, rawValue in
+                guard let self, self.ownsPane(paneId) else { return }
+                for o in self.observers.values { o.onPaneAgent?(paneId, rawValue) }
             },
             // `onAuthRequired` is deliberately NOT fanned. The host's login offer is made once by the
             // view coordinator, which registers it on the shared stream itself

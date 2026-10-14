@@ -15,7 +15,13 @@ extension ShortcutAction {
         case .toggleFullScreen: return "Toggle Full Screen"
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
+        case .focusSidebar:
+            return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
+        case .showWindowHints:
+            return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
         case .newTab: return "New Workspace"
+        case .newLocalWorkspace:
+            return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .newCloudWorkspace:
@@ -121,6 +127,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
         case .focusNextPane:
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+        case .focusPaneByNumber:
+            return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .newPaneAutoLayout:

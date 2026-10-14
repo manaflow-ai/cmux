@@ -571,7 +571,13 @@ export function enrollVmTunnel(input: {
       cmuxBuild: input.cmuxBuild,
       cmuxChannel: input.cmuxChannel,
     });
-    return yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
+    // The lease covers only this tunnel's peer mutation. Team network
+    // reconciliation runs after it is released: it makes several provider
+    // calls per team, and every build and tunnel role on this Mac waits on
+    // the same lease, so holding it there answered them `vm_access_grant_busy`.
+    // Attach and detach are idempotent per tunnel and network, and a revoke
+    // that wins meanwhile deletes the tunnel, so a late attach is harmless.
+    const enrolled = yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
       // Recheck after the lease. A revoke can win between the first session
       // check and the access-grant upsert; an old login must not continue.
       if (input.stackSessionId && input.sessionIssuedAt) {
@@ -624,8 +630,7 @@ export function enrollVmTunnel(input: {
             addressV6: current.addressV6,
             configIssued: true,
           });
-          const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: current, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
-          return describeTunnel(current, row, network, { created: false, rotated }, teamNetworks);
+          return { tunnel: current, row, flags: { created: false, rotated } };
         }
         // The control plane has a row for a tunnel the provider no longer has.
         yield* repo.revokeTunnel(existing.id);
@@ -650,9 +655,21 @@ export function enrollVmTunnel(input: {
         addressV4: created.tunnel.addressV4,
         addressV6: created.tunnel.addressV6,
       });
-      const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: created.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
-      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated }, teamNetworks);
+      return { tunnel: created.tunnel, row, flags: { created: true, rotated: created.rotated } };
     }));
+    const teamNetworks = yield* reconcileTunnelTeamNetworks({ providers, tunnel: enrolled.tunnel, provider: input.provider, homeNetworkId: network.providerNetworkId, teamIds: teamNetworkCandidates(input), detachStale: input.teamIdsComplete === true });
+    // A revoke can win while the networks reconcile outside the lease. Never hand
+    // back a config for a tunnel it deleted: the client enrolls again, and that
+    // enrollment answers from the current grant (a new tunnel or `vm_access_revoked`).
+    const current = yield* repo.findTunnel({
+      userId: input.userId,
+      deviceFingerprint: input.deviceFingerprint,
+      tunnelPurpose: input.tunnelPurpose,
+    });
+    if (current?.id !== enrolled.row.id) {
+      return yield* Effect.fail(new VmTunnelNotFoundError({ deviceFingerprint: input.deviceFingerprint }));
+    }
+    return describeTunnel(enrolled.tunnel, enrolled.row, network, enrolled.flags, teamNetworks);
   });
 }
 
@@ -902,6 +919,12 @@ export function revokeVmAccessGrant(input: {
   readonly userId: string;
   readonly accessGrantId?: string;
   readonly deviceId?: string;
+  /**
+   * Also revoke the grant's Stack sessions: they are queued in the same
+   * transaction as the grant revocation; the first retry is due at this time.
+   * The Mac's own sign-out path omits it and revokes only its own session.
+   */
+  readonly revokeStackSessions?: { readonly firstRetryAt: Date };
 }) {
   return Effect.gen(function* () {
     const repo = yield* requirePrivateAccessRepo("freestyle");
@@ -910,10 +933,9 @@ export function revokeVmAccessGrant(input: {
       accessGrantId: input.accessGrantId,
       deviceId: input.deviceId,
     });
-    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
+    if (!grant) return { revoked: false, accessGrantId: null, stackSessionIds: [] as string[] } as const;
     return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
       const gateway = yield* VmProviderGateway;
-      const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
       const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
       for (const tunnel of tunnels) {
         if (gateway.deleteTunnel) {
@@ -921,8 +943,13 @@ export function revokeVmAccessGrant(input: {
         }
         yield* repo.revokeTunnel(tunnel.id);
       }
-      const revoked = yield* repo.revokeAccessGrant(grant.id);
-      return { revoked, stackSessionIds } as const;
+      const { revoked, stackSessionIds } = yield* repo.revokeAccessGrant({
+        id: grant.id,
+        revokeStackSessions: input.revokeStackSessions
+          ? { userId: input.userId, firstRetryAt: input.revokeStackSessions.firstRetryAt }
+          : null,
+      });
+      return { revoked, accessGrantId: grant.id, stackSessionIds: [...stackSessionIds] } as const;
     }));
   });
 }

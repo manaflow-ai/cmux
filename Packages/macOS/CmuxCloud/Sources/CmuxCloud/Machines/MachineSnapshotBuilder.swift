@@ -209,6 +209,12 @@ public enum MachineSnapshotBuilder: Sendable {
         }
     }
 
+    /// Machines that hold one of the plan's active slots. The server counts
+    /// running and provisioning machines; paused ones are listed but do not count.
+    public static func activeCount(of machines: [MachineSnapshot]) -> Int {
+        machines.count(where: \.usesResourcePool)
+    }
+
     public static func planSnapshot(
         activeCount: Int,
         limits: VMPlanLimits?,

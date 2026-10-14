@@ -561,6 +561,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Swift package result reuse
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_result_reuse.py
+
       - name: Validate the package test lane's GhosttyKit revision on a fleet worktree
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_ghostty_sha.py
@@ -601,6 +605,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate the feat-cmux-next PR merge-tree publisher
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_merge_tree.py
+
       - name: Validate merge-main's green base and guard failure labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
@@ -625,6 +633,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
 
+      - name: Validate agent pane frame pacing dispatch
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_frame_pacing_dispatch.py
+
       - name: Validate manual dispatch routing guard
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_manual_dispatch_guard_workflow.py
@@ -644,6 +656,10 @@ jobs:
       - name: Validate late placement onto idle root runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
+
+      - name: Validate Python test lane shards
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_python_test_lane_shards.py
 
       - name: Validate spread-first compile admission placement
         if: ${{ matrix.group == 'ci' }}
@@ -755,9 +771,21 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
 
+      - name: Validate the R2 storage census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_storage_census.py
+
       - name: Validate the R2 cache pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
+
+      - name: Validate the R2 binaries pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_binaries_prune.py
+
+      - name: Validate the Actions artifact pruner
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_actions_artifact_prune.py
 
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
@@ -776,6 +804,16 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate release DMG LZMA encoding
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_release_dmg_lzma.sh
+
+      - name: Validate per-architecture stable release
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_ci_release_per_arch_stable.py
+          python3 tests/test_compose_stable_appcast.py
 
       - name: Validate Homebrew cask macOS dependency syntax
         if: ${{ matrix.group == 'release-notary' }}
@@ -1061,7 +1099,8 @@ jobs:
 
       - name: Initialize Ghostty for Zig version guard
         if: ${{ matrix.group == 'release-tooling' }}
-        run: git submodule update --init --depth 1 ghostty
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Validate Ghostty Zig version synchronization
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1377,6 +1416,9 @@ jobs:
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
+      - name: Validate CLI package graph
+        run: python3 tests/test_cli_package_graph.py
+
   workflow-guard-cli-scripts:
     if: ${{ inputs.linux_guard_cli == 'true' }}
     name: workflow-guard-cli-scripts / ${{ matrix.group }}
@@ -1449,7 +1491,8 @@ jobs:
 
       - name: Initialize Bonsplit for deferred-work ownership guard
         if: ${{ matrix.group == 'dispatch-ownership' }}
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh vendor/bonsplit
 
       - name: Validate stored DispatchWorkItem ownership
         if: ${{ matrix.group == 'dispatch-ownership' }}
