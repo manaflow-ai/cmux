@@ -86,28 +86,45 @@ public final class ControlWorkspaceInfoCache {
         let generation: UInt64
     }
 
+    /// Generations of the memos in `memos` (live) and the live ones whose
+    /// tracking fired (stale); written inside the mutation. A replaced or
+    /// dropped memo leaves `live`, so its tracking firing later marks nothing
+    /// and schedules no publish.
+    private struct MemoGenerations: Sendable {
+        var live: Set<UInt64> = []
+        var stale: Set<UInt64> = []
+    }
+
     private var memos: [String: Memo] = [:]
+    private nonisolated let memoGenerations = Mutex(MemoGenerations())
 
     /// A value derived from many models (for example a window's visible
     /// workspaces), kept between publishes like the workspace entries: built
     /// inside its own Observation tracking, rebuilt when `key` changes or when
     /// anything the build read changed (which also schedules a publish, as
-    /// for an entry). The publisher's own tracking then holds only `key`'s
-    /// inputs, not one access per model: a large access list made every
-    /// publish, and every first change after one, O(workspaces) (1,000
-    /// workspaces, 2026-10-14 profile).
+    /// for an entry). A publish that reuses it reads none of its models, so
+    /// the publisher's tracking does not hold one access per workspace (a
+    /// rebuild still adds its reads there: nested tracking merges into the
+    /// outer one). A large access list made every publish, and the first
+    /// change after one, O(workspaces) (1,000 workspaces, 2026-10-14 profile).
     public func memo<Key: Hashable, Value>(_ slot: String, key: Key, build: () -> Value) -> Value {
         if let memo = memos[slot], memo.key == AnyHashable(key), let value = memo.value as? Value,
-           !stale.withLock({ $0.contains(memo.generation) }) {
+           !memoGenerations.withLock({ $0.stale.contains(memo.generation) }) {
             return value
         }
-        if let old = memos[slot] { stale.withLock { _ = $0.remove(old.generation) } }
+        if let old = memos[slot] { forget(old.generation) }
         nextGeneration += 1
         let generation = nextGeneration
+        memoGenerations.withLock { _ = $0.live.insert(generation) }
         let value = withObservationTracking { build() } onChange: { [weak self] in
-            self?.stale.withLock { _ = $0.insert(generation) }
+            guard let self else { return }
+            let live = self.memoGenerations.withLock { state in
+                guard state.live.contains(generation) else { return false }
+                state.stale.insert(generation)
+                return true
+            }
             // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
-            Task { @MainActor in self?.onStale() }
+            if live { Task { @MainActor [weak self] in self?.onStale() } }
         }
         memos[slot] = Memo(key: AnyHashable(key), value: value, generation: generation)
         return value
@@ -117,8 +134,15 @@ public final class ControlWorkspaceInfoCache {
     public func retainMemos(_ slots: Set<String>) {
         guard memos.keys.contains(where: { !slots.contains($0) }) else { return }
         for (slot, memo) in memos where !slots.contains(slot) {
-            stale.withLock { _ = $0.remove(memo.generation) }
+            forget(memo.generation)
             memos[slot] = nil
+        }
+    }
+
+    private func forget(_ generation: UInt64) {
+        memoGenerations.withLock { state in
+            state.live.remove(generation)
+            state.stale.remove(generation)
         }
     }
 }

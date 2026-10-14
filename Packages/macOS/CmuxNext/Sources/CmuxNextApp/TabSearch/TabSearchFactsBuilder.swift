@@ -28,7 +28,9 @@ enum TabSearchFactsBuilder {
         var result = Set<String>()
         for controller in services.windows.controllers {
             guard let content = controller.content else { continue }
-            for pane in content.panes.values where !pane.pendingClosed.isEmpty && content.pane(for: pane.pane.handle) === pane {
+            // As before: a controller counts only while it mirrors the tree's pane model.
+            for pane in content.panes.values where !pane.pendingClosed.isEmpty && content.pane(for: pane.pane.handle) === pane
+                && pane.daemon.store.pane(pane.pane.handle) === pane.pane {
                 result.formUnion(pane.pendingClosed)
             }
         }

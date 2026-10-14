@@ -65,10 +65,16 @@ struct WindowRegistry: Equatable, Sendable {
         var isEmpty: Bool { emptied.isEmpty && moved.isEmpty && discarded.isEmpty }
     }
 
-    /// Creation order. Every write rebuilds `owners` (O(n)); loops that
-    /// touch several windows write a local copy back once.
+    /// Creation order. A write that changes membership rebuilds `owners`
+    /// (O(n)); loops that touch several windows write a local copy back once.
+    /// A frame or open-state change compares O(windows) (equal arrays share
+    /// storage) and rebuilds nothing.
     private(set) var windows: [Window] = [] {
-        didSet { owners = Self.ownerIndex(windows) }
+        didSet {
+            let same = windows.count == oldValue.count
+                && zip(windows, oldValue).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+            if !same { owners = Self.ownerIndex(windows) }
+        }
     }
     /// Owning window by workspace id (the first window that lists it), so
     /// `owner(of:)` is O(1): reconcile asks it once per live workspace, which

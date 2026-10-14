@@ -131,7 +131,8 @@ def perf_window():
         return sum(1 for r in w.get("rows") or [] if str(r.get("title") or "").startswith("perf-") and r.get("view_frame"))
     best = max(windows, key=shown, default=None)
     summary["windows"] = [{"window": w.get("window"), "perf_rows_realized": shown(w), "rows": len(w.get("rows") or [])} for w in windows]
-    return best.get("window") if best else None
+    check(best is not None and shown(best) > 0, f"a window shows perf rows ({summary['windows']})")
+    return best.get("window") if best and shown(best) > 0 else None
 
 
 def percentile(values, p):
@@ -224,11 +225,12 @@ def start_ticks(terms, seconds):
 
 
 class Trace:
-    """An xctrace recording attached to the app for the `with` body."""
+    """An xctrace recording attached to the app for the `with` body. `seconds` is the measured window;
+    the recording also covers the 4 s attach wait before it and 2 s after it."""
 
     def __init__(self, pid, name, seconds, template):
         self.path = os.path.join(opts.out, "traces", f"{opts.label}-{name}.trace")
-        self.pid, self.seconds, self.template, self.proc = pid, seconds, template, None
+        self.pid, self.seconds, self.template, self.proc = pid, int(seconds) + 6, template, None
 
     def __enter__(self):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
@@ -335,7 +337,7 @@ def hitches(trace, pid):
     try:
         for cells, _ in export_table(trace, "hitches"):
             process = next((n for t, n in cells if t == "process"), None)
-            if process is None or str(pid) not in (process.get("fmt") or ""):
+            if process is None or f"({pid})" not in (process.get("fmt") or ""):
                 continue
             rows += 1
             duration = next((n for t, n in cells if t == "duration"), None)
@@ -366,7 +368,7 @@ def tick_phase(pid):
     rpc("debug.hangs", {"clear": True})
     cpu0 = cpu_ns(pid)
     stop, samples = threading.Event(), []
-    trace = Trace(pid, "ticks-time-profile", opts.seconds, "Time Profiler") if opts.profile else None
+    trace = Trace(pid, "ticks-time-profile", opts.seconds + 1, "Time Profiler") if opts.profile else None
     if trace:
         trace.__enter__()
     thread = threading.Thread(target=sampler, args=(stop, samples))
@@ -380,7 +382,8 @@ def tick_phase(pid):
     if trace:
         trace.__exit__(None, None, None)
     ticks = ticks_each * len(terms)
-    result = {"ticks": ticks, "latency": latency_stats(samples), "hangs": hang_records(hangs)[:12],
+    # With --profile the app CPU includes Time Profiler sampling: compare CPU only between runs alike.
+    result = {"ticks": ticks, "latency": latency_stats(samples), "hangs": hang_records(hangs)[:12], "profiled": opts.profile,
               "hang_count": (hangs or {}).get("count"), "hang_max_ms": (hangs or {}).get("max_ms")}
     if cpu0 is not None and cpu1 is not None:
         result["app_cpu_ms"] = round((cpu1 - cpu0) / 1e6, 1)
@@ -430,7 +433,7 @@ def realized_titles(window):
 
 def probe_point(window):
     """A point over the workspace list of `window` whose hit view is a workspace row or the list."""
-    rows = [r for r in workspace_rows(window) if r.get("view_frame") and r["window_frame"]["y"] > 0]
+    rows = [r for r in workspace_rows(window) if r.get("view_frame") and (r.get("window_frame") or {}).get("y", -1) > 0]
     if not rows:
         return None, []
     picks = [rows[i] for i in sorted({min(2, len(rows) - 1), len(rows) // 4, len(rows) // 3, len(rows) // 2})]
@@ -487,7 +490,7 @@ def scroll_mode(pid, window, label, terms):
         start_ticks(terms, seconds + 8)
         time.sleep(1)
     counters(reset=True)
-    trace = None if opts.no_trace else Trace(pid, f"scroll-{label}-hitches", int(opts.gesture_events / 60) + 3, "Animation Hitches")
+    trace = None if opts.no_trace else Trace(pid, f"scroll-{label}-hitches", opts.gesture_events / 60 + 1, "Animation Hitches")
     if trace:
         trace.__enter__()
     rpc("debug.frames", {"action": "start"})
@@ -519,6 +522,8 @@ def scroll_phase(pid):
     quiet()
     window = perf_window()
     summary["scroll_window"] = window
+    if window is None:
+        return
     terms = summary.get("terms") or []
     summary["scroll"] = scroll_mode(pid, window, "no-ticks", [])
     summary["scroll_ticking"] = scroll_mode(pid, window, "ticking", terms)
