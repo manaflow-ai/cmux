@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxDesign
 import Foundation
 import GameController
 import GhosttyNextKit
@@ -41,6 +42,9 @@ final class TerminalSurfaceView: UIView {
     private(set) var draws = 0
     /// The last row given to `scroll(toRow:)`.
     private var pinnedRow: Int?
+    /// The font size the surface was built with or last set to (Settings → Terminal).
+    private var fontSize = CnxPreferences.terminalFontSize()
+    private var defaultsObserver: (any NSObjectProtocol)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,6 +59,7 @@ final class TerminalSurfaceView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     isolated deinit {
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
         guard let surface else { return }
         let ref = SurfaceRef(surface)
         let box = inputBox.map(Retained.init)
@@ -84,7 +89,8 @@ final class TerminalSurfaceView: UIView {
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque()))
         config.userdata = Unmanaged.passUnretained(box).toOpaque()
         config.scale_factor = Double(window?.screen.scale ?? 3)
-        config.font_size = 12
+        fontSize = CnxPreferences.terminalFontSize()
+        config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
@@ -108,6 +114,26 @@ final class TerminalSurfaceView: UIView {
         for data in queued { feed(data) }
         onEvent?(.cellSize)
         observePresents()
+        observeFontSize()
+    }
+
+    /// Settings → Terminal → Font size applies to open terminals at once:
+    /// Ghostty re-measures its cells and reports the new cell size, and the
+    /// screen re-fits the grid from it.
+    private func observeFontSize() {
+        guard defaultsObserver == nil else { return }
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyFontSize() }
+        }
+    }
+
+    private func applyFontSize() {
+        let size = CnxPreferences.terminalFontSize()
+        guard let surface, size != fontSize else { return }
+        fontSize = size
+        let action = "set_font_size:\(size)"
+        _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+        ghostty_surface_refresh(surface)
     }
 
     override func layoutSubviews() {

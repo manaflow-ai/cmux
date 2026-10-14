@@ -11,7 +11,9 @@ public final class DiffViewerState {
 
     public var changeSet: DiffChangeSet
     public var layout: Layout = .unified
-    public var wrapLines = false
+    /// Starts from Settings → Terminal → Wrap code and diff lines; the
+    /// viewer's menu changes it for this screen.
+    public var wrapLines = CnxPreferences.wrapCode()
     public var hideWhitespace = false
     public var showViewed = true
     public var viewed: Set<String> = []
@@ -53,12 +55,12 @@ public struct DiffChangesScreen: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("Changes")
+        .navigationTitle(state.changeSet.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
-                    Text("Changes").font(.headline)
+                    Text(state.changeSet.title).font(.headline)
                     Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files")").font(.footnote).foregroundStyle(.secondary)
                 }
             }

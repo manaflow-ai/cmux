@@ -106,15 +106,18 @@ extension View {
 }
 
 /// Skeleton rows matching list row geometry (title 60% x 14, subtitle 40% x 11),
-/// shown only after 250 ms. Six rows max.
+/// shown only after `delay` (250 ms, so a fast load never flashes; zero when
+/// the page's title is already drawn). Six rows max.
 public struct SkeletonList: View {
     let rows: Int
     let leadingSquare: CGFloat?
+    let delay: Duration
     @State private var isVisible = false
 
-    public init(rows: Int = 6, leadingSquare: CGFloat? = nil) {
+    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CnxTheme.standard.motion.skeletonDelay) {
         self.rows = min(rows, 6)
         self.leadingSquare = leadingSquare
+        self.delay = delay
     }
 
     public var body: some View {
@@ -143,9 +146,10 @@ public struct SkeletonList: View {
             }
         }
         .cnxShimmer()
-        .opacity(isVisible ? 1 : 0)
+        .opacity(isVisible || delay == .zero ? 1 : 0)
         .task {
-            try? await Task.sleep(for: theme.motion.skeletonDelay)
+            guard delay > .zero else { return }
+            try? await Task.sleep(for: delay)
             withAnimation(theme.motion.snap.animation) { isVisible = true }
         }
         .accessibilityElement()

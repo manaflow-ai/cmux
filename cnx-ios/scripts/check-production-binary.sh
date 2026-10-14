@@ -34,6 +34,11 @@ forbidden=(
   "Which channel should this build go to first?"
   ChiefMockBackend "Overnight: Codex finished the pricing page fix"
   MockArtifactSource MockWorkspaceCreationBackend
+  # Demo choreography, the mock terminal screen's "Mock session · local"
+  # label (strings stops at the middle dot), the mock sign-in
+  # user, and the old fake terminal placeholder page.
+  DemoDirector WorkspaceDemoDirector "Mock session" "aziz@example.com"
+  "Last login: Sun Oct 12" "Live terminal arrives with CnxTerminal"
 )
 
 # Every Mach-O in the bundle: the executable, Frameworks/, and the
@@ -47,7 +52,10 @@ done < <(find "$app" -type f -print0)
 bad=()
 if [[ -n "$expected_bundle" ]]; then
   [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$expected_bundle" ]] || bad+=("bundle id")
-  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
+  api_base=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)
+  [[ "$api_base" == https://* ]] || bad+=("CNXAPIBase")
+  # Production talks to the production Worker, never a dev deployment.
+  [[ "$api_base" != *-dev* ]] || bad+=("CNXAPIBase is a dev Worker ($api_base)")
 fi
 if [[ $shipping == 1 ]]; then
   api=$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null || true)

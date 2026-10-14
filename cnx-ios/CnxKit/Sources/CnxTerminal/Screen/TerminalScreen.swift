@@ -1,7 +1,8 @@
-#if os(iOS)
+#if os(iOS) && DEBUG
 import SwiftUI
 
-/// The terminal screen (SPEC 10): Ghostty full bleed, system glass toolbar with
+/// DEBUG only (the terminal demo): workspace tabs host terminals through
+/// `TerminalTabPage`. The terminal screen (SPEC 10): Ghostty full bleed, system glass toolbar with
 /// the title menu and the keyboard toggle, the keyboard-pinned bottom stack,
 /// and the files-and-links sheet. Push it inside a NavigationStack.
 public struct TerminalScreen: View {

@@ -1,4 +1,5 @@
 import Foundation
+import struct CnxModel.ServiceFailureMessage
 
 /// The `cnx-ios-api` HTTP surface the app uses (PROTOCOL.md "HTTP").
 public struct LiveAPI: Sendable {
@@ -22,14 +23,17 @@ public struct LiveAPI: Sendable {
         public var ownerUserId: String?
         /// The Mac's team (or personal space); only `GET /v1/me/macs` sends it.
         public var teamId: String?
+        /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
+        public var removed: Bool?
 
-        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil) {
+        public init(deviceId: String, name: String, online: Bool, lastSeenAt: String? = nil, ownerUserId: String? = nil, teamId: String? = nil, removed: Bool? = nil) {
             self.deviceId = deviceId
             self.name = name
             self.online = online
             self.lastSeenAt = lastSeenAt
             self.ownerUserId = ownerUserId
             self.teamId = teamId
+            self.removed = removed
         }
 
         public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
@@ -45,17 +49,81 @@ public struct LiveAPI: Sendable {
         }
     }
 
+    /// One of the caller's devices as `GET /v1/me/devices` reports it (0.7.0).
+    public struct Device: Codable, Hashable, Sendable {
+        public var deviceId: String
+        public var kind: String
+        public var name: String
+        public var teamId: String
+        public var lastSeenAt: String?
+        /// Live presence for a Mac; nil for a phone.
+        public var online: Bool?
+        /// Whether a phone has an APNs token registered.
+        public var push: Bool?
+
+        public init(deviceId: String, kind: String, name: String, teamId: String, lastSeenAt: String? = nil, online: Bool? = nil, push: Bool? = nil) {
+            self.deviceId = deviceId
+            self.kind = kind
+            self.name = name
+            self.teamId = teamId
+            self.lastSeenAt = lastSeenAt
+            self.online = online
+            self.push = push
+        }
+
+        public var lastSeenDate: Date? { lastSeenAt.flatMap(LiveAPI.parseDate) }
+    }
+
+    /// `GET /v1/ice`, for diagnostics: whether a TURN relay was included.
+    public struct Ice: Decodable, Sendable {
+        public var turn: Bool?
+    }
+
     /// `{"error":{"code","message"}}` or a transport failure.
     public struct Failure: Error, Equatable, Sendable {
         public var status: Int
         public var code: String
         public var message: String
+        /// The service's id for the request (support quotes it), when it sent one.
+        public var requestID: String? = nil
     }
 
     /// `POST /v1/devices` (upsert).
     public func registerDevice(id: String, kind: String, name: String, teamID: String) async throws {
         let body: [String: Any] = ["deviceId": id, "kind": kind, "name": name, "teamId": teamID]
         _ = try await call("POST", "v1/devices", body: body)
+    }
+
+    /// `POST /v1/me/bootstrap`: the launch in one round trip. Registers `devices` in `teamID`
+    /// and returns that team's Macs and the account's Macs everywhere. Nil when the service
+    /// predates it (404), so the caller takes the separate calls.
+    public func bootstrap(teamID: String, devices: [(id: String, kind: String, name: String)]) async throws -> (macs: [Mac], myMacs: [Mac]?)? {
+        struct Part<T: Decodable>: Decodable {
+            var macs: T?
+            var error: Envelope.Body?
+        }
+        struct Envelope: Decodable { struct Body: Decodable { var code: String; var message: String } }
+        struct Registered: Decodable { var device: Device?; var error: Envelope.Body? }
+        struct Reply: Decodable {
+            var devices: [Registered]
+            var macs: Part<[Mac]>
+            var myMacs: Part<[Mac]>
+        }
+        let body: [String: Any] = ["teamId": teamID, "devices": devices.map { ["deviceId": $0.id, "kind": $0.kind, "name": $0.name] }]
+        let data: Data
+        do {
+            data = try await call("POST", "v1/me/bootstrap", body: body)
+        } catch let failure as Failure where failure.status == 404 {
+            return nil
+        }
+        let reply = try JSONDecoder().decode(Reply.self, from: data)
+        for registered in reply.devices {
+            if let error = registered.error { throw Failure(status: 0, code: error.code, message: error.message) }
+        }
+        guard let macs = reply.macs.macs else {
+            throw Failure(status: 0, code: reply.macs.error?.code ?? "bad_reply", message: reply.macs.error?.message ?? "no Macs in the reply")
+        }
+        return (macs, reply.myMacs.macs)
     }
 
     /// `GET /v1/teams/:id/macs`.
@@ -68,6 +136,38 @@ public struct LiveAPI: Sendable {
     public func myMacs() async throws -> [Mac] {
         struct Reply: Decodable { var macs: [Mac] }
         return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/macs")).macs
+    }
+
+    /// `GET /v1/me/devices`: every Mac and phone this account registered.
+    public func myDevices() async throws -> [Device] {
+        struct Reply: Decodable { var devices: [Device] }
+        return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/devices")).devices
+    }
+
+    /// `DELETE /v1/devices/:id` (owner only).
+    public func deleteDevice(id: String) async throws {
+        _ = try await call("DELETE", "v1/devices/\(id)")
+    }
+
+    /// `PUT /v1/devices/:id/push`: this phone's APNs token and the events it wants.
+    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String]) async throws {
+        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds]
+        _ = try await call("PUT", "v1/devices/\(deviceID)/push", body: body)
+    }
+
+    /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.
+    public func deletePush(deviceID: String) async throws {
+        _ = try await call("DELETE", "v1/devices/\(deviceID)/push")
+    }
+
+    /// `DELETE /v1/me`: purges everything the service stores for this account.
+    public func deleteMe() async throws {
+        _ = try await call("DELETE", "v1/me")
+    }
+
+    /// `GET /v1/ice`.
+    public func ice() async throws -> Ice {
+        try JSONDecoder().decode(Ice.self, from: try await call("GET", "v1/ice"))
     }
 
     /// `GET /v1/teams/:id/prefs`.
@@ -111,21 +211,32 @@ public struct LiveAPI: Sendable {
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401, !forceRefresh { continue }
-            guard (200..<300).contains(status) else { throw Self.failure(status: status, data: data) }
+            guard (200..<300).contains(status) else {
+                throw Self.failure(status: status, data: data, requestID: Self.requestID(response as? HTTPURLResponse))
+            }
             return data
         }
         throw Failure(status: 401, code: "unauthorized", message: "token refresh failed")
     }
 
-    static func failure(status: Int, data: Data) -> Failure {
+    static func failure(status: Int, data: Data, requestID: String? = nil) -> Failure {
         struct Envelope: Decodable {
             struct Body: Decodable { var code: String; var message: String }
             var error: Body
         }
         if let envelope = try? JSONDecoder().decode(Envelope.self, from: data) {
-            return Failure(status: status, code: envelope.error.code, message: envelope.error.message)
+            return Failure(status: status, code: envelope.error.code, message: envelope.error.message, requestID: requestID)
         }
-        return Failure(status: status, code: "http_\(status)", message: String(decoding: data.prefix(200), as: UTF8.self))
+        return Failure(status: status, code: "http_\(status)", message: String(decoding: data.prefix(200), as: UTF8.self), requestID: requestID)
+    }
+
+    /// The request id the service's edge stamps on every response.
+    static func requestID(_ response: HTTPURLResponse?) -> String? {
+        guard let response else { return nil }
+        for name in ["X-Request-Id", "CF-Ray"] {
+            if let value = response.value(forHTTPHeaderField: name), !value.isEmpty { return value }
+        }
+        return nil
     }
 
     static func parseDate(_ string: String) -> Date? {
@@ -162,5 +273,39 @@ public enum SignalFrame: Equatable, Sendable {
         default:
             return .other
         }
+    }
+}
+
+extension LiveAPI {
+    /// What a failed device removal tells the user. Never names the
+    /// service's vendors; quotes the Request ID when the service sent one.
+    public static func removalMessage(for error: any Error) -> ServiceFailureMessage {
+        if let failure = error as? Failure {
+            let text: String
+            switch (failure.status, failure.code) {
+            case (403, "not_owner"):
+                text = "This device belongs to another account. Only the account it's signed in to can remove it."
+            case (401, _):
+                text = "Your session expired. Sign in again, then try again."
+            case (429, _):
+                text = "Too many requests. Wait a moment and try again."
+            case (500..., _), (0, _):
+                text = "The Cloud service couldn't remove it (\(failure.code)). Try again in a moment."
+            default:
+                text = "The Cloud service refused: \(failure.message.isEmpty ? failure.code : failure.message)"
+            }
+            return ServiceFailureMessage(text: text, requestID: failure.requestID)
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return ServiceFailureMessage(text: "You're offline. Connect to the internet and try again.")
+            case .timedOut:
+                return ServiceFailureMessage(text: "The Cloud service didn't answer in time. Try again.")
+            default:
+                return ServiceFailureMessage(text: "Couldn't reach the Cloud service (\(urlError.localizedDescription)).")
+            }
+        }
+        return ServiceFailureMessage(text: "Couldn't remove it: \(error.localizedDescription)")
     }
 }

@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CnxTransport
 import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
@@ -14,12 +15,20 @@ struct TerminalComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let error = model.attachmentError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("terminal.composer.attachmentError")
+            }
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             HStack(alignment: .bottom, spacing: 6) {
-                plusMenu
+                if model.uploader != nil { plusMenu }
                 field
                 sendButton
             }
@@ -90,14 +99,21 @@ struct TerminalComposer: View {
         return Button {
             model.send()
         } label: {
-            Image(systemName: empty ? "return" : "arrow.up")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(empty ? Color.primary : Color(uiColor: .systemBackground))
-                .frame(width: 36, height: 36)
-                .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color.primary), in: .circle)
-                .contentTransition(.symbolEffect(.replace))
+            ZStack {
+                if model.isUploading {
+                    ProgressView().tint(Color(uiColor: .systemBackground))
+                } else {
+                    Image(systemName: empty ? "return" : "arrow.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(empty ? Color.primary : Color(uiColor: .systemBackground))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+            }
+            .frame(width: 36, height: 36)
+            .background(empty ? AnyShapeStyle(Color.primary.opacity(0.08)) : AnyShapeStyle(Color.primary), in: .circle)
         }
         .buttonStyle(.plain)
+        .disabled(model.isUploading)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") { model.sendWithoutReturn() }
         }
@@ -106,8 +122,9 @@ struct TerminalComposer: View {
     }
 
     private func pasteFromClipboard() {
-        if let image = UIPasteboard.general.image {
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image.png", thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168))))
+        if model.uploader != nil, let image = UIPasteboard.general.image, let data = image.pngData() {
+            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
+                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
         } else if let text = UIPasteboard.general.string {
             model.composerText += text
         }
@@ -115,20 +132,29 @@ struct TerminalComposer: View {
 
     // MARK: Loading attachments
 
+    /// Picked photos and videos keep their bytes (a video its local copy).
+    /// Photos has no file name for an item without library access, so the
+    /// name says what it is and when it was attached.
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
+        let stamp = Self.stamp()
         for (index, item) in items.enumerated() {
+            let suffix = items.count > 1 ? " \(index + 1)" : ""
             let isVideo = item.supportedContentTypes.contains { $0.conforms(to: .movie) }
             if isVideo, let movie = try? await item.loadTransferable(type: MovieFile.self) {
                 let thumbnail = await Self.videoThumbnail(movie.url)
-                model.addAttachment(ComposerAttachment(kind: .video, name: movie.url.lastPathComponent, thumbnail: thumbnail))
+                let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                let ext = movie.url.pathExtension.isEmpty ? "mov" : movie.url.pathExtension
+                model.addAttachment(ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", thumbnail: thumbnail,
+                                                       byteCount: size, fileURL: movie.url))
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "IMG_\(1000 + index).\(ext)", thumbnail: thumbnail, byteCount: data.count))
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
             }
         }
     }
 
+    /// Files are read now, while the picker's security scope is open.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
@@ -137,9 +163,24 @@ struct TerminalComposer: View {
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage
             let kind: ComposerAttachment.Kind = type.conforms(to: .image) ? .image : type.conforms(to: .movie) ? .video : .file
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, byteCount: size))
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            guard size <= LinkUpload.maxBytes else {
+                model.attachmentError = "\(url.lastPathComponent) is larger than \(LinkUpload.maxBytes >> 20) MB."
+                continue
+            }
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                model.attachmentError = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            model.addAttachment(ComposerAttachment(kind: kind, name: url.lastPathComponent, thumbnail: thumbnail, data: data))
         }
+    }
+
+    static func stamp(_ date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return formatter.string(from: date)
     }
 
     static func videoThumbnail(_ url: URL) async -> UIImage? {

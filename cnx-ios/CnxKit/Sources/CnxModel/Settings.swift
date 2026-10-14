@@ -45,21 +45,6 @@ public enum FollowUpBehavior: String, CaseIterable, Identifiable, Sendable, Coda
     }
 }
 
-/// Live Activities policy.
-public enum LiveActivityMode: String, CaseIterable, Identifiable, Sendable, Codable {
-    case perAgent, onlyWaiting, off
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .perAgent: "One per agent"
-        case .onlyWaiting: "Only when waiting"
-        case .off: "Off"
-        }
-    }
-}
-
 /// Device-local preferences (SPEC section 9), persisted in `UserDefaults`.
 @MainActor
 @Observable
@@ -70,17 +55,20 @@ public final class SettingsStore {
     public var appearance: AppearanceMode { didSet { save(appearance.rawValue, "appearance") } }
     /// Read by `CnxHaptics` through the same key.
     public var hapticsEnabled: Bool { didSet { save(hapticsEnabled, "hapticsEnabled") } }
-    public var showConnectionDetails: Bool { didSet { save(showConnectionDetails, "showConnectionDetails") } }
+    /// Read by the terminal (`CnxPreferences.terminalFontSize`) through the same key.
     public var terminalFontSize: Int { didSet { save(terminalFontSize, "terminalFontSize") } }
-    public var terminalTheme: String { didSet { save(terminalTheme, "terminalTheme") } }
+    /// Read by the agent composer (`CnxPreferences`) through the same key.
     public var dismissKeyboardAfterSend: Bool { didSet { save(dismissKeyboardAfterSend, "dismissKeyboardAfterSend") } }
+    /// Read by the agent composer: Steer sends a message typed while the
+    /// agent works as acpmux `steer`, Queue sends it after the turn.
     public var followUp: FollowUpBehavior { didSet { save(followUp.rawValue, "followUp") } }
+    /// Read by code cards, edit previews and the diff viewer.
     public var wrapCode: Bool { didSet { save(wrapCode, "wrapCode") } }
+    /// Read by the terminal key bar.
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     public var notifyQuestions: Bool { didSet { save(notifyQuestions, "notifyQuestions") } }
     public var notifyFinished: Bool { didSet { save(notifyFinished, "notifyFinished") } }
     public var notifyErrors: Bool { didSet { save(notifyErrors, "notifyErrors") } }
-    public var liveActivities: LiveActivityMode { didSet { save(liveActivities.rawValue, "liveActivities") } }
     public var requireFaceID: Bool { didSet { save(requireFaceID, "requireFaceID") } }
 
     public init(defaults: UserDefaults = .standard) {
@@ -90,9 +78,7 @@ public final class SettingsStore {
         transport = string("transport").flatMap(TransportKind.init(rawValue:)) ?? .webrtc
         appearance = string("appearance").flatMap(AppearanceMode.init(rawValue:)) ?? .system
         hapticsEnabled = bool("hapticsEnabled", true)
-        showConnectionDetails = bool("showConnectionDetails", false)
-        terminalFontSize = defaults.object(forKey: "cnx.settings.terminalFontSize") as? Int ?? 13
-        terminalTheme = string("terminalTheme") ?? "Follow Mac"
+        terminalFontSize = defaults.object(forKey: "cnx.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
@@ -100,9 +86,16 @@ public final class SettingsStore {
         notifyQuestions = bool("notifyQuestions", true)
         notifyFinished = bool("notifyFinished", true)
         notifyErrors = bool("notifyErrors", true)
-        liveActivities = string("liveActivities").flatMap(LiveActivityMode.init(rawValue:)) ?? .onlyWaiting
         requireFaceID = bool("requireFaceID", false)
+        // Retired settings that never took effect (a terminal theme the phone
+        // cannot read from the Mac, and a connection-details switch).
+        for key in Self.retiredKeys { defaults.removeObject(forKey: "cnx.settings.\(key)") }
     }
+
+    static let retiredKeys = ["showConnectionDetails", "terminalTheme"]
+
+    /// The terminal's built-in size (`CnxPreferences.defaultTerminalFontSize`).
+    public static let defaultTerminalFontSize = 12
 
     private func save(_ value: Any, _ key: String) {
         defaults.set(value, forKey: "cnx.settings.\(key)")

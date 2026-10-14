@@ -19,7 +19,9 @@ struct FeedCell: View {
     @State private var replyText = ""
     @FocusState private var replyFocused: Bool
     @State private var copied = false
+    #if DEBUG
     private let director = DemoDirector.shared
+    #endif
 
     static let collapsedHeight: CGFloat = 224
 
@@ -80,7 +82,9 @@ struct FeedCell: View {
         .contentShape(.rect)
         .onTapGesture(perform: open)
         .contextMenu { menuItems }
+        #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
+        #endif
     }
 
     // MARK: Parts
@@ -316,6 +320,7 @@ struct FeedCell: View {
         .buttonStyle(.plain)
     }
 
+    #if DEBUG
     private func runDemoCommand() {
         guard let command = director.command else { return }
         switch command {
@@ -336,6 +341,7 @@ struct FeedCell: View {
             break
         }
     }
+    #endif
 }
 
 struct FooterLabelStyle: LabelStyle {

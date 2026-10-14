@@ -8,6 +8,8 @@ import SwiftUI
 
 @main
 struct CnxApp: App {
+    /// Push registration and notification taps (CnxShell).
+    @UIApplicationDelegateAdaptor(CnxAppDelegate.self) private var appDelegate
     @State private var auth: CnxAuthModel
 
     init() {
