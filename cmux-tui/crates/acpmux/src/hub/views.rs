@@ -167,8 +167,6 @@ impl Hub {
             "harness": m.harness,
             "family": m.family,
             "cwd": m.cwd,
-            // The cmux workspace its agent works in (`session_env.rs`), or null.
-            "workspace": m.session_env.get("CMUX_WORKSPACE_ID"),
             "status": m.status.to_string(),
             "agentSessionId": m.agent_session_id,
             "createdAt": m.created_at,
@@ -204,6 +202,9 @@ impl Hub {
             "policy": m.permission_policy,
             "enforcement": self.session_enforcement(&m),
             "rules": m.permission_rules.is_some(),
+            // The chat's tools and whether `_acpmux/set_tools` can change them (`hub/tools.rs`).
+            "tools": m.tools.rows,
+            "toolsMutable": m.tools.mutable,
             "tags": live_tags(&m),
             "stateSeq": session.state_seq.load(Ordering::SeqCst),
             "unread": m.unread,

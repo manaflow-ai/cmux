@@ -13,69 +13,6 @@ import Testing
 /// throttled runner stretched each 2 ms sleep of a wall-clock sweep past the
 /// dwell, so every row showed its card (`aSweepAcrossFiveRowsShowsNoCard`).
 @MainActor @Suite(.serialized) struct SidebarHoverCardDwellTests {
-    /// A clock that moves only when the test advances it.
-    nonisolated final class ManualClock: Clock, @unchecked Sendable {
-        nonisolated struct Instant: InstantProtocol {
-            var offset: Duration
-            func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-            func duration(to other: Instant) -> Duration { other.offset - offset }
-            static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
-        }
-        nonisolated private struct Sleeper {
-            let id: Int
-            let deadline: Instant
-            let continuation: CheckedContinuation<Void, any Error>
-        }
-        private let lock = NSLock()
-        private var current = Instant(offset: .zero)
-        private var sleepers: [Sleeper] = []
-        private var cancelled: Set<Int> = []
-        private var nextID = 0
-
-        var now: Instant { lock.withLock { current } }
-        var minimumResolution: Duration { .zero }
-
-        @concurrent func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-            let id = lock.withLock { nextID += 1; return nextID }
-            try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                    let outcome: Result<Void, any Error>? = lock.withLock {
-                        if cancelled.remove(id) != nil { return .failure(CancellationError()) }
-                        if deadline <= current { return .success(()) }
-                        sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
-                        return nil
-                    }
-                    if let outcome { continuation.resume(with: outcome) }
-                }
-            } onCancel: {
-                let sleeper: Sleeper? = lock.withLock {
-                    guard let index = sleepers.firstIndex(where: { $0.id == id }) else { cancelled.insert(id); return nil }
-                    return sleepers.remove(at: index)
-                }
-                sleeper?.continuation.resume(throwing: CancellationError())
-            }
-        }
-
-        /// Waits (bounded) until a timer is asleep on the clock. A timer reads
-        /// `now` for its deadline when its task starts, off the main actor:
-        /// advancing before then would push its deadline back by the advance.
-        func waitForSleeper() async throws {
-            for _ in 0..<20 where lock.withLock({ sleepers.isEmpty }) { await Task.yield() }
-            for _ in 0..<500 where lock.withLock({ sleepers.isEmpty }) { try await Task.sleep(for: .milliseconds(5)) }
-        }
-
-        /// Moves the clock on and wakes every sleeper whose deadline it reached.
-        func advance(by duration: Duration) {
-            let due: [Sleeper] = lock.withLock {
-                current = current.advanced(by: duration)
-                let due = sleepers.filter { $0.deadline <= current }
-                sleepers.removeAll { $0.deadline <= current }
-                return due
-            }
-            for sleeper in due { sleeper.continuation.resume() }
-        }
-    }
-
     /// Five workspaces with a folder and a branch each (cards with facts),
     /// in an ordered-front window, on a coordinator that hit-tests that
     /// window.
@@ -166,5 +103,138 @@ import Testing
         guard case let .workspace(id) = row.key else { return }
         #expect(coordinator.machine.shownTarget?.id == WorkspaceHoverCardController.targetID(id))
         #expect(coordinator.isShowing(WorkspaceHoverCardController.targetID(id)))
+    }
+
+    // MARK: Hover intent (Leo 2026-10-14)
+
+    /// The card on screen, in the list's coordinates.
+    private static func cardFrame(_ list: SidebarListView, _ coordinator: HoverCardCoordinator) throws -> NSRect {
+        let window = try #require(list.window)
+        let screen = NSRectFromString(try #require(coordinator.report["card_frame"]))
+        try #require(screen.width > 0 && screen.height > 0, "no card on screen")
+        return list.convert(window.convertFromScreen(screen), from: nil)
+    }
+
+    /// Rests on row 0 until its card shows.
+    private static func dwell(on row: SidebarRow, _ list: SidebarListView, _ coordinator: HoverCardCoordinator,
+                              _ clock: ManualClock) async throws -> HoverTargetID {
+        guard case let .workspace(id) = row.key else { throw CancellationError() }
+        let target = WorkspaceHoverCardController.targetID(id)
+        move(list, to: row.y + row.height / 2)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1_200))
+        try await settle(until: { coordinator.isShowing(target) })
+        try #require(coordinator.isShowing(target), "the dwell showed no card")
+        return target
+    }
+
+    /// While a card shows, a pointer heading diagonally into it crosses the
+    /// next row: that row must not take the card over (the safe triangle),
+    /// and a pointer resting on the card keeps it.
+    @Test func headingIntoTheCardAcrossAnotherRowKeepsItOpen() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        try #require(rows.count == 5)
+        let first = try await Self.dwell(on: rows[0], list, coordinator, clock)
+        let card = try Self.cardFrame(list, coordinator)
+        // From the middle of row 0 to a point just inside the card's near edge, 1 pt every 2 ms.
+        let start = NSPoint(x: list.bounds.midX, y: rows[0].y + rows[0].height / 2)
+        let end = NSPoint(x: card.minX + 4, y: card.midY)
+        let length = hypot(end.x - start.x, end.y - start.y)
+        var crossed = false
+        var slid: [HoverTargetID] = []
+        for step in 1...Int(length.rounded(.up)) {
+            let t = min(1, CGFloat(step) / length)
+            let point = NSPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+            if let id = list.hoverCardWorkspace(at: point), WorkspaceHoverCardController.targetID(id) != first { crossed = true }
+            list.updateHover(list.convert(point, to: nil))
+            if let shown = coordinator.machine.shownTarget?.id, shown != first, slid.last != shown { slid.append(shown) }
+            clock.advance(by: .milliseconds(2))
+            await Task.yield()
+        }
+        try #require(crossed, "the path to the card crossed no other row")
+        #expect(slid.isEmpty, "a row crossed on the way slid the card to \(slid)")
+        // The pointer rests on the card, well past the aim and leave times.
+        for _ in 0..<4 {
+            try await clock.waitForSleeper()
+            clock.advance(by: .milliseconds(400))
+            try await Self.settle()
+        }
+        #expect(coordinator.isShowing(first), "the card closed while the pointer rested on it")
+    }
+
+    /// Leaving the card starts a short grace; then the card closes.
+    @Test func leavingTheCardStartsTheGraceThenCloses() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        try #require(rows.count == 5)
+        let first = try await Self.dwell(on: rows[0], list, coordinator, clock)
+        let card = try Self.cardFrame(list, coordinator)
+        // Straight right from row 0 into the card (no other row on the way).
+        let y = rows[0].y + rows[0].height / 2
+        var x = list.bounds.midX
+        while x < card.minX + 6 {
+            list.updateHover(list.convert(NSPoint(x: x, y: y), to: nil))
+            clock.advance(by: .milliseconds(2))
+            await Task.yield()
+            x += 2
+        }
+        for _ in 0..<3 {
+            try await clock.waitForSleeper()
+            clock.advance(by: .milliseconds(400))
+            try await Self.settle()
+        }
+        try #require(coordinator.isShowing(first), "the card closed while the pointer rested on it")
+        // The real mouse moves off the card, somewhere no source sees it.
+        let away = window.convertPoint(toScreen: list.convert(NSPoint(x: card.maxX + 200, y: card.maxY + 200), to: nil))
+        coordinator.pointerLocation = { away }
+        // The next look finds the pointer gone: the grace starts then, so the card is still up.
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(200))
+        try await Self.settle()
+        #expect(coordinator.isShowing(first), "the card closed at once, with no grace")
+        try await clock.waitForSleeper()
+        for _ in 0..<4 {
+            clock.advance(by: .milliseconds(200))
+            try await Self.settle()
+            if coordinator.machine.shownTarget == nil { break }
+            try await clock.waitForSleeper()
+        }
+        #expect(coordinator.machine.shownTarget == nil, "the card stayed after the pointer left it")
+    }
+
+    /// Moving down the list with a little drift toward the card is not heading
+    /// into it, even right by the card where the safe triangle is widest: the
+    /// card slides to the next row at once, as before the safe triangle.
+    @Test func movingDownTheListWithDriftSlidesTheCardAtOnce() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { Self.tearDown(list, window, coordinator) }
+        try #require(rows.count == 5)
+        _ = try await Self.dwell(on: rows[0], list, coordinator, clock)
+        guard case let .workspace(next) = rows[1].key else { return }
+        let target = WorkspaceHoverCardController.targetID(next)
+        // Near the list's right edge, by the card (the safe triangle is widest there), from row 0's
+        // middle to row 1's, 3 pt down and 1 pt toward the card every 4 ms.
+        var point = NSPoint(x: list.bounds.maxX - 16, y: rows[0].y + rows[0].height / 2)
+        let end = rows[1].y + rows[1].height / 2
+        var onNextRow: Int?
+        var slidAfter: Int?
+        var step = 0
+        while abs(point.y - end) > 1.5 {
+            point.y += end > point.y ? 3 : -3
+            point.x += 1
+            step += 1
+            list.updateHover(list.convert(point, to: nil))
+            if onNextRow == nil, let id = list.hoverCardWorkspace(at: point), id == next { onNextRow = step }
+            if slidAfter == nil, coordinator.machine.shownTarget?.id == target { slidAfter = step }
+            clock.advance(by: .milliseconds(4))
+            await Task.yield()
+        }
+        let reached = try #require(onNextRow, "the path never reached row 1")
+        let slid = try #require(slidAfter, "the card stayed on row 0 while the pointer moved down onto row 1")
+        #expect(slid - reached <= 2, "the card took \((slid - reached) * 4) ms to slide to row 1")
     }
 }
