@@ -20,6 +20,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -171,9 +172,12 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
+        conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
+        conversation_attachments::WS_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
