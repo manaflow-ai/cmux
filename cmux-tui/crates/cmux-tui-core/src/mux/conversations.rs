@@ -64,6 +64,11 @@ impl Mux {
         Ok(value)
     }
 
+    /// The Chief registry (chief_registry.rs).
+    pub(crate) fn chiefs(&self) -> &crate::chief_registry::ChiefHost {
+        &self.chiefs
+    }
+
     /// The remote-relay state (peers, pairing records, revocation limits).
     pub(crate) fn remote_relay(&self) -> &crate::remote_relay_state::RemoteRelayState {
         &self.conversations.remote
