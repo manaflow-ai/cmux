@@ -275,6 +275,7 @@ pub(crate) use time::now_ms;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
@@ -722,6 +723,7 @@ pub struct Mux {
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
+    creating_inputs: creating_input::CreatingInputs,
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,

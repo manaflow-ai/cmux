@@ -77,6 +77,8 @@ pub struct BrowserProfileDeletion {
     pub deleted_bookmarks: usize,
     /// The new `bookmarks_revision` when bookmarks were deleted.
     pub bookmarks_revision: Option<u64>,
+    /// The frontend browser tabs that named the profile, now on the default one.
+    pub cleared_browsers: Vec<String>,
 }
 
 pub(super) fn read_browser_profiles(
@@ -329,6 +331,7 @@ impl WorkspaceRegistry {
             "UPDATE profiles SET browser_profile_id = NULL WHERE browser_profile_id = ?1",
             [id],
         )?;
+        let cleared_browsers = super::presentation_store::clear_frontend_browser_profile(&tx, id)?;
         tx.execute("DELETE FROM browser_profiles WHERE browser_profile_id = ?1", [id])?;
         let (deleted_bookmarks, bookmarks_revision) =
             super::personal_bookmarks::delete_profile_bookmarks(&tx, id)?;
@@ -339,7 +342,8 @@ impl WorkspaceRegistry {
             "personal.browser_profile.deleted",
             vec![subject("browser_profile", id)],
             &json!({"browser_profile_id": id, "cleared_workspaces": cleared_workspaces,
-                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks}),
+                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks,
+                    "cleared_browsers": cleared_browsers}),
         )?;
         tx.commit()?;
         Ok(BrowserProfileDeletion {
@@ -347,6 +351,7 @@ impl WorkspaceRegistry {
             cleared_rooms,
             deleted_bookmarks,
             bookmarks_revision,
+            cleared_browsers,
         })
     }
 }
