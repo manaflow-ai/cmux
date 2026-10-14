@@ -11,7 +11,6 @@ import { HomeChannelsPage } from "./HomeChannelsPage";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
-import { HomeOps } from "./types";
 
 type Props = {
   /** The conversation the page opens with; default: the page's own first choice. */
@@ -54,8 +53,7 @@ function HomeChannelsGallery({
   const [store] = useState(() => {
     const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
     if (provider) provider.hostGrants = hostGrants;
-    if (provider && extraChief)
-      void provider.call(HomeOps.chiefCreate, { name: "Release Chief", role: "", personality: "", instructions: "" });
+    if (provider && extraChief) provider.addChief("Release Chief");
     const created = new HomeChannelsStore(provider, undefined, hostGrants ? provider : null);
     if (route) created.sheets.show(route);
     if (select)
@@ -430,21 +428,21 @@ export default componentEntry<Props>({
       },
     },
     "new-chief": {
-      note: "#/new/chief: name, role, picture, personality, instructions; in a plain browser the tools are read-only.",
+      note: "#/new/chief in a plain browser: a new Chief needs the person's click in the cmux app, so the sheet is read-only and says so.",
       props: { select: "c-chief", route: { kind: "newChief" } },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-chief-identity input"));
-        await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-chief-identity input:disabled"));
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:disabled"));
       },
     },
     "new-chief-grants": {
-      note: "In the app the host relays the person's click, so the tools and harnesses can be changed.",
+      note: "In the app the host relays the person's click: the whole profile, the tools and the harnesses can be set.",
       props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
       },
     },
     "edit-chief": {

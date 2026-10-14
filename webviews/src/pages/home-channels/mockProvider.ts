@@ -334,6 +334,24 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
   };
 }
 
+/** A Chief as the owner sends it (the host relay answers raw records). */
+function rawChief(c: HomeChief): Record<string, unknown> {
+  return {
+    id: c.id,
+    display_name: c.name,
+    role: c.role,
+    personality: c.personality,
+    instructions: c.instructions,
+    tools: c.tools,
+    harnesses: c.harnesses,
+    self_edit: c.selfEdit,
+    is_default: c.isDefault,
+    rev: c.rev,
+    created_at: c.createdAt,
+    avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+  };
+}
+
 export class MockHomeProvider implements PageClient {
   readonly page = new MockPageStreams();
   private readonly data = sampleHome();
@@ -364,6 +382,26 @@ export class MockHomeProvider implements PageClient {
   private readonly pictures = new Map<string, { mediaType: string; data: string }>();
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
+
+  /** Adds a Chief (the host's create; the gallery's second Chief). */
+  addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
+    const made: HomeChief = {
+      id: `agent_new${this.chiefs.size}`,
+      name,
+      role: "",
+      personality: "",
+      instructions: "",
+      tools: ["spawn", "tell", "workspaces"],
+      harnesses: [],
+      selfEdit: ["avatar"],
+      isDefault: false,
+      rev: 1,
+      createdAt: new Date(BASE).toISOString(),
+      ...fields,
+    };
+    this.chiefs.set(made.id, made);
+    return made;
+  }
 
   private chief(id: string): HomeChief {
     const found = this.chiefs.get(id);
@@ -643,33 +681,9 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefs:
         return { chiefs: [...this.chiefs.values()] } as R;
-      case HomeOps.chiefCreate: {
-        const made: HomeChief = {
-          id: `agent_new${this.chiefs.size}`,
-          name: String(params.name),
-          role: String(params.role ?? ""),
-          personality: String(params.personality ?? ""),
-          instructions: String(params.instructions ?? ""),
-          tools: ["spawn", "tell", "workspaces"],
-          harnesses: [],
-          selfEdit: ["avatar"],
-          isDefault: false,
-          rev: 1,
-          createdAt: new Date(BASE).toISOString(),
-        };
-        this.chiefs.set(made.id, made);
-        return { chief: made } as R;
-      }
       case HomeOps.chiefUpdate: {
         const old = this.chief(String(params.chief));
-        const changed = {
-          ...old,
-          name: String(params.name),
-          role: String(params.role ?? ""),
-          personality: String(params.personality ?? ""),
-          instructions: String(params.instructions ?? ""),
-          rev: old.rev + 1,
-        };
+        const changed = { ...old, name: String(params.name), role: String(params.role ?? ""), rev: old.rev + 1 };
         this.chiefs.set(changed.id, changed);
         return { chief: changed } as R;
       }
@@ -687,17 +701,31 @@ export class MockHomeProvider implements PageClient {
         return {
           chiefs: [...this.chiefs.values()].map((c) => ({ id: c.id, rev: c.rev, created_at: c.createdAt })),
         } as R;
+      case "cmux.chief.profile.create": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const made = this.addChief(String(params.display_name), {
+          role: String(params.role ?? ""),
+          personality: String(params.personality ?? ""),
+          instructions: String(params.instructions ?? ""),
+          ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
+          ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+        });
+        return { value: rawChief(made) } as R;
+      }
       case "cmux.chief.profile.update": {
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         const old = this.chief(String(params.chief));
+        const text = (key: string, fallback: string) => (typeof params[key] === "string" ? String(params[key]) : fallback);
         const changed = {
           ...old,
+          personality: text("personality", old.personality),
+          instructions: text("instructions", old.instructions),
           tools: (params.tools as string[] | undefined) ?? old.tools,
           harnesses: (params.harnesses as string[] | undefined) ?? old.harnesses,
           rev: old.rev + 1,
         };
         this.chiefs.set(changed.id, changed);
-        return { value: changed } as R;
+        return { value: rawChief(changed) } as R;
       }
       case "cmux.chief.profile.delete":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);

@@ -1,10 +1,11 @@
 // The page's sheets (routes.ts) as view state: which route is open, what this connection may do
-// (each entry hides when its capability is missing), the Chief records and their pictures. Every
-// write goes to the owner through the page's client (`cmux.home.*`); a Chief's grant (tools,
-// harnesses) and a delete go through the host instead (`cmux.chief.profile.*` on the host's page
-// relay), because the daemon takes them from a page only with the person's click. A plain browser
-// has no host: the sheet shows the grant read-only and no Archive.
+// (each entry hides when its capability is missing), the Chief records and their pictures. Writes
+// go to the owner through the page's client (`cmux.home.*`), except what the daemon takes from a
+// page only with the person's click: creating or archiving a Chief and changing its instructions,
+// personality or grant go through the host (`cmux.chief.profile.*` on the host's page relay). A
+// plain browser has no host: those show read-only ("Do this in the cmux app"), no Archive.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { chief as chiefRecord } from "./daemonPeople";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
 import {
   HomeOps,
@@ -20,7 +21,8 @@ export interface SheetsSnapshot {
   /** Capabilities and Chiefs were read (until then a route shows nothing, not a refusal). */
   ready: boolean;
   capabilities: HomeCapabilities;
-  /** The host relays the person's click for a Chief's grant and delete to the same registry. */
+  /** The host relays the person's click to the same registry (create, delete, instructions,
+   * personality, the grant). */
   chiefGrants: boolean;
   /** The Chief records, by id. */
   chiefs: ReadonlyMap<string, HomeChief>;
@@ -38,6 +40,12 @@ export interface SheetsHost {
 
 const NONE: HomeCapabilities = { start: false, invite: false, chiefs: false };
 const SELECTORS = { machine: "current", session: "current" };
+
+/** A grant as the record's fields (sorted, as the owner keeps them). */
+const grantFields = (grant: HomeChiefGrant) => ({
+  tools: [...grant.tools].sort(),
+  harnesses: [...grant.harnesses].sort(),
+});
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
 
@@ -226,20 +234,26 @@ export class HomeSheets {
     }
   }
 
-  /** Makes a Chief with this profile (the default grant unless the host takes a changed one), its
-   * picture, then opens its direct message. Resolves the Chief, or undefined when the owner refused. */
+  /** Makes a Chief through the host (the person's click: create is never the page's alone) with
+   * this profile and, when given, a changed grant, in one request; then its picture and its direct
+   * message from the page. Resolves the Chief, or undefined when it was refused. */
   async createChief(
     profile: HomeChiefProfile,
     grant: HomeChiefGrant | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<HomeChief | undefined> {
-    if (!this.client) return undefined;
+    if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
     try {
-      const { chief } = await this.client.call<{ chief: HomeChief }>(HomeOps.chiefCreate, {
-        ...profile,
-        idempotencyKey: this.key("chief"),
+      const made = await this.host.call<{ value: Record<string, unknown> }>("cmux.chief.profile.create", {
+        ...SELECTORS,
+        display_name: profile.name.trim(),
+        role: profile.role.trim(),
+        personality: profile.personality,
+        instructions: profile.instructions,
+        ...(grant ? grantFields(grant) : {}),
+        idempotency_key: this.key("chief"),
       });
-      if (grant && this.snapshot.chiefGrants) await this.setGrant(chief.id, grant);
+      const chief = chiefRecord(made.value);
       if (picture)
         await this.client.call(HomeOps.chiefAvatarSet, {
           chief: chief.id,
@@ -261,18 +275,42 @@ export class HomeSheets {
     }
   }
 
+  /** Saves a Chief's profile: what changed of personality, instructions and the grant goes first,
+   * through the host (the person's click, one request); the name, role and picture from the page. */
   async updateChief(
-    id: string,
+    before: HomeChief,
     profile: HomeChiefProfile,
     grant: HomeChiefGrant | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<boolean> {
     if (!this.client) return false;
+    const taught: Record<string, unknown> = {};
+    if (profile.personality !== before.personality) taught.personality = profile.personality;
+    if (profile.instructions !== before.instructions) taught.instructions = profile.instructions;
+    if (grant) Object.assign(taught, grantFields(grant));
     try {
-      await this.client.call(HomeOps.chiefUpdate, { chief: id, ...profile, idempotencyKey: this.key("profile") });
-      if (grant && this.snapshot.chiefGrants) await this.setGrant(id, grant);
+      if (Object.keys(taught).length > 0) {
+        if (!this.host || !this.snapshot.chiefGrants) return false;
+        await this.host.call("cmux.chief.profile.update", {
+          ...SELECTORS,
+          chief: before.id,
+          ...taught,
+          idempotency_key: this.key("teach"),
+        });
+      }
+      if (profile.name.trim() !== before.name || profile.role.trim() !== before.role)
+        await this.client.call(HomeOps.chiefUpdate, {
+          chief: before.id,
+          name: profile.name,
+          role: profile.role,
+          idempotencyKey: this.key("profile"),
+        });
       if (picture)
-        await this.client.call(HomeOps.chiefAvatarSet, { chief: id, ...picture, idempotencyKey: this.key("picture") });
+        await this.client.call(HomeOps.chiefAvatarSet, {
+          chief: before.id,
+          ...picture,
+          idempotencyKey: this.key("picture"),
+        });
       await this.loadChiefs();
       this.close();
       return true;
@@ -298,16 +336,6 @@ export class HomeSheets {
       this.page.fail(describe(error));
       return false;
     }
-  }
-
-  private async setGrant(id: string, grant: HomeChiefGrant): Promise<void> {
-    await this.host?.call("cmux.chief.profile.update", {
-      ...SELECTORS,
-      chief: id,
-      tools: [...grant.tools].sort(),
-      harnesses: [...grant.harnesses].sort(),
-      idempotency_key: this.key("grant"),
-    });
   }
 
   private key(kind: string): string {

@@ -16,7 +16,7 @@ import { DaemonPeople } from "./daemonPeople";
 import {
   HomeOps,
   type HomeAttachment,
-  type HomeChiefProfile,
+  type HomeChiefNames,
   type HomeConversation,
   type HomeDerivedImage,
   type HomeEventBatch,
@@ -364,19 +364,14 @@ function threads(raw: unknown): HomeThreadStats[] {
   });
 }
 
-/** The profile text of a Chief request (the daemon checks every limit). */
-function chiefProfile(params: Json): HomeChiefProfile {
+/** A Chief's name and role from a request (the daemon checks every limit). */
+function chiefNames(params: Json): HomeChiefNames {
   const text = (field: string, max: number) => {
     const value = params[field];
     if (typeof value !== "string" || value.length > max) throw pageError("cmux.page.invalid_params", field);
     return value;
   };
-  return {
-    name: text("name", 100),
-    role: text("role", 200),
-    personality: text("personality", 4000),
-    instructions: text("instructions", 32000),
-  };
+  return { name: text("name", 100), role: text("role", 200) };
 }
 
 function str(params: Json, field: string, max = 256): string {
@@ -738,15 +733,9 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.chiefs:
         return { chiefs: await this.people.chiefs() };
-      case HomeOps.chiefCreate:
-        return { chief: await this.people.createChief(chiefProfile(params), this.key(params, options)) };
       case HomeOps.chiefUpdate:
         return {
-          chief: await this.people.updateChief(
-            str(params, "chief", 64),
-            chiefProfile(params),
-            this.key(params, options),
-          ),
+          chief: await this.people.renameChief(str(params, "chief", 64), chiefNames(params), this.key(params, options)),
         };
       case HomeOps.chiefAvatarSet:
         return {

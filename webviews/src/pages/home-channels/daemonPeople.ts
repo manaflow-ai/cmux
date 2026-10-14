@@ -1,12 +1,13 @@
 // People and Chiefs on the local conversation owner, for the page's sheets (routes.ts): the
 // directory to pick from, a new message or channel (`conversation-create`, or my existing direct
 // message), invites (`participants.add`), and the Chief records (`chief.profile.*`, capability
-// `chief-profile-ws-v1`). The daemon checks every rule; the page only asks. A grant field (tools,
-// harnesses) or a delete is never sent here: the daemon takes those from a page only with the
-// person's click in the cmux app (the host's page relay), so the store sends them through the host.
+// `chief-profile-ws-v1`). The daemon checks every rule; the page only asks. Without the person's
+// gesture a page changes only a Chief's name, role and picture: create, delete, instructions,
+// personality and the grant (tools, harnesses) go through the host's page relay (the person's
+// click in the cmux app), so the store sends them there, never here.
 import { pageError } from "../shared/pageClient";
 import type { DaemonSocket } from "../shared/daemonSocket";
-import type { HomeChief, HomeChiefProfile, HomeParticipant } from "./types";
+import type { HomeChief, HomeChiefNames, HomeParticipant } from "./types";
 
 type Json = Record<string, unknown>;
 
@@ -38,16 +39,6 @@ export function chief(raw: Json): HomeChief {
   };
   if (avatar && typeof avatar.sha256 === "string") result.avatar = avatar.sha256;
   return result;
-}
-
-/** The record's wire fields of a profile (only the text a page may write). */
-export function profileFields(profile: HomeChiefProfile): Json {
-  return {
-    display_name: profile.name.trim(),
-    role: profile.role.trim(),
-    personality: profile.personality,
-    instructions: profile.instructions,
-  };
 }
 
 /** A Chief as a conversation participant (the id is the participant id). */
@@ -164,19 +155,11 @@ export class DaemonPeople {
     }
   }
 
-  async createChief(profile: HomeChiefProfile, key: string): Promise<HomeChief> {
-    const made = await this.local.operation<{ value: Json }>(
-      "chief.profile.create",
-      { ...selectors(), ...profileFields(profile) },
-      key,
-    );
-    return chief(made.value);
-  }
-
-  async updateChief(id: string, profile: HomeChiefProfile, key: string): Promise<HomeChief> {
+  /** A Chief's name and role: what a page changes without the person's gesture. */
+  async renameChief(id: string, names: HomeChiefNames, key: string): Promise<HomeChief> {
     const changed = await this.local.operation<{ value: Json }>(
       "chief.profile.update",
-      { ...selectors(), chief: id, ...profileFields(profile) },
+      { ...selectors(), chief: id, display_name: names.name.trim(), role: names.role.trim() },
       key,
     );
     return chief(changed.value);

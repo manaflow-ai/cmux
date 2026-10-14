@@ -40,8 +40,7 @@ export const HomeOps = {
   invite: "cmux.home.invite",
   /** The Chief records (`chief.profile.list`). */
   chiefs: "cmux.home.chiefs",
-  chiefCreate: "cmux.home.chiefCreate",
-  /** Profile text of a Chief (never its grant: that needs the person's gesture in the app). */
+  /** A Chief's name and role (the rest needs the person's gesture in the app: the host). */
   chiefUpdate: "cmux.home.chiefUpdate",
   chiefAvatarSet: "cmux.home.chiefAvatarSet",
   /** A Chief's picture, base64 (`{mediaType, data}`), or null. */
@@ -83,13 +82,16 @@ export interface HomeChief {
   avatar?: string;
 }
 
-/** The profile text the page writes (`cmux.home.chiefCreate`, `cmux.home.chiefUpdate`). */
+/** A Chief's profile text as the sheet edits it. */
 export interface HomeChiefProfile {
   name: string;
   role: string;
   personality: string;
   instructions: string;
 }
+
+/** What a page changes without the person's gesture (`cmux.home.chiefUpdate`). */
+export type HomeChiefNames = Pick<HomeChiefProfile, "name" | "role">;
 
 /** A Chief's grant (tools, harnesses): the person changes it only with a click in the cmux app. */
 export interface HomeChiefGrant {
