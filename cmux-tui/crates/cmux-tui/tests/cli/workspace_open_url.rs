@@ -261,7 +261,9 @@ fn focus(server: &HeadlessServer, pane: &Value, key: &str) {
 #[test]
 fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     let server = HeadlessServer::start("open-url-dock");
-    let _provider = browser_provider(&server);
+    let (endpoint, navigations) = wedged_cdp_endpoint("https://example.com/one");
+    let mut provider = Line::open(&server);
+    register_provider(&mut provider, 1, &endpoint, json!([]));
     let (workspace, dock, right_panes) = docked_workspace(
         &server,
         "open-url-dock",
@@ -316,20 +318,39 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(value(&replayed)["tab_id"], first_open["tab_id"], "{replayed}");
     assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a replay made a tab");
 
-    // The next link reuses that browser tab: its navigation is queued (the
-    // stand-in provider never gives it a page, so the browser loads the link
-    // when it attaches) and no second tab is made.
-    let again = v2(
-        &server,
-        "workspace.open_url",
-        json!({"workspace": workspace, "url": "https://example.com/two"}),
-        Some("open-url-dock-2"),
-    );
-    assert_eq!(value(&again)["reused"], true, "{again}");
-    assert_eq!(value(&again)["tab_id"], first_open["tab_id"], "{again}");
+    // The next links reuse that browser tab while it is still starting (the
+    // provider has not published its page): each navigation is queued, no
+    // second tab is made, and the newer link supersedes the older one.
+    for (url, key) in [
+        ("https://example.com/two", "open-url-dock-2"),
+        ("https://example.com/three", "open-url-dock-3"),
+    ] {
+        let again = v2(
+            &server,
+            "workspace.open_url",
+            json!({"workspace": workspace, "url": url}),
+            Some(key),
+        );
+        assert_eq!(value(&again)["reused"], true, "{again}");
+        assert_eq!(value(&again)["tab_id"], first_open["tab_id"], "{again}");
+    }
     let last = screen(&server, &workspace);
-    assert_eq!(tab_count(&last), tab_count(&after), "the second link made a tab: {last}");
+    assert_eq!(tab_count(&last), tab_count(&after), "a later link made a tab: {last}");
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
+
+    // The provider publishes the page: the browser attaches and loads the
+    // newest pending link, never the superseded one.
+    let tab = first_open["tab_id"].clone();
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
+    assert_eq!(next_navigation(&navigations), "https://example.com/three");
+    let later = navigations.recv_timeout(Duration::from_millis(500)).ok();
+    assert_ne!(later.as_deref(), Some("https://example.com/two"), "a superseded link loaded");
 }
 
 /// A left-edge dock without the agent chat role is not the right side either.
@@ -594,16 +615,18 @@ fn open_url_in_an_empty_home_makes_a_frontend_tab() {
 /// The page the wedged browser below shows when it attaches.
 const WEDGED_PAGE: &str = "https://example.com/wedged";
 
-/// A stand-in cmux-browser endpoint whose page never answers
-/// `Page.navigate` (a slow site, or a stuck renderer): it answers the attach
-/// steps and holds every navigation.
-fn wedged_cdp_endpoint() -> String {
+/// A stand-in cmux-browser endpoint whose page shows `page` when it attaches
+/// and never answers `Page.navigate` (a slow site, or a stuck renderer): it
+/// answers the attach steps, holds every navigation and reports its URL.
+fn wedged_cdp_endpoint(page: &'static str) -> (String, mpsc::Receiver<String>) {
+    let (navigations, reported) = mpsc::channel();
     use tokio_tungstenite::tungstenite::{self, Message};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { return };
+            let navigations = navigations.clone();
             std::thread::spawn(move || {
                 let Ok(mut socket) = tungstenite::accept(stream) else { return };
                 let mut held = Vec::new();
@@ -616,12 +639,14 @@ fn wedged_cdp_endpoint() -> String {
                     let id = request["id"].clone();
                     let result = match request["method"].as_str().unwrap_or_default() {
                         "Page.navigate" => {
+                            let url = request["params"]["url"].as_str().unwrap_or_default();
+                            let _ = navigations.send(url.to_string());
                             held.push(id);
                             continue;
                         }
                         "Target.attachToTarget" => json!({"sessionId": "session-1"}),
                         "Page.getFrameTree" => json!({"frameTree": {"frame": {
-                            "id": "main-frame", "loaderId": "loader-1", "url": WEDGED_PAGE,
+                            "id": "main-frame", "loaderId": "loader-1", "url": page,
                         }}}),
                         _ => json!({}),
                     };
@@ -633,7 +658,34 @@ fn wedged_cdp_endpoint() -> String {
             });
         }
     });
-    format!("ws://{address}/devtools/browser/wedged")
+    (format!("ws://{address}/devtools/browser/wedged"), reported)
+}
+
+/// The next navigation the endpoint reports, within 10 seconds.
+fn next_navigation(navigations: &mpsc::Receiver<String>) -> String {
+    navigations.recv_timeout(Duration::from_secs(10)).expect("no Page.navigate reached the page")
+}
+
+/// `register-browser-provider` for `endpoint` on the provider's connection
+/// (its lease lasts as long as the connection), publishing `targets`.
+fn register_provider(provider: &mut Line, id: u64, endpoint: &str, targets: Value) {
+    let reply = provider.send(&json!({"id": id, "cmd": "register-browser-provider",
+                                      "provider_id": "open-url-cdp", "endpoint": endpoint,
+                                      "authentication": "none", "targets": targets}));
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+/// Wait until the browser tab `tab` of `workspace` is live.
+fn wait_live(server: &HeadlessServer, workspace: &str, tab: &Value) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let shown = screen(server, workspace);
+        if tab_by_resource(&shown, tab)["browser_status"] == "live" {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the browser never went live: {shown}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// A link into a daemon-rendered browser tab whose page never answers a
@@ -643,15 +695,9 @@ fn wedged_cdp_endpoint() -> String {
 #[test]
 fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
     let server = HeadlessServer::start("open-url-wedged");
-    let endpoint = wedged_cdp_endpoint();
-    // The provider's lease lasts as long as its connection.
+    let (endpoint, navigations) = wedged_cdp_endpoint(WEDGED_PAGE);
     let mut provider = Line::open(&server);
-    let register = |id: u64, targets: Value| {
-        json!({"id": id, "cmd": "register-browser-provider", "provider_id": "open-url-wedged",
-               "endpoint": endpoint, "authentication": "none", "targets": targets})
-    };
-    let registered = provider.send(&register(1, json!([])));
-    assert_eq!(registered["ok"], true, "{registered}");
+    register_provider(&mut provider, 1, &endpoint, json!([]));
     let created = v2(
         &server,
         "workspace.create",
@@ -671,17 +717,13 @@ fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
     assert_eq!(first["reused"], false, "{first}");
     let tab = first["tab_id"].clone();
     // The provider publishes the tab's page: the browser goes live.
-    let published = provider.send(&register(2, json!([{"tab_id": tab, "target_id": "target-1"}])));
-    assert_eq!(published["ok"], true, "{published}");
-    let deadline = Instant::now() + Duration::from_secs(20);
-    loop {
-        let shown = screen(&server, &workspace);
-        if tab_by_resource(&shown, &tab)["browser_status"] == "live" {
-            break;
-        }
-        assert!(Instant::now() < deadline, "the browser never went live: {shown}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
 
     let (second, elapsed) = open("https://example.com/next");
     assert!(
@@ -694,6 +736,8 @@ fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
     let second = json_output(&second)["value"].clone();
     assert_eq!(second["reused"], true, "{second}");
     assert_eq!(second["tab_id"], tab, "{second}");
+    // The link reaches the page.
+    assert_eq!(next_navigation(&navigations), "https://example.com/next");
     // The daemon still answers.
     let listed = json_cli(&server, &["workspace", "list"]);
     assert_success(&listed);
