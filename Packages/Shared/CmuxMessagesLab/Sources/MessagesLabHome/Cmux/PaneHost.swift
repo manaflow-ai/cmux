@@ -339,6 +339,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
+    /// Esc with the key focus on the transcript clears its text selection (Host.swift installEscape).
+    private var selectionEscape: Any?
     /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
     private var pickerLift: NSView?
     private var pickerEmoji: NSView?
@@ -381,6 +383,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         wake.cancel()
         hold.cancel()
         if let m = pickerKeys { NSEvent.removeMonitor(m) }
+        if let m = selectionEscape { NSEvent.removeMonitor(m) }
     }
 
     /// cmux: install the window view over the adapter's projection (the
@@ -446,6 +449,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
         if intents?.canReply == true { swipe.install(); thread.install() }
+        installSelectionEscape()
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -595,9 +599,36 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func escape() {
         if picker != nil { closePicker(); return }
         // In the field a working agent stops first (one Esc), as before threads; then the
-        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
+        // transcript selection, then the thread view. The pane's Esc monitors (focus on the
+        // transcript) only clear the selection or close the view.
         if isWorking { onStop?(); return }
+        if clearSelectionOnEscape() { return }
         _ = thread.escape()
+    }
+
+    /// Real Messages (double-click references): with no thread or reply view open, Esc clears a
+    /// transcript text selection and the field's caret comes back (27 ms after the key). True
+    /// when it did (Host.swift escape).
+    private func clearSelectionOnEscape() -> Bool {
+        guard store?.state.ui.openThread == nil, !selection.isEmpty else { return false }
+        selection.clear()
+        focusCompose()
+        return true
+    }
+
+    /// Host.swift's Esc monitor, for the selection: the field handles its own Esc (escape()),
+    /// and an open thread or reply view has PaneThread's. cmux: only while the key focus is in
+    /// this pane and the pane shows (a terminal, the sidebar or the palette keep their Esc). An
+    /// open context menu's Esc is in the menu's window, so the menu keeps it (MenuHighlight).
+    private func installSelectionEscape() {
+        guard selectionEscape == nil else { return }
+        selectionEscape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard e.keyCode == 53, let self, self.picker == nil, e.window != nil, e.window === self.host.window,
+                  !self.host.isHiddenOrHasHiddenAncestor,
+                  let focus = self.window?.firstResponder as? NSView, focus.isDescendant(of: self.host),
+                  focus !== self.demo?.compose.textView.view else { return e }
+            return self.clearSelectionOnEscape() ? nil : e
+        }
     }
 
     // MARK: Drops
