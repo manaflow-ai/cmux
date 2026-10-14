@@ -336,6 +336,7 @@ extension AuthCoordinator {
                 )
                 return
             }
+            noteTeamScopeFailure(error)
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
                 ?? .preserveCachedSession
             authLog.error(
