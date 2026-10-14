@@ -197,6 +197,7 @@ jobs:
       published_sha: ${{ steps.decide.outputs.published_sha }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
       notary_paused: ${{ steps.decide.outputs.notary_paused }}
+      import_paused: ${{ steps.decide.outputs.import_paused }}
       notary_test: ${{ steps.decide.outputs.notary_test }}
       notary_test_browser_data: ${{ steps.decide.outputs.notary_test_browser_data }}
       no_publish: ${{ steps.decide.outputs.no_publish }}
@@ -686,6 +687,7 @@ jobs:
               core.notice('nightly-next notary submissions are paused (repository variable NIGHTLY_NEXT_SUBMISSIONS_PAUSED=1): this run builds and signs, makes no notary submission and publishes nothing.');
             }
             core.setOutput('notary_paused', notaryPaused ? 'true' : 'false');
+            core.setOutput('import_paused', importPaused ? 'true' : 'false');
             core.setOutput('notary_test', notaryTest ? 'true' : 'false');
             // Kept name: the browser-data absence proof runs for this output.
             core.setOutput('notary_test_browser_data', browserDataOut ? 'true' : 'false');
@@ -2771,6 +2773,35 @@ jobs:
           ./scripts/smoke-signed-app-cli.sh \
             "$CHANNEL_APP_PATH"
 
+      # When Apple's queue is slow the wait below can hold the feed for hours,
+      # so teammates get the Developer ID-signed app from the run page now.
+      # It is not notarized: open it with right-click > Open, or run
+      # `xattr -dr com.apple.quarantine "<app>"` after unzipping. The
+      # repository is public, so notary tests and builds held by
+      # NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
+      # upload an app. A failed zip or upload never blocks notarization.
+      - name: Zip the signed app before notarization
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        continue-on-error: true
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/signed-unnotarized"
+          mkdir -p "$out"
+          ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
+          ls -l "$out"
+
+      - name: Upload the signed app before notarization
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
+          path: ${{ runner.temp }}/signed-unnotarized/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
         if: needs.decide.outputs.notary_paused == 'true'
         run: |
@@ -3778,11 +3809,18 @@ jobs:
       contents: write
       issues: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 80
+    # TEMPORARY (hq-a3, 2026-10-14; bead cx-x7hwx follow-up): Apple's notary
+    # queue takes 90+ min, so this copy waits up to
+    # NIGHTLY_LEGACY_NOTARY_WAIT_MIN (default 150) minutes inside a 200-minute
+    # job. The next nightly-next run can wait that long behind it in the
+    # workflow concurrency group. Lower the variable (and this limit) when
+    # Apple's queue is normal again.
+    timeout-minutes: 200
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      LEGACY_NOTARY_WAIT_MIN: ${{ vars.NIGHTLY_LEGACY_NOTARY_WAIT_MIN || '150' }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3900,10 +3938,12 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
+          [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] && [ "$LEGACY_NOTARY_WAIT_MIN" -ge 10 ] && [ "$LEGACY_NOTARY_WAIT_MIN" -le 165 ] \
+            || { echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2; exit 1; }
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
           CMUX_CHANNEL=nightly \
-            CMUX_NOTARY_WAIT_TIMEOUT=45m \
+            CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT_MIN}m" \
             CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
             CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
             CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/legacy.notarization.state" \
