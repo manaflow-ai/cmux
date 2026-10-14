@@ -133,6 +133,8 @@ extension LayoutStyle {
             style.focusRing.enabled = false
             style.attention.width = 0
         }
+        // Floating panes: no ring; the dim marks the focused pane (`inactiveDim`).
+        if Metrics.floatingPanesHideFocusRing { style.focusRing.enabled = false }
         style.paneBorderColor = DesignSettings.shared.paneChrome.borderColor
         style.paneBorderWidth = Metrics.paneBorderWidth
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.

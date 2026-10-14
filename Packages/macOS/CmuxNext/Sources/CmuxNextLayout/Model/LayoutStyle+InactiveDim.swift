@@ -9,7 +9,9 @@ extension LayoutStyle {
     /// indicator asked for the border and nothing else.
     func inactiveDim(dimsInactive: Bool) -> (amount: CGFloat, fill: PaneOverlayView.DimFill) {
         if unfocusedPaneDim.amount > 0 { return (unfocusedPaneDim.amount, .ghostty(unfocusedPaneDim.fill)) }
-        let dims = dimsInactive || (!drawsLines && focusIndicator == .border)
+        // Floating panes with the ring off dim like a border-only indicator without lines.
+        let ringless = floatingPanes && !focusRing.enabled && focusIndicator.marksBorder
+        let dims = dimsInactive || (!drawsLines && focusIndicator == .border) || ringless
         return (dims ? inactivePaneDimming : 0, .pane)
     }
 }

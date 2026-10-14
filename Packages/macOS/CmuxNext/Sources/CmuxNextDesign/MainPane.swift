@@ -1,4 +1,5 @@
 public import CoreGraphics
+import AppKit
 public import Foundation
 
 /// The curved main pane (cx-rkgu, Leo 2026-10-10): the workspace content
@@ -49,6 +50,11 @@ extension Metrics {
     /// own card, tab strip included, left unshaded on the shaded chrome
     /// (`MainPaneChromeShadeView`); the main pane itself draws no card.
     public static var floatingPanes: Bool { mainPaneCurved && DesignSettings.shared.chromeStyle.floatingPanes }
+    /// Floating panes draw no focus ring (no outline anywhere; the other
+    /// panes' dim marks focus), unless the system asks for more contrast.
+    public static var floatingPanesHideFocusRing: Bool {
+        floatingPanes && !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+    }
     /// Inset of the main pane from the sidebar, titlebar and window edges;
     /// 0 when the pane is edge to edge. Floating panes: the pane padding
     /// (unless Debug Settings set the gutter), so the gap at the edges and
