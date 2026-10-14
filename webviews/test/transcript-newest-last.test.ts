@@ -123,8 +123,7 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   await new Promise((resolve) => setTimeout(resolve, 0));
   return { client, rows: () => rows };
 }
-const texts = (rows: AcpmuxRow[]) =>
-  rows.filter((row) => row.text).map((row) => `${row.kind}:${row.text}`);
+const texts = (rows: AcpmuxRow[]) => rows.filter((row) => row.text).map((row) => `${row.kind}:${row.text}`);
 
 test("a reply without message ids after a steer draws below the steer", async () => {
   const daemon = fakeDaemon(
