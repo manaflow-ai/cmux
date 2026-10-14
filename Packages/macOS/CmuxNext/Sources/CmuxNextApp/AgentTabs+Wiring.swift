@@ -174,18 +174,12 @@ extension AgentTabStore {
         // A new chat on another machine with no folder in its seed starts in a folder of its
         // workspace there (a terminal's), never a folder of this Mac.
         tabs.remoteFolder = { [weak services] key in
-            guard let services, let (_, pane) = services.locateTab(key),
-                  let workspace = services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle) else { return nil }
-            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.firstTabFolder
         }
         tabs.remoteFolders = { [weak services] key in
             guard let services, let (tab, _) = services.locateTab(key) else { return [] }
-            let store = services.machines.daemon(forTab: tab).store
-            var folders: [String] = []
-            for folder in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
-                where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
-            return folders
+            return services.machines.daemon(forTab: tab).store.tabFolders
         }
         tabs.remoteHost = { [weak services, weak tabs] key in
             guard let services, let tabs, let (tab, _) = services.locateTab(key), let record = tab.agentSession else { return nil }
@@ -204,7 +198,7 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in
