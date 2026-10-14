@@ -91,19 +91,27 @@ fn docked_workspace(
     (workspace, dock_pane, right_side)
 }
 
-/// `pane.focus` (cmux.protocol/2) of the raw pane `id` in `name`.
-fn focus(server: &HeadlessServer, name: &str, id: &Value) {
-    let resource = pane(&screen(server, name), id)["resource_id"].clone();
-    let request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "dock-tab-focus",
-                         "operation": "pane.focus", "idempotency_key": format!("dock-tab-focus-{}", resource.as_str().unwrap()),
-                         "params": {"machine": "current", "session": "current", "pane": resource}});
+/// One `cmux.protocol/2` request with `key`; the whole reply.
+fn v2(server: &HeadlessServer, operation: &str, params: Value, key: &str) -> Value {
+    let mut fields = json!({"machine": "current", "session": "current"});
+    fields.as_object_mut().unwrap().extend(params.as_object().unwrap().clone());
+    let request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "dock-tab",
+                         "operation": operation, "idempotency_key": key, "params": fields});
     let stream = transport::connect(&server.socket).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
     writeln!(writer, "{request}").unwrap();
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
-    let reply: Value = serde_json::from_str(&line).unwrap();
+    serde_json::from_str(&line).unwrap_or_else(|_| panic!("{operation}: no JSON reply: {line}"))
+}
+
+/// `pane.focus` of the raw pane `id` in `name` (each call its own key).
+fn focus(server: &HeadlessServer, name: &str, id: &Value) {
+    let resource = pane(&screen(server, name), id)["resource_id"].clone();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let reply =
+        v2(server, "pane.focus", json!({"pane": resource}), &format!("dock-tab-focus-{nanos}"));
     assert_eq!(reply["ok"], true, "{reply}");
 }
 
@@ -175,4 +183,39 @@ fn without_a_dock_a_tab_goes_to_the_focused_pane() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let after = screen(&server, "plain");
     assert_eq!(tabs(&after, &left), tabs(&before, &left) + 1, "{after}");
+}
+
+/// A retry with the same key after the focus left the dock replays the first
+/// tab (the idempotency fingerprint is the request as sent, not the pane the
+/// daemon chose).
+#[test]
+fn a_retry_after_the_focus_moved_replays_the_same_tab() {
+    let server = HeadlessServer::start("dock-tab-retry");
+    let name = "dock-tab-retry";
+    let (workspace, dock_pane, right) = docked_workspace(
+        &server,
+        name,
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    focus(&server, name, &dock_pane);
+    let first =
+        v2(&server, "tab.create_terminal", json!({"workspace": workspace}), "dock-tab-retry-1");
+    assert_eq!(first["ok"], true, "{first}");
+    let after = screen(&server, name);
+    assert_eq!(tabs(&after, &dock_pane), 1, "a new tab went into the chat dock: {after}");
+    focus(&server, name, &right[0]);
+    let again =
+        v2(&server, "tab.create_terminal", json!({"workspace": workspace}), "dock-tab-retry-1");
+    assert_eq!(again["ok"], true, "the retry did not replay: {again}");
+    assert_eq!(again["result"]["value"]["tab_id"], first["result"]["value"]["tab_id"], "{again}");
+    let last = screen(&server, name);
+    let count = |screen: &Value| -> usize {
+        screen["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["tabs"].as_array().unwrap().len())
+            .sum()
+    };
+    assert_eq!(count(&last), count(&after), "the retry made a second tab: {last}");
 }

@@ -231,12 +231,21 @@ struct RightPane {
 /// or screen and the workspace's focused pane is its left chat dock: the
 /// right-side pane a link would open in (focused most recently, then layout
 /// order), so a tab never lands in the chat dock (cx-ebm.59.5). `None` keeps
-/// the focused pane (no dock focused, or no right side).
-pub(super) fn right_pane_beside_focused_dock(
+/// the focused pane (no dock focused, no right side, or a request that names
+/// anything below the workspace).
+pub(crate) fn right_pane_beside_focused_dock(
     mux: &Mux,
     selectors: &ResourceSelectors,
 ) -> Option<PanePublicId> {
-    if selectors.workspace.is_none() || selectors.screen.is_some() || selectors.pane.is_some() {
+    let below = [
+        &selectors.screen,
+        &selectors.pane,
+        &selectors.tab,
+        &selectors.terminal,
+        &selectors.browser,
+        &selectors.frontend_projection,
+    ];
+    if selectors.workspace.is_none() || below.iter().any(|selector| selector.is_some()) {
         return None;
     }
     let workspace =

@@ -40,7 +40,7 @@ public final class ChiefProfilePageRelay {
     private let identity = PageRelayIdentity(page: "home-channels")
     private let wake = RetryWake(owner: "ChiefProfilePageRelay")
     private var relay: (connection: DaemonConnection, socket: String)?
-    private var starting: Task<DaemonConnection, any Error>?
+    private var starting: (task: Task<DaemonConnection, any Error>, socket: String)?
     /// The event uptime of the last gesture a call spent.
     private var spentGesture: TimeInterval?
 
@@ -77,7 +77,8 @@ public final class ChiefProfilePageRelay {
     /// The page relay connection to the owner at `socket`; a new one when the owner moved.
     private func relayConnection(socket: String) async throws -> DaemonConnection {
         if let relay, relay.socket == socket, await relay.connection.isReady { return relay.connection }
-        if let starting { return try await starting.value }
+        // A connect to the same owner in flight is shared; one to an owner that moved is not.
+        if let starting, starting.socket == socket { return try await starting.task.value }
         let configuration = DaemonConnection.Configuration(
             clientName: "cmux-next-chief-profile-relay", requiredCapabilities: [], retryWake: wake,
             terminalEnvironment: nil, role: .pageRelay, relayIdentity: identity)
@@ -87,8 +88,8 @@ public final class ChiefProfilePageRelay {
             try await connection.start()
             return connection
         }
-        starting = task
-        defer { starting = nil }
+        starting = (task, socket)
+        defer { if starting?.socket == socket { starting = nil } }
         let connection = try await task.value
         await relay?.connection.close()
         relay = (connection, socket)

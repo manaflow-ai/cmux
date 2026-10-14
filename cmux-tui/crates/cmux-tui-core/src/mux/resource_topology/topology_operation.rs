@@ -386,6 +386,19 @@ impl Mux {
             "selectors": selectors,
             "fields": fingerprint_fields,
         });
+        // A tab made in a workspace whose chat dock has the focus goes to the
+        // right side, never into the dock (cx-ebm.59.5). The fingerprint keeps
+        // the selectors the caller sent, so a retry with the same key replays
+        // after the focus moved.
+        let mut selectors = selectors;
+        if matches!(
+            operation,
+            ResourceOperation::TabCreateTerminal | ResourceOperation::TabCreateBrowser
+        ) && let Some(pane) =
+            crate::resource_router::right_pane_beside_focused_dock(self, &selectors)
+        {
+            selectors.pane = Some(pane.as_str().to_string());
+        }
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?

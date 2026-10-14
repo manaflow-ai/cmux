@@ -300,17 +300,8 @@ fn create_workspace(
 fn dispatch_exact_topology_mutation(
     mux: &Arc<Mux>,
     operation: ResourceOperation,
-    mut request: ParsedResourceRequest,
+    request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
-    // A tab made in a workspace whose chat dock has the focus goes right of it.
-    if matches!(
-        operation,
-        ResourceOperation::TabCreateTerminal | ResourceOperation::TabCreateBrowser
-    ) && let Some(pane) =
-        super::open_url::right_pane_beside_focused_dock(mux, &request.selectors)
-    {
-        request.selectors.pane = Some(pane.as_str().to_string());
-    }
     let mutation = mutation(&request)?;
     let expected_revision = expected_revision(&request.fields)?;
     let commit = mux
