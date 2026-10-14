@@ -80,6 +80,7 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
+                mode: None,
                 prefer: vec![],
                 env: p.env.clone(),
             });
