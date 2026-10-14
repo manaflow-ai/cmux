@@ -61,12 +61,14 @@ struct SubagentBeside {
         guard let (_, chatPane) = services.locateTab(chat), let chatController = services.paneController(for: chatPane) else { return false }
         let beside = ChatBeside.besidePane(of: chatPane, in: services.daemon(for: chatPane).store).flatMap(services.paneController(for:))
         let target = beside ?? chatController
-        guard let pending = try? tabs.open(in: target.pane.handle, of: target.daemon, session: session) else { return false }
         // With no pane there: made unselected in the chat's pane, then moved out (or the chat docks).
+        // Placed before the open: the new tab is a chat of the same session, so once in the pane a
+        // lone chat would no longer read as lone and would not dock.
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat), origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = true
         let placed = beside == nil ? AgentBesidePlacement.placed(invocation, in: chatController, then: nil) : nil
+        guard let pending = try? tabs.open(in: target.pane.handle, of: target.daemon, session: session) else { return false }
         beside?.selectWhenReportedKeepingFocus(surface: pending.surface)
         // task-owner: one tab creation, then its placement beside the chat
         Task { @MainActor in
