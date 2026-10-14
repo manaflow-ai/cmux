@@ -19,7 +19,7 @@ virtual display). Then the same reads at 2x, right after the return and with the
 At each scale, one display frame after the change: the view renders at the window's scale (`debug.home.drive
 {action: geometry}`: renderScale, cells, compose bar, header) and no visible row shows a bitmap of the old scale.
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); ends with the DEBUG quit fixture,
-the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
+endAgents, the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
 
 Usage: home-scale-change.py --tag <tag> --ml <MessagesLab source dir with tools/interactions/vdisplay.m> [--out DIR]
 """
@@ -236,6 +236,7 @@ finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+    rpc("action.run", {"id": "endAgents"}, timeout=5)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
     acp = f"{home}/.acpmux/tags/{opts.tag}"
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
