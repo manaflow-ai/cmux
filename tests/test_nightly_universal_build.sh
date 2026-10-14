@@ -966,6 +966,31 @@ if python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-target.py" "$legacy_dir/nex
   echo "FAIL: a cmux NEXT item whose enclosure is not its own DMG must stop the cmux NIGHTLY-identity job"
   exit 1
 fi
+# After an attempt: retire the continued submission, and count a failure, only
+# when Apple's answer makes it final. A stapled ticket counts as Apple's answer
+# (notarize-nightly-dmg.sh staples an Accepted continuation and writes no log).
+legacy_resolve() {  # <expected "retire real"> <message> <args...>
+  local expected="$1" message="$2"; shift 2
+  local actual
+  actual="$(python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-resolve.py" "$@" \
+    | awk -F= '{v[$1]=$2} END {printf "%s %s", v["retire"], v["real"]}')"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+}
+legacy_resolve "true true" "an Accepted continuation whose later check failed (stapled ticket) must be retired and counted" \
+  --action continue --pending false --notarize failure --published false --answered true
+legacy_resolve "false true" "a continuation that notarized but failed only to publish must be kept for the next run" \
+  --action continue --pending false --notarize success --published false --answered true
+legacy_resolve "true false" "a published continuation must be retired" \
+  --action continue --pending false --notarize success --published true --answered true
+legacy_resolve "false false" "a continuation that failed before Apple answered must be kept and not counted" \
+  --action continue --pending false --notarize failure --published false --answered false
+legacy_resolve "false false" "a submission still in Apple's queue must be kept and never counted (even if keeping it failed)" \
+  --action new --pending true --notarize success --published false --answered false
+legacy_resolve "false true" "a failed new attempt must count" \
+  --action new --pending false --notarize failure --published false --answered true
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.
@@ -986,8 +1011,10 @@ for expected in \
   "name: cmux-nightly-identity-pending-meta" \
   "name: cmux-nightly-identity-pending-bundle" \
   "Build \${process.env.BUILD} failed:" \
-  "if: failure() && steps.classify.outputs.real == 'true'" \
-  ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY"; do
+  "if: failure() && steps.resolve.outputs.real != 'false'" \
+  ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
+  "scripts/ci/nightly-next-legacy-resolve.py" \
+  'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
   if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
     echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
     exit 1
@@ -997,7 +1024,8 @@ for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6" \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
-  'grep -c "^Build $build failed:"'; do
+  'grep -c "^Build $build failed:"' \
+  "for candidate in"; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
     exit 1
