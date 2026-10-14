@@ -129,9 +129,24 @@ impl Mux {
         self.pairing.authenticate(credential)
     }
 
+    /// A credential of the pairing store presented on a WebSocket handshake
+    /// whose Origin names `page` (none: no page Origin).
+    pub fn authenticate_page_handshake(
+        &self,
+        credential: &str,
+        page: Option<&str>,
+    ) -> crate::pairing::CredentialMatch {
+        self.pairing.authenticate_for(credential, page)
+    }
+
     /// A page credential for the verified app (`page-credential`): `(credential, seconds)`.
     pub fn issue_page_credential(&self) -> anyhow::Result<(String, u64)> {
         self.pairing.issue().map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+
+    /// A page credential bound to one page (`page-credential {page}`).
+    pub fn issue_scoped_page_credential(&self, page: &str) -> anyhow::Result<(String, u64)> {
+        self.pairing.issue_for_page(page).map_err(|error| anyhow::anyhow!(error.to_string()))
     }
 
     pub fn pending_pairings(&self) -> Vec<PairingChallenge> {

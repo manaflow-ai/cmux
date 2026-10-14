@@ -71,7 +71,7 @@
   margin-left: -14px;
   border-radius: 50%;
   background: var(--agent-text);
-  box-shadow: 0 1px 3px var(--agent-shadow);
+  box-shadow: var(--elevation-1);
   pointer-events: none;
   transition: left 160ms ease;
 }

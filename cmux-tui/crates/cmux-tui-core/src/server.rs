@@ -1667,7 +1667,7 @@ enum Command {
     CloudSessionClear,
     CloudSessionStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
-    PageCredential,
+    PageCredential(page_credential::PageCredentialParams),
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
     /// owner's loopback page listener on request.
     WsListen(page_listener::WsListenParams),
@@ -3546,7 +3546,7 @@ fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
-        Command::PageCredential => page_credential::page_credential(mux, client),
+        Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
