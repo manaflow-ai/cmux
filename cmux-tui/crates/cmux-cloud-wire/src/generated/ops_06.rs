@@ -794,7 +794,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// A participant's avatar with its bytes, or null. Any signed-in caller may read it (like a display name).
+    /// A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant.
     ParticipantAvatarGetOp {
         name: "participant.avatar.get",
         class: Read,
@@ -811,6 +811,8 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ParticipantAvatarGetParams {
     pub participant_id: ParticipantId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<ConversationId>,
 }
 
 wire_enum! {
@@ -841,7 +843,7 @@ wire_errors! {
     /// The error codes participant.avatar.get declares.
     ParticipantAvatarGetError {
         AuthForbidden = "auth.forbidden",
-        UnknownParticipant = "unknown_participant",
+        SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
     }
 }
