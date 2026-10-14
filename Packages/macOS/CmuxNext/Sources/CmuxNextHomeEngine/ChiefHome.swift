@@ -17,7 +17,8 @@ public import Foundation
 /// `com.cmuxterm.app.nightly.cmux-next`, RC, release) has its own home, so
 /// two NIGHTLY identities that run at the same time never share one Chief.
 /// A build's own home starts empty and never imports the old per-tag Chiefs
-/// (`ChiefMigration` runs only for a shared home).
+/// (`ChiefMigration` runs only for NIGHTLY's home, after its one-time
+/// backup, `ChiefAdoption`).
 ///
 /// Resolution, first match wins:
 /// 1. `CMUX_NEXT_CHIEF_HOME` (or the older `CMUX_NEXT_MUX_HOME`): that
@@ -64,8 +65,9 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     }
 
     /// Whether this home may take in the old per-tag Chiefs (`ChiefMigration`):
-    /// only a shared home (rule 1, or NIGHTLY's), never a DEV build's own.
-    public var importsOldChiefs: Bool { !isolated && !Self.hasOwnHome(bundleID: buildID) }
+    /// only NIGHTLY's (per-build isolation S6, cx-is1kf.7), never a build's
+    /// own home, an explicit test home (rule 1) or a home of no bundle.
+    public var importsOldChiefs: Bool { !isolated && buildID == Self.nightlyBundleID }
 
     /// `--mux-home` of the brain host: OptChat memory under `optchat/`,
     /// the single-writer host lock at `state/host.lock`.

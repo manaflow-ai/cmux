@@ -155,9 +155,11 @@ class CmuxNextWiring(unittest.TestCase):
                                  CI_SIDE_LANE_RUNNER=SIDE)
         context["vars"].pop("MACOS_RUNNER_PR")
         head = "someone/cmux" if fork else "manaflow-ai/cmux"
+        # PR Mac jobs run only with the full-ci label (the batch integration PR).
         context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                  triggering_actor=triggering_actor,
-                                 event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+                                 event={"pull_request": {"head": {"repo": {"full_name": head}},
+                                                         "labels": [{"name": "full-ci"}]}})
         outputs = {} if fallback_jobs is None else {"fallback_jobs": fallback_jobs, "runner": runner,
                                                     "gui_runner": GUI if runner else ""}
         # path_route (#17164) gates every Mac job; these cases are native changes.
@@ -180,7 +182,7 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertIn(self.PLACEMENT, job["needs"] if isinstance(job["needs"], list) else [job["needs"]])
                 # A failed placement job must not skip the Mac jobs: they keep today's route.
-                self.assertTrue(job["if"].startswith("${{ !cancelled() && "), job["if"])
+                self.assertIn("!cancelled() && ", job["if"])
                 self.assertIn("needs.macos-placement.outputs." + ("gui_runner" if name in GUI_JOBS else "runner"),
                               job["runs-on"])
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
@@ -295,15 +297,26 @@ class CmuxNextWiring(unittest.TestCase):
             with self.subTest(job=name):
                 concurrency = jobs[name].get("concurrency")
                 self.assertIsInstance(concurrency, dict, f"{name} has no job-level concurrency")
-                self.assertIs(concurrency["cancel-in-progress"], False)
+                # A push never cancels a running Mac job; a newer PR head may.
+                cancel = concurrency["cancel-in-progress"]
+                self.assertFalse(evaluate(cancel, self.push("101")) if isinstance(cancel, str) else cancel)
                 group = concurrency["group"]
                 first, second = evaluate(group, self.push("101")), evaluate(group, self.push("102"))
                 self.assertEqual(first, second)
                 push_groups[name] = first
-                for event_name in ("pull_request", "workflow_dispatch"):
-                    one, other = (evaluate(group, self.push(run_id, event_name)) for run_id in ("101", "102"))
-                    self.assertNotEqual(one, other, event_name)
-                    self.assertNotEqual(one, first, event_name)
+                # Dispatch runs keep a group per run. Pull request runs are kept
+                # apart per run or, for jobs that coalesce stale heads, per pull
+                # request; either way two pull requests never share a group.
+                one, other = (evaluate(group, self.push(run_id, "workflow_dispatch")) for run_id in ("101", "102"))
+                self.assertNotEqual(one, other, "workflow_dispatch")
+                self.assertNotEqual(one, first, "workflow_dispatch")
+                pulls = []
+                for run_id, number in (("101", 1), ("102", 2)):
+                    context = self.push(run_id, "pull_request")
+                    context["github"]["event"] = {"pull_request": {"number": number}}
+                    pulls.append(evaluate(group, context))
+                self.assertNotEqual(pulls[0], pulls[1], "pull_request")
+                self.assertNotEqual(pulls[0], first, "pull_request")
         self.assertEqual(len(set(push_groups.values())), len(JOBS))
 
     def test_push_runs_upload_no_rescue_watch_marker(self):
