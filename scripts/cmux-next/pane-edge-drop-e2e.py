@@ -85,14 +85,6 @@ def mouse(**params):
     return rpc("debug.mouse", params)
 
 
-def winner():
-    return str((rpc("debug.tab_drag") or {}).get("winner"))
-
-
-def splits(text):
-    return "newSplit" in text or "newColumn" in text
-
-
 def row(check, expected, observed, ok):
     ROWS.append(ok)
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
@@ -112,27 +104,26 @@ def two_tab_strip():
     return found
 
 
-def edge_point(strip):
-    rect = border(strip.get("pane"))
-    if not rect:
-        sys.exit(f"no content border for pane {strip.get('pane')}")
-    x, y, w, h = rect
-    return x + w - 20, y + h / 2
-
-
 def paced_drag(x, y, to_x, to_y, seconds=0.7):
     """A drag at hand pace, as the golden case's real HID one (0.7 s): one `debug.mouse` move
     per display frame along a straight line, released where it arrives (a burst of events in
     one call reaches the drop all at once, which a hand never does)."""
     frames = max(2, int(seconds * 60))
-    mouse(action="drag", x=x, y=y, to_x=x, to_y=y, steps=1, release=False)
-    last = (x, y)
-    for frame in range(1, frames + 1):
-        point = (x + (to_x - x) * frame / frames, y + (to_y - y) * frame / frames)
-        mouse(action="drag", x=last[0], y=last[1], to_x=point[0], to_y=point[1], steps=1, press=False,
-              release=frame == frames)
-        last = point
-        time.sleep(1 / 60)  # test harness: pointer pace
+    if "error" in (mouse(action="drag", x=x, y=y, to_x=x, to_y=y, steps=1, release=False) or {}):
+        sys.exit("debug.mouse could not press")
+    last, released = (x, y), False
+    try:
+        for frame in range(1, frames + 1):
+            point = (x + (to_x - x) * frame / frames, y + (to_y - y) * frame / frames)
+            reply = mouse(action="drag", x=last[0], y=last[1], to_x=point[0], to_y=point[1], steps=1, press=False,
+                          release=frame == frames)
+            if "error" in (reply or {}):
+                sys.exit(f"debug.mouse failed mid-drag: {reply}")
+            released, last = frame == frames, point
+            time.sleep(1 / 60)  # test harness: pointer pace
+    finally:
+        if not released:  # never leave the button down for the next script on the slot
+            mouse(action="drag", x=last[0], y=last[1], to_x=last[0], to_y=last[1], steps=1, press=False)
     return {"frames": frames}
 
 
@@ -155,11 +146,17 @@ def main():
     sx, sy = center(source["tabs"][1]["frame"])
     ex, ey = x + w / 2, y + h * 0.9  # the golden case's point: 90% down the other pane
     print("drag to the other pane's bottom edge at hand pace:", paced_drag(sx, sy, ex, ey), flush=True)
-    wait(lambda: len(strips()) == 3, 3)
-    panes = [border(s.get("pane")) for s in strips()]
-    below = [r for r in panes if r and abs(r[0] - x) < 2 and r[1] > y + 20]
-    row("a drop on another pane's bottom edge splits it", "three panes, a new one below the target",
-        f"panes {len(panes)}: {panes}", len(panes) == 3 and len(below) == 1)
+    wait(lambda: len(strips()) == 3, 10)
+    after = strips()
+    panes = [border(s.get("pane")) for s in after]
+    # The new pane: neither the source nor the target, under the target, holding the one moved tab.
+    new = [s for s in after if s.get("pane") not in (source.get("pane"), target.get("pane"))]
+    moved = new[0] if len(new) == 1 else {}
+    split_rect, target_rect = border(moved.get("pane")), border(target.get("pane"))
+    ok = (len(after) == 3 and bool(split_rect) and bool(target_rect) and split_rect[1] > target_rect[1]
+          and len(moved.get("tabs") or []) == 1 and all(len(s.get("tabs") or []) == 1 for s in after))
+    row("a drop on another pane's bottom edge splits it", "a new pane below the target with the moved tab",
+        f"panes {len(panes)}: {panes}; new {split_rect} below target {target_rect}", ok)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "pane-edge-drop.png")})
 
 main()

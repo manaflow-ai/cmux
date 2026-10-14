@@ -23,7 +23,7 @@ parser.add_argument("--socket", required=True, help="the tagged app's debug sock
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
-DWELL = 0.25  # tabDrag.splitDwell's default
+DWELL = 0.25  # the split dwell this run sets (tabDrag.splitDwell is opt-in, default 0)
 
 
 def rpc(method, params=None, timeout=30):
@@ -155,6 +155,10 @@ def main():
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "split-dwell.png")})
 
 
-main()
+try:
+    main()
+finally:
+    # The tunable persists per tag (debug-tunables.json): put the default back for the next script.
+    rpc("debug.tunables", {"action": "set", "key": "tabDrag.splitDwell", "value": None})
 print("\nRESULT", "PASS" if ROWS and all(ROWS) else "FAIL", f"({sum(ROWS)}/{len(ROWS)})")
 sys.exit(0 if ROWS and all(ROWS) else 1)
