@@ -91,6 +91,11 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private var visible = false
 
     private var momentum: ScrollMomentum?
+    /// Touch moves arrive faster than frames: scroll once per frame with the
+    /// sum (one wheel burst per frame for a TUI, not one per touch event).
+    private lazy var scrollCoalescer = ScrollCoalescer { [weak self] dy, point in
+        self?.terminalView.scroll(byPoints: dy, at: point)
+    }
     private weak var scrollPan: UIPanGestureRecognizer?
     private var scrollPoint: CGPoint = .zero
     private var pinchBase: Double = TerminalFontSize.defaultSize
@@ -480,8 +485,10 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private func send(_ data: Data) {
         TerminalMemory.trace("input: send \(data.count) bytes stream=\(String(describing: streamId)) client=\(client != nil) \(String(decoding: data, as: UTF8.self).debugDescription)")
         guard let streamId, let client else { return }
-        revealCursorHorizontally()
         try? client.sendTerminalInput(streamId: streamId, data)
+        // Reads the surface: never from inside a Ghostty input call (bytes
+        // arrive here after it returned, see InputBox).
+        revealCursorHorizontally()
     }
 
     // MARK: Keyboard pan
@@ -833,13 +840,14 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
             // The slop the recognizer consumed before beginning counts too.
             let dy = recognizer.translation(in: terminalView).y
             recognizer.setTranslation(.zero, in: terminalView)
-            terminalView.scroll(byPoints: dy, at: point)
+            scrollCoalescer.add(dy, at: point)
         case .changed:
             scrollPoint = point
             let dy = recognizer.translation(in: terminalView).y
             recognizer.setTranslation(.zero, in: terminalView)
-            terminalView.scroll(byPoints: dy, at: point)
+            scrollCoalescer.add(dy, at: point)
         case .ended:
+            scrollCoalescer.flush()
             let velocity = recognizer.velocity(in: terminalView).y
             guard !UIAccessibility.isReduceMotionEnabled, abs(velocity) > 200 else { return }
             let at = point
@@ -1021,6 +1029,52 @@ final class TerminalTrace {
     }
 }
 #endif
+
+/// Sums scroll deltas and applies them once per display frame.
+@MainActor
+final class ScrollCoalescer: NSObject {
+    private let apply: (CGFloat, CGPoint) -> Void
+    private var dy: CGFloat = 0
+    private var point: CGPoint = .zero
+    private var link: CADisplayLink?
+    private var idleFrames = 0
+
+    init(apply: @escaping (CGFloat, CGPoint) -> Void) {
+        self.apply = apply
+        super.init()
+    }
+
+    func add(_ delta: CGFloat, at point: CGPoint) {
+        guard delta.isFinite else { return }
+        dy += delta
+        self.point = point
+        idleFrames = 0
+        if link == nil {
+            let link = CADisplayLink(target: self, selector: #selector(frame(_:)))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
+    }
+
+    /// Applies what is pending now (end of the drag).
+    func flush() {
+        guard dy != 0 else { return }
+        let d = dy
+        dy = 0
+        apply(d, point)
+    }
+
+    @objc private func frame(_ link: CADisplayLink) {
+        if dy != 0 {
+            flush()
+        } else {
+            idleFrames += 1
+            if idleFrames > 30 { link.invalidate(); self.link = nil }
+        }
+    }
+
+    func stop() { link?.invalidate(); link = nil; dy = 0 }
+}
 
 /// Scroll momentum after a fling: UIScrollView's normal deceleration
 /// (0.998 per ms), driven by the display's frame callbacks.

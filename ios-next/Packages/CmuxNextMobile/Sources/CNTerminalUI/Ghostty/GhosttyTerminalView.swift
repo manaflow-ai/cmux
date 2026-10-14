@@ -156,18 +156,12 @@ final class GhosttyTerminalView: UIView {
         config.io_write_userdata = Unmanaged.passUnretained(box).toOpaque()
         config.io_write_cb = { userdata, bytes, length in
             guard let userdata, let bytes, length > 0 else { return }
-            // Copy now: the bytes are valid only during the call.
-            let data = Data(bytes: bytes, count: Int(length))
-            let box = Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue()
-            if Thread.isMainThread {
-                MainActor.assumeIsolated { box.deliver?(data) }
-            } else {
-                // FIFO onto the main queue (Task hops are not ordered).
-                let sendable = Retained(box)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated { (sendable.object as? InputBox)?.deliver?(data) }
-                }
-            }
+            // Ghostty may call this while it holds the surface's terminal lock
+            // (inside ghostty_surface_key / _mouse_scroll / _mouse_pos on the
+            // main thread). Nothing here may call back into the surface: the
+            // bytes are copied into the box and delivered after the call
+            // returns, in order, coalesced per main-queue turn.
+            Unmanaged<InputBox>.fromOpaque(userdata).takeUnretainedValue().enqueue(bytes, Int(length))
         }
         surface = ghostty_surface_new(app.app, &config)
         appliedSize = nil
@@ -643,9 +637,44 @@ struct SurfaceRef: @unchecked Sendable {
 }
 
 /// Holds the input callback for the C trampoline (userdata pointer).
-@MainActor
-private final class InputBox {
+/// Bytes from `io_write_cb` (any thread, possibly under Ghostty's terminal
+/// lock) are appended under a lock and delivered on the main queue after the
+/// Ghostty call that produced them returned: in arrival order, one delivery
+/// for everything that arrived since the last one (a drag that produces
+/// hundreds of wheel reports costs one send per main-queue turn).
+final class InputBox: @unchecked Sendable {
+    /// Main thread only.
     var deliver: ((Data) -> Void)?
+    private let lock = NSLock()
+    private var pending = Data()
+    private var scheduled = false
+
+    func enqueue(_ bytes: UnsafePointer<CChar>, _ count: Int) {
+        lock.lock()
+        pending.append(UnsafeRawPointer(bytes).assumingMemoryBound(to: UInt8.self), count: count)
+        let schedule = !scheduled
+        scheduled = true
+        lock.unlock()
+        guard schedule else { return }
+        DispatchQueue.main.async { [self] in
+            MainActor.assumeIsolated { flush() }
+        }
+    }
+
+    @MainActor func flush() {
+        lock.lock()
+        let data = pending
+        pending = Data()
+        scheduled = false
+        lock.unlock()
+        if !data.isEmpty { deliver?(data) }
+    }
+
+    /// Bytes waiting to be delivered (tests).
+    var pendingCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return pending.count
+    }
 }
 
 /// Keeps an object alive across a queue hop.
