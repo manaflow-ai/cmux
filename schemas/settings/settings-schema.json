@@ -13914,6 +13914,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -13925,6 +13926,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -13945,7 +13953,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -13954,9 +13962,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -23303,7 +23313,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e16629a189a62fd7f0267dcb737de15c8299b533e0cae8a188b3500ec8fe944a",
+  "schema_hash" : "ecf9505ed6743655f09e924c9688c99f3ac28f8062d3c2fcdc3ba4d811414deb",
   "sections" : [
     {
       "id" : "general",
