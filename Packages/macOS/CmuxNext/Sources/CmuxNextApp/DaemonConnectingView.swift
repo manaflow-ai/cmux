@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -10,12 +11,14 @@ import CmuxNextWakeups
 /// "Connecting to cmux-tui" follows after `launchTextDelay`, so a fast
 /// launch replaces it before either shows. Once the startup deadline
 /// passes, it shows the failure at once, in plain words, with the raw error
-/// behind Copy Details for a bug report.
+/// behind Copy Details for a bug report, Retry Now and, for a stuck owner,
+/// Restart cmux-tui (`DaemonRecoveryControls`, cx-jniyz.1).
 final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
+    private let recoveryControls: DaemonRecoveryControls?
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
     /// Copy Details' write (tests read it instead of the clipboard).
@@ -33,10 +36,17 @@ final class DaemonConnectingView: NSView {
         self.init(frame: frame, clock: ContinuousClock())
     }
 
-    /// - Parameter clock: Times the mark and status delays (tests step it).
-    init(frame: NSRect, clock: any Clock<Duration>) {
+    convenience init(frame: NSRect, recovery: DaemonRecovery) {
+        self.init(frame: frame, clock: ContinuousClock(), recovery: recovery)
+    }
+
+    /// - Parameters:
+    ///   - clock: Times the mark and status delays (tests step it).
+    ///   - recovery: The local daemon's Retry Now and Restart; nil shows neither.
+    init(frame: NSRect, clock: any Clock<Duration>, recovery: DaemonRecovery? = nil) {
         markTimer = DemandTimer(owner: "launch.mark", clock: clock)
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
+        recoveryControls = recovery.map(DaemonRecoveryControls.init(recovery:))
         super.init(frame: frame)
         // Layer-backed, so the status line's fade sets its model alpha at once.
         wantsLayer = true
@@ -52,7 +62,9 @@ final class DaemonConnectingView: NSView {
         copyDetailsButton.target = self
         copyDetailsButton.action = #selector(copyDetails)
         copyDetailsButton.isHidden = true
-        let stack = NSStackView(views: [mark, titleLabel, detailLabel, copyDetailsButton])
+        var views: [NSView] = [mark, titleLabel, detailLabel]
+        if let recoveryControls { views.append(recoveryControls) }
+        let stack = NSStackView(views: views + [copyDetailsButton])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = Metrics.space2
@@ -122,6 +134,7 @@ final class DaemonConnectingView: NSView {
             detailLabel.stringValue = ""
             detailLabel.isHidden = true
             copyDetailsButton.isHidden = true
+            recoveryControls?.isOffered = false
             staggerIfConnecting()
         case .unavailable(let error):
             cancelStagger()
@@ -139,6 +152,7 @@ final class DaemonConnectingView: NSView {
             detailLabel.isHidden = detailLabel.stringValue.isEmpty
             failureDetails = String(describing: error)
             copyDetailsButton.isHidden = false
+            recoveryControls?.isOffered = true
         }
         setAccessibilityLabel([titleLabel.stringValue, detailLabel.stringValue].filter { !$0.isEmpty }.joined(separator: ". "))
     }
@@ -159,6 +173,6 @@ final class DaemonConnectingView: NSView {
     }
 
     @objc private func copyDetails() {
-        copyToClipboard(failureDetails)
+        copyToClipboard([failureDetails, recoveryControls?.restartFailure].compactMap { $0 }.joined(separator: "\n"))
     }
 }

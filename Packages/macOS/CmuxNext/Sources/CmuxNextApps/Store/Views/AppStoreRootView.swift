@@ -21,7 +21,9 @@ public struct AppStoreRootView: View {
         VStack(spacing: 0) {
             toolbar
             Rectangle().fill(colors.separator).frame(height: Borders.width(1))
-            if let reason = model.client.unavailableReason { AppsDisconnectedBanner(reason: reason) }
+            if let reason = model.client.unavailableReason {
+                AppsDisconnectedBanner(reason: reason, recovery: reason.daemonUnreachable ? model.recovery?() : nil)
+            }
             switch model.tab {
             case .discover: AppDiscoverView(model: model)
             case .installed: AppInstalledView(model: model)
