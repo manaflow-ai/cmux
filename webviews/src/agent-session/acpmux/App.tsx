@@ -922,8 +922,10 @@ const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 const WARM_VIEWPORTS = 1;
 /// How far above the latest message the reader is before Jump to latest shows.
 const JUMP_LATEST_DISTANCE = 80;
-/// A smooth jump lands on the latest message once this has passed, even if a streaming reply grew past it.
-const JUMP_LATEST_SETTLE_MS = 600;
+/// Jump to latest glides this long, eased out, to the end as it is each frame (a growing reply moves it).
+const JUMP_LATEST_MS = 320;
+/// How long a row the reader opened or closed holds still as it settles to its drawn height.
+const TOGGLE_HOLD_MS = 600;
 /// A move off the latest row the reader did not make (no wheel, pointer, touch or key in the
 /// transcript this long before it) and that stays within about a line of it is not a scroll up.
 /// WebKit on macOS keeps whole-pixel offsets and nudged a growing reply's offset a pixel above
@@ -1060,7 +1062,15 @@ export function VirtualTranscript({
     followingRef.current = next;
     setFollowing(next);
   };
-  const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// The frame of a running Jump to latest; the follow logic leaves the offset to it meanwhile.
+  const jumping = useRef<number | undefined>(undefined);
+  const stopJump = () => {
+    if (jumping.current !== undefined) cancelAnimationFrame(jumping.current);
+    jumping.current = undefined;
+  };
+  /// A row the reader just opened or closed (a command's output, a group): it holds still on screen
+  /// while it changes height, even while the view follows, instead of the end pulling it away.
+  const toggled = useRef<{ id: string; at: number } | undefined>(undefined);
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
@@ -1519,15 +1529,15 @@ export function VirtualTranscript({
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
       seenAnchor.current = undefined;
-      clearTimeout(settle.current);
-      settle.current = undefined;
+      stopJump();
       setScroll({ top: 0, delta: 0 });
       follow(true);
     }
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
     const node = ref.current;
-    if (old && node) {
+    // A running jump places the offset itself, retargeting to the end each frame.
+    if (old && node && jumping.current === undefined) {
       // Content that shrank under the viewport has already clamped the live offset to
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
@@ -1547,21 +1557,42 @@ export function VirtualTranscript({
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
-      if (didOpenAtLatest.current && atLatest) {
+      const held =
+        followingRef.current && toggled.current && performance.now() - toggled.current.at < TOGGLE_HOLD_MS
+          ? toggled.current.id
+          : undefined;
+      const heldAt = held === undefined ? -1 : rows.findIndex((row) => row.id === held);
+      const heldWas = held === undefined ? -1 : oldRows.findIndex((row) => row.id === held);
+      if (didOpenAtLatest.current && heldAt >= 0 && heldWas >= 0) {
+        // The reader opened or closed a row while the view followed: that row holds still, and what
+        // it pushed past the end stays there (the view stops following). Closing one near the end
+        // can only bring the end up to the view, which glides.
+        const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+        const want = top + layout.tops[heldAt] - old.tops[heldWas];
+        const next = Math.max(0, Math.min(latest, want));
+        if (Math.abs(next - node.scrollTop) > 0.5) node.scrollTop = next;
+        if (Math.abs(next - want) > 0.5) glide(thread.current, Math.max(-node.clientHeight, next - want));
+        if (next < latest - 1) follow(false);
+      } else if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        const step = latest - node.scrollTop;
-        if (Math.abs(step) > 0.5) {
+        if (Math.abs(latest - node.scrollTop) > 0.5) {
           node.scrollTop = latest;
           followTrace.set(latest);
         }
+        // How far the text moved on screen: from where the view was, since content that shrank
+        // (a group that settled, a block that closed) has already clamped the live offset.
+        const step = latest - top;
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
         // again by its drawn height, both before the frame paints: each step glides, and the
         // glides add up, so the text moves by what it grew. Gliding only the first step drew the
         // text an estimate's error too low, then slid it past its place, at every token.
+        // New rows (a tool call, a command) and content that shrank glide the same way, and a step
+        // taller than the view glides its last viewport, so following never snaps.
         const resized = height !== previousViewport.current.height || width !== previousViewport.current.width;
-        if (Math.abs(step) > 0.5 && Math.abs(step) < node.clientHeight && !resized) glide(thread.current, step);
+        const span = node.clientHeight;
+        if (Math.abs(step) > 0.5 && !resized) glide(thread.current, Math.max(-span, Math.min(span, step)));
       } else if (top > 0) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -1733,6 +1764,12 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     const node = event.currentTarget;
     const next = node.scrollTop;
+    if (jumping.current !== undefined) {
+      // The jump's own frames: draw the rows they reach; the view still follows.
+      scrolledTo.current = scrollPosition(node, layout.totalHeight);
+      setScroll((current) => ({ top: next, delta: next - current.top }));
+      return;
+    }
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
@@ -1782,39 +1819,61 @@ export function VirtualTranscript({
       anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
     }
   };
-  // Jump to latest (the button, ChatGPT and Codex style): a smooth scroll to the latest message, then a
-  // landing on it, so a reply that grew meanwhile is followed again.
+  // Jump to latest (the button, Codex and Claude desktop style): the view follows again at once, so
+  // the button hides for good, and glides down over the last viewport to the end as it is each frame,
+  // landing on it even while a reply grows. Farther up, it starts a viewport above the end rather
+  // than racing through every row between. Only the reader scrolling up meanwhile stops it.
   const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    stopJump();
     follow(true);
     if (focused) focusComposer?.();
-    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const target = Math.max(0, layout.totalHeight - node.clientHeight);
-    node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
-    // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
-    // reply grew past it. Only the reader's own scroll meanwhile cancels it.
-    clearTimeout(settle.current);
-    settle.current = setTimeout(() => {
-      settle.current = undefined;
-      const scroller = ref.current;
-      if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-    }, JUMP_LATEST_SETTLE_MS);
+    const end = () => Math.max(0, (previousLayout.current?.totalHeight ?? node.scrollHeight) - node.clientHeight);
+    const land = () => {
+      jumping.current = undefined;
+      const latest = end();
+      node.scrollTop = latest;
+      scrolledTo.current = { top: latest, atLatest: true };
+      seenAnchor.current = null;
+      followTrace.set(latest);
+      setScroll((current) => ({ top: latest, delta: latest - current.top }));
+    };
+    if (globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return land();
+    const from = Math.max(node.scrollTop, end() - node.clientHeight);
+    if (from > node.scrollTop) node.scrollTop = from;
+    // Timed by the frames' own clock, from a frame before the first.
+    let start: number | undefined;
+    const frame = (now: number) => {
+      start ??= now - 1000 / 60;
+      const t = Math.min(1, (now - start) / JUMP_LATEST_MS);
+      if (t >= 1) return land();
+      node.scrollTop = from + (end() - from) * (1 - (1 - t) ** 3);
+      jumping.current = requestAnimationFrame(frame);
+    };
+    jumping.current = requestAnimationFrame(frame);
   };
   useEffect(() => {
     const node = ref.current;
-    const reader = () => {
+    const reader = (event: Event) => {
+      // A row's toggle (a command, a group): that row holds still while it opens or closes.
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target?.closest("[aria-expanded]") ? target.closest<HTMLElement>("[data-row-id]") : null;
+      if (row?.dataset.rowId && event.type !== "wheel")
+        toggled.current = { id: row.dataset.rowId, at: performance.now() };
+      // A wheel toward the end (a trackpad's momentum after the click) does not stop a jump.
+      if (jumping.current !== undefined && event instanceof WheelEvent && event.deltaY >= 0) return;
       readerAt.current = performance.now();
       followTrace.input();
-      clearTimeout(settle.current);
-      settle.current = undefined;
+      stopJump();
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
     return () => {
-      clearTimeout(settle.current);
+      stopJump();
       for (const name of inputs) node?.removeEventListener(name, reader);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stopJump reads only refs
   }, []);
   // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
   // anywhere from its prompt to its footer. Marked on the mounted rows, so a hover renders nothing.

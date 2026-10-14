@@ -56,11 +56,8 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     offsets.set(this, value);
   },
 });
-const jumps: number[] = [];
 dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
-  const top = typeof options === "number" ? 0 : (options?.top ?? 0);
-  jumps.push(top);
-  this.scrollTop = top;
+  this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
@@ -112,10 +109,10 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     expect(button()?.dataset.working).toBe("");
     expect(button()?.getAttribute("aria-label")).toBe("Jump to latest, still replying");
 
-    // A click goes to the latest message, and the button hides there.
-    jumps.length = 0;
+    // A click glides to the latest message over a few frames, and the button hides there.
     await act(async () => button()!.click());
-    expect(jumps).toEqual([latest]);
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 500))));
+    expect(scroller.scrollTop).toBe(latest);
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     expect(button()?.dataset.shown).toBeUndefined();
     // Hidden, it is inert: out of the tab order and the accessibility tree.
