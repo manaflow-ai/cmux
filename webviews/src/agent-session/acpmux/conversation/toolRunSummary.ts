@@ -1,6 +1,6 @@
 // A run of tool calls between two pieces of text, summarized once it settles:
 // "Edited a file, read files, ran commands", opened to list the calls.
-import type { PaneLanguage, Translate } from "../i18n";
+import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 
 /// What a call did, in the order a run's summary names them.
@@ -44,8 +44,8 @@ export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCate
   return ORDER.filter((category) => present.has(category));
 }
 
-/// "Edited a file, read files, ran commands", in `lang` (the pane's language, which `t` speaks).
-export function toolRunSummary(t: Translate, lang: PaneLanguage, items: readonly AcpmuxActivity[]): string {
+/// "Edited a file, read files, ran commands", in the language `t` speaks.
+export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
   const tools = items.filter((item) => item.tool);
   const count = (category: ToolRunCategory) =>
     tools.filter((item) => {
@@ -69,6 +69,8 @@ export function toolRunSummary(t: Translate, lang: PaneLanguage, items: readonly
         return one ? t("toolRun.ran.one") : t("toolRun.ran.other");
     }
   };
-  const text = new Intl.ListFormat(lang, { style: "short", type: "unit" }).format(toolRunCategories(items).map(phrase));
+  // A catalog separator, not Intl.ListFormat: its unit lists join zh-Hans with nothing and add
+  // conjunctions in some languages, while the run reads as a plain comma list.
+  const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
