@@ -18,6 +18,9 @@ final class AccountSignInModel {
         case waiting
         case waitingSlow
         case finishing
+        /// The sign-in service refused with too many requests; cmux
+        /// retries the completion on its own.
+        case rateLimited
     }
 
     enum Failure: Equatable {
@@ -30,6 +33,7 @@ final class AccountSignInModel {
         case browserUnavailable
         case unauthorized
         case rejected
+        case rateLimited
         case unknown
     }
 
@@ -71,6 +75,7 @@ final class AccountSignInModel {
         // signed out, and an idle Sign In there would start a second attempt
         // that skips the account chooser.
         if flow?.isSwitchingAccount == true {
+            if flow?.isRetryingAfterRateLimit == true { return .loading(.rateLimited) }
             if flow?.isCompletingSignIn == true { return .loading(.finishing) }
             if flow?.isPresentingSignIn == true {
                 return .loading(flow?.signInIsSlow == true ? .waitingSlow : .waiting)
@@ -82,6 +87,9 @@ final class AccountSignInModel {
         // surface runs the shared attempt.
         guard hasRequestedSignIn else {
             return .idle
+        }
+        if flow?.isRetryingAfterRateLimit == true {
+            return .loading(.rateLimited)
         }
         if flow?.isCompletingSignIn == true {
             return .loading(.finishing)

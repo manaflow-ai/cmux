@@ -594,6 +594,7 @@ _cmux_install_cli_wrapper() {
     fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
@@ -2406,6 +2407,7 @@ _cmux_fix_path() {
         fi
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
     _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path

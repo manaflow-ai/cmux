@@ -43,6 +43,7 @@ extension AuthError {
         case .unauthorized: return "UNAUTHORIZED"
         case .authFailure: return "AUTH_FAILURE"
         case .cancelled: return "CANCELLED"
+        case .rateLimited: return "RATE_LIMITED"
         }
     }
 }
