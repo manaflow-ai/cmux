@@ -24,6 +24,14 @@ const fs = await import("node:fs/promises");
 const net = await import("node:net");
 const path = await import("node:path");
 const source = await fs.readFile(path.join(packageDir, "tui.js"), "utf8");
+await fs.mkdir(path.join(packageDir, "node_modules", "solid-js"), { recursive: true });
+await fs.writeFile(path.join(packageDir, "node_modules", "solid-js", "package.json"), '{"type":"module"}');
+await fs.writeFile(path.join(packageDir, "node_modules", "solid-js", "index.js"), `
+const effects = [];
+export function createRoot(run) { return run(() => {}); }
+export function createEffect(run) { effects.push(run); run(); }
+globalThis.__runSolidEffects = () => { for (const run of effects) run(); };
+`);
 const mod = await import(path.join(packageDir, "tui.js"));
 const serverMod = await import(path.join(packageDir, "index.js"));
 if (typeof serverMod.default?.server !== "function") throw new Error("missing inert V2 server entrypoint");
@@ -155,6 +163,7 @@ liveA.ui.tabs.list = () => [];
 liveA.emit({ details: { type: "session.created", data: { sessionID: "child-a", location: { directory: "/tmp/a" } }, location: { directory: "/tmp/a" } } });
 liveA.ui.router.current = routeA;
 liveA.ui.tabs.list = tabsA;
+globalThis.__runSolidEffects();
 // An owned event must not cancel a queued session-start before the route
 // becomes ready at the next event boundary.
 liveA.emit({ details: { type: "session.status", data: { sessionID: "child-a", status: { type: "busy" } } } });

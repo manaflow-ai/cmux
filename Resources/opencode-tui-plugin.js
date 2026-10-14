@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createEffect, createRoot } from "solid-js";
 import { CMUXFeed } from "./index.js";
 
 const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
@@ -223,6 +224,10 @@ async function handleEvent(ctx, ownership, feed, details, environment, retrySess
   await deliverEvent(ctx, feed, event, id, environment);
 }
 
+// The expiry bounds memory for sessions that never become visible. It only
+// removes stale queue entries; route readiness is observed by Solid below.
+const SESSION_START_QUEUE_TTL_MS = 30_000;
+
 export async function createCMUXTUIBridge(ctx, options = {}) {
   const environment = { ...process.env, ...options.environment };
   let disposed = false;
@@ -230,16 +235,20 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
   // The nested map lets session-end and delivery cancel one session in O(1).
   const pending = new Map();
   const cancelPending = (id) => {
+    const queued = pending.get(id);
+    if (!queued) return;
+    clearTimeout(queued.expiry);
     pending.delete(id);
   };
   let feed;
   let ownership;
   const flushPending = () => {
     if (disposed || !feed || !ownership) return;
-    for (const [id, events] of pending) {
+    for (const [id, queued] of pending) {
       if (!ownership.belongs(id)) continue;
+      clearTimeout(queued.expiry);
       pending.delete(id);
-      for (const event of events.values()) {
+      for (const event of queued.events.values()) {
         void handleEvent(ctx, ownership, feed, event, environment, {
           cancel: cancelPending,
           enqueue: enqueueSessionStart,
@@ -256,12 +265,15 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
   });
   function enqueueSessionStart(event, id) {
     if (disposed) return;
-    let events = pending.get(id);
-    if (!events) {
-      events = new Map();
-      pending.set(id, events);
+    let queued = pending.get(id);
+    if (!queued) {
+      queued = { events: new Map(), expiry: undefined };
+      queued.expiry = setTimeout(() => {
+        if (pending.get(id) === queued) pending.delete(id);
+      }, SESSION_START_QUEUE_TTL_MS);
+      pending.set(id, queued);
     }
-    if (!events.has(event.type)) events.set(event.type, event);
+    if (!queued.events.has(event.type)) queued.events.set(event.type, event);
   };
   const onEvent = ({ details, event }) => {
     const incoming = details || event;
@@ -278,9 +290,19 @@ export async function createCMUXTUIBridge(ctx, options = {}) {
     }).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
+  const disposeReactive = createRoot((dispose) => {
+    createEffect(() => {
+      // current() and list() are reactive reads in OpenCode v2. A route/tab
+      // commit therefore flushes queued lifecycle events even when idle.
+      ownership.refresh();
+      flushPending();
+    });
+    return dispose;
+  });
   flushPending();
   return () => {
     disposed = true;
+    disposeReactive?.();
     pending.clear();
     stop?.();
     feed.dispose?.();
