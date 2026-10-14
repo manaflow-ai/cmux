@@ -141,6 +141,74 @@ pub(crate) fn public_item(record: &Value) -> Value {
     item
 }
 
+/// Every tab a public item (`closed.list` shape) would recreate: every member's, else the top
+/// level's (a v1 item), as the Swift `ClosedItem.tabs`.
+pub(crate) fn closed_tabs(item: &Value) -> Vec<&Value> {
+    fn tabs_of(screens: Option<&Value>) -> Vec<&Value> {
+        screens
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|screen| screen.get("tabs").and_then(Value::as_array))
+            .flatten()
+            .collect()
+    }
+    match item.get("members").and_then(Value::as_array).filter(|members| !members.is_empty()) {
+        Some(members) => members.iter().flat_map(|member| tabs_of(member.get("screens"))).collect(),
+        None => tabs_of(item.get("screens")),
+    }
+}
+
+/// The page a public item (`closed.list` shape) is only, by its address: a closed tab of one
+/// browser on a real address. Recently Closed shows a page once however often it was closed,
+/// removing or reopening that row takes every close of it, and the Swift
+/// `DaemonClosedHistory.pageKey` keys a page the same way (Leo 2026-10-14). A terminal, chat,
+/// page tab, screen, workspace, window, group or close of several tabs is no page: nothing tells
+/// one close of it from another (two shells in one folder), so each close stays its own.
+pub(crate) fn closed_page(item: &Value) -> Option<&str> {
+    if item.get("kind").and_then(Value::as_str) != Some("tab")
+        || !item.get("group").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    let tabs = closed_tabs(item);
+    let &[tab] = tabs.as_slice() else { return None };
+    let empty = tab.get("empty").and_then(Value::as_bool) == Some(true);
+    if tab.get("kind").and_then(Value::as_str) != Some("browser")
+        || empty
+        || !tab.get("page").is_none_or(Value::is_null)
+    {
+        return None;
+    }
+    tab.get("url").and_then(Value::as_str).filter(|url| !url.is_empty() && *url != "about:blank")
+}
+
+/// Removes, in a reopen's commit, every other group that is only the page `page`
+/// ([`closed_page`]; a closed tab group of that one page forms its group again, so it stays):
+/// the page is open again, so no older close of it takes its Recently Closed row or reopens it
+/// a second time. Answers the public changes.
+pub(crate) fn remove_other_closes(
+    transaction: &Transaction<'_>,
+    page: &str,
+) -> anyhow::Result<Vec<Value>> {
+    let mut changes = Vec::new();
+    for item in closed_items(transaction)? {
+        let Some(id) = item.get("id").and_then(Value::as_str) else { continue };
+        if closed_page(&item) != Some(page) {
+            continue;
+        }
+        let grouped = closed_record(transaction, id)?.is_some_and(|record| {
+            ["tab_group", "screen_group"]
+                .iter()
+                .any(|key| record.get(*key).is_some_and(Value::is_object))
+        });
+        if !grouped && remove_closed(transaction, id)? {
+            changes.push(crate::state::store::state_delete("closed", id));
+        }
+    }
+    Ok(changes)
+}
+
 /// The newest [`DEFAULT_LIST_LIMIT`] groups of every window.
 pub(crate) fn closed_items(connection: &Connection) -> anyhow::Result<Vec<Value>> {
     closed_items_in(connection, None, DEFAULT_LIST_LIMIT)

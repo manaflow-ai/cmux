@@ -62,14 +62,16 @@ enum TabSearchFactsBuilder {
     }
 
     /// The closed tab items Search Tabs lists, of `closed` (newest first, each as its item and
-    /// machine). Untouched New Tab pages are left out, as in Recently Closed
-    /// (HistoryService.isWorthReopening).
+    /// machine), as Recently Closed lists them: untouched New Tab pages left out
+    /// (HistoryService.isWorthReopening), a page closed again once, at its newest close
+    /// (``DaemonClosedHistory/newestOnce(_:_:)``).
     static func listed<T>(_ closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
-        closed.filter { HistoryService.isWorthReopening(item($0).item) }
+        DaemonClosedHistory.newestOnce(closed.filter { HistoryService.isWorthReopening(item($0).item) }, item)
     }
 
-    /// The closed items Forget deletes for the row of `target`, among `closed`.
+    /// The closed items Forget deletes for the row of `target`, among `closed`: for a page every
+    /// close of it, so no older one takes its row (``DaemonClosedHistory/closes(of:among:_:)``).
     static func forgotten<T>(_ target: T, among closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
-        [target]
+        DaemonClosedHistory.closes(of: target, among: closed, item)
     }
 }
