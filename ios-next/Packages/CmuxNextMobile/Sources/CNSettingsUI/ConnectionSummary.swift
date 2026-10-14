@@ -1,3 +1,4 @@
+import CNCore
 import CNTransport
 import Foundation
 
@@ -17,8 +18,8 @@ public struct ConnectionSummary: Sendable, Hashable {
             self.init(title: "Not connected", detail: nil, tone: .bad, symbol: "bolt.horizontal.circle")
         case .connecting:
             self.init(title: "Connecting", detail: nil, tone: .pending, symbol: "bolt.horizontal")
-        case .reconnecting(let attempt, let lastError):
-            self.init(title: "Reconnecting", detail: attempt > 1 ? "Attempt \(attempt)" : lastError, tone: .pending, symbol: "arrow.triangle.2.circlepath")
+        case .reconnecting(_, let lastError):
+            self.init(title: "Reconnecting", detail: lastError, tone: .pending, symbol: "arrow.triangle.2.circlepath")
         case .failed(let message):
             self.init(title: "Offline", detail: message, tone: .bad, symbol: "exclamationmark.triangle")
         case .connected(let path):
@@ -31,6 +32,18 @@ public struct ConnectionSummary: Sendable, Hashable {
                 let lan = path.localCandidate == .host && path.remoteCandidate == .host
                 self.init(title: lan ? "Direct (LAN)" : "Direct", detail: rtt, tone: .good, symbol: "bolt.horizontal.fill")
             }
+        }
+    }
+
+    /// Like `init(_:)`, but while not connected a Mac that presence reports
+    /// offline reads "<name> is offline" instead of an endless reconnect.
+    public init(_ state: HostConnectionState, host: HostRecord?) {
+        if !state.isConnected, let host, !host.online {
+            self.init(title: "\(host.name) is offline",
+                      detail: "cmux reconnects when the Mac is back online.",
+                      tone: .bad, symbol: "desktopcomputer")
+        } else {
+            self.init(state)
         }
     }
 

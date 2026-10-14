@@ -240,6 +240,17 @@ public final class AppModel {
         await auth.backend.discardSession()
     }
 
+    /// Presence for the selected Mac changed: stop retrying while it is
+    /// offline (the UI says so) and connect as soon as it is back.
+    func selectedHostPresenceChanged(online: Bool?) {
+        guard let online, auth.state.user != nil, !isMock else { return }
+        if online {
+            if !connection.state.isConnected { ensureConnected(force: true) }
+        } else if !connection.state.isConnected {
+            connection.disconnect()
+        }
+    }
+
     /// Applies the Settings "Force relay (TURN)" toggle and reconnects.
     func forceRelayChanged() {
         relaySwitch?.set(preferences.forceRelay)

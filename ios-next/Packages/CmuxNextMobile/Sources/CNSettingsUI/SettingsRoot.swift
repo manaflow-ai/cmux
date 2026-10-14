@@ -159,7 +159,7 @@ public struct SettingsRoot: View {
 
     private var connectionSection: some View {
         @Bindable var preferences = preferences
-        let summary = ConnectionSummary(connection.state)
+        let summary = ConnectionSummary(connection.state, host: preferences.selectedHostId.flatMap(hosts.host(id:)))
         let path = connection.pathInfo
         return Section {
             LabeledContent("Status") {

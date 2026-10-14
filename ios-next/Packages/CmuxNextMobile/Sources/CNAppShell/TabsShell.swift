@@ -47,7 +47,7 @@ struct StatusAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
 
     var body: some View {
-        let summary = ConnectionSummary(model.connection.state)
+        let summary = ConnectionSummary(model.connection.state, host: model.selectedHost)
         let running = model.shellData.runningSessions.count
         let waiting = model.shellData.waitingSessions.count
         let unread = model.shellData.unreadSessions.count

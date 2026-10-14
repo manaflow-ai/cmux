@@ -19,6 +19,7 @@ public struct AppRoot: View {
             .task(id: model.auth.state) { await model.authStateChanged() }
             .onChange(of: model.preferences.forceRelay) { model.forceRelayChanged() }
             .onChange(of: model.hosts.hosts) { model.reconcileSelection() }
+            .onChange(of: model.selectedHost?.online) { _, online in model.selectedHostPresenceChanged(online: online) }
             .onOpenURL { model.handleOpenURL($0) }
             .onCNStatusBarStyleChange { [model] style in
                 // The drawer forwards its content's request itself.

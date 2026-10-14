@@ -44,7 +44,7 @@ struct DrawerShell: View {
         .overlay(alignment: .top) {
             // Terminals show their own reconnecting toast; one indicator at a time.
             if !model.connection.state.isConnected, destination != .terminals {
-                ConnectionPill(state: model.connection.state)
+                ConnectionPill(state: model.connection.state, host: model.selectedHost)
                     .padding(.top, 8)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -287,7 +287,7 @@ struct DrawerSidebar: View {
     }
 
     private var hostLine: some View {
-        let summary = ConnectionSummary(model.connection.state)
+        let summary = ConnectionSummary(model.connection.state, host: model.selectedHost)
         return HStack(spacing: 5) {
             Circle().fill(summary.tone.color).frame(width: 6, height: 6)
             Text([model.selectedHost?.name ?? model.connection.hostInfo?.hostName, summary.compact].compactMap { $0 }.joined(separator: " · "))

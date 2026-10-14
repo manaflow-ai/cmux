@@ -1,6 +1,7 @@
 #if os(iOS)
 import CNDesign
 import CNSettingsUI
+import CNCore
 import CNTransport
 import SwiftUI
 
@@ -46,9 +47,10 @@ enum ShellDestination: String, CaseIterable, Hashable, Sendable {
 /// Connection status capsule: a dot plus `Direct · 12 ms`.
 struct ConnectionPill: View {
     let state: HostConnectionState
+    var host: HostRecord? = nil
 
     var body: some View {
-        let summary = ConnectionSummary(state)
+        let summary = ConnectionSummary(state, host: host)
         HStack(spacing: 6) {
             Circle().fill(summary.tone.color).frame(width: 7, height: 7)
             // Connected: path and RTT; otherwise just the state (the error
