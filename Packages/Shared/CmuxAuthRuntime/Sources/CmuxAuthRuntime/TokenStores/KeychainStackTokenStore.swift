@@ -141,7 +141,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
         )
         let matches = current == compareRefreshToken
-        log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
+        log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false) \(AccessTokenLifetime.logFields(newAccessToken))")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
             log.log("keychain.compareAndSet: cleared definitively-rejected session")

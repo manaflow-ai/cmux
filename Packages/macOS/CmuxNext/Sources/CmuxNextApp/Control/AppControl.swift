@@ -132,7 +132,7 @@ final class AppControl {
             .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
-                return .value(DebugLayers.report(services: services))
+                return .value(DebugLayers.report(services: services, params: call.params))
             },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
@@ -329,9 +329,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
+            // CEF's own DevTools wait is 5 s (CEFRuntime.devToolsTimeout); the 2 s
+            // control-plane deadline cut off replies that arrive between 2 and 5 s.
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
-            },
+            }.withDeadline(.fixed(.seconds(6))),
             // React agent pane: synthetic transcript, fling and frame/typing
             // timing through the page's cmuxAcpmuxDebug, WebContent pid.
             .async("debug.agent_pane") { [weak services] call in
