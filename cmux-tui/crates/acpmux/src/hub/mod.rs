@@ -38,6 +38,7 @@ pub(crate) use route_switch::route_error;
 mod secrets;
 mod seen;
 mod session;
+pub(crate) mod session_pages;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
