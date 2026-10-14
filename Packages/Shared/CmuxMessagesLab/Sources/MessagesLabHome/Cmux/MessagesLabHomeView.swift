@@ -283,6 +283,7 @@ public final class MessagesLabHomeView: NSView {
             out["receiptHeight"] = Double(row.spec.height)
             break
         }
+        out.merge(debugScaleGeometry()) { $1 }  // the per-view render scale (MessagesLabHomeView+ScaleDebug.swift)
         return out
     }
 
@@ -315,7 +316,7 @@ public final class MessagesLabHomeView: NSView {
                 kind = { if case .text = p.part { return "text" }; return "part" }()
                 outgoing = p.outgoing
                 rect = RowDraw.bodyRect(spec)
-                drawn = RowDraw.balloon(rect, row: p)
+                drawn = RowDraw.balloon(rect, row: p, scale: demo.renderScale)  // this pane's own scale (258b385)
             case .threadPreview(let pv):
                 kind = "preview"; outgoing = pv.outgoing
                 rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect

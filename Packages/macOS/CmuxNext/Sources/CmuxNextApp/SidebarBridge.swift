@@ -252,6 +252,8 @@ final class SidebarBridge {
                                      tabTitle: tabTitle)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
+        // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
+        if SidebarTunables.rowBadgePreview.value { sections += SidebarSection.rowBadgePreview() }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }
