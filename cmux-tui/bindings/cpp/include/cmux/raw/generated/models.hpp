@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f";
+inline constexpr std::string_view kProtocolIrSha256 = "2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -1714,6 +1714,7 @@ struct CloudMuxWakeEvent {
 };
 
 struct CloudParticipantAvatarGetRequest {
+    Field<std::string> conversation{};
     std::string participant_id{};
     friend bool operator==(const CloudParticipantAvatarGetRequest&, const CloudParticipantAvatarGetRequest&) = default;
 };
