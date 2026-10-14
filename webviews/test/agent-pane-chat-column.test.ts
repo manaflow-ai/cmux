@@ -13,7 +13,9 @@
 // on a 16px radius, and a hover showed a second Copy over it.
 //
 // Each frame is read after it paints (a task queued from requestAnimationFrame), so a layout fixed
-// by a ResizeObserver before paint is not a jump, and one fixed a frame late is.
+// by a ResizeObserver before paint is not a jump, and one fixed a frame late is. Growth glides in
+// (the thread slides up from below), so a followed view is judged by its text: it only moves up,
+// and comes to rest at the end.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -206,6 +208,18 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       return frames as never;
     });
   };
+  /// The frames whose text moved down on screen from the frame before: a jump back.
+  const movedDown = (frames: Frame[]) =>
+    frames.flatMap((frame, index) =>
+      index > 0 && frame.top !== null && frames[index - 1]!.top !== null && frame.top > frames[index - 1]!.top! + 1
+        ? [[frames[index - 1]!, frame]]
+        : [],
+    );
+  /// The first frame read, before anything streams: the view at rest at the end.
+  const restingFrame = async (page: Page): Promise<Frame> => {
+    await page.waitForTimeout(100);
+    return page.evaluate(() => ((window as any).__frames as Frame[])[0]!);
+  };
   /// The frames whose view moved back up from the frame before.
   const backwards = (frames: Frame[]) =>
     frames.flatMap((frame, index) =>
@@ -259,7 +273,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("a streaming reply keeps the view at its end, through a growing command and a queue", async () => {
     const chat = newChat();
     const page = await open(chat, 900);
-    await watch(page);
+    await watch(page, "Paragraph 20.");
+    const atRest = await restingFrame(page);
     for (let index = 25; index <= 34; index++) {
       push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
       if (index === 28) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
@@ -268,9 +283,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     }
     await page.locator(".acpmux-queued", { hasText: "document the cap" }).waitFor();
     const frames = await stop(page);
-    // Every painted frame shows the end of the transcript, and the view only moves down.
-    expect(frames.filter((frame) => frame.fromEnd > 1)).toEqual([]);
+    // The text only ever moves up while it follows the reply, and the view rests at the end.
+    expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
+    expect(frames.at(-1)!.lastLine).toBe(atRest.lastLine);
     await page.close();
   });
 
@@ -311,7 +327,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   test("a reply streamed a few words at a time scrolls smoothly: its last line holds still at the bottom", async () => {
     const chat = newChat();
     const page = await open(chat, 900);
-    await watch(page);
+    await watch(page, "Paragraph 20.");
+    const atRest = await restingFrame(page);
     const words = (paragraph(25) + paragraph(26) + paragraph(27)).split(/(?<= )/);
     for (let index = 0; index < words.length; index += 3) {
       push(chat, "in", "agent_message_chunk", chunk(words.slice(index, index + 3).join("")));
@@ -319,12 +336,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     }
     await page.getByText("Paragraph 27.", { exact: false }).waitFor();
     const frames = await stop(page);
-    expect(frames.filter((frame) => frame.fromEnd > 1)).toEqual([]);
+    // Each new line glides the text up (acp-streaming.md "Scroll"): never down and back, never more
+    // than a line in one frame, and the newest line comes to rest where the last one did.
+    expect(movedDown(frames)).toEqual([]);
     expect(backwards(frames)).toEqual([]);
-    // The newest line rests on one baseline above the composer; a new line moves the text up a
-    // line at once, never down and back.
-    const resting = new Set(frames.map((frame) => frame.lastLine));
-    expect({ resting: [...resting] }).toEqual({ resting: [frames[0]!.lastLine] });
+    const steps = frames.slice(1).map((frame, index) => (frames[index]!.top ?? 0) - (frame.top ?? 0));
+    expect(Math.max(...steps)).toBeLessThanOrEqual(23);
+    expect(frames.at(-1)!.lastLine).toBe(atRest.lastLine);
     await page.close();
   });
 
