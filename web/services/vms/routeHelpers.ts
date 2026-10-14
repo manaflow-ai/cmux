@@ -45,8 +45,10 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
+import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -195,6 +197,7 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        markSyntheticVmCaller(requestContext, user);
         requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
         if (requestContext.operationId && !isPolledVmOperation(operation)) {
           requestContext.progress = new CloudOperationProgress(user.id, requestContext.operationId);
@@ -234,6 +237,16 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
+}
+
+/**
+ * Tag a probe account's request so every PostHog row it produces carries
+ * `is_synthetic`, including ledger rows mirrored after the response.
+ */
+function markSyntheticVmCaller(context: VmRequestContext, user: AuthedUser): void {
+  if (!isSyntheticAccountEmail(user.primaryEmail)) return;
+  context.synthetic = true;
+  rememberSyntheticUser(user.id);
 }
 
 function scheduleTraceFlush(): void {
@@ -695,7 +708,7 @@ export async function vmResourcePoolExceededResponse(
   error: VmResourcePoolExceededError,
   locale: Locale,
 ): Promise<Response> {
-  const upgradePlanId = error.planId === "max" ? null : "max";
+  const upgradePlanId = planIncludes(error.planId, "max") ? null : "max";
   const memory = error.resource === "memoryMb";
   const copy = await vmResourcePoolCopy(locale, {
     resource: error.resource,

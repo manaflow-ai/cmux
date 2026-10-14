@@ -806,7 +806,8 @@ export type VmUsageEventInput = {
   readonly metadata?: Record<string, unknown>;
   /**
    * The machine's `createdAt`, supplied by destroy sites so analytics can
-   * report the machine's lifetime. Not persisted: the ledger row already
+   * report the machine's lifetime, and by create-success sites for
+   * `cloud_vm_ready.time_to_ready_ms`. Not persisted: the ledger row already
    * joins to `cloud_vms` by `vmId`.
    */
   readonly vmCreatedAt?: Date | null;
