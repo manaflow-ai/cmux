@@ -141,6 +141,13 @@ impl ChiefHome {
         self.root.join("state/host.lock")
     }
 
+    /// Written by `cmux chief shutdown`: while it is there the app
+    /// (ChiefBrainWatch) starts no brain on its own; the next `cmux chief`
+    /// or Home ask takes it away.
+    pub(super) fn shutdown_marker(&self) -> PathBuf {
+        self.root.join("state/shutdown")
+    }
+
     pub(super) fn token_file(&self) -> PathBuf {
         self.root.join("agent-token")
     }
