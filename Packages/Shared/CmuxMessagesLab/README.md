@@ -65,6 +65,14 @@ and render-server field animation, blurred header and native scrolling.
   yet. `scripts/cmux-next/home-scale-change.py` records it and fails when it
   lasts longer than 0.5 s; the return to 2x keeps the one-frame rule (no
   old-scale bitmap one frame after the change).
+- Soft copies (7924f00, cx-3cb soft-copies): a just-sent balloon keeps a
+  crisp edge in flight and after it lands, and takes the soft edge when its
+  status becomes delivered, read or failed (`MessagesWindowView.crispSends`,
+  at most 64 rows). Home sends those statuses from HomeDiff
+  (`HomeMapping.status`: a committed message with a sequence is delivered;
+  a committed message without one stays `.sent`, so it stays crisp until its
+  sequence comes). The context menu's highlight on my text balloon has the
+  soft edge too (`Cmux/PaneMenu.swift` MenuHighlight, as Host.swift).
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
@@ -111,6 +119,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
+| WindowView | a crisp send (7924f00 `crispSends`) also takes the soft edge when its message is delivered, read or failed in the new state, whatever the action (newest 256 messages read): Home sends one status per update (`HomeDiff.keepNewestStatus`) and a rebuild's `replaceWindow` carries statuses with no status action, so a send delivered together with a newer one, or in a rebuild, stayed crisp. Upstream ask (hq-34) |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
 | TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners), with 267d218's half-circle ends of a 1-line text (`RowDraw.circularEnds`) |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
