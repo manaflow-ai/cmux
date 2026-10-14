@@ -1009,6 +1009,7 @@ mod stream;
 use stream::serve_stream;
 mod routes;
 mod secrets;
+mod stats;
 pub(crate) mod trust_gate;
 mod view;
 mod wait;
