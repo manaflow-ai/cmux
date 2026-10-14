@@ -81,6 +81,20 @@ struct AgentMoveScripts {
         "git -C \(q.quote(path)) rev-parse --show-toplevel 2>/dev/null || true"
     }
 
+    /// Prints the top of the git checkout holding `path` or, when `path` does
+    /// not exist yet, its nearest existing parent; nothing outside any checkout.
+    func enclosingCheckoutTop(_ path: String) -> String {
+        """
+        p=\(q.quote(path)); while [ ! -d "$p" ] && [ "$p" != / ] && [ "$p" != . ]; do p=$(dirname "$p"); done
+        git -C "$p" rev-parse --show-toplevel 2>/dev/null || true
+        """
+    }
+
+    /// Exits 0 when nothing is at `path` or it is an empty folder.
+    func isMissingOrEmpty(_ path: String) -> String {
+        "p=\(q.quote(path)); [ ! -e \"$p\" ] || { [ -d \"$p\" ] && [ -z \"$(ls -A \"$p\")\" ]; }"
+    }
+
     /// Exits 0 when `path` is the top of a git checkout (not a folder inside another repository).
     func isCheckout(_ path: String) -> String {
         """

@@ -36,6 +36,7 @@ extension CMUXCLI {
             selection.id,
             selection.reason
         ) + "\n")
+        Self.removeStaleSessionMoveKeyFolders()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-session-move-" + UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         do {
@@ -57,7 +58,8 @@ extension CMUXCLI {
                 destination: endpoint.destination,
                 port: String(endpoint.port),
                 identityFile: identity.path,
-                options: Self.sessionMoveCloudSSHOptions(knownHosts: knownHosts.path)
+                options: Self.sessionMoveCloudSSHOptions(knownHosts: knownHosts.path),
+                configFile: "/dev/null"
             )
             guard target.isTransportSafe else {
                 throw CLIError(message: String(
@@ -72,8 +74,23 @@ extension CMUXCLI {
         }
     }
 
-    /// The same pinned, key-only, no-agent options `cmux vm push` uses. The
-    /// user's ssh_config cannot redirect the grant: the host key alias and the
+    /// Removes key folders a killed move left behind (a signal skips `defer`).
+    /// Their grants expired long before an hour passed.
+    static func removeStaleSessionMoveKeyFolders(now: Date = Date()) {
+        let fileManager = FileManager.default
+        let temporary = fileManager.temporaryDirectory
+        guard let names = try? fileManager.contentsOfDirectory(atPath: temporary.path) else { return }
+        for name in names where name.hasPrefix("cmux-session-move-") {
+            let folder = temporary.appendingPathComponent(name, isDirectory: true)
+            guard let modified = (try? fileManager.attributesOfItem(atPath: folder.path))?[.modificationDate] as? Date,
+                  now.timeIntervalSince(modified) > 3600 else { continue }
+            try? fileManager.removeItem(at: folder)
+        }
+    }
+
+    /// The same pinned, key-only, no-agent options `cmux vm push` uses. With
+    /// `ssh -F /dev/null` (the target's `configFile`) the user's ssh_config
+    /// cannot redirect, proxy or forward the grant; the host key alias and the
     /// known_hosts file are this move's own.
     static func sessionMoveCloudSSHOptions(knownHosts: String) -> [String] {
         [
@@ -91,6 +108,30 @@ extension CMUXCLI {
             "ServerAliveInterval=15",
             "ServerAliveCountMax=3",
         ]
+    }
+
+    /// Exit status of a Cloud move that failed after the session data reached
+    /// the machine: the conversation now lives there (its terminal may even have
+    /// started), so the app must not resume it on this Mac.
+    static let sessionMoveCloudUnfinishedExitCode: Int32 = 3
+
+    /// A failure after the move: the record already says `cloud:<machine>`.
+    /// Any other destination keeps the error as it was.
+    func sessionMoveCloudUnfinished(_ error: Error, machine: String?, sessionID: String, workingDirectory: String) -> Error {
+        guard let machine else { return error }
+        return CLIError(
+            message: String(
+                format: String(
+                    localized: "cli.session.move.error.cloudTerminal",
+                    defaultValue: "session move: the conversation moved to Cloud machine %@, but its terminal did not open (%@). Open a terminal on that machine and run `claude --resume %@` in %@."
+                ),
+                machine,
+                String(describing: error),
+                sessionID,
+                workingDirectory
+            ),
+            exitCode: Self.sessionMoveCloudUnfinishedExitCode
+        )
     }
 
     /// Opens the resumed session as a terminal on the Cloud machine. Resumes the

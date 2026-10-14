@@ -30,6 +30,22 @@ struct AgentMoveCodeSync {
         case created
     }
 
+    /// The source's `origin` as a new machine may keep it: no user or token
+    /// from an `http(s)` URL (they would sit in that machine's git config),
+    /// and nothing for a local path or `file://`, which only this Mac can reach.
+    static func shareableOrigin(_ origin: String) -> String? {
+        guard !origin.isEmpty else { return nil }
+        guard origin.contains("://") else {
+            return origin.hasPrefix("/") || origin.hasPrefix(".") || origin.hasPrefix("~") ? nil : origin
+        }
+        guard var components = URLComponents(string: origin), let scheme = components.scheme?.lowercased(), scheme != "file" else {
+            return nil
+        }
+        if scheme == "http" || scheme == "https" { components.user = nil }
+        components.password = nil
+        return components.string
+    }
+
     private var ref: String { "refs/agent-move/\(sessionID)" }
     private var incomingRef: String { "refs/agent-move/incoming/\(sessionID)" }
     private var outgoingRef: String { "refs/agent-move/outgoing/\(sessionID)" }
@@ -96,13 +112,15 @@ struct AgentMoveCodeSync {
         }
         let destinationCommon = pathMap.destinationPath(for: common.trimmedOutput)
         guard try mover.shell(destination, scripts.isRepository(gitDirectory: destinationCommon)).succeeded else {
-            // Never initialize inside another checkout: that repository is the user's.
-            let enclosing = try mover.shell(destination, scripts.checkoutTop(destinationTop)).trimmedOutput
-            guard createsMissingCheckout, enclosing.isEmpty else {
+            // Never initialize inside another checkout (that repository is the
+            // user's) or over a folder with files the snapshot would overwrite.
+            guard createsMissingCheckout,
+                  try mover.shell(destination, scripts.enclosingCheckoutTop(destinationTop)).trimmedOutput.isEmpty,
+                  try mover.shell(destination, scripts.isMissingOrEmpty(destinationTop)).succeeded else {
                 throw AgentMoveError.destinationRepositoryMissing(checkout: destinationTop, repository: destinationCommon)
             }
             let origin = try mover.shell(source, scripts.originURL(checkout: top)).trimmedOutput
-            let created = try mover.shell(destination, scripts.initCheckout(path: destinationTop, origin: origin.isEmpty ? nil : origin))
+            let created = try mover.shell(destination, scripts.initCheckout(path: destinationTop, origin: Self.shareableOrigin(origin)))
             guard created.succeeded else { throw AgentMoveError.gitFailed(step: "init", detail: created.failureDetail) }
             return .created
         }
