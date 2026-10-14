@@ -35,7 +35,7 @@ import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
-import type { StartMode } from "./startMode";
+import { type StartMode, startModeChanged } from "./startMode";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -959,6 +959,9 @@ export class AcpmuxDirectClient {
     else if (notification.method === "_acpmux/permission_pending") this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
+    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
+    // chats ask acpmux again (startMode.ts).
+    else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last

@@ -415,9 +415,10 @@ export function ComposerPickers({
     defaulted || unreported
       ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
       : (model?.name ?? summary?.model ?? starting);
-  // Until the session reports its options (a new chat, an agent still starting), the effort and
-  // the access controls draw what this harness's chats last showed (chipMemory.ts), never grey
-  // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
+  // Until the session reports its options (a new chat, an agent still starting), the effort chip
+  // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
+  // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
+  // place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   const effortValue =
@@ -434,9 +435,11 @@ export function ComposerPickers({
       : undefined;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
   // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
-  // the chat in (`_acpmux/start_mode`), never the mode this harness's last chat showed; nothing
-  // until it answers, or when it sets none.
-  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && modes.length === 0);
+  // the chat in (`_acpmux/start_mode`: its kept answer on the first frame, then the one asked for),
+  // never the mode this harness's last chat showed; nothing when it sets none. A chat on another
+  // machine (a peer, the cloud) starts in what that machine decides: none until it reports.
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && local && modes.length === 0);
   const startModeName = startMode
     ? (startMode.name ??
       harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)?.name ??
