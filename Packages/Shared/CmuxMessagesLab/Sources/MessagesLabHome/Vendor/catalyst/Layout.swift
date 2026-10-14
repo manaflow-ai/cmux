@@ -6,7 +6,12 @@ import AppKit
 
 /// Text measured and wrapped with Core Text, the way the bubbles draw it.
 struct TextLayout: Hashable {
-    struct Line: Hashable { var range: NSRange; var width: CGFloat }
+    struct Line: Hashable {
+        var range: NSRange; var width: CGFloat
+        /// The width without the line's trailing whitespace: what the typesetter fits to the column
+        /// (a wrapped line's trailing space hangs past it, `width` counts it). Infinity when unknown.
+        var fit: CGFloat = .infinity
+    }
     var text: String
     var runs: [TextRun]
     var lines: [Line]
@@ -35,11 +40,11 @@ struct TextLayout: Hashable {
             if s.hasSuffix("\n") { range.length -= 1 }
             let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
             let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-            lines.append(Line(range: range, width: w))
+            lines.append(Line(range: range, width: w, fit: w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))))
             start += n
-            if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0)) }
+            if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0, fit: 0)) }
         }
-        if lines.isEmpty { lines = [Line(range: NSRange(location: 0, length: 0), width: 0)] }
+        if lines.isEmpty { lines = [Line(range: NSRange(location: 0, length: 0), width: 0, fit: 0)] }
         return TextLayout(text: text, runs: runs, lines: lines, width: lines.map(\.width).max() ?? 0)
     }
 
@@ -714,9 +719,19 @@ final class MeasureCache: @unchecked Sendable {
     /// end of the text (no soft wrap) and whose widest line fits the new column. CTTypesetter breaks
     /// a paragraph only where it does not fit, so each paragraph is one line again; the bubble size
     /// follows from the lines alone (Sizing.size). Nil otherwise.
+    /// Also a narrower column (live resize, a divider drag: cx-3cb resize-drops2) whose every line still fits
+    /// it without its trailing whitespace (`Line.fit`): CTTypesetter's break is greedy, each line was the
+    /// longest that fit the wider column, so the word after it does not fit the narrower one either, and
+    /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
+    /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
+    /// own fit test may sum the widths differently from the cut line's).
     static func sameLayout(_ v: Value, at width: CGFloat, part: Part) -> Value? {
         guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
-        guard tl.width <= Metrics(width: width).maxTextWidth else { return nil }
+        let col = Metrics(width: width).maxTextWidth
+        if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
+            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col), height: v.size.height), text: tl, width: width)
+        }
+        guard tl.width <= col else { return nil }
         let s = tl.text as NSString
         for l in tl.lines {
             let end = NSMaxRange(l.range)

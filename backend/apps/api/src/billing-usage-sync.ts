@@ -195,6 +195,8 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         continue
       }
       const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
+      // The team can be billed above its included amount until this period ends (inference/included-stop.ts).
+      await meter.markBillable(team!, sub.id, end)
       // Period close (review P2): after a renewal, the closed period gets its final level once more,
       // dated inside it, while its invoice is still a draft (Stripe waits about an hour).
       const prev = await meter.previousPush(team!, sub.id, start)

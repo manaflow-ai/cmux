@@ -119,7 +119,9 @@ absent otherwise); screen `pinned`, `color`, `icon`,
 `screen_group_id`; terminal `progress` (the parsed OSC 9;4 state and percent
 of every terminal) and `program_status` (the OSC 7501 program status records
 of the terminal, sorted by `id`: `{id, state, progress, kind, app, title, msg,
-updated_seq, updated_at_ms}`; `state` is `idle`, `working`, `done`, `blocked`
+updated_seq, updated_at_ms, since_ms}`; `since_ms` is when the record entered
+its current `state` and `kind` (a report that keeps both keeps it; a record a
+daemon adopts from a terminal host starts at its `updated_at_ms`); `state` is `idle`, `working`, `done`, `blocked`
 or `error`; `app` is the record's own app, else that of its nearest ancestor
 record that has one (OSC 7501 app inheritance); `title` and `msg` are
 untrusted display text without control or invisible formatting characters,

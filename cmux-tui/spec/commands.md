@@ -7897,10 +7897,16 @@ object{
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
-    updated_at_ms: uint64
+    updated_at_ms: uint64,
+    since_ms?: uint64
   }>
 }
 ```
+
+`since_ms` is when the agent entered `state` (Unix ms): a report that keeps
+the state keeps it, so a client can show how long an agent has worked or
+waited. After a daemon restart it is the last report's time. Older daemons omit
+it; use `updated_at_ms` there.
 
 Errors:
 
@@ -7924,7 +7930,7 @@ Example:
 
 ```json
 {"id":107,"cmd":"list-agents","state":"blocked"}
-{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000}]}}
+{"id":107,"ok":true,"data":{"agents":[{"surface":1,"state":"blocked","source":"hook","session":"abc","updated_at_ms":1710000000000,"since_ms":1709999940000}]}}
 ```
 
 ### report-agent
