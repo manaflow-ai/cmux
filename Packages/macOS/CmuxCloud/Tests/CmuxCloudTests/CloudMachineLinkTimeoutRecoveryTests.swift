@@ -1,4 +1,5 @@
 @testable import CmuxCloud
+import CmuxCloudTui
 import Darwin
 import Foundation
 import Testing
@@ -22,10 +23,14 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
         let server = Task.detached { Self.serve(listener: listener, respondsToPing: true) }
-        let link = CloudMachineLink(machineID: "healthy-timeout-machine", clientURL: client, paths: CloudTuiClientPaths(home: root))
+        let clock = CloudMachineLinkTestClock()
+        let link = CloudMachineLink(machineID: "healthy-timeout-machine", clientURL: client, paths: CloudTuiClientPaths(home: root), requestClock: clock)
         _ = try await link.connect(route: "ws://127.0.0.1:1337/v1/link", session: "cloud", carrier: true, timeout: .seconds(2))
+        let request = Task { try await link.run(arguments: CloudTuiRequest("terminal.wait"), timeout: .milliseconds(100)) }
+        await clock.waitUntilSleeping()
+        clock.advance(by: .milliseconds(100))
         do {
-            _ = try await link.run(arguments: CloudTuiRequest("terminal.wait"), timeout: .milliseconds(100))
+            _ = try await request.value
             Issue.record("the intentionally short request must time out")
         } catch CloudMachineLink.LinkError.requestTimedOut {
             // Expected: the health probe below receives a response on the same channel.
@@ -63,10 +68,12 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         let server = Task.detached(priority: .userInitiated) {
             Self.serve(listener: listener, respondsToPing: false)
         }
+        let clock = CloudMachineLinkTestClock()
         let link = CloudMachineLink(
             machineID: "timeout-machine",
             clientURL: client,
-            paths: CloudTuiClientPaths(home: root)
+            paths: CloudTuiClientPaths(home: root),
+            requestClock: clock
         )
         _ = try await link.connect(
             route: "ws://127.0.0.1:1337/v1/link",
@@ -75,8 +82,11 @@ struct CloudMachineLinkTimeoutRecoveryTests {
             timeout: .seconds(2)
         )
 
+        let request = Task { try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .milliseconds(100)) }
+        await clock.waitUntilSleeping()
+        clock.advance(by: .milliseconds(100))
         do {
-            _ = try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .milliseconds(100))
+            _ = try await request.value
             Issue.record("the unresponsive control request must time out")
         } catch CloudMachineLink.LinkError.requestTimedOut {
             // Expected: the timeout is the health boundary for this local link.
@@ -159,5 +169,47 @@ struct CloudMachineLinkTimeoutRecoveryTests {
                 line.append(byte)
             }
         }
+    }
+}
+
+private final class CloudMachineLinkTestClock: Clock, @unchecked Sendable {
+    typealias Instant = ContinuousClock.Instant
+    private let lock = NSLock()
+    private var instant = ContinuousClock.now
+    private var sleepers: [(Instant, AsyncStream<Void>.Continuation)] = []
+    private let registrations = AsyncStream<Void>.makeStream()
+    var now: Instant { lock.withLock { instant } }
+    var minimumResolution: Duration { .nanoseconds(1) }
+    func advance(by duration: Duration) {
+        let ready = lock.withLock { () -> [AsyncStream<Void>.Continuation] in
+            instant = instant.advanced(by: duration)
+            let (ready, pending) = sleepers.partitioned { $0.0 <= instant }
+            sleepers = pending
+            return ready.map(\.1)
+        }
+        ready.forEach { $0.finish() }
+    }
+    func waitUntilSleeping() async {
+        var iterator = registrations.stream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        if now >= deadline { return }
+        let stream = AsyncStream<Void>.makeStream()
+        lock.withLock { sleepers.append((deadline, stream.continuation)) }
+        registrations.continuation.yield(())
+        for await _ in stream.stream {}
+        try Task.checkCancellation()
+    }
+}
+
+private extension Array {
+    func partitioned(by predicate: (Element) -> Bool) -> ([Element], [Element]) {
+        var matching = [Element]()
+        var remaining = [Element]()
+        for element in self {
+            if predicate(element) { matching.append(element) } else { remaining.append(element) }
+        }
+        return (matching, remaining)
     }
 }

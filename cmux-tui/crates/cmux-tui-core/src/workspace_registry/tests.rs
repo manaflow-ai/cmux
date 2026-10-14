@@ -13,6 +13,14 @@ fn temp_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("cmux-registry-{label}-{}", new_uuid_v4()))
 }
 
+struct TempRootGuard(PathBuf);
+
+impl Drop for TempRootGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
     RegistryWorkspace {
         id,
@@ -5367,6 +5375,7 @@ fn registry_open_cache_misses(registry: &WorkspaceRegistry) -> i32 {
 fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
     const BATCH_SIZE: usize = 1_024;
     let root = temp_root(label);
+    let _cleanup = TempRootGuard(root.clone());
     {
         let mut registry = WorkspaceRegistry::open(&root, label).unwrap();
         commit_terminal_topology(&mut registry, &format!("{label}-seed"));
@@ -5389,7 +5398,6 @@ fn reopen_cost_after_terminal_output(label: &str, records: usize) -> i32 {
     let registry = WorkspaceRegistry::open(&root, label).unwrap();
     let misses = registry_open_cache_misses(&registry);
     drop(registry);
-    fs::remove_dir_all(root).unwrap();
     misses
 }
 
@@ -5400,8 +5408,11 @@ fn registry_reopen_cost_does_not_scale_with_terminal_output_history() {
     // and the journal's recent edge, never the whole output history.
     let small = reopen_cost_after_terminal_output("startup-scale-small", 16);
     let large = reopen_cost_after_terminal_output("startup-scale-large", 16 * 1_024);
+    // Bundled SQLite's open-time cache variation stays within a few pages on
+    // the hosted Linux and macOS runners; a larger delta means journal history
+    // has entered the full WorkspaceRegistry::open path again.
     assert!(
-        large <= small + 256,
+        large <= small + 32,
         "reopen read {large} pages after 16Ki output records but {small} after 16"
     );
 }

@@ -88,30 +88,35 @@ stop_child() {
 }
 
 canary_crash_loop() {
+  D=$(daemon_pid)
+  [ -n "$D" ] || finish "SKIP no-daemon"
+  tr '\0' ' ' < "/proc/$D/cmdline" | grep -q -- --remote-ws-trusted-carrier || finish "SKIP no-trusted-carrier"
+  canary_fail() { restore_state_mount; finish "$1"; }
   OLD_SHA=$(bin_sha)
   HOSTS_BEFORE=$(host_pids)
-  [ -n "$OLD_SHA" ] || finish "FAIL canary-old-binary-unreadable"
-  cp -p "$BIN" "$RUN/cmux-tui.prev" || finish "FAIL canary-backup-copy"
-  [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL canary-backup-checksum"
+  [ -n "$OLD_SHA" ] || canary_fail "FAIL canary-old-binary-unreadable"
+  cp -p "$BIN" "$RUN/cmux-tui.prev" || canary_fail "FAIL canary-backup-copy"
+  [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || canary_fail "FAIL canary-backup-checksum"
   say "canary before old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE]"
-  D=$(daemon_pid); [ -n "$D" ] && stop_child "$D"
+  stop_child "$D"
   if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-    [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL canary-install"
+    [ "$(bin_sha)" = "$TARGET_SHA" ] || canary_fail "FAIL canary-install"
   fi
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL canary-pin-mismatch"
+  [ "$(bin_sha)" = "$TARGET_SHA" ] || canary_fail "FAIL canary-pin-mismatch"
   say "canary staged target=$TARGET_SHA"
   if N=$(wait_serving "$TARGET_SHA"); then
     LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
-    [ -z "$LOST" ] || finish "FAIL canary-lost-hosts=[${LOST# }] daemon=$N"
+    [ -z "$LOST" ] || canary_fail "FAIL canary-lost-hosts=[${LOST# }] daemon=$N"
     finish "OK canary daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
   fi
-  cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" || finish "FAIL canary-rollback-copy"
-  [ "$(bin_sha)" = "$OLD_SHA" ] || finish "FAIL canary-rollback-checksum"
+  cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" || canary_fail "FAIL canary-rollback-copy"
+  [ "$(bin_sha)" = "$OLD_SHA" ] || canary_fail "FAIL canary-rollback-checksum"
   X=$(daemon_pid); [ -n "$X" ] && stop_child "$X"
   if N=$(wait_serving "$OLD_SHA"); then
+    restore_state_mount
     finish "ROLLBACK canary-target-unhealthy old-daemon=$N"
   fi
-  finish "FAIL canary-target-and-rollback-unhealthy inspect=$RUN/log"
+  canary_fail "FAIL canary-target-and-rollback-unhealthy inspect=$RUN/log"
 }
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi

@@ -102,7 +102,7 @@ public actor CloudMachineLink {
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             case .requestTimedOut:
-                return "cmux-tui did not answer the request before its deadline. The link will be checked before retrying."
+                return String(localized: "cloud.link.requestTimedOut", defaultValue: "The Cloud machine did not answer the request in time. Check the connection and try again.")
             }
         }
     }
@@ -141,6 +141,7 @@ public actor CloudMachineLink {
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
     private var resourceConnection: CloudTuiPersistentResourceConnection?
+    private let requestClock: any Clock<Duration>
     private var eventStreamID: String?
     private var eventsSubscriptionID: UUID?
     private var eventsReaderTask: Task<Void, Never>?
@@ -167,12 +168,14 @@ public actor CloudMachineLink {
         machineID: String,
         clientURL: URL,
         paths: CloudTuiClientPaths,
+        requestClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryClock: any Clock<Duration> = ContinuousClock(),
         eventsRecoveryPolicy: CloudMachineLinkEventsRecoveryPolicy = .standard
     ) {
         self.machineID = machineID
         self.clientURL = clientURL
         self.paths = paths
+        self.requestClock = requestClock
         self.eventsRecoveryClock = eventsRecoveryClock
         self.eventsRecoveryPolicy = eventsRecoveryPolicy
         (changes, changesContinuation) = AsyncStream<Change>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -314,7 +317,7 @@ public actor CloudMachineLink {
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
-        self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
+        self.resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath, clock: requestClock)
         state = .connected
         await startEventsSubscription(socketPath: socketPath, cursor: nil)
         changesContinuation.yield(.connected)
@@ -446,16 +449,16 @@ public actor CloudMachineLink {
     /// Commands are immutable protocol messages on one machine-owned socket.
     /// No child process, CLI parsing, automatic mutation replay or re-authentication.
     public func run(arguments: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
+        let channel = try await controlConnection()
         do {
             return try await CloudOperationContext.phase(.process) {
-                let channel = try await self.controlConnection()
                 return try await channel.request(arguments, timeout: timeout)
             }
         } catch LinkError.requestTimedOut {
             // A caller's deadline is not proof that the shared link is wedged.
             // Probe the same channel before retiring it; terminal.wait and
             // wait_exit are expected to outlive short request budgets.
-            guard timeout > .zero, let channel = resourceConnection else {
+            guard timeout > .zero, resourceConnection === channel else {
                 throw LinkError.requestTimedOut
             }
             do {
@@ -487,7 +490,7 @@ public actor CloudMachineLink {
             throw LinkError.exited(status: 3, output: "transport closed: machine link is unavailable")
         }
         if let resourceConnection, !(await resourceConnection.isClosed) { return resourceConnection }
-        let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath)
+        let channel = CloudTuiPersistentResourceConnection(socketPath: connected.socketPath, clock: requestClock)
         resourceConnection = channel
         return channel
     }
@@ -747,28 +750,25 @@ public actor CloudMachineLink {
 
     /// Foundation aborts if a running `Process` is released. Keep a detached exit
     /// waiter alive because the caller can already be cancelled when cleanup starts.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func terminateAndWait(
         _ process: Process,
         exit: CloudLinkFirstValue<Int32>
     ) async {
         let exitTask = Task.detached { await exit.result }
         if process.isRunning { process.terminate() }
-        let deadlineExpired = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                _ = await exit.result
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(5))
-                return true
-            }
-            let result = await group.next() ?? true
-            group.cancelAll()
-            return result
+        // This timer owns only escalation; process completion comes from the
+        // termination callback. Cancellation of the caller must not release a
+        // running Foundation Process or cancel its exit waiter.
+        let escalation = Task.detached {
+            do { try await ContinuousClock().sleep(for: .seconds(5)) } catch { return }
+            if process.isRunning { _ = Darwin.kill(process.processIdentifier, SIGKILL) }
         }
-        if deadlineExpired && process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGKILL)
-        }
+        defer { escalation.cancel() }
         _ = await exitTask.value
     }
 

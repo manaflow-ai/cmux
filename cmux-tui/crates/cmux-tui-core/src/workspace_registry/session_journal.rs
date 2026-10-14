@@ -1457,14 +1457,13 @@ fn archived_non_output_after(
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
     let mut statement = connection.prepare(
-        "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
-                content, uncompressed_bytes, sha256
+        "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
          ORDER BY start_sequence ASC",
     )?;
     let rows = statement
-        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], journal_segment_row)?
+        .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], journal_segment_metadata)?
         .collect::<Result<Vec<_>, _>>()?;
     let archive_end: i64 = connection.query_row(
         "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
@@ -1500,22 +1499,26 @@ fn archived_non_output_after(
     let mut records = Vec::new();
     for row in rows {
         let segment_id = row.0.clone();
-        let known: Option<bool> = connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
-                        EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1 AND kind != 'terminal.output')",
-                [segment_id.as_str()],
-                |r| Ok((r.get::<_, bool>(0)?, r.get::<_, bool>(1)?)),
-            )
-            .ok()
-            .and_then(|(present, non_output)| present.then_some(non_output));
-        let Some(has_non_output) = known else { return Ok(None) };
+        let (has_kinds, has_non_output): (bool, bool) = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1),
+                    EXISTS(SELECT 1 FROM journal_segment_kinds WHERE segment_id = ?1 AND kind != 'terminal.output')",
+            [segment_id.as_str()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if !has_kinds { return Ok(None); }
         let end = u64::try_from(row.2)?.min(through);
         if !has_non_output {
             reached = reached.max(end);
             continue;
         }
-        let decoded = decode_journal_segment(row)?;
+        let full_row = connection.query_row(
+            "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
+                    content, uncompressed_bytes, sha256
+             FROM journal_segments WHERE segment_id = ?1",
+            [segment_id.as_str()],
+            journal_segment_row,
+        )?;
+        let decoded = decode_journal_segment(full_row)?;
         for record in decoded.records.into_iter().filter(|r| {
             r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
         }) {
@@ -1673,6 +1676,11 @@ fn query_session_journal_after_subjects(
 }
 
 type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+type JournalSegmentMetadata = (String, i64, i64);
+
+fn journal_segment_metadata(row: &Row<'_>) -> rusqlite::Result<JournalSegmentMetadata> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+}
 
 fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
