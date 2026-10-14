@@ -99,4 +99,122 @@ cnx-ffi BrowserStream (Rust)                  ▼
 
 ## Verification
 
-See the results section below (filled in from the live run).
+### What ran
+
+**The Mac** was `mini-cmuxs-mac-mini-2`, user-local under
+`~/cnx-ios-e2e/browser`. It ran the real fleet DEV build
+`cmux DEV cnx-br-2` (job `8c3a903da5d6`, commit `9473c44a8114`), launched
+in the Mac's GUI session by `verify/scripts/browser-mac.sh`:
+
+- `CMUX_NEXT_CONFIG_FILE` pointed at a private `cmux-next.json` with
+  `mobile.allowIPhoneConnections: true`.
+- `CMUX_AUTH_CREDENTIALS_FILE` (0600) held the `CmuxAuthRuntime` DEBUG dev
+  credential.
+
+From there the app did everything:
+
+- It started its bundled `cnx-hostd`, built from this branch by the fleet,
+  which registered in the personal space.
+- On the phone's request it started its own bundled
+  `Contents/Helpers/cmux-remote-browser-host.app` (CEF fork). That process's
+  parent is the `cmux DEV` app process.
+
+There was no standalone helper or test host. A python `http.server` on
+loopback served only the test page, `clock.html`. It shows the Mac's wall
+clock to the millisecond, a text field, a button, a link and 80 rows.
+
+`browser-mac.sh seed` created the workspace `browser-demo` with a browser
+tab (`s14`) on that page in the app's own daemon.
+
+**The phone** was the headless simulator `cnx-br-ios26` (iPhone 17 Pro,
+iOS 26.5), running a Debug build. Simulator.app was never opened.
+
+- It signed in with the same credential (`verify/record-browser.sh`).
+- The launch argument `-cnx.live.mac.<team> <device id>` picked this Mac,
+  because three Macs on the mini share the name "cmux's Mac mini (2)".
+- Taps, swipes and typing came from real HID events (`axe`).
+
+**Measurements:**
+
+- The overlay shows capture-to-decoded latency, from the rd clock probes and
+  the frame's capture time.
+- `verify/scripts/browser-latency.py` computes glass-to-glass from OCR of
+  each still: the phone's wall clock in the overlay, minus the page's clock
+  as streamed, minus the Mac clock offset. The offset was 2 to 3 ms over one
+  ssh session (`clock-offset.py`).
+- A still's two clocks can be up to one display frame apart.
+
+### Results
+
+Evidence is git-ignored, in `verify/evidence/2026-10-13/browser-stream/`
+(recordings, app logs, `latency.txt`, the Mac hostd log).
+
+| Check | Result |
+| --- | --- |
+| Open a workspace's browser tab | Workspaces, then `browser-demo`, then the browser card. hostd asked the app (`need_browser`), the app started its host, and the first frame arrived about 0.9 s after the tap. A reopen reuses the host: the first frame is at 2400×1600 (the host default), then 804×1444 after `rb.open`. |
+| Viewport and DPR | 402×722 pt page at scale 2, so 804×1444 px frames. The page lays out at phone width (no horizontal scroll). |
+| Taps | "Tap me" twice: the page counts `taps: 2`. Tapping the link loads `?page=2`. |
+| Typing | Focus the field, then type "hello from iPhone" (`ime_commit`). The page echoes `typed: hello from iPhone`. |
+| Scroll | Swipes scroll the page (rows 10 to 22 in view) with momentum. TabsKit's toolbar collapses on scroll, as for local tabs. |
+| Toolbar | The address shows `127.0.0.1` from `rb.page`. Back is enabled after the link. Back (`rb.history`) returns to page 1 with the typed text intact. |
+| Takeover | Each relaunch's channel took the host over. The older channel closed with `replaced`, and the page and its history stayed for the whole session (one host, pid 84425). |
+
+| Run (25 s each) | Path | Frame rate | Bitrate | Capture to decoded | Glass to glass (OCR) |
+| --- | --- | --- | --- | --- | --- |
+| WireGuard, static page with clock | direct (LAN) | 55 to 57 fps | 0.69 to 0.80 Mbit/s | 12 to 17 ms | p50 8, p90 24, max 40 ms (n=45) |
+| WebRTC, same | direct | 54 to 55 fps | 0.68 to 0.81 Mbit/s | 10 to 14 ms | p50 14, p90 15, max 31 ms (n=44) |
+| WebRTC while the mini was loaded (load average 20) | direct | 8 to 48 fps | 0.07 to 0.2 Mbit/s | 16 to 34 ms, one 147 ms | p50 66, p90 200 ms |
+| WireGuard relay only (TURN), page scrolled throughout | turn, 13 ms RTT | 40 to 50 fps, two dips (12 and 3 fps) | 0.6 to 1.3 Mbit/s | 22 to 29 ms | p50 35, p90 52 ms (n=38) |
+
+Decode time is 1.4 to 1.6 ms (VideoToolbox in the simulator).
+
+In the first WebRTC run, a 1.2 s freeze coincided with the previous app
+instance's WireGuard link timing out on the same hostd.
+
+### Tests
+
+- Rust (`cargo test`, `cargo clippy --all-targets -D warnings`):
+  - hostd `browser.rs`: the frame filter, tab and URL rules, the hello, and
+    the supervised broker (ask, answer, gone, stop, non-loopback refused).
+  - `tests/host.rs`: the browser service over WebRTC, WireGuard and the
+    relay against a stand-in host (test-only, `tests/support`). It covers
+    the hello with the secret, video shards, `file:` navigate dropped,
+    takeover with `replaced`, `forbidden` and `bad_request`.
+  - `cnx-ffi/tests/browser.rs`: the exported viewer end to end over both
+    transports. It covers frames with an age, `rb.screen_applied` at the
+    phone's size, navigate, pointer and IME input reaching the page, and
+    close.
+- CnxKit (`CnxBrowserStreamTests` on the simulator):
+  - the Annex-B splitter and AVCC;
+  - the rb JSON;
+  - the model (open at size, `rb.page` to the toolbar, `rb.screen`,
+    history, navigate, waiting and reconnect, refusal);
+  - **real VideoToolbox H.264** framed as the Mac sends it, decoded in order,
+    with a P-frame skipped before the first keyframe.
+- cmux-next `CnxHostTests`: event parsing, the answer lines, and the
+  supervisor starting a browser host for a scripted hostd and stopping all
+  of them at stop. The CnxHost sources and `CnxHostState` (an exhaustive
+  switch the new events broke, fixed) ran under `swift test` on the mini,
+  because the `nx-remote` build host `cmux-lawrence-2` did not resolve. The
+  fleet DEV build compiled the whole app.
+
+### Gaps
+
+- **Same page as the Mac?** No. The phone's tab runs in its own app-started
+  host (one CEF instance per phone tab), not in the Mac window's tab. The
+  Mac app's local host takes one viewer at a time. Sharing it needs
+  multi-viewer support in the host (`rb.open` from a second viewer, as
+  section 5.1 allows).
+- **DEBUG only.** The app bundles the remote browser host only in DEV builds
+  (`embed-remote-browser-host.sh`, until tracker cx-0y2y). A Release app
+  refuses `browser` as `unavailable`, and the phone shows the reason.
+- **No datagram lane yet.** A loaded Mac or a lossy path stalls the reliable
+  channel (the loaded run above). This is the next step, after termlive's
+  link changes land.
+- **Keyboard.** It opens from a button, because the host reports no focused
+  editable (`rb.text_input` is not emitted).
+- **Not carried or not rendered:** popup surfaces (`rb.surface.*`), menus,
+  dialogs, file choosers, downloads, cursor and clipboard. Navigation does
+  not update the daemon tab's URL.
+- **Measurement limits.** The phone was a simulator on the same LAN as the
+  mini. There was no cellular run; relay-only TURN was the stand-in.

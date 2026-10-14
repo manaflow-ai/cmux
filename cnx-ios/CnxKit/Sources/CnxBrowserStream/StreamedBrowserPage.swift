@@ -40,7 +40,8 @@ public struct StreamedBrowserPage: View {
             .accessibilityIdentifier("browser.keyboard")
             if StreamedBrowserOverlay.enabled {
                 StreamedBrowserOverlay(model: model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    // Bottom left, clear of the page's own top area (a page clock).
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .allowsHitTesting(false)
             }
         }

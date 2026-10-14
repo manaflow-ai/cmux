@@ -3,10 +3,11 @@
 # the DEBUG dev credential (CNX_STACK_EMAIL / CNX_STACK_PASSWORD from the
 # environment, passed as SIMCTL_CHILD_*; never printed), record the screen,
 # stream the app log and take a wall-clock still every ~0.3 s.
-# usage: verify/record-browser.sh <udid> <out-dir> start [transport] | stop
+# usage: verify/record-browser.sh <udid> <out-dir> start [transport [extra launch args]] | stop
+# Extra args such as `-cnx.live.mac.<team> <mac device id>` pick the Mac.
 set -euo pipefail
 export DEVELOPER_DIR=${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}
-udid=$1; out=$2; mode=$3; transport=${4:-wireguard}
+udid=$1; out=$2; mode=$3; transport=${4:-wireguard}; shift $(( $# < 4 ? $# : 4 ))
 mkdir -p "$out/stills"
 case $mode in
 start)
@@ -14,7 +15,7 @@ start)
   xcrun simctl terminate "$udid" dev.cmux.cnx 2>/dev/null || true
   SIMCTL_CHILD_CNX_STACK_EMAIL="$CNX_STACK_EMAIL" SIMCTL_CHILD_CNX_STACK_PASSWORD="$CNX_STACK_PASSWORD" \
     xcrun simctl launch "$udid" dev.cmux.cnx -cnx-tab workspaces -cnx.setupComplete 1 \
-    -cnx.settings.transport "$transport" > /dev/null
+    -cnx.settings.transport "$transport" "$@" > /dev/null
   nohup xcrun simctl spawn "$udid" log stream --level info --predicate 'subsystem == "dev.cmux.cnx"' --style compact > "$out/app.log" 2>&1 &
   echo $! > "$out/log.pid"
   nohup xcrun simctl io "$udid" recordVideo --codec h264 --force "$out/browser.mp4" > "$out/rec.log" 2>&1 &
