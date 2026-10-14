@@ -83,6 +83,7 @@ impl ResourceOperation {
             Self::HistoryVisitRemove => "history.visit.remove",
             Self::HistoryVisitSummaries => "history.visit.summaries",
             Self::HistoryVisitImport => "history.visit.import",
+            Self::HistoryTrailRecord => "history.trail.record",
             Self::WorkspaceList => "workspace.list",
             Self::WorkspaceGet => "workspace.get",
             Self::WorkspaceCreate => "workspace.create",
