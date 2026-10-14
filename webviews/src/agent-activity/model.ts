@@ -63,8 +63,24 @@ export type ActivityState = {
     resume: string;
     watch: string;
     unwatch: string;
+    thisMac: string;
+    layout: string;
+    layoutSplit: string;
+    layoutTimeline: string;
+    layoutGrid: string;
+    notStarted: string;
+    notSetUp: string;
+    unreachable: string;
   };
 };
+
+/** The words for a machine's connection; nothing while it is connected. */
+export function connectionText(connection: ActivityConnection, strings: ActivityState["strings"]): string | undefined {
+  if (connection === "not_started") return strings.notStarted;
+  if (connection === "not_set_up") return strings.notSetUp;
+  if (connection === "unreachable") return strings.unreachable;
+  return undefined;
+}
 
 export const isLive = (status: ActivityStatus) => typeof status === "string";
 export const displayFrame = (event: ActivityEvent) => event.afterFrame ?? event.beforeFrame;
@@ -98,7 +114,7 @@ export function groups(state: ActivityState): ActivityGroup[] {
     })
     .map((id) => ({
       id,
-      name: state.machineNames[id] ?? id,
+      name: state.machineNames[id] ?? (id === "local" ? state.strings.thisMac : id),
       connection: state.connections[id] ?? "connected",
       sessions: (state.sessionsByMachine[id] ?? []).filter((s) => matches(s, state.filter)).sort(listOrder),
     }));
@@ -220,7 +236,7 @@ export const initialActivityState = (): ActivityState => ({
     title: "Agent Activity",
     filter: "Filter",
     emptyTitle: "No computer use yet",
-    emptyDetail: "When an agent uses computer use, its session and a timeline of every action appear here.",
+    emptyDetail: "Sessions and their steps show here when an agent uses the computer.",
     noFrame: "No screenshot for this step",
     active: "Active",
     idle: "Idle",
@@ -230,6 +246,14 @@ export const initialActivityState = (): ActivityState => ({
     pause: "Pause",
     resume: "Resume",
     watch: "Watch",
-    unwatch: "Unwatch",
+    unwatch: "Stop Watching",
+    thisMac: "This Mac",
+    layout: "Layout",
+    layoutSplit: "Split",
+    layoutTimeline: "Timeline",
+    layoutGrid: "Grid",
+    notStarted: "Computer use has not run here yet",
+    notSetUp: "Computer use needs Accessibility and Screen Recording",
+    unreachable: "Machine unreachable",
   },
 });
