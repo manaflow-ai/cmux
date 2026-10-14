@@ -518,8 +518,11 @@ fn start(
     let pinned = crate::cmux_env::pinned_subset(&session_env);
     // Each turn reads the person's Home workspace with the CLI the turns use (home_view).
     let home_view = crate::home_view::HomeView {
-        cli: crate::cmux_env::bundled_bin(&exe)
-            .map_or_else(|| std::path::PathBuf::from("cmux"), |bin| bin.join("cmux")),
+        cli: crate::home_view::HomeView::cli_for(
+            pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::Path::new),
+        ),
         env: pinned.clone(),
     };
     // One setting picks the harness of turns and compactor alike.
