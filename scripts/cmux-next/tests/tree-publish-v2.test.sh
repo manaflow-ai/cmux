@@ -51,7 +51,7 @@ if target.exists():
     if target.read_bytes() == pathlib.Path(args.file).read_bytes():
         sys.exit(0)
     if args.conflict_exit_code is not None:
-        sys.exit(args.conflict_exit_code)  # the real uploader's quiet race exit
+        sys.exit(args.conflict_exit_code)
     sys.exit("write-once object differs: " + args.key)
 target.parent.mkdir(parents=True, exist_ok=True)
 shutil.copy(args.file, target)
