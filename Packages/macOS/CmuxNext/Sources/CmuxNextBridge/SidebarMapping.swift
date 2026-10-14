@@ -332,6 +332,6 @@ public struct SidebarMapping {
 extension SidebarRowFeed {
     /// This feed as the mapping's row source (`SidebarMapping.sections(rowSource:)`).
     public var rowSource: SidebarMapping.RowSource {
-        { [unowned self] workspace, machine, make in row(SidebarWorkspaceID(workspace.id), machine: machine, make: make) }
+        { workspace, machine, make in self.row(SidebarWorkspaceID(workspace.id), machine: machine, make: make) }
     }
 }
