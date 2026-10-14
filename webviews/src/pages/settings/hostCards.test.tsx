@@ -75,11 +75,11 @@ test("Apple Wallpapers: tiles show only their names; one not downloaded opens th
   expect(tiles.map((tile) => tile.textContent)).toEqual(["Sonoma", "Grid Green"]);
   const [sonoma, grid] = tiles;
   expect(sonoma.title).toBe("");
-  expect(sonoma.querySelector(".backdrop-download")).toBeNull();
+  expect(sonoma.querySelector("svg.backdrop-download")).toBeNull();
   // Not downloaded: dimmed, a cloud in the corner, and the Wallpaper pane on click.
   expect(grid.title).toBe("Download in System Settings");
   expect(grid.classList.contains("backdrop-pending")).toBe(true);
-  expect(grid.querySelector(".backdrop-download svg")).not.toBeNull();
+  expect(grid.querySelector("svg.backdrop-download")).not.toBeNull();
   await act(async () => grid.click());
   await settle();
   expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { rowsByKey } from "../schema";
+import { Icon } from "../icons";
 import { t } from "../strings";
 import { ActionRow } from "./ActionRow";
 import { ArtBrowser } from "./ArtBrowser";
@@ -103,19 +104,22 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     }
     endPreview();
   };
-  const tile = (id: string, title: string, attribution: string) => (
+  // `attribution` null: the name alone (an Apple wallpaper). `pending`: a macOS wallpaper macOS
+  // has not downloaded, dimmed with a cloud; a click opens the Wallpaper pane, which downloads it.
+  const tile = (id: string, title: string, attribution: string | null, pending = false) => (
     <button
       type="button"
       key={id}
-      className="backdrop-tile"
+      className={pending ? "backdrop-tile backdrop-pending" : "backdrop-tile"}
       aria-pressed={current === id}
       aria-label={title}
+      title={pending ? t("settingsWindow.backdropPicker.downloadInSystemSettings") : undefined}
       ref={focus === BACKGROUND_KEY && current === id && state.readable && workspaceRead ? revealTile : undefined}
-      onClick={() => void choose(id)}
-      onPointerEnter={() => preview(id, PREVIEW_DWELL_MS)}
-      onPointerLeave={endPreview}
-      onFocus={(event) => event.currentTarget.matches(":focus-visible") && preview(id, 0)}
-      onBlur={endPreview}
+      onClick={() => void (pending ? store.openWallpaperSettings() : choose(id))}
+      onPointerEnter={pending ? undefined : () => preview(id, PREVIEW_DWELL_MS)}
+      onPointerLeave={pending ? undefined : endPreview}
+      onFocus={(event) => !pending && event.currentTarget.matches(":focus-visible") && preview(id, 0)}
+      onBlur={pending ? undefined : endPreview}
     >
       {id === "none" || id === FOLLOW_ID ? (
         <span className="backdrop-thumb backdrop-none" />
@@ -124,10 +128,13 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           ↻
         </span>
       ) : (
-        <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
+        <span className="backdrop-frame">
+          <img className="backdrop-thumb" alt="" src={`backdrop/${encodeURIComponent(id)}`} />
+          {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
+        </span>
       )}
       <span className="backdrop-title">{title}</span>
-      <span className="row-help">{attribution}</span>
+      {attribution !== null && <span className="row-help">{attribution}</span>}
     </button>
   );
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
@@ -206,22 +213,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
           <div className="backdrop-grid">
             {group.choices.map((choice) =>
-              choice.downloaded === false ? (
-                // A macOS wallpaper macOS has not downloaded: the window shows its thumbnail until
-                // the person gets the full picture in the Wallpaper pane.
-                <fieldset key={choice.id} className="backdrop-cell" aria-label={choice.title}>
-                  {tile(choice.id, choice.title, t("settingsWindow.backdropPicker.notDownloaded"))}
-                  <button
-                    type="button"
-                    className="link-button row-help backdrop-get"
-                    onClick={() => void store.openWallpaperSettings()}
-                  >
-                    {t("settingsWindow.backdropPicker.getInSystemSettings")}
-                  </button>
-                </fieldset>
-              ) : (
-                tile(choice.id, choice.title, choice.attribution)
-              ),
+              choice.collection === "apple"
+                ? tile(choice.id, choice.title, null, choice.downloaded === false)
+                : tile(choice.id, choice.title, choice.attribution),
             )}
           </div>
         </div>

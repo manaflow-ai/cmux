@@ -13113,150 +13113,19 @@
         }
       }
     },
-    "settingsWindow.backdropPicker.notDownloaded": {
+    "settingsWindow.backdropPicker.downloadInSystemSettings": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not downloaded"
+            "value": "Download in System Settings"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتم تنزيلها"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nije preuzeto"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke hentet"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nicht geladen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No descargado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non téléchargé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Non scaricato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未ダウンロード"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនទាន់បានទាញយក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다운로드되지 않음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ikke lastet ned"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie pobrano"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Não baixado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не загружено"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ยังไม่ได้ดาวน์โหลด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İndirilmedi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Не завантажено"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chưa tải về"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未下载"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未下載"
-          }
-        }
-      }
-    },
-    "settingsWindow.backdropPicker.getInSystemSettings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Get in System Settings"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "احصل عليها في إعدادات النظام"
+            "value": "نزّلها في إعدادات النظام"
           }
         },
         "bs": {
@@ -13268,7 +13137,7 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hent i Systemindstillinger"
+            "value": "Download i Systemindstillinger"
           }
         },
         "de": {
@@ -13280,25 +13149,25 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obtener en Ajustes del Sistema"
+            "value": "Descargar en Ajustes del Sistema"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obtenir dans Réglages Système"
+            "value": "Télécharger dans Réglages Système"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ottieni in Impostazioni di Sistema"
+            "value": "Scarica in Impostazioni di Sistema"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "システム設定で入手"
+            "value": "システム設定でダウンロード"
           }
         },
         "km": {
@@ -13310,13 +13179,13 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시스템 설정에서 받기"
+            "value": "시스템 설정에서 다운로드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hent i Systeminnstillinger"
+            "value": "Last ned i Systeminnstillinger"
           }
         },
         "pl": {
@@ -13328,7 +13197,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obter nos Ajustes do Sistema"
+            "value": "Baixar nos Ajustes do Sistema"
           }
         },
         "ru": {
@@ -13340,13 +13209,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "รับในการตั้งค่าระบบ"
+            "value": "ดาวน์โหลดในการตั้งค่าระบบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sistem Ayarları’nda edinin"
+            "value": "Sistem Ayarları’nda indirin"
           }
         },
         "uk": {
@@ -13364,13 +13233,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在系统设置中获取"
+            "value": "在系统设置中下载"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在系統設定中取得"
+            "value": "在系統設定中下載"
           }
         }
       }

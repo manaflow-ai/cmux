@@ -922,21 +922,31 @@ mark {
   border-color: var(--border);
 }
 
-/* A macOS wallpaper that is not downloaded: its tile, then Get in System Settings. */
-.backdrop-cell {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
+/* A thumbnail with room for a corner badge. */
+.backdrop-frame {
+  position: relative;
+  display: block;
 }
 
-.backdrop-get {
-  align-self: flex-start;
-  max-width: 100%;
-  padding: 0;
-  text-align: left;
+.backdrop-frame .backdrop-thumb {
+  display: block;
+}
+
+/* A macOS wallpaper that is not downloaded: dimmed, with a cloud in the corner. */
+.backdrop-pending .backdrop-thumb {
+  opacity: 0.55;
+}
+
+.backdrop-pending:hover .backdrop-thumb {
+  opacity: 0.8;
+}
+
+.backdrop-download {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 70%));
 }
 
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
