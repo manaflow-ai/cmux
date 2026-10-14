@@ -32,8 +32,8 @@ extension VMClient {
                 limits = VMPlanLimits(
                     maxActiveVms: maxActiveVms,
                     planId: planId,
-                    isPaidPlan: rawLimits["isPaidPlan"] as? Bool,
                     freeAccessWindowDays: freeAccessWindowDays,
+                    isPaidPlan: rawLimits["isPaidPlan"] as? Bool,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                     defaultMemoryMb: Self.decodePositiveInt(rawLimits["defaultMemoryMb"]),
