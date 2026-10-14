@@ -71,10 +71,9 @@ final class TooltipPanel: NSPanel {
         surface.wantsLayer = true
         surface.layer?.masksToBounds = false
         surface.layer?.shadowColor = NSColor.black.cgColor
-        surface.layer?.shadowOpacity = Float(TooltipSurface.shadowAlpha)
-        // CSS blurs by the radius; a layer's shadow radius is about half the blur.
-        surface.layer?.shadowRadius = TooltipSurface.shadowRadius / 2
-        surface.layer?.shadowOffset = CGSize(width: 0, height: -TooltipSurface.shadowOffset)
+        surface.layer?.shadowOpacity = Float(TooltipSurface.shadow.alpha)
+        surface.layer?.shadowRadius = TooltipSurface.shadow.layerRadius
+        surface.layer?.shadowOffset = TooltipSurface.shadow.layerOffset()
         blur.material = .toolTip
         blur.blendingMode = .behindWindow
         blur.state = .active

@@ -58,8 +58,15 @@ one host each, with their own `MUX_HOME`, acpmux home, participant id
 (`OPTCHAT_CHIEF_PARTICIPANT`) and token (`conversation-agent-token` for that
 id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
-answered as a cloud wake is (`brain/side.rs`); only people wake a Chief, so
-two Chiefs in one channel never answer each other. `every` adds a constant
+answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
+it too (never its own; other agents never do). Loop guard: the owner's
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
+texts in one thread (the replies of one root, or the top level) since a
+person's text in that thread; the owner refuses more (`agent_budget`), and a
+Chief pre-checks it from the messages it read (`thread_agent_streak` on the
+thread its reply goes into) so it stays quiet instead of running that turn.
+A person's text resets its own thread only. A page shows "Chiefs paused" for
+a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
 In a conversation of more than two participants the reply goes into the

@@ -279,8 +279,8 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
     expect(desktop).toContain(
       `--tooltip-tint: var(--cmux-tooltip-tint, color-mix(in srgb, var(--surface-popup) ${Math.round(value("minimumTintAlpha") * 100)}%, transparent));`,
     );
-    expect(desktop).toContain(
-      `--tooltip-shadow: 0 ${value("shadowOffset")}px ${value("shadowRadius")}px color-mix(in srgb, black ${Math.round(value("shadowAlpha") * 100)}%, transparent);`,
-    );
+    // The shadow is elevation 1 on both sides (TooltipSurface.shadow, --elevation-1).
+    expect(swift).toContain("static var shadow: Elevation { PopupStyle.elevation1 }");
+    expect(desktop).toContain("--tooltip-shadow: var(--elevation-1);");
   });
 });

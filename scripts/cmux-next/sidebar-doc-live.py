@@ -15,6 +15,15 @@ daemon socket.
    cross_machine refusal, undo with the returned inverse, order across a
    restart, migration twice is a no-op, the old layout shows the pin, old
    group verbs and new workspaces follow into the doc.
+4. Slice 2 (doc2): section `scroll` defaults and `section.update {scroll,
+   max_rows}`, the region move of a default scroll, the CLI verbs
+   `sidebar section-scroll` / `section-max-rows`, the url body `icon_url`
+   (migrated from an old item's `extra.icon_url`, `item.update`, lifted on
+   `item.add`, restated for old clients in `sidebar_layout`).
+5. Doc slice 3: a new workspace and a workspace.place send a reader that
+   echoed placement-shift-v1 only the new or moved placement, and an
+   old-protocol reader (also one that echoes only sidebar-doc-v1) every
+   placement the change shifted.
 
 Usage: sidebar-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -37,6 +46,7 @@ from pathlib import Path
 
 PROTOCOL = "cmux.protocol/2"
 SESSION = "sbdoc"
+FAVICON = "https://example.com/favicon.ico"
 _ids = itertools.count(1)
 failures: list[str] = []
 
@@ -120,6 +130,17 @@ class Daemon:
         return reply["result"]
 
 
+def cli(daemon: Daemon, *args: str) -> subprocess.CompletedProcess:
+    """The `cmux` CLI (the same binary) against the daemon's socket."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
+    return subprocess.run([str(daemon.binary), "--socket", str(daemon.socket_path), "--json", *args],
+                          capture_output=True, text=True, timeout=30, env=env)
+
+
+def reason_of(reply: dict) -> str | None:
+    return (reply.get("error") or {}).get("details", {}).get("reason")
+
+
 def sidebar_batch(daemon: Daemon, action) -> dict | None:
     """Open session.events, run `action`, return the first delta with a
     sidebar_doc change (or None after 15 s)."""
@@ -161,6 +182,64 @@ def sidebar_batch(daemon: Daemon, action) -> dict | None:
             if any(change.get("resource") == "sidebar_doc" for change in changes):
                 return item
     return None
+
+
+class EventStream:
+    """One `session.events` stream on its own connection. `echo`: the
+    capabilities the connection echoes in `set-client-info` first (a client
+    that reads the order from the sidebar document echoes sidebar-doc-v1)."""
+
+    def __init__(self, daemon: Daemon, echo: list[str] | None = None) -> None:
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect(str(daemon.socket_path))
+        self.buffer = b""
+        if echo is not None:
+            self.socket.sendall(json.dumps({"id": next(_ids), "cmd": "set-client-info",
+                                            "capabilities": echo}).encode() + b"\n")
+            reply = next(self.lines(10.0), {})
+            if not reply.get("ok"):
+                raise RuntimeError(f"set-client-info failed: {reply}")
+        request = {"protocol": PROTOCOL, "type": "request", "id": f"r{next(_ids)}",
+                   "operation": "session.events",
+                   "params": {"machine": "current", "session": "current",
+                              "stream_id": f"stream_{os.urandom(16).hex()}"}}
+        self.socket.sendall(json.dumps(request).encode() + b"\n")
+        for _ in self.lines(1.0):
+            pass
+
+    def lines(self, timeout: float):
+        self.socket.settimeout(timeout)
+        while True:
+            while b"\n" in self.buffer:
+                line, self.buffer = self.buffer.split(b"\n", 1)
+                yield json.loads(line)
+            try:
+                chunk = self.socket.recv(1 << 20)
+            except TimeoutError:
+                return
+            if not chunk:
+                return
+            self.buffer += chunk
+
+    def delta_with(self, resource: str, value_id: str, index: int | None = None) -> dict | None:
+        """The first delta (within 15 s) with an upsert of `resource` `value_id`
+        (at `index`, when given)."""
+        for message in self.lines(15.0):
+            item = message.get("item") or {}
+            if any(change.get("resource") == resource and change.get("id") == value_id
+                   and (index is None or (change.get("value") or {}).get("index") == index)
+                   for change in item.get("changes") or []):
+                return item
+        return None
+
+    def close(self) -> None:
+        self.socket.close()
+
+
+def placements_of(item: dict | None) -> dict[str, int]:
+    """The workspace_placement upserts of a delta: placement id -> index."""
+    return {change["id"]: change["value"]["index"] for change in (item or {}).get("changes") or []
+            if change.get("resource") == "workspace_placement" and change.get("kind") == "state_upsert"}
 
 
 def registry_file(state: Path) -> Path:
@@ -237,7 +316,8 @@ def seed(daemon: Daemon) -> dict:
     # An old group name longer than the document's title limit (80).
     daemon.ok("workspace_group.create", {"name": "Long " + "n" * 115}, mutate=True)
     custom = {"id": "sec_work", "title": "Work", "region": "middle", "look": "list", "content": "items",
-              "items": [{"id": "itm_docs", "ref": {"kind": "url", "value": "https://example.com/docs"}}]}
+              "items": [{"id": "itm_docs", "ref": {"kind": "url", "value": "https://example.com/docs"},
+                         "icon_url": FAVICON}]}
     daemon.ok("sidebar_layout.update", {"op": {"kind": "section.add", "section": custom, "index": 99}}, mutate=True)
     # The app's pin: item.add when its layout shows sec_pinned, else section.add.
     tile = {"id": "itm_tile_w6", "ref": {"kind": "workspace", "value": f"{local}:{ids['w6']}"}}
@@ -350,6 +430,17 @@ def main() -> int:
         refs = [(i["body"]["ref"]["session_id"], i["body"]["ref"]["workspace_id"])
                 for i in doc["items"] if i["body"].get("type") == "workspace"]
         check("each workspace placed once", len(refs) == len(set(refs)), refs)
+        check("migration moves an old url item's extra.icon_url into the body",
+              url is not None and url["body"].get("icon_url") == FAVICON
+              and "icon_url" not in url.get("extra", {}), url)
+        check("scroll defaults: Pinned fixed, machine sections flow, middle custom flow",
+              sections["sec_pinned"].get("scroll") == "fixed"
+              and all(sections[f"sec_m_{s}"].get("scroll") == "flow" for s in (local, "remote-a", "remote-b"))
+              and sections["sec_work"].get("scroll") == "flow",
+              {k: v.get("scroll") for k, v in sections.items()})
+        builtin = [v for v in sections.values() if v["kind"]["type"] == "builtin"]
+        check("scroll defaults: built-in sections fixed",
+              all(v.get("scroll") == "fixed" for v in builtin), [(v["id"], v.get("scroll")) for v in builtin])
 
         # The current app clears a pin flag after it shows the tile: that is
         # not an unpin.
@@ -441,6 +532,69 @@ def main() -> int:
         check("sidebar.apply with the inverse restores the document", strip(after_undo) == strip(before_group))
         check("undo returns the redo", len(undone["value"]["inverse"]) == len(grouped["value"]["inverse"]))
 
+        # Slice 2: section scroll and row limit, url favicons.
+        revision = int(daemon.ok("sidebar.get")["revision"])
+        daemon.ok("sidebar.section.update", {"id": "sec_work", "patch": {"scroll": "fixed", "max_rows": 6}},
+                  mutate=True)
+        work_section = {s["id"]: s for s in daemon.ok("sidebar.get")["sections"]}["sec_work"]
+        check("section.update sets scroll and max_rows",
+              work_section.get("scroll") == "fixed" and work_section.get("max_rows") == 6, work_section)
+        refused = daemon.v2("sidebar.section.update", {"id": "sec_work", "patch": {"max_rows": 51}}, mutate=True)
+        check("max_rows over 50 is refused invalid_value",
+              not refused.get("ok") and reason_of(refused) == "invalid_value", refused)
+        refused = daemon.v2("sidebar.section.update", {"id": "sec_work", "patch": {"scroll": "sticky"}},
+                            mutate=True)
+        check("an unknown scroll value is refused", not refused.get("ok"), refused)
+        ran = cli(daemon, "sidebar", "section-scroll", "sec_work", "flow")
+        ran_rows = cli(daemon, "sidebar", "section-max-rows", "sec_work", "3")
+        work_section = {s["id"]: s for s in daemon.ok("sidebar.get")["sections"]}["sec_work"]
+        check("cmux sidebar section-scroll / section-max-rows update the section",
+              ran.returncode == 0 and ran_rows.returncode == 0
+              and work_section.get("scroll") == "flow" and work_section.get("max_rows") == 3,
+              {"scroll": (ran.returncode, ran.stderr[-300:]), "rows": (ran_rows.returncode, ran_rows.stderr[-300:]),
+               "section": work_section})
+        bad = cli(daemon, "sidebar", "section-max-rows", "sec_work", "99")
+        bad_scroll = cli(daemon, "sidebar", "section-scroll", "sec_work", "sideways")
+        none = cli(daemon, "sidebar", "section-max-rows", "sec_work", "none")
+        work_section = {s["id"]: s for s in daemon.ok("sidebar.get")["sections"]}["sec_work"]
+        check("the CLI refuses bad values and `none` clears max_rows",
+              bad.returncode != 0 and bad_scroll.returncode != 0 and none.returncode == 0
+              and "max_rows" not in work_section, {"bad": bad.returncode, "bad_scroll": bad_scroll.returncode,
+                                           "none": (none.returncode, none.stderr[-300:]), "section": work_section})
+        daemon.ok("sidebar.section.move", {"id": "sec_work", "place": {"region": "top"}}, mutate=True)
+        moved_top = {s["id"]: s for s in daemon.ok("sidebar.get")["sections"]}["sec_work"]
+        daemon.ok("sidebar.section.move", {"id": "sec_work", "place": {"region": "middle"}}, mutate=True)
+        moved_back = {s["id"]: s for s in daemon.ok("sidebar.get")["sections"]}["sec_work"]
+        check("a default scroll follows the region of a section.move (top fixed, middle flow)",
+              moved_top.get("scroll") == "fixed" and moved_back.get("scroll") == "flow",
+              {"top": moved_top.get("scroll"), "back": moved_back.get("scroll")})
+        new_icon = "https://example.com/new.ico"
+        daemon.ok("sidebar.item.update", {"id": "itm_docs", "patch": {"icon_url": new_icon}}, mutate=True)
+        docs = items_by_id(daemon.ok("sidebar.get"))["itm_docs"]
+        check("item.update sets a url item's icon_url", docs["body"].get("icon_url") == new_icon, docs)
+        w6_item = ws_item(daemon.ok("sidebar.get"), local, ids["w6"])
+        refused = daemon.v2("sidebar.item.update", {"id": w6_item["id"], "patch": {"icon_url": new_icon}},
+                            mutate=True)
+        check("icon_url on a workspace item is refused invalid_value",
+              not refused.get("ok") and reason_of(refused) == "invalid_value", refused)
+        daemon.ok("sidebar.item.add", {"item": {"id": "itm_news", "body": {"type": "url", "url": "https://example.org"},
+                                                "extra": {"icon_url": FAVICON}},
+                                       "to": {"section": "sec_pinned"}}, mutate=True)
+        news = items_by_id(daemon.ok("sidebar.get"))["itm_news"]
+        check("item.add lifts an old client's extra.icon_url into the body",
+              news["body"].get("icon_url") == FAVICON and "icon_url" not in news.get("extra", {}), news)
+        layout = daemon.ok("sidebar_layout.get")
+        news_tile = next((t for s in layout["sections"] if s["id"] == "sec_pinned" for t in s["items"]
+                          if t["id"] == "itm_news"), None)
+        check("old sidebar_layout.get restates a Pinned url's icon_url for old clients",
+              news_tile is not None and news_tile.get("icon_url") == FAVICON, news_tile)
+        daemon.ok("sidebar.item.update", {"id": "itm_news", "patch": {"icon_url": None}}, mutate=True)
+        news = items_by_id(daemon.ok("sidebar.get"))["itm_news"]
+        check("item.update icon_url null clears it", "icon_url" not in news["body"], news)
+        daemon.ok("sidebar.item.remove", {"id": "itm_news"}, mutate=True)
+        check("slice 2 mutations advanced the revision",
+              int(daemon.ok("sidebar.get")["revision"]) > revision)
+
         # Old verbs and new workspaces follow into the document.
         old_group = daemon.ok("workspace_group.create", {"name": "Old verbs"}, mutate=True)["value"]["id"]
         created = daemon.ok("workspace.create", {"name": "w7", "initial_content": "empty"}, mutate=True)
@@ -488,9 +642,76 @@ def main() -> int:
         check("write-back: the old order of this machine's loose rows matches the document",
               old_loose == doc_loose and doc_loose[:1] == [keys["w3"]], {"old": old_loose, "doc": doc_loose})
         assert made["value"]["revision"]
+        # Gap positions: a personal move writes the moved row only.
+        def positions() -> dict:
+            with sqlite3.connect(f"file:{registry}?mode=ro", uri=True) as db:
+                return {(s, k): p for s, k, p in db.execute(
+                    "SELECT session_id, workspace_key, position FROM personal_workspaces")}
+        before_place = positions()
+        daemon.ok("workspace.place", {"workspace": ids["w6"], "index": 1}, mutate=True)
+        daemon.ok("workspace.place", {"workspace": ids["w1"], "index": 0}, mutate=True)
+        after_place = positions()
+        rewritten = sorted(k for k in before_place if before_place[k] != after_place.get(k))
+        check("workspace.place writes only the moved rows (no renumbering of the others)",
+              rewritten == sorted([(local, keys["w6"]), (local, keys["w1"])]), rewritten)
+        listed = daemon.raw({"cmd": "list-personal"})["workspaces"]
+        first = min(listed, key=lambda r: r["index"])
+        check("the moved row is first in the old personal order",
+              (first["session_id"], first["workspace_key"]) == (local, keys["w1"]), first)
         order = [w["id"] for w in daemon.ok("workspace.list", {"order": "personal"})]
         check("workspace.list personal order follows the document (Pinned first)",
               order.index(ids["w6"]) < order.index(ids["w3"]), order)
+        # Placement shift (doc3): a new top workspace or a move shifts the
+        # other rows' ordinals; a placement-shift-v1 reader gets only the new
+        # or moved placement, an old-protocol reader every shifted one, and a
+        # reader that echoes only sidebar-doc-v1 is an old-protocol reader.
+        check("capability placement-shift-v1 advertised", "placement-shift-v1" in caps)
+        doc_reader = EventStream(daemon, ["placement-shift-v1", "sidebar-doc-v1"])
+        old_reader = EventStream(daemon)
+        doc_only_reader = EventStream(daemon, ["sidebar-doc-v1"])
+        try:
+            known = {(r["session_id"], r["workspace_key"])
+                     for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
+            created = daemon.ok("workspace.create", {"name": "w8", "initial_content": "empty"}, mutate=True)
+            w8 = created["value"]["workspace_id"]
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            w8_row = next(r for r in rows if (r["session_id"], r["workspace_key"]) not in known)
+            w8_id = f"{local}/{w8_row['workspace_key']}"
+            expected = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                        if r["index"] > w8_row["index"]}
+            doc_batch = placements_of(doc_reader.delta_with("workspace_placement", w8_id))
+            old_batch = placements_of(old_reader.delta_with("workspace_placement", w8_id))
+            doc_only_batch = placements_of(doc_only_reader.delta_with("workspace_placement", w8_id))
+            check("create: a reader that echoes only sidebar-doc-v1 still gets every shifted placement",
+                  bool(expected) and all(doc_only_batch.get(pid) == index for pid, index in expected.items()),
+                  {"missing": sorted(set(expected) - set(doc_only_batch))[:5]})
+            check("create: a placement-shift-v1 reader gets only the new workspace's placement (no restatement)",
+                  doc_batch == {w8_id: w8_row["index"]} and expected, {"doc": doc_batch, "shifted": len(expected)})
+            check("create: an old-protocol reader still gets every shifted placement at its new index",
+                  all(old_batch.get(pid) == index for pid, index in expected.items())
+                  and old_batch.get(w8_id) == w8_row["index"],
+                  {"missing": sorted(set(expected) - set(old_batch))[:5],
+                   "wrong": {p: (old_batch.get(p), i) for p, i in expected.items() if old_batch.get(p) not in (None, i)}})
+            target = w8_row["index"] + 3
+            check("place: the target index is inside the order", target < len(rows),
+                  {"target": target, "rows": len(rows)})
+            daemon.ok("workspace.place", {"workspace": w8, "index": min(target, len(rows) - 1)}, mutate=True)
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            moved = next(r for r in rows if f"{r['session_id']}/{r['workspace_key']}" == w8_id)
+            between = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                       if w8_row["index"] <= r["index"] <= moved["index"]}
+            doc_place = placements_of(doc_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            old_place = placements_of(old_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            check("place: a placement-shift-v1 reader gets only the moved placement",
+                  doc_place == {w8_id: moved["index"]}, doc_place)
+            check("place: an old-protocol reader gets every placement between the old and new index",
+                  len(between) > 1 and all(old_place.get(pid) == index for pid, index in between.items()),
+                  {"between": between, "got": old_place})
+            daemon.ok("workspace.close", {"workspace": w8}, mutate=True)
+        finally:
+            doc_reader.close()
+            old_reader.close()
+            doc_only_reader.close()
         final = daemon.ok("sidebar.get")
     finally:
         daemon.stop()

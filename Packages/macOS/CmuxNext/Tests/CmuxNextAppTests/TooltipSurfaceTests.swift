@@ -229,7 +229,7 @@ import Testing
             let scale = window.screen?.backingScaleFactor ?? window.backingScaleFactor
             #expect(abs((panel.tint.layer?.borderWidth ?? 0) - 1 / scale) < 0.001)
             #expect(!panel.hasShadow)
-            #expect(panel.surface.layer?.shadowOpacity == Float(TooltipSurface.shadowAlpha))
+            #expect(panel.surface.layer?.shadowOpacity == Float(PopupStyle.elevation1.alpha))
             #expect((panel.surface.layer?.shadowRadius ?? 99) <= 2)
         }
     }

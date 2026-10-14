@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b158dcce6d8fa224ec9ab0ef1760fd87f35b6c3371e3cd9de3618221a2227e21",
+  "catalog_sha256": "24cce9557cc253440d4e56964b3d378fccfb51bcb3b17c33eefadd7cd1478952",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -83,6 +83,27 @@
       "class": "read"
     },
     "chief.engine.set": {
+      "class": "mutation"
+    },
+    "chief.profile.avatar.get": {
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "class": "read"
+    },
+    "chief.profile.update": {
       "class": "mutation"
     },
     "chief.stop": {

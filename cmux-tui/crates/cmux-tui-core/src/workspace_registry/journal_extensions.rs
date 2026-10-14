@@ -1900,7 +1900,7 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
-    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<bool> {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 

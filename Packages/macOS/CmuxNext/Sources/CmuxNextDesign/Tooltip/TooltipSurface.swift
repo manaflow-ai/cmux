@@ -22,11 +22,8 @@ public nonisolated struct TooltipSurface: Hashable, Sendable {
     /// `--tooltip-tint`): dense enough that the glass reads as a surface,
     /// light enough that the backdrop's color shows.
     public static let minimumTintAlpha: Double = 0.86
-    /// The shadow: elevation 1, small and tight (the subtle-elevation work's
-    /// `--elevation-1`, `0 1px 2px` black at 7%).
-    public static let shadowOffset: Double = 1
-    public static let shadowRadius: Double = 2
-    public static let shadowAlpha: Double = 0.07
+    /// The shadow: elevation 1, small and tight (`--elevation-1` in pages).
+    @MainActor public static var shadow: Elevation { PopupStyle.elevation1 }
 
     /// The opaque popup surface: the tint at alpha 1, and the whole surface under Reduce Transparency.
     public var fill: ThemeRGB
