@@ -21,6 +21,10 @@ environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
+"permission-ask" ends its turn, then asks to run Bash with Claude Code's
+own permission_suggestions (request ids "perm-1", "perm-2", ...); each
+answer's control response is appended as a JSON line to
+FAKE_CLAUDE_ANSWERS, so a test reads exactly what Claude Code received.
 """
 import json
 import os
@@ -48,6 +52,7 @@ if not STORE and os.environ.get("CLAUDE_CONFIG_DIR"):
 def stored(sid):
     return os.path.join(STORE, sid + (LAYOUT or ""))
 SESSION = "fake-claude-session"
+ASKS = 0
 RESUME = None
 if STORE:
     for flag in ("--session-id", "--resume"):
@@ -67,6 +72,13 @@ for line in sys.stdin:
         behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
         send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
               "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
+        continue
+    # An answer to a "permission-ask": record what Claude Code would receive.
+    if kind == "control_response" and str((msg.get("response") or {}).get("request_id", "")).startswith("perm-"):
+        answers = os.environ.get("FAKE_CLAUDE_ANSWERS")
+        if answers:
+            with open(answers, "a") as f:
+                f.write(json.dumps(msg.get("response")) + "\n")
         continue
     if kind == "control_request":
         request = msg.get("request") or {}
@@ -238,6 +250,12 @@ for line in sys.stdin:
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
         # "late-agent-ask": a background subagent (Agent with run_in_background) that is still
         # running when the turn ends, and asks for permission after it (cx-jo8yo, below).
+        if said.strip() == "permission-ask":
+            ASKS += 1
+            send({"type": "control_request", "request_id": "perm-%d" % ASKS, "request": {"subtype": "can_use_tool",
+                  "tool_name": "Bash", "tool_use_id": "toolu_perm_%d" % ASKS, "input": {"command": "npm test"},
+                  "permission_suggestions": [{"type": "addRules", "rules": [{"toolName": "Bash", "ruleContent": "npm test"}],
+                                              "behavior": "allow", "destination": "localSettings"}]}})
         if said.strip() == "late-agent-ask":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_lateag", "name": "Agent",
                   "input": {"description": "Late writer", "prompt": "Write late.txt", "run_in_background": True}}]}})

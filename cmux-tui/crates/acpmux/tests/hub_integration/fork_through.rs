@@ -20,6 +20,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// The person's answers to Claude's permission asks, which share these helpers too.
+#[path = "claude_permission_answers.rs"]
+mod claude_permission_answers;
 
 const FORK_OP: &str = "acp.session.fork";
 
@@ -101,6 +104,27 @@ async fn a_fork_through_the_latest_turn_opens_a_new_session_and_an_earlier_turn_
 /// A hub whose default agent is a Claude stdio profile keeping Claude Code's
 /// own store layout under `claude` (fake_claude.py with CLAUDE_CONFIG_DIR).
 async fn claude_setup(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
+    let (hub, mut c) = claude_hub(claude, env);
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
+        .await
+        .unwrap();
+    (hub, c)
+}
+
+/// [`claude_setup`] whose client is the person at the app, so its allows
+/// stand (`hub/person.rs`).
+async fn claude_person_setup(
+    claude: &std::path::Path,
+    env: &[(&str, &str)],
+) -> (Arc<Hub>, TestClient) {
+    let (hub, mut c) = claude_hub(claude, env);
+    hold_person_key(&hub);
+    c.become_person().await;
+    (hub, c)
+}
+
+/// The Claude stdio hub of [`claude_setup`] and a connected, uninitialized client.
+fn claude_hub(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let mut env: BTreeMap<String, String> =
         env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect();
@@ -129,11 +153,7 @@ async fn claude_setup(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hu
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
-    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
-        .await
-        .unwrap();
-    (hub, c)
+    (hub, TestClient { tx: in_tx, rx: out_rx, next: 0 })
 }
 
 /// What the session's agent conversation holds: fake_claude.py and
