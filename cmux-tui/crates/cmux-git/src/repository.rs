@@ -163,6 +163,40 @@ impl Repository {
         self.branch_ref(&base).or_else(|| self.commit(&base)).map(|reference| (reference, base))
     }
 
+    /// This repository with the filter drivers of every checked-out
+    /// submodule blanked too, at any depth. git passes the overrides on to
+    /// the `git status` it runs inside a submodule, which would otherwise run
+    /// the submodule's own clean filter. Submodules are found from each
+    /// index's gitlinks, since `.gitmodules` need not list them.
+    pub fn with_submodule_filters(&self) -> Result<Self, GitFailure> {
+        let mut overrides = self.overrides.clone();
+        let mut pending = vec![self.root.clone()];
+        let mut found = 0;
+        while let Some(root) = pending.pop() {
+            let arguments = ["ls-files", "--stage", "-z"];
+            let left = remaining(self.deadline);
+            let output = run_git_within(&root, &[], &arguments, MAX_INDEX_LISTING_BYTES, left)?;
+            if output.truncated {
+                return Err(GitFailure::Exit("too many files to look for submodules".to_string()));
+            }
+            for entry in output.stdout.split(|byte| *byte == 0) {
+                // A gitlink, checked out (an uninitialized one is an empty folder).
+                let Some(tab) = entry.iter().position(|byte| *byte == b'\t') else { continue };
+                let checkout = root.join(path_from_bytes(&entry[tab + 1..]));
+                if !entry.starts_with(b"160000 ") || !checkout.join(".git").exists() {
+                    continue;
+                }
+                found += 1;
+                if found > MAX_SUBMODULES {
+                    return Err(GitFailure::Exit("too many submodules".to_string()));
+                }
+                overrides.extend(filter_overrides_within(&checkout, remaining(self.deadline))?);
+                pending.push(checkout);
+            }
+        }
+        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+    }
+
     /// The main checkout of a linked worktree (one `git worktree add` made);
     /// `None` in the main checkout itself or a bare repository's.
     pub fn main_checkout(&self) -> Option<PathBuf> {
@@ -176,6 +210,25 @@ impl Repository {
             return None;
         }
         main_root(&common).map(Path::to_path_buf)
+    }
+}
+
+/// The most index entries [`Repository::with_submodule_filters`] reads from
+/// one index.
+const MAX_INDEX_LISTING_BYTES: usize = 32 * 1024 * 1024;
+/// The most submodules [`Repository::with_submodule_filters`] blanks.
+const MAX_SUBMODULES: usize = 256;
+
+/// A path git printed, byte for byte where the platform allows.
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
     }
 }
 

@@ -89,6 +89,9 @@ pub fn run_git_within(
     // `diff.submodule=diff` would run `git diff` inside a submodule, with
     // the submodule's own diff drivers.
     command.args(["-c", "diff.submodule=short"]);
+    // Files every diff or status reads to the end: `/dev/zero` would be read
+    // until the deadline.
+    command.args(["-c", "core.attributesFile=/dev/null", "-c", "diff.orderFile=/dev/null"]);
     set_overrides(&mut command, overrides);
     deny_transports(&mut command);
     command
@@ -134,14 +137,16 @@ pub fn run_git_within(
     let (stdout, truncated) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
-        return Err(GitFailure::Exit(String::from_utf8_lossy(&stderr).trim().to_string()));
+        return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
     Ok(GitOutput { stdout, truncated })
 }
 
 /// Sets `overrides` through `GIT_CONFIG_COUNT`, which keeps a key whole: a
 /// `-c key=value` argument splits at the first `=`, so a filter driver named
-/// `a=b` could never be blanked that way.
+/// `a=b` could never be blanked that way. git passes them on to the git it
+/// runs inside a submodule. On the same key, a `-c` setting beats a pair
+/// here, so the runners' fixed `-c` settings always win.
 pub(crate) fn set_overrides(command: &mut Command, overrides: &[Override]) {
     command.env("GIT_CONFIG_COUNT", overrides.len().to_string());
     for (index, (key, value)) in overrides.iter().enumerate() {
@@ -158,6 +163,20 @@ pub(crate) fn set_overrides(command: &mut Command, overrides: &[Override]) {
 /// stops git before it tries.
 pub(crate) fn deny_transports(command: &mut Command) {
     command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "");
+}
+
+/// git's stderr, with a partial clone's missing object said plainly: git
+/// names a fetch that [`deny_transports`] never lets it make.
+fn explained(stderr: &str) -> String {
+    if stderr.contains("lazy fetching disabled") || stderr.contains("from promisor remote") {
+        let detail = stderr.lines().last().unwrap_or_default();
+        format!(
+            "an object this read needs is not available locally in this partial clone, \
+             and cmux never fetches it ({detail})"
+        )
+    } else {
+        stderr.to_string()
+    }
 }
 
 /// Kills git and anything it started, so the output pipes close.
