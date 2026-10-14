@@ -83,7 +83,7 @@ extension MockEngine {
             if bytes == Data("q".utf8) {
                 t.mode = .shell
                 terminals[terminalId] = t
-                emit(terminalId, "\u{1B}[?1000l\u{1B}[?1006l\u{1B}[?1049l" + t.shell.prompt, recordScrollback: false)
+                emit(terminalId, "\u{1B}[?1003l\u{1B}[?1000l\u{1B}[?1006l\u{1B}[?1049l" + t.shell.prompt, recordScrollback: false)
                 return
             }
             let shown = bytes.map { b -> String in
@@ -165,7 +165,7 @@ extension MockEngine {
         case .startInputEcho(let mouse):
             t.mode = .inputEcho
             terminals[terminalId] = t
-            let modes = "\u{1B}[?1049h\u{1B}[2J\u{1B}[H" + (mouse ? "\u{1B}[?1000h\u{1B}[?1006h" : "")
+            let modes = "\u{1B}[?1049h\u{1B}[2J\u{1B}[H" + (mouse ? "\u{1B}[?1000h\u{1B}[?1003h\u{1B}[?1006h" : "")
             emit(terminalId, modes + "\(mouse ? "mouse reporting on" : "alternate screen, no mouse") — scroll here, q quits\r\n",
                  recordScrollback: false)
         case .replayCodex(let times):
