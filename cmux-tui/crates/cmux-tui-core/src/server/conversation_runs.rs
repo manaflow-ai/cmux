@@ -121,7 +121,7 @@ pub(super) fn run(mux: &Mux, client: u64, params: RunParams) -> anyhow::Result<V
         (1..=MAX_RUN_PAGE).contains(&limit),
         "bad request: limit must be 1-{MAX_RUN_PAGE}"
     );
-    let page = mux.with_conversations(|store| store.run_page(&conversation, &run, after_rev, limit))?;
+    let page =
+        mux.with_conversations(|store| store.run_page(&conversation, &run, after_rev, limit))?;
     Ok(serde_json::to_value(page)?)
 }
-

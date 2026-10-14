@@ -412,7 +412,8 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
 
     // A Cloud Chief's runs, read from its brain through the daemon (cloud-conversation-runs-v1).
     assert!(capabilities.iter().any(|v| v == "cloud-conversation-runs-v1"), "{identity}");
-    let runs = page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":CHIEF,"limit":20}));
+    let runs = page
+        .rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":CHIEF,"limit":20}));
     assert_eq!(runs["ok"], true, "{runs}");
     assert_eq!(runs["data"]["runs"][0]["id"], "run_7", "{runs}");
     assert_eq!(runs["data"]["runs"][0]["turn"], "turn:cloud:1", "{runs}");
@@ -430,7 +431,8 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
         "{paths:?}"
     );
     // An id that is not a Chief's never reaches the cloud.
-    let bad = page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":"user_x"}));
+    let bad =
+        page.rpc(json!({"cmd":"cloud-conversation-runs","conversation":CONV,"agent":"user_x"}));
     assert_eq!(bad["ok"], false, "{bad}");
     assert!(cloud.requests().iter().all(|(path, ..)| !path.contains("user_x")));
 

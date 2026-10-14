@@ -12,9 +12,9 @@ use cmux::raw::{
     Client, ClientConfig, ConversationAttachmentReadRequest, ConversationAttachmentUploadRequest,
     ConversationAttachmentUploadResult, ConversationBindRequest, ConversationCreateRequest,
     ConversationDraftRequest, ConversationHistoryRequest, ConversationListRequest,
-    ConversationRunAppendRequest,
-    ConversationOpRequest, ConversationSnapshotRequest, ConversationTypingRequest,
-    Error as SdkError, Event, Nullable, Optional, SubscribeRequest, SubscribeRequestTreeEvents,
+    ConversationOpRequest, ConversationRunAppendRequest, ConversationSnapshotRequest,
+    ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
+    SubscribeRequestTreeEvents,
 };
 use cmux_chief::rules::{
     AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
@@ -543,12 +543,25 @@ impl ConversationPort for SdkConversations {
         width: u32,
         height: u32,
     ) -> Result<DerivedImage, OpError> {
-        upload_with(&mut self.client, conversation, bytes, mime_type, name, width, height)
+        upload_with(
+            &mut self.client,
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width,
+            height,
+        )
     }
 
     /// `conversation-run-append` (capability `conversation-runs-v1`): this
     /// bound connection's principal is the Chief that writes its run.
-    fn run_append(&mut self, conversation: &str, run: Value, steps: Vec<Value>) -> Result<(), OpError> {
+    fn run_append(
+        &mut self,
+        conversation: &str,
+        run: Value,
+        steps: Vec<Value>,
+    ) -> Result<(), OpError> {
         if !self.supports("conversation-runs-v1") {
             return Err(OpError::Rejected("runs_unsupported".into()));
         }

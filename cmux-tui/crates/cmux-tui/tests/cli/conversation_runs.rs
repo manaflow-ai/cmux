@@ -52,11 +52,11 @@ impl Unix {
 
 /// An agent connection bound as `participant`.
 fn bound(server: &HeadlessServer, home: &mut Unix, participant: &str) -> Unix {
-    let token = home.request("conversation-agent-token", json!({"participant": participant}))
-        ["token"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let token =
+        home.request("conversation-agent-token", json!({"participant": participant}))["token"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let mut agent = Unix::open(&server.socket);
     agent.request("conversation-bind", json!({"participant": participant, "token": token}));
     agent
@@ -93,7 +93,10 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
         identity["capabilities"].as_array().unwrap().iter().any(|c| c == "conversation-runs-v1"),
         "{identity}"
     );
-    page.request("set-client-info", json!({"name": "page", "capabilities": ["conversation-runs-v1"]}));
+    page.request(
+        "set-client-info",
+        json!({"name": "page", "capabilities": ["conversation-runs-v1"]}),
+    );
     page.request("subscribe", json!({}));
     // An old page that did not ask for runs.
     let mut plain = Ws::open(&ws_addr(&server));
@@ -181,7 +184,8 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
                "op": {"kind": "message.send", "client_msg_id": TURN,
                       "parts": [{"type": "text", "text": "No 0.43 candidate exists."}]}}),
     );
-    let found = page.request("conversation-runs", json!({"conversation": channel, "turns": [TURN]}));
+    let found =
+        page.request("conversation-runs", json!({"conversation": channel, "turns": [TURN]}));
     assert_eq!(found["runs"].as_array().unwrap().len(), 1, "{found}");
     assert_eq!(found["runs"][0]["id"], TURN, "{found}");
     assert_eq!(found["runs"][0]["answers"][0], asked_id.as_str(), "{found}");
@@ -218,10 +222,12 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
     }
 
     // Only the run's own agent writes it; a person never does.
-    let person = page.reply("conversation-run-append", append(&channel, json!({"id": "turn:x"}), json!([])));
+    let person =
+        page.reply("conversation-run-append", append(&channel, json!({"id": "turn:x"}), json!([])));
     refused(&person, "not_agent");
     let mut builder = bound(&server, &mut home, "agent_builder");
-    let other = builder.reply("conversation-run-append", append(&channel, json!({"id": TURN}), json!([])));
+    let other =
+        builder.reply("conversation-run-append", append(&channel, json!({"id": TURN}), json!([])));
     refused(&other, "not_run_author");
     // A link a page must not open, an unknown step kind, an unknown run.
     let script = chief.reply(
@@ -238,7 +244,8 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
         append(&channel, json!({"id": TURN}), json!([{"id": "x:1", "kind": "shell"}])),
     );
     refused(&kind, "bad request");
-    let unknown = page.reply("conversation-run", json!({"conversation": channel, "run": "turn:none"}));
+    let unknown =
+        page.reply("conversation-run", json!({"conversation": channel, "run": "turn:none"}));
     refused(&unknown, "unknown_run");
     let nowhere = chief.reply(
         "conversation-run-append",
@@ -260,6 +267,7 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
     let kept = page.request("conversation-runs", json!({"conversation": channel, "limit": 200}));
     assert_eq!(kept["runs"].as_array().unwrap().len(), 200, "{kept}");
     assert_eq!(kept["has_more"], false, "{kept}");
-    let oldest = page.reply("conversation-run", json!({"conversation": channel, "run": "turn:bulk:0"}));
+    let oldest =
+        page.reply("conversation-run", json!({"conversation": channel, "run": "turn:bulk:0"}));
     refused(&oldest, "unknown_run");
 }

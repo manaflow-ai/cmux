@@ -103,8 +103,12 @@ impl RunSteps {
         }
         let id = format!("thought:{}", self.thought);
         let step = self.upsert(&id, "thought");
-        let mut text =
-            step.value.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let mut text = step
+            .value
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         text.push_str(chunk);
         set_text(&mut step.value, &text);
         step.open = true;
@@ -125,13 +129,19 @@ impl RunSteps {
     /// A tool call started or its input arrived (ACP `tool_call`).
     pub fn tool_call(&mut self, id: &str, name: &str, update: &Value, at: Option<u64>) {
         let step = self.upsert(&step_id("tool", id), "tool");
-        step.value.entry("status").or_insert_with(|| json!("running"));
+        step.value
+            .entry("status")
+            .or_insert_with(|| json!("running"));
         let tool = tool_of(&mut step.value);
         tool.insert("name".into(), json!(tool_name(name)));
         if let Some(kind) = update.get("kind").and_then(Value::as_str) {
             tool.insert("kind".into(), json!(line(kind, 32)));
         }
-        if let Some(title) = update.get("title").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+        if let Some(title) = update
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+        {
             tool.insert("title".into(), json!(cut_head(title, 2000)));
         }
         if let Some(input) = update.get("rawInput").filter(|v| !is_empty(v)) {
@@ -162,7 +172,9 @@ impl RunSteps {
         if let Some(status) = status {
             step.value.insert("status".into(), json!(status));
         } else {
-            step.value.entry("status").or_insert_with(|| json!("running"));
+            step.value
+                .entry("status")
+                .or_insert_with(|| json!("running"));
         }
         let ended = matches!(status, Some("done" | "failed"));
         let tool = tool_of(&mut step.value);
@@ -172,7 +184,11 @@ impl RunSteps {
         if let Some(kind) = update.get("kind").and_then(Value::as_str) {
             tool.insert("kind".into(), json!(line(kind, 32)));
         }
-        if let Some(title) = update.get("title").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+        if let Some(title) = update
+            .get("title")
+            .and_then(Value::as_str)
+            .filter(|t| !t.is_empty())
+        {
             tool.insert("title".into(), json!(cut_head(title, 2000)));
         }
         if let Some(input) = update.get("rawInput").filter(|v| !is_empty(v)) {
@@ -200,7 +216,11 @@ impl RunSteps {
                 break;
             }
             *count += 1;
-            self.images.push(RunImage { step: step_id.clone(), mime_type, data });
+            self.images.push(RunImage {
+                step: step_id.clone(),
+                mime_type,
+                data,
+            });
         }
     }
 
@@ -216,8 +236,12 @@ impl RunSteps {
         let mut held = BTreeSet::new();
         let dirty = std::mem::take(&mut self.dirty);
         for id in self.order.iter().filter(|id| dirty.contains(*id)) {
-            let Some(step) = self.steps.get_mut(id) else { continue };
-            let recent = step.sent_at.is_some_and(|at| now.duration_since(at) < TALK_EVERY);
+            let Some(step) = self.steps.get_mut(id) else {
+                continue;
+            };
+            let recent = step
+                .sent_at
+                .is_some_and(|at| now.duration_since(at) < TALK_EVERY);
             if !all && step.open && recent {
                 held.insert(id.clone());
                 continue;
@@ -285,7 +309,11 @@ fn line(text: &str, max: usize) -> String {
 /// A tool name the owner accepts (a title can stand in for it: one line of at most 128).
 fn tool_name(name: &str) -> String {
     let name = line(name.trim(), 128);
-    if name.trim().is_empty() { "tool".to_owned() } else { name }
+    if name.trim().is_empty() {
+        "tool".to_owned()
+    } else {
+        name
+    }
 }
 
 /// `<prefix>:<id>`, or `<prefix>:h<hash>` when the harness's id is not a key the owner takes
@@ -293,26 +321,36 @@ fn tool_name(name: &str) -> String {
 fn step_id(prefix: &str, id: &str) -> String {
     let key = format!("{prefix}:{id}");
     let valid = key.len() <= 128
-        && key.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'));
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'));
     if valid {
         return key;
     }
     // FNV-1a 64 of the raw id: stable for one call across its updates.
-    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    let hash = id.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
     format!("{prefix}:h{hash:016x}")
 }
 
 /// A shell tool's exit code, when the harness reports one.
 fn exit_code(update: &Value) -> Option<i64> {
     let raw = update.get("rawOutput");
-    raw.and_then(|r| r.get("exit_code").or_else(|| r.get("exitCode")).or_else(|| r.get("code")))
-        .or_else(|| update.pointer("/_meta/claude/exitCode"))
-        .and_then(Value::as_i64)
+    raw.and_then(|r| {
+        r.get("exit_code")
+            .or_else(|| r.get("exitCode"))
+            .or_else(|| r.get("code"))
+    })
+    .or_else(|| update.pointer("/_meta/claude/exitCode"))
+    .and_then(Value::as_i64)
 }
 
 /// The `image` content blocks of a tool update (png, jpeg, gif, webp), in order.
 fn images_of(update: &Value) -> Vec<(String, String)> {
-    let Some(content) = update.get("content").and_then(Value::as_array) else { return Vec::new() };
+    let Some(content) = update.get("content").and_then(Value::as_array) else {
+        return Vec::new();
+    };
     content
         .iter()
         .filter_map(|item| {
@@ -322,21 +360,31 @@ fn images_of(update: &Value) -> Vec<(String, String)> {
             }
             let mime = block.get("mimeType").and_then(Value::as_str)?;
             let data = block.get("data").and_then(Value::as_str)?;
-            matches!(mime, "image/png" | "image/jpeg" | "image/gif" | "image/webp")
-                .then(|| (mime.to_owned(), data.to_owned()))
+            matches!(
+                mime,
+                "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+            )
+            .then(|| (mime.to_owned(), data.to_owned()))
         })
         .collect()
 }
 
 /// ACP `locations`: files the call reads or writes, as paths with no text.
 fn merge_locations(tool: &mut Map<String, Value>, update: &Value) {
-    let Some(locations) = update.get("locations").and_then(Value::as_array) else { return };
+    let Some(locations) = update.get("locations").and_then(Value::as_array) else {
+        return;
+    };
     for location in locations {
-        let Some(path) = location.get("path").and_then(Value::as_str).filter(|p| !p.is_empty())
+        let Some(path) = location
+            .get("path")
+            .and_then(Value::as_str)
+            .filter(|p| !p.is_empty())
         else {
             continue;
         };
-        let Some(file) = file_entry(tool, path) else { continue };
+        let Some(file) = file_entry(tool, path) else {
+            continue;
+        };
         if let Some(line) = location.get("line").and_then(Value::as_u64) {
             file.entry("line").or_insert_with(|| json!(line));
         }
@@ -345,18 +393,29 @@ fn merge_locations(tool: &mut Map<String, Value>, update: &Value) {
 
 /// ACP `diff` content blocks: the file's old and new text, with line counts.
 fn merge_diffs(tool: &mut Map<String, Value>, update: &Value) {
-    let Some(content) = update.get("content").and_then(Value::as_array) else { return };
+    let Some(content) = update.get("content").and_then(Value::as_array) else {
+        return;
+    };
     for item in content {
         if item.get("type").and_then(Value::as_str) != Some("diff") {
             continue;
         }
-        let Some(path) = item.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()) else {
+        let Some(path) = item
+            .get("path")
+            .and_then(Value::as_str)
+            .filter(|p| !p.is_empty())
+        else {
             continue;
         };
         let old = item.get("oldText").and_then(Value::as_str);
-        let new = item.get("newText").and_then(Value::as_str).unwrap_or_default();
+        let new = item
+            .get("newText")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let (added, removed) = line_counts(old.unwrap_or_default(), new);
-        let Some(file) = file_entry(tool, path) else { continue };
+        let Some(file) = file_entry(tool, path) else {
+            continue;
+        };
         file.insert("added".into(), json!(added));
         file.insert("removed".into(), json!(removed));
         if old.map_or(0, str::len) + new.len() <= MAX_FILE_TEXT {
@@ -388,7 +447,10 @@ fn merge_diffs(tool: &mut Map<String, Value>, update: &Value) {
 }
 
 /// The step's entry for `path` (one line of at most 4096 characters); None past 64 files.
-fn file_entry<'a>(tool: &'a mut Map<String, Value>, path: &str) -> Option<&'a mut Map<String, Value>> {
+fn file_entry<'a>(
+    tool: &'a mut Map<String, Value>,
+    path: &str,
+) -> Option<&'a mut Map<String, Value>> {
     let path = line(path, 4096);
     if path.is_empty() {
         return None;
@@ -398,7 +460,9 @@ fn file_entry<'a>(tool: &'a mut Map<String, Value>, path: &str) -> Option<&'a mu
         *files = json!([]);
     }
     let files = files.as_array_mut().expect("files is an array");
-    let index = match files.iter().position(|f| f.get("path").and_then(Value::as_str) == Some(path.as_str()))
+    let index = match files
+        .iter()
+        .position(|f| f.get("path").and_then(Value::as_str) == Some(path.as_str()))
     {
         Some(index) => index,
         None if files.len() >= 64 => return None,
@@ -459,11 +523,19 @@ fn head_and_tail(text: &str, max: usize) -> (String, bool) {
     }
     let marker = "\n[...]\n";
     let half = (max - marker.len()) / 2;
-    (format!("{}{marker}{}", cut_head(text, half), cut_tail(text, half)), true)
+    (
+        format!("{}{marker}{}", cut_head(text, half), cut_tail(text, half)),
+        true,
+    )
 }
 
 /// The run summary when the turn's session starts.
-pub fn started(session: &str, harness: &str, model: Option<&str>, started_at: u64) -> Map<String, Value> {
+pub fn started(
+    session: &str,
+    harness: &str,
+    model: Option<&str>,
+    started_at: u64,
+) -> Map<String, Value> {
     let mut run = Map::new();
     run.insert("status".into(), json!("running"));
     run.insert("started_at".into(), json!(started_at));

@@ -262,7 +262,10 @@ fn the_chief_writes_its_run_to_the_conversation_as_it_works() {
     assert_eq!(run["id"], reply["client_msg_id"], "{run}");
     assert_eq!(run["session"]["kind"], "acpmux", "{run}");
     assert!(run["ended_at"].as_u64().is_some(), "{run}");
-    assert!(run["answers"].as_array().is_some_and(|a| !a.is_empty()), "{run}");
+    assert!(
+        run["answers"].as_array().is_some_and(|a| !a.is_empty()),
+        "{run}"
+    );
 
     id += 1;
     let page = request(
@@ -280,13 +283,22 @@ fn the_chief_writes_its_run_to_the_conversation_as_it_works() {
     let shell = step("tool:toolu_sh");
     assert_eq!(shell["status"], "done", "{shell}");
     assert_eq!(shell["tool"]["name"], "Bash", "{shell}");
-    assert_eq!(shell["tool"]["input"]["command"], "git log -1 --oneline", "{shell}");
-    assert_eq!(shell["tool"]["output"], "3158c157a2 base autofix", "{shell}");
+    assert_eq!(
+        shell["tool"]["input"]["command"], "git log -1 --oneline",
+        "{shell}"
+    );
+    assert_eq!(
+        shell["tool"]["output"], "3158c157a2 base autofix",
+        "{shell}"
+    );
     let edit = step("tool:toolu_edit");
     assert_eq!(edit["tool"]["files"][0]["path"], "/tmp/notes.md", "{edit}");
     assert_eq!(edit["tool"]["files"][0]["added"], 2, "{edit}");
     assert_eq!(edit["tool"]["files"][0]["removed"], 1, "{edit}");
-    assert_eq!(edit["tool"]["files"][0]["new_text"], "one\nthree\nfour\n", "{edit}");
+    assert_eq!(
+        edit["tool"]["files"][0]["new_text"], "one\nthree\nfour\n",
+        "{edit}"
+    );
     let talk = steps
         .iter()
         .find(|s| s["kind"] == "talk")

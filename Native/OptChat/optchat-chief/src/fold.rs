@@ -496,7 +496,8 @@ impl TurnFold {
             log_tool(tool, out);
         }
         let status = update.get("status").and_then(Value::as_str).unwrap_or("");
-        self.run.tool_update(&id, &tool.name, update, &result_text(update), at);
+        self.run
+            .tool_update(&id, &tool.name, update, &result_text(update), at);
         if !tool.done && matches!(status, "completed" | "failed") {
             log_tool(tool, out);
             tool.done = true;

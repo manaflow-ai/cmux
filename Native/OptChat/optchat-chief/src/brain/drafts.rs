@@ -63,7 +63,11 @@ impl Brain {
         }
         // A reply to a group message goes into that message's thread
         // (`reply_threads`): the run shows there while it works.
-        if let Some((root, _)) = turn.answers.first().and_then(|id| self.reply_threads.get(id)) {
+        if let Some((root, _)) = turn
+            .answers
+            .first()
+            .and_then(|id| self.reply_threads.get(id))
+        {
             run.insert("thread_root".into(), serde_json::json!(root));
         }
         let Some(daemon) = self.daemon.as_mut() else {
@@ -71,7 +75,8 @@ impl Brain {
         };
         // Pictures first: each becomes an attachment its step names, now and in later appends.
         let turn_key = update.turn.clone();
-        self.run_attachments.retain(|(turn, _), _| *turn == turn_key);
+        self.run_attachments
+            .retain(|(turn, _), _| *turn == turn_key);
         for image in &update.images {
             match upload_image(daemon.as_mut(), &conversation, image) {
                 Ok(attachment) => self
@@ -81,14 +86,20 @@ impl Brain {
                     .push(attachment),
                 Err(e) if !self.run_failed => {
                     self.run_failed = true;
-                    (self.log)(&format!("uploading a run picture failed: {e}; later failures are not logged"));
+                    (self.log)(&format!(
+                        "uploading a run picture failed: {e}; later failures are not logged"
+                    ));
                 }
                 Err(_) => {}
             }
         }
         let mut steps = update.steps;
         for step in &mut steps {
-            let id = step.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+            let id = step
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
             if let Some(attachments) = self.run_attachments.get(&(turn_key.clone(), id)) {
                 step["attachments"] = serde_json::json!(attachments);
             }

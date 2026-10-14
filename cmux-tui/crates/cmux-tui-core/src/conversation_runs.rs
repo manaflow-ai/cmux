@@ -11,7 +11,7 @@
 //! reply. Values are absolute (a run's fields and each step are replaced by
 //! id), so a retried append writes the same rows.
 
-use cmux_conversation::{ParticipantKind, Part, Reject, valid_attachment_part};
+use cmux_conversation::{Part, ParticipantKind, Reject, valid_attachment_part};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -301,7 +301,9 @@ pub(crate) struct RunPage {
 /// A producer key: 1-128 of `[A-Za-z0-9_.:-]` (a turn key, a step id).
 pub(crate) fn valid_key(value: &str) -> bool {
     (1..=128).contains(&value.len())
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// One line of text: no control characters, at most `max` characters.
@@ -317,7 +319,8 @@ fn valid_url(url: &str) -> bool {
     let Some((scheme, rest)) = url.split_once("://") else { return false };
     let cmux = scheme == "cmux"
         || scheme.strip_prefix("cmux-").is_some_and(|tag| {
-            !tag.is_empty() && tag.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            !tag.is_empty()
+                && tag.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
         });
     (scheme == "https" || scheme == "http" || cmux) && !rest.is_empty()
 }
@@ -329,9 +332,12 @@ fn invalid(ok: bool) -> anyhow::Result<()> {
 fn validate_run(input: &RunInput) -> anyhow::Result<()> {
     invalid(valid_key(&input.id))?;
     invalid(input.turn.as_deref().is_none_or(valid_key))?;
-    invalid(input.answers.as_ref().is_none_or(|answers| {
-        answers.len() <= 16 && answers.iter().all(|id| valid_key(id))
-    }))?;
+    invalid(
+        input
+            .answers
+            .as_ref()
+            .is_none_or(|answers| answers.len() <= 16 && answers.iter().all(|id| valid_key(id))),
+    )?;
     invalid(input.thread_root.as_deref().is_none_or(valid_key))?;
     invalid(input.title.as_deref().is_none_or(|title| valid_line(title, 200)))?;
     invalid(input.model.as_deref().is_none_or(|model| valid_line(model, 128)))?;
@@ -427,7 +433,8 @@ impl ConversationStore {
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let head = load_head(&transaction, conversation)?
             .ok_or_else(|| rejected(Reject::UnknownConversation))?;
-        let participant = head.participant(actor).ok_or_else(|| rejected(Reject::NotParticipant))?;
+        let participant =
+            head.participant(actor).ok_or_else(|| rejected(Reject::NotParticipant))?;
         if participant.kind != ParticipantKind::Agent {
             return Err(refused("not_agent"));
         }
@@ -510,7 +517,12 @@ impl ConversationStore {
                     serde_json::to_string(&value)?
                 ],
             )?;
-            attachments::write_refs(&transaction, conversation, &step_ref(&run.id, &step.id), &parts)?;
+            attachments::write_refs(
+                &transaction,
+                conversation,
+                &step_ref(&run.id, &step.id),
+                &parts,
+            )?;
             written.push(value);
         }
         // A summary change is a revision of its own; an append that changes
@@ -686,7 +698,9 @@ fn prune_runs(connection: &Connection, conversation: &str) -> anyhow::Result<()>
          ORDER BY started_at ASC, run ASC",
     )?;
     let oldest = statement
-        .query_map(params![conversation], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .query_map(params![conversation], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut dropped = 0;
     for (id, json) in oldest {
