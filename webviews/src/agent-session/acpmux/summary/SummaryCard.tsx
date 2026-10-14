@@ -98,6 +98,16 @@ export function SummaryCard({
         </div>
         {summary && (
           <div className="acpmux-summary-card__body">
+            {/* The subagents first: they are what the card follows while a turn runs. */}
+            {agents.length > 0 && (
+              <SubagentStatusList
+                agents={agents}
+                waiting={waiting}
+                current={subagents.current}
+                onOpen={subagents.onOpen}
+                autoOpen={subagents.autoOpen}
+              />
+            )}
             <SummaryBody
               summary={summary}
               galleryCount={galleryCount}
@@ -107,17 +117,7 @@ export function SummaryCard({
               }}
               changes={changes}
               onOpenChanges={onOpenChanges}
-              subagents={
-                agents.length > 0 ? (
-                  <SubagentStatusList
-                    agents={agents}
-                    waiting={waiting}
-                    current={subagents.current}
-                    onOpen={subagents.onOpen}
-                    autoOpen={subagents.autoOpen}
-                  />
-                ) : undefined
-              }
+              subagents={agents.length > 0 ? <></> : undefined}
               onOpenOutput={onOpenOutput}
             />
           </div>

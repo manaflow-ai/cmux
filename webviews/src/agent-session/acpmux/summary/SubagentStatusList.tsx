@@ -88,7 +88,7 @@ export function SubagentStatusList({
   const t = useT();
   const now = useNow(agents.some(running));
   const title = t("summary.subagents");
-  const live = agents.filter(running).length;
+  const live = agents.filter((agent) => subagentStatus(agent, waiting) === "running").length;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">
