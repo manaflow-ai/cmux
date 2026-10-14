@@ -170,7 +170,7 @@ struct PairedMacsPage: View {
     /// Whether the Mac's host keeps itself off after a removal (`removal-v1`, said by its
     /// `version` service when this phone linked to it). Unknown counts as no.
     private func honorsRemoval(_ device: SettingsDevice) -> Bool {
-        device.ids.contains { store.macCapabilities[$0]?.contains("removal-v1") == true }
+        MacRemovalCopy.honorsRemoval(device.ids.map { store.macCapabilities[$0] })
     }
 
     /// The confirmation's message: what removal does, and how the device comes back.
@@ -181,10 +181,8 @@ struct PairedMacsPage: View {
         }
         var parts = ["\(device.name) leaves the Mac list on all your devices, and this iPhone forgets its saved workspaces."]
         if connected { parts.append("This iPhone disconnects from it now.") }
-        if device.online == true, honorsRemoval {
-            parts.append("It's online, so it will disconnect now. It stays off until you choose Allow Again in Settings → Mobile on that Mac.")
-        } else if device.online == true {
-            parts.append("It's online, so cmux on that Mac can add it back. To keep it off, turn off Settings → Mobile on that Mac.")
+        if device.online == true {
+            parts.append(MacRemovalCopy.online(honorsRemoval: honorsRemoval))
         } else {
             parts.append("To use it again, sign in to cmux on that Mac or turn on Settings → Mobile there.")
         }

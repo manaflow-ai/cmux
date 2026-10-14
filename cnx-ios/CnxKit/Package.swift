@@ -123,7 +123,6 @@ let package = Package(
         .testTarget(name: "CnxTerminalTests", dependencies: ["CnxTerminal"]),
         .testTarget(name: "CnxBrowserStreamTests", dependencies: ["CnxBrowserStream", "CnxTransport"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
-        .testTarget(name: "CnxSettingsTests", dependencies: ["CnxSettings", "CnxModel"]),
         .testTarget(name: "CnxLiveTests", dependencies: [
             "CnxLive", "CnxTransport", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTerminal",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

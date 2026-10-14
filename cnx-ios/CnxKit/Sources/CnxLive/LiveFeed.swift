@@ -1,6 +1,7 @@
 import CmuxAgentQuestion
 import CnxAgentChat
 import CnxFeed
+import CnxModel
 import Foundation
 import OSLog
 
