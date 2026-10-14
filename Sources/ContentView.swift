@@ -7336,7 +7336,7 @@ struct ContentView: View {
         }
         snapshot.setString(
             CommandPaletteContextKeys.accountUpgradeOffer,
-            ProUpgradePresenter.currentUpgradeOffer.map(Self.commandPaletteUpgradeOfferValue)
+            Self.commandPaletteUpgradeOfferValue(ProUpgradePresenter.currentUpgradeOffer)
         )
 
         let focusedDock = AppDelegate.shared?.focusedDockStoreForShortcut(
