@@ -18,6 +18,8 @@ use super::*;
 mod agent_chat_notices;
 #[path = "agent_home_reopen.rs"]
 mod agent_home_reopen;
+#[path = "agents_cli_receipt.rs"]
+mod agents_cli_receipt;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified

@@ -127,6 +127,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
@@ -135,6 +136,8 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/intent-familiar-review.yml
+      - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -261,6 +264,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
@@ -269,6 +273,8 @@ on:
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
+      - .github/workflows/intent-familiar-review.yml
+      - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
@@ -1003,6 +1009,7 @@ jobs:
         id: script-tests
         continue-on-error: true
         run: |
+          python3 tests/test_intent_familiar_warning.py
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/bundle-cmux-tui-screen-detection.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
@@ -1029,6 +1036,7 @@ jobs:
           bash scripts/cmux-next/tests/cargo-test-selected.test.sh
           bash scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
           bash scripts/cmux-next/tests/app-capability-references.test.sh
+          bash scripts/cmux-next/tests/tagged-launch-acpmux-env.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-tracked.test.sh
           bash scripts/cmux-next/tests/crash-ratchet-v2.test.sh
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
@@ -1072,6 +1080,8 @@ jobs:
         run: |
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
+          # Ghostty's themes survive the Resources phase in either order (Xcode, fleet Linux builder).
+          bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
 
       # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
       # carries ghostty-next's capabilities and cmux's 256-color 8-15 patch.

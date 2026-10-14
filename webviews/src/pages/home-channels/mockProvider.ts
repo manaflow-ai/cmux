@@ -6,6 +6,8 @@ import { MockPageStreams } from "../shared/pageStreams";
 import { threadOf } from "./model";
 import {
   HomeOps,
+  type HomeAttachment,
+  type HomeChief,
   type HomeConversation,
   type HomeDraftItem,
   type HomeEventBatch,
@@ -158,6 +160,61 @@ export function addLongThread(home: ReturnType<typeof sampleHome>): void {
   home.conversations.push(conversation(id, "incident", "group", [chief, builder, reviewer], list));
 }
 
+/** A sample file part (gallery `media`): the mock draws its pixels when the page reads it. */
+function file(hash: string, name: string, mimeType: string, byteCount: number, extra: Partial<HomeAttachment> = {}) {
+  return { type: "attachment" as const, hash, name, mimeType, byteCount, ...extra };
+}
+
+/** #media (gallery `media`): screenshots, a run recording with its poster, and a PDF. */
+export function addMedia(home: ReturnType<typeof sampleHome>): void {
+  const id = "c-media";
+  const jpeg = (hash: string) => ({ hash, mimeType: "image/jpeg", byteCount: 24_000 });
+  const message = text(id, 1, builder, BASE + 30 * MINUTE, "Screens from the sidebar fix, and the run.");
+  message.parts.push(
+    file("a".repeat(64), "sidebar-before.png", "image/png", 812_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("b".repeat(64)),
+    }),
+    file("c".repeat(64), "sidebar-after.png", "image/png", 790_000, {
+      width: 1600,
+      height: 1000,
+      preview: jpeg("d".repeat(64)),
+    }),
+    file("e".repeat(64), "scroll.png", "image/png", 64_000, { width: 640, height: 400 }),
+    file("f".repeat(64), "run-recording.mp4", "video/mp4", 2_300_000, {
+      width: 1280,
+      height: 720,
+      durationMs: 6_000,
+      poster: jpeg("1".repeat(64)),
+    }),
+    file("2".repeat(64), "release-notes.pdf", "application/pdf", 90_000),
+  );
+  home.messages.set(id, [message]);
+  home.conversations.push(conversation(id, "media", "group", [builder, reviewer], [message]));
+}
+
+/** A raster picture of `hash` as base64 PNG (the mock stores no bytes; it draws one per hash). */
+async function picture(hash: string): Promise<string> {
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 200;
+  const context = canvas.getContext("2d");
+  if (context) {
+    const hue = (parseInt(hash.slice(0, 2), 16) * 47) % 360;
+    const gradient = context.createLinearGradient(0, 0, 320, 200);
+    gradient.addColorStop(0, `hsl(${hue} 55% 45%)`);
+    gradient.addColorStop(1, `hsl(${(hue + 60) % 360} 55% 25%)`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 320, 200);
+  }
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  const bytes = new Uint8Array(await (blob ?? new Blob()).arrayBuffer());
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** The owner's stats of the thread roots in `page`, counted over every reply of the conversation that
  * is not retracted (as both owners count them). */
 function statsFor(all: readonly HomeMessage[], page: readonly HomeMessage[]): HomeThreadStats[] {
@@ -277,6 +334,24 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
   };
 }
 
+/** A Chief as the owner sends it (the host relay answers raw records). */
+function rawChief(c: HomeChief): Record<string, unknown> {
+  return {
+    id: c.id,
+    display_name: c.name,
+    role: c.role,
+    personality: c.personality,
+    instructions: c.instructions,
+    tools: c.tools,
+    harnesses: c.harnesses,
+    self_edit: c.selfEdit,
+    is_default: c.isDefault,
+    rev: c.rev,
+    created_at: c.createdAt,
+    avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+  };
+}
+
 export class MockHomeProvider implements PageClient {
   readonly page = new MockPageStreams();
   private readonly data = sampleHome();
@@ -284,6 +359,64 @@ export class MockHomeProvider implements PageClient {
   private seq = 0;
 
   private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
+  private readonly uploads = new Map<string, Record<string, unknown>>();
+  /** The Chief records (the sample Chief is the default one). */
+  private readonly chiefs = new Map<string, HomeChief>([
+    [
+      chief.id,
+      {
+        id: chief.id,
+        name: chief.name,
+        role: "Runs the team's agents",
+        personality: "Brief.",
+        instructions: "",
+        tools: ["browser", "chiefs", "cloud_vms", "memory_import", "spawn", "tell", "workspaces"],
+        harnesses: [],
+        selfEdit: ["avatar"],
+        isDefault: true,
+        rev: 1,
+        createdAt: new Date(BASE).toISOString(),
+      },
+    ],
+  ]);
+  private readonly pictures = new Map<string, { mediaType: string; data: string }>();
+  /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
+  hostGrants = false;
+
+  /** Adds a Chief (the host's create; the gallery's second Chief). */
+  addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
+    const made: HomeChief = {
+      id: `agent_new${this.chiefs.size}`,
+      name,
+      role: "",
+      personality: "",
+      instructions: "",
+      tools: ["spawn", "tell", "workspaces"],
+      harnesses: [],
+      selfEdit: ["avatar"],
+      isDefault: false,
+      rev: 1,
+      createdAt: new Date(BASE).toISOString(),
+      ...fields,
+    };
+    this.chiefs.set(made.id, made);
+    return made;
+  }
+
+  private chief(id: string): HomeChief {
+    const found = this.chiefs.get(id);
+    if (!found) throw pageError("cmux.home.not_found", id);
+    return found;
+  }
+
+  /** People met so far and the Chiefs, not me. */
+  private directory(): HomeParticipant[] {
+    const byId = new Map<string, HomeParticipant>();
+    for (const c of this.chiefs.values()) byId.set(c.id, { id: c.id, kind: "agent", name: c.name, chief: true });
+    for (const c of this.data.conversations) for (const p of c.participants) if (!byId.has(p.id)) byId.set(p.id, p);
+    byId.delete(me.id);
+    return [...byId.values()];
+  }
 
   constructor(
     private readonly draft?: MockDraft,
@@ -291,8 +424,10 @@ export class MockHomeProvider implements PageClient {
     private readonly runMode: MockRuns = "none",
     /** The owner refuses pins and marks (the page puts the row back and says why). */
     private readonly refuseInbox = false,
+    media = false,
   ) {
     if (longThread) addLongThread(this.data);
+    if (media) addMedia(this.data);
     if (runMode !== "none") {
       const done = sampleRun();
       this.runs.set(done.run.id, done);
@@ -470,6 +605,8 @@ export class MockHomeProvider implements PageClient {
         // The owner keeps the sender's idempotency key as the message's client id (the page's
         // pending send ends on it).
         if (typeof params.idempotencyKey === "string") message.clientMessageId = params.idempotencyKey;
+        if (!message.parts[0] || (message.parts[0].type === "text" && !message.parts[0].text)) message.parts = [];
+        if (Array.isArray(params.attachments)) message.parts.push(...(params.attachments as HomeAttachment[]));
         list.push(message);
         this.data.messages.set(id, list);
         this.emit({ messages: [message] });
@@ -502,6 +639,99 @@ export class MockHomeProvider implements PageClient {
         this.emit({ messages: [list[index]!] });
         return {} as R;
       }
+      case HomeOps.capabilities:
+        return { start: true, invite: true, chiefs: true } as R;
+      case HomeOps.directory:
+        return { people: this.directory() } as R;
+      case HomeOps.startConversation: {
+        const ids = (params.participants as string[] | undefined) ?? [];
+        const title = String(params.title ?? "").trim();
+        if (ids.length === 1 && !title) {
+          const direct = this.data.conversations.find(
+            (c) => c.participants.length === 2 && c.participants.some((p) => p.id === ids[0]),
+          );
+          if (direct) return { conversation: direct.id } as R;
+        }
+        const people = this.directory().filter((p) => ids.includes(p.id));
+        const id = `c-${this.data.conversations.length + 1}`;
+        const name = title || people.map((p) => p.name).join(", ");
+        const created = conversation(
+          id,
+          name,
+          people.length === 1 ? (people[0]!.chief ? "chief" : "direct") : "group",
+          people,
+          [],
+        );
+        this.data.conversations.push(created);
+        this.data.messages.set(created.id, []);
+        this.emit({ conversations: [created] });
+        return { conversation: created.id } as R;
+      }
+      case HomeOps.invite: {
+        const found = this.data.conversations.find((c) => c.id === id);
+        if (!found) throw pageError("cmux.home.not_found", id);
+        const ids = (params.participants as string[] | undefined) ?? [];
+        const added = this.directory().filter(
+          (p) => ids.includes(p.id) && !found.participants.some((q) => q.id === p.id),
+        );
+        const updated = { ...found, participants: [...found.participants, ...added] };
+        this.data.conversations = this.data.conversations.map((c) => (c.id === id ? updated : c));
+        this.emit({ conversations: [updated] });
+        return { conversation: id } as R;
+      }
+      case HomeOps.chiefs:
+        return { chiefs: [...this.chiefs.values()] } as R;
+      case HomeOps.chiefUpdate: {
+        const old = this.chief(String(params.chief));
+        const changed = { ...old, name: String(params.name), role: String(params.role ?? ""), rev: old.rev + 1 };
+        this.chiefs.set(changed.id, changed);
+        return { chief: changed } as R;
+      }
+      case HomeOps.chiefAvatarSet: {
+        const old = this.chief(String(params.chief));
+        const changed = { ...old, avatar: `pic-${old.rev + 1}`, rev: old.rev + 1 };
+        this.chiefs.set(changed.id, changed);
+        this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
+        return { chief: changed } as R;
+      }
+      case HomeOps.chiefAvatar:
+        return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case "cmux.chief.profile.list":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        return {
+          chiefs: [...this.chiefs.values()].map((c) => ({ id: c.id, rev: c.rev, created_at: c.createdAt })),
+        } as R;
+      case "cmux.chief.profile.create": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const made = this.addChief(String(params.display_name), {
+          role: String(params.role ?? ""),
+          personality: String(params.personality ?? ""),
+          instructions: String(params.instructions ?? ""),
+          ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
+          ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+        });
+        return { value: rawChief(made) } as R;
+      }
+      case "cmux.chief.profile.update": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const old = this.chief(String(params.chief));
+        const text = (key: string, fallback: string) =>
+          typeof params[key] === "string" ? String(params[key]) : fallback;
+        const changed = {
+          ...old,
+          personality: text("personality", old.personality),
+          instructions: text("instructions", old.instructions),
+          tools: (params.tools as string[] | undefined) ?? old.tools,
+          harnesses: (params.harnesses as string[] | undefined) ?? old.harnesses,
+          rev: old.rev + 1,
+        };
+        this.chiefs.set(changed.id, changed);
+        return { value: rawChief(changed) } as R;
+      }
+      case "cmux.chief.profile.delete":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        this.chiefs.delete(String(params.chief));
+        return {} as R;
       case HomeOps.createGroup: {
         const ids = (params.participants as string[] | undefined) ?? [];
         const people = [chief, builder, reviewer, docs].filter((p) => ids.includes(p.id));
@@ -528,6 +758,29 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.search:
         return { hits: [] } as R;
+      case HomeOps.attachmentSupport:
+        return { local: true, cloud: false } as R;
+      case HomeOps.attachmentUpload: {
+        // The steps of an upload; the mock keeps no bytes.
+        if (params.op === "begin") {
+          const upload = `upload-${this.uploads.size + 1}`;
+          const needs = ["original", ...(params.poster ? ["poster"] : []), ...(params.preview ? ["preview"] : [])];
+          this.uploads.set(upload, params);
+          return { upload, needs, stored: null } as R;
+        }
+        if (params.op === "chunk") return { received: Number(params.offset ?? 0) } as R;
+        const begun = this.uploads.get(String(params.upload ?? "")) ?? {};
+        return {
+          stored: { hash: begun.sha256, mime_type: begun.mime_type, byte_count: begun.byte_count },
+        } as R;
+      }
+      case HomeOps.attachmentRead: {
+        const data = await picture(String(params.hash ?? ""));
+        return { mimeType: "image/png", byteCount: data.length, offset: 0, data, eof: true } as R;
+      }
+      case HomeOps.attachmentUrl:
+        // No video bytes in the mock: the player shows its poster.
+        throw pageError("cmux.page.unavailable", "the mock serves no video");
       case HomeOps.runs: {
         const turns = (params.turns as string[] | undefined) ?? [];
         const all = [...this.runs.values()].filter((entry) => entry.run.conversation === id);

@@ -116,18 +116,25 @@ fn say(home: &mut Conn, conversation: &str, key: &str, text: &str) {
 fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     use std::os::unix::fs::PermissionsExt;
 
-    let files = unique_temp_dir("chief-brains-files");
+    let files = unique_temp_dir("cb");
     fs::create_dir_all(&files).unwrap();
     let stub = files.join("brain.sh");
     fs::write(&stub, STUB).unwrap();
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
-    let chief_home = files.join("chief-home");
+    // A stub acpmux that records each call (its args and ACPMUX_HOME).
+    let acpmux = files.join("acpmux.sh");
+    let calls = files.join("acpmux-calls");
+    fs::write(&acpmux, format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\n", calls.display()))
+        .unwrap();
+    fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o755)).unwrap();
+    // Short: the brains' sockets live under it (103-byte limit).
+    let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
     let brains = json!({
         "executable": stub,
         "home": chief_home,
         "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
-                "chief_title": "Chief", "acpmux_bin": "/opt/cmux-test/bin/acpmux"},
+                "chief_title": "Chief", "acpmux_bin": acpmux},
     })
     .to_string();
     let mut server = HeadlessServer::start_with_options(
@@ -156,7 +163,7 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     expect("ACPMUX_HOME", scout_home.join("a").to_str().unwrap());
     expect("CMUX_SOCKET_PATH", chief_home.join("state/app.sock").to_str().unwrap());
     expect("MUX_USER_NAME", "Test Person");
-    expect("ACPMUX_BIN", "/opt/cmux-test/bin/acpmux");
+    expect("ACPMUX_BIN", acpmux.to_str().unwrap());
     assert!(env["PATH"].starts_with("/opt/cmux-test/bin:"), "{env:?}");
     assert!(!env.contains_key("CMUX_TUI_CHIEF_BRAINS"), "{env:?}");
     assert!(!env.contains_key("ACPMUX_SOCKET"), "{env:?}");
@@ -214,6 +221,12 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     let deleted = chief_cli(&server, &["delete", &ops, "--json"], "");
     assert_success(&deleted);
     wait_gone(ops_pid, "after delete");
+    // ...and its acpmux, which the brain started in its own process group.
+    assert_eq!(
+        wait_file(&calls),
+        format!("daemon shutdown {}", ops_home.join("a").display()),
+        "the deleted Chief's acpmux was not shut down"
+    );
     assert!(alive(restarted));
 
     // Daemon shutdown stops the rest.
@@ -222,4 +235,62 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     unsafe { libc::kill(daemon, libc::SIGTERM) };
     let _ = server.child.wait();
     wait_gone(restarted, "after daemon shutdown");
+}
+
+/// Each Chief's brain titles its conversation with the Chief's own name
+/// (hq-6d 2026-10-14): `MUX_CHIEF_TITLE` is the record's display_name for a
+/// Chief that is not the default (the brain's create request and DM title,
+/// optchat-chief daemon.rs `names_from_env`), not the app's "Chief", so two
+/// Chiefs never show as two "Chief" rows. A rename reaches the next start:
+/// the brain restarts with the new name.
+#[test]
+fn each_chief_brain_is_titled_with_its_own_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let files = unique_temp_dir("cbt");
+    fs::create_dir_all(&files).unwrap();
+    let stub = files.join("brain.sh");
+    fs::write(&stub, STUB).unwrap();
+    fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+    let chief_home = files.join("h");
+    fs::create_dir_all(&chief_home).unwrap();
+    let brains = json!({
+        "executable": stub,
+        "home": chief_home,
+        "app": {"bin_dir": "/opt/cmux-test/bin", "user_name": "Test Person",
+                "chief_title": "Chief", "acpmux_bin": "/usr/bin/false"},
+    })
+    .to_string();
+    let mut owned = HeadlessServer::start_with_options(
+        "chief-brains-title",
+        None,
+        None,
+        &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
+    );
+    let server = &owned;
+    let scout = make_chief(server, "Scout", "Researcher");
+    let ops = make_chief(server, "Ops", "Release captain");
+    let scout_home = brain_dir(&chief_home, &scout);
+    let ops_home = brain_dir(&chief_home, &ops);
+    let scout_pid: i32 = wait_file(&scout_home.join("pid.1")).parse().unwrap();
+    let ops_pid: i32 = wait_file(&ops_home.join("pid.1")).parse().unwrap();
+    let title = |home: &std::path::Path, n: u32| {
+        env_of(&home.join(format!("env.{n}"))).get("MUX_CHIEF_TITLE").cloned()
+    };
+    assert_eq!(title(&scout_home, 1).as_deref(), Some("Scout"));
+    assert_eq!(title(&ops_home, 1).as_deref(), Some("Ops"));
+
+    let renamed = chief_cli(server, &["edit", &scout, "--name", "Scout Two", "--json"], "");
+    assert_success(&renamed);
+    let renamed_pid: i32 = wait_file(&scout_home.join("pid.2")).parse().unwrap();
+    assert_eq!(title(&scout_home, 2).as_deref(), Some("Scout Two"));
+    wait_gone(scout_pid, "after the rename");
+
+    // Stop the daemon so it stops the brains it started.
+    let daemon = i32::try_from(owned.child.id()).unwrap();
+    // SAFETY: the test's own daemon child.
+    unsafe { libc::kill(daemon, libc::SIGTERM) };
+    let _ = owned.child.wait();
+    wait_gone(renamed_pid, "after daemon shutdown");
+    wait_gone(ops_pid, "after daemon shutdown");
 }

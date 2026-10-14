@@ -64,7 +64,7 @@ export function mountDaemonHomeChannelsPage(
       <DaemonGate source={source} strings={strings}>
         {(daemon, _pages, owner) => (
           <div className="hc-daemon">
-            <DaemonHome daemon={daemon} owner={owner} strings={strings} carry={carry} />
+            <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
           </div>
         )}
       </DaemonGate>
@@ -76,16 +76,19 @@ export function mountDaemonHomeChannelsPage(
 function DaemonHome({
   daemon,
   owner,
+  host,
   strings,
   carry,
 }: {
   daemon: DaemonSocket;
   /** This build's Chief home's owner, when it serves the local conversations. */
   owner?: DaemonSocket;
+  /** The app host: it relays the person's click for a Chief's grant and delete (none in a browser). */
+  host: PageClient | null;
   strings: Strings;
   carry: PendingCarry;
 }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry));
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

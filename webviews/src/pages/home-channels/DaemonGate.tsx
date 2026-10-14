@@ -226,7 +226,8 @@ export function DaemonGate({
   }, [url, source.kind]);
 
   // A new store per connection: the key remounts the page on every reconnect.
-  if (phase.kind === "ready") return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
+  if (phase.kind === "ready")
+    return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>

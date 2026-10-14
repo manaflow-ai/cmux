@@ -248,6 +248,7 @@ impl Translator {
                     .map(|(k, _)| k.clone());
                 let Some(ctl_id) = ctl else { return Outbound::Lines(vec![]) };
                 self.control_out.lock().await.remove(&ctl_id);
+                let suggested = self.suggestions.lock().await.remove(&ctl_id);
                 let outcome =
                     result.as_ref().and_then(|r| r.get("outcome")).cloned().unwrap_or(Value::Null);
                 let selected = outcome.get("optionId").and_then(Value::as_str).unwrap_or("");
@@ -262,10 +263,21 @@ impl Translator {
                     // allow / allow_always: pass the (possibly answered) input back.
                     let updated =
                         result.as_ref().and_then(|r| r.pointer("/_meta/updatedInput")).cloned();
-                    match updated {
+                    let mut allow = match updated {
                         Some(u) => json!({"behavior": "allow", "updatedInput": u}),
                         None => json!({"behavior": "allow"}),
+                    };
+                    // "Allow for this session": Claude keeps the rules it
+                    // suggested, for this session only (a suggestion may
+                    // name a settings file; the option promises no more
+                    // than the session), so it stops asking for the same
+                    // call. Without this it asked again, like Allow once.
+                    if selected == "allow_always"
+                        && let Some(rules) = suggested
+                    {
+                        allow["updatedPermissions"] = rules;
                     }
+                    allow
                 };
                 Outbound::Lines(vec![
                     json!({"type": "control_response", "response": {"subtype": "success", "request_id": ctl_id, "response": response}}),

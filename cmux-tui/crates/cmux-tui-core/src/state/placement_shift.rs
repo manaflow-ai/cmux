@@ -8,8 +8,10 @@
 //! `session.events` stream. The commit now names only the changed rows and
 //! records the ordinal range that shifted (`placement_shift` in the journal
 //! record's payload, next to `changes`). When a delta batch goes out:
-//! - a connection that echoed `sidebar-doc-v1` (it reads the order from the
-//!   sidebar document) gets the changes as stored, with no restatement;
+//! - a connection that echoed [`CAPABILITY`] (`placement-shift-v1`: it does
+//!   not order by `workspace_placement.index`, for example because it reads
+//!   the order from the sidebar document) gets the changes as stored, with
+//!   no restatement;
 //! - any other connection gets the placements in the shifted range appended
 //!   to the batch, read from the current state.
 //!
@@ -22,6 +24,11 @@
 
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
+
+/// Advertised in `identify`; a connection that echoes it in
+/// `set-client-info` or `client.metadata.update` gets no placement
+/// restatement. `sidebar-doc-v1` alone does not change placement delivery.
+pub const CAPABILITY: &str = "placement-shift-v1";
 
 /// The journal payload key, and the key of a queued marker in
 /// `state_pending_changes`.

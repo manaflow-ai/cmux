@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use cmux_agent_pane_policy::build_identity::BuildIdentity;
 
 const DEBUG_BUNDLE_ID: &str = "com.cmuxterm.app.debug";
+/// `sockaddr_un.sun_path` on macOS (104 bytes) less its terminating NUL.
+const MAX_SOCKET_PATH_BYTES: usize = 103;
 /// `action.list`'s per-action surface plan key (where the app offers the
 /// action: palette, CLI, right-click, MCP). App control vocabulary for UI
 /// surfaces, not a daemon resource word; `cmux mcp` reads its `mcp` entry.
@@ -51,12 +53,19 @@ impl AppIdentity {
         if !bundle_id.starts_with("com.cmuxterm.app") {
             return None;
         }
+        // The tag the bundle ships; a copy named `cmux DEV <tag>.app` that
+        // lost `LSEnvironment` ships its name's tag (CmuxNext
+        // `LaunchIdentity.taggedAppName`), so the CLI and the app agree.
         let bundled_tag = dictionary
             .get("LSEnvironment")
             .and_then(plist::Value::as_dictionary)
             .and_then(|environment| environment.get("CMUX_TAG"))
             .and_then(plist::Value::as_string)
-            .map(str::to_owned);
+            .and_then(sanitize)
+            .or_else(|| {
+                let name = bundle.file_stem()?.to_str()?;
+                sanitize(name.strip_prefix("cmux DEV ")?)
+            });
         Some(Self::new(Some(bundle_id), bundled_tag.as_deref(), None))
     }
 
@@ -86,54 +95,37 @@ impl AppIdentity {
         }
     }
 
-    /// The app control socket (`ControlSocketPath.resolve`).
+    /// The app control socket (`ControlSocketPath.resolve` of the build:
+    /// [`BuildIdentity::control_socket`], per-build isolation S3) in the
+    /// user's `~/.local/state/cmux`, since a host's /tmp cleaner deleted a
+    /// running app's `/tmp` socket (hq#1870). A path too long for `sun_path`
+    /// keeps its old `/tmp` name, and so does an app from before the move:
+    /// when only the old name exists, that is where it listens.
     pub(crate) fn control_socket(&self, home: &Path) -> PathBuf {
         if let Some(path) = &self.socket_override {
             return path.clone();
         }
-        let bundle = self.bundle_id.as_deref().unwrap_or("").trim();
-        for (channel_id, channel) in CHANNELS {
-            if bundle == channel_id {
-                return PathBuf::from(format!("/tmp/cmux-{channel}.sock"));
-            }
-            if let Some(slug) = bundle
-                .strip_prefix(channel_id)
-                .and_then(|rest| rest.strip_prefix('.'))
-                .and_then(sanitize)
-            {
-                return PathBuf::from(format!("/tmp/cmux-{channel}-{slug}.sock"));
-            }
+        let old = self
+            .build()
+            .control_socket(home)
+            .unwrap_or_else(|| home.join(".local/state/cmux/cmux.sock"));
+        let Ok(name) = old.strip_prefix("/tmp") else { return old };
+        let moved = home.join(".local/state/cmux").join(name);
+        if moved.as_os_str().len() > MAX_SOCKET_PATH_BYTES || (!moved.exists() && old.exists()) {
+            return old;
         }
-        if let Some(slug) = bundle_tag(bundle) {
-            return PathBuf::from(format!("/tmp/cmux-debug-{slug}.sock"));
-        }
-        let is_debug = bundle == DEBUG_BUNDLE_ID || (bundle.is_empty() && self.tag.is_some());
-        if is_debug {
-            return match &self.tag {
-                Some(tag) => PathBuf::from(format!("/tmp/cmux-debug-{tag}.sock")),
-                None => PathBuf::from("/tmp/cmux-debug.sock"),
-            };
-        }
-        home.join(".local/state/cmux/cmux.sock")
+        moved
     }
 
-    /// The app's cmux-tui session (`DaemonLauncher.sessionName` of
-    /// `DaemonLauncher.daemonTag`): `cmux-app-<tag>` for a tagged build,
-    /// `cmux-app-<channel>` for an untagged nightly, rc or staging build, and
-    /// `cmux-app` for release, so each channel reaches its own daemon.
+    /// The app's cmux-tui session (`DaemonLauncher.sessionName` of the build,
+    /// [`BuildIdentity::app_session`]): `cmux-app-<tag>` for a
+    /// `scripts/reload.sh` DEV build, `cmux-app-<channel>` for an untagged
+    /// nightly, rc or staging build, `cmux-app` for release, and
+    /// `cmux-app--<key hash>` for every other build (the untagged DEV build
+    /// among them), so each build reaches its own daemon.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) fn daemon_session(&self) -> Option<String> {
-        let bundle = self.bundle_id.as_deref().unwrap_or("").trim();
-        let channel = CHANNELS.iter().find(|(id, _)| *id == bundle).map(|(_, channel)| *channel);
-        let Some(tag) = self.tag.as_deref().or(channel) else { return Some("cmux-app".into()) };
-        let cleaned: String = tag
-            .chars()
-            .map(
-                |c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' },
-            )
-            .collect();
-        let cleaned = cleaned.trim_matches(|c| c == '-' || c == '.');
-        (!cleaned.is_empty()).then(|| format!("cmux-app-{cleaned}"))
+        self.build().app_session()
     }
 }
 
@@ -223,12 +215,34 @@ mod tests {
     fn control_socket_matches_the_app_table() {
         let home = Path::new("/Users/a");
         let cases = [
-            (Some("com.cmuxterm.app.debug.Feat_X"), None, "/tmp/cmux-debug-feat-x.sock"),
-            (Some("com.cmuxterm.app.debug"), Some("clic"), "/tmp/cmux-debug-clic.sock"),
-            (Some("com.cmuxterm.app.debug"), None, "/tmp/cmux-debug.sock"),
-            (None, Some("nx9"), "/tmp/cmux-debug-nx9.sock"),
-            (Some("com.cmuxterm.app.nightly"), None, "/tmp/cmux-nightly.sock"),
-            (Some("com.cmuxterm.app.rc.try2"), None, "/tmp/cmux-rc-try2.sock"),
+            // Not the reload.sh form, the untagged DEV build and a tagged RC
+            // build: names of their build key (S3).
+            (
+                Some("com.cmuxterm.app.debug.Feat_X"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-debug--ec0e7410.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.debug"),
+                Some("clic"),
+                "/Users/a/.local/state/cmux/cmux-debug-clic.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.debug"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-debug--650e93e3.sock",
+            ),
+            (None, Some("nx9"), "/Users/a/.local/state/cmux/cmux-debug-nx9.sock"),
+            (
+                Some("com.cmuxterm.app.nightly"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-nightly.sock",
+            ),
+            (
+                Some("com.cmuxterm.app.rc.try2"),
+                None,
+                "/Users/a/.local/state/cmux/cmux-rc--36529c0e.sock",
+            ),
             (Some("com.cmuxterm.app"), None, "/Users/a/.local/state/cmux/cmux.sock"),
         ];
         for (bundle, tag, expected) in cases {

@@ -9,6 +9,7 @@ import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider";
+import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
 
 type Props = {
@@ -26,6 +27,14 @@ type Props = {
   runs?: MockRuns;
   /** The owner refuses pins and marks. */
   refuseInbox?: boolean;
+  /** Adds #media: images, a video with its poster and a PDF. */
+  media?: boolean;
+  /** A sheet route (routes.ts) to open. */
+  route?: HomeRoute;
+  /** The host relays the person's click for a Chief's grant and delete (the app). */
+  hostGrants?: boolean;
+  /** Adds a second Chief (one that can be archived). */
+  extraChief?: boolean;
 };
 
 function HomeChannelsGallery({
@@ -36,9 +45,17 @@ function HomeChannelsGallery({
   longThread = false,
   runs = "none",
   refuseInbox = false,
+  media = false,
+  route,
+  hostGrants = false,
+  extraChief = false,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox));
+    const provider = offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media);
+    if (provider) provider.hostGrants = hostGrants;
+    if (provider && extraChief) provider.addChief("Release Chief");
+    const created = new HomeChannelsStore(provider, undefined, hostGrants ? provider : null);
+    if (route) created.sheets.show(route);
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -85,17 +102,24 @@ export default componentEntry<Props>({
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
     "pages/home-channels/Avatar.tsx#ChannelMark",
+    "pages/home-channels/Avatar.tsx#PicturesContext",
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
     "pages/home-channels/ThreadRow.tsx#ThreadRow",
     "pages/home-channels/Palette.tsx#Palette",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
-    "pages/home-channels/AddChannel.tsx#AddChannel",
+    "pages/home-channels/FormDialog.tsx#FormDialog",
+    "pages/home-channels/PeoplePicker.tsx#PeoplePicker",
+    "pages/home-channels/ConversationSheets.tsx#NewMessageSheet",
+    "pages/home-channels/ConversationSheets.tsx#InviteSheet",
+    "pages/home-channels/ChiefSheet.tsx#ChiefSheet",
+    "pages/home-channels/RouteSheets.tsx#RouteSheets",
     "pages/home-channels/MessageRow.tsx#DraftRow",
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
     "pages/home-channels/RunSheet.tsx",
+    "pages/home-channels/AttachmentViews.tsx",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -177,6 +201,51 @@ export default componentEntry<Props>({
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
+    attachments: {
+      note: "A message with three images (a grid), a video with its poster and a PDF row.",
+      props: { select: "c-media", media: true },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+      },
+    },
+    "attachments-lightbox": {
+      note: "A click on an image opens the lightbox; the arrow keys move to the next image.",
+      props: { select: "c-media", media: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the next one, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png",
+        );
+      },
+    },
+    "attachments-composer": {
+      note: "Files pasted into the composer show in its tray with their progress, then are ready to send.",
+      props: { select: "c-media", media: true },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-main-compose button[aria-label="Attach files"]'));
+        await ctx.click({ selector: field });
+        const data = new DataTransfer();
+        data.items.add(new File(["# Notes\n"], "notes.md", { type: "text/markdown" }));
+        data.items.add(new File(["{}"], "result.json", { type: "application/json" }));
+        ctx.document
+          .querySelector(field)
+          ?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
+      },
+    },
     "row-menu": {
       note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
       props: { select: "c-chief" },
@@ -331,21 +400,84 @@ export default componentEntry<Props>({
         );
       },
     },
-    "add-channel": {
-      note: "Add channel in the list header; the popover asks for a name and members.",
+    "new-message": {
+      note: "The list header's compose button opens #/new/message: pick people and Chiefs, name it to make a channel.",
       props: { select: "c-chief" },
-      checks: {
-        longFrameFailMs: {
-          value: 66,
-          reason:
-            "Cold first open of the shared Popover (Floating UI positioning): one ~54 ms frame on the CPU-only VM.",
-        },
-      },
+      checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-list-header .hc-icon-button"));
         await ctx.click({ selector: ".lg-list-header .hc-icon-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
-        await ctx.type("launch", { selector: ".hc-add-channel input" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row"));
+        await ctx.click({ selector: '.lg-form input[aria-label="Builder"]' });
+        await ctx.click({ selector: '.lg-form input[aria-label="Reviewer"]' });
+        await ctx.type("launch", { selector: ".lg-form-field .hc-link-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form-actions .primary:not(:disabled)"));
+      },
+    },
+    "new-message-search": {
+      note: "Typing in the sheet's search narrows the people and Chiefs; the picked ones stay on top.",
+      props: { select: "c-chief", route: { kind: "newMessage" } },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: { value: 0.05, reason: "The search removes rows that do not match; the kept rows move up." },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-search"));
+        await ctx.type("rev", { selector: ".lg-form .lg-picker-search" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-picker-row").length === 1);
+      },
+    },
+    "new-chief": {
+      note: "#/new/chief in a plain browser: a new Chief needs the person's click in the cmux app, so the sheet is read-only and says so.",
+      props: { select: "c-chief", route: { kind: "newChief" } },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-chief-identity input:disabled"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:disabled"));
+      },
+    },
+    "new-chief-grants": {
+      note: "In the app the host relays the person's click: the whole profile, the tools and the harnesses can be set.",
+      props: { select: "c-chief", route: { kind: "newChief" }, hostGrants: true },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
+        await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
+      },
+    },
+    "edit-chief": {
+      note: "#/chief/<agent>/edit from the Chief's header: the profile with its current values.",
+      props: { select: "c-chief" },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Edit Chief" }));
+        await ctx.click({ role: "button", name: "Edit Chief" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector<HTMLInputElement>(".lg-form .lg-chief-identity input")?.value === "Chief",
+        );
+      },
+    },
+    invite: {
+      note: "#/conversation/<id>/invite from the header: add people or Chiefs who are not in it yet.",
+      props: { select: "c-release" },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.find({ role: "button", name: "Add people" }));
+        await ctx.click({ role: "button", name: "Add people" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-picker-row"));
+      },
+    },
+    "archive-chief": {
+      note: "#/chief/<agent>/archive asks once: the Chief stops and its memory is kept for 30 days.",
+      props: {
+        select: "c-chief",
+        route: { kind: "archiveChief", chief: "agent_new1" },
+        hostGrants: true,
+        extraChief: true,
+      },
+      checks: { longFrameFailMs: openFrame },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-form .hc-text-button.danger"));
       },
     },
     draft: {
