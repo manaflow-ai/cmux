@@ -155,14 +155,17 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
-                // A Chief change only to a connection that asked for it in
-                // set-client-info (`chief-events-v1`).
+                // A Chief change only to the person's own connection that
+                // asked for it in set-client-info (`chief-events-v1`): never
+                // to a bound agent, which chief.profile.list may refuse.
                 MuxEvent::Conversation(event)
                     if event.is_chief()
-                        && !event_mux.control_clients.supports_capability(
-                            client,
-                            super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
-                        ) =>
+                        && (event_mux.conversation_principal(client)
+                            != crate::conversation_store::LOCAL_USER
+                            || !event_mux.control_clients.supports_capability(
+                                client,
+                                super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
+                            )) =>
                 {
                     continue;
                 }

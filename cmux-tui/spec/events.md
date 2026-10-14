@@ -595,8 +595,11 @@ a conversation change: it carries no conversation or `rev` and never reaches
 `object{event:"chief-changed", chief:string, change:"created"|"updated"|"deleted"}`,
 published after a committed `chief.profile.create`, `chief.profile.update`,
 `chief.profile.avatar.set` (also through `participant.avatar.set`) or
-`chief.profile.delete` (a replayed request publishes nothing), only to trusted
-local connections that echoed `chief-events-v1` in `set-client-info`. A client
+`chief.profile.delete` (a replayed request, and an edit that leaves the
+Chief's `rev` as it was, publish nothing), only to the person's own trusted
+local connections (acting as `user_local`; never a bound agent or Chief) that
+echoed `chief-events-v1` in `set-client-info`, including the Channels page on
+its page-bound credential. A client
 reads the record with `chief.profile.get` or `chief.profile.list`. Home and
 the Channels page redraw their Chiefs on it instead of polling. Not a
 conversation change: it carries no conversation or `rev` and never reaches

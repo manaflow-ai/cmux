@@ -226,6 +226,14 @@ fn mutate(
         Op::ChiefProfileAvatarSet => Some(avatar_change(operation, fields)?),
         _ => None,
     };
+    // An edit that changes nothing keeps the rev: no chief-changed for it.
+    let rev_before = match operation {
+        Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet => store
+            .get(chief_field(fields))
+            .map_err(|e| internal(operation, &e))?
+            .map(|record| record.rev),
+        _ => None,
+    };
     let picture_before = match operation {
         Op::ChiefProfileAvatarSet => store
             .get(chief_field(fields))
@@ -268,7 +276,7 @@ fn mutate(
             {
                 super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
             }
-            if !replayed {
+            if !replayed && rev_before != Some(record.rev) {
                 let change = match operation {
                     Op::ChiefProfileCreate => "created",
                     Op::ChiefProfileDelete => "deleted",
@@ -278,6 +286,8 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
+            }
+            if !replayed {
                 mux.chiefs().brains.chief_written(
                     &record,
                     operation == Op::ChiefProfileCreate,
