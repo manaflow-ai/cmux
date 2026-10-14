@@ -19,8 +19,14 @@ pub(super) fn spawn_frame_producer(
         .clone();
     std::thread::Builder::new().name(format!("surface-{id}-frames")).spawn(move || {
         let mut last_frame = Instant::now() - RENDER_FRAME_CADENCE;
+        // The first output of a new terminal is its first visible prompt. Do
+        // not hold it behind the steady-state cadence: the renderer has no
+        // prior frame to coalesce with, so waiting here adds one avoidable
+        // frame of prompt latency. Later frames retain the 8 ms pacing.
+        let mut first_frame = true;
         while let Ok(mut requested) = requests.recv() {
-            let deadline = last_frame + RENDER_FRAME_CADENCE;
+            let deadline =
+                if first_frame { Instant::now() } else { last_frame + RENDER_FRAME_CADENCE };
             loop {
                 let now = Instant::now();
                 if now >= deadline {
@@ -48,6 +54,7 @@ pub(super) fn spawn_frame_producer(
             }
             if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
                 last_frame = Instant::now();
+                first_frame = false;
             }
         }
     })?;
