@@ -111,6 +111,26 @@ impl Mux {
         }
     }
 
+    /// A bell (BEL) in `surface`'s terminal marks its tab for attention like a
+    /// notification (cx-on7iu, Lawrence 2026-10-14: a terminal bell must mark the
+    /// sidebar row like a notification). The terminal's reader posts at most one
+    /// per cooldown (`PendingBells`).
+    pub(crate) fn post_bell_notification(&self, surface: SurfaceId) {
+        if self
+            .post_notification_as(
+                &Actor::Daemon,
+                "Bell".to_string(),
+                String::new(),
+                NotificationLevel::Info,
+                Some(surface),
+                NotificationSource::Terminal,
+            )
+            .is_err()
+        {
+            self.report_internal_diagnostic("bell notification not posted");
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn post_resource_notification(
         &self,
