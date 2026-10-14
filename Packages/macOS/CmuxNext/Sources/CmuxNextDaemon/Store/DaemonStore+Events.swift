@@ -30,6 +30,8 @@ extension DaemonStore {
             confirm(transaction)
             ProvisionalTab.echoed(event, transaction: transaction, in: self)
             settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
+        } else {
+            ProvisionalTab.matched(event, in: self)
         }
         return followup
     }

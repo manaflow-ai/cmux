@@ -13,12 +13,19 @@
 //! conversation, as before. The cloud source has its own wake queue and
 //! ignores this setting.
 //!
+//! In those conversations another Chief's message wakes it too (never its
+//! own). The loop guard is the owner's per-thread budget
+//! (`cmux_conversation::MAX_AGENT_TURNS` agent texts per thread since a
+//! person's text there): the owner refuses more, and the Chief pre-checks it
+//! from the messages it read (`thread_agent_streak`) so it stays quiet
+//! instead. A page derives "Chiefs paused" with the same function.
+//!
 //! A Chief that reads every message must be able to stay quiet: a reply that
 //! is exactly [`NO_REPLY`] posts nothing. In a group conversation the reply
 //! goes into the thread of the message it answers, so a Chief never floods
 //! the channel's top level.
 
-use cmux_chief::rules::{AGENT_MUX, GroupWake};
+use cmux_chief::rules::{AGENT_MUX, GroupWake, WakeRule};
 use cmux_conversation::{Message, ParticipantKind, Summary};
 
 /// A reply that is exactly this text (trimmed) posts nothing.
@@ -108,6 +115,18 @@ impl Membership {
         self.participant == AGENT_MUX
     }
 
+    /// The wake rule in the Chief's main conversation (`side` false) or in
+    /// another local conversation (`side` true). Other Chiefs' messages wake
+    /// it only in local side conversations, where the brain reads the
+    /// thread and pre-checks the owner's per-thread budget (`brain/side.rs`).
+    pub fn rule(&self, side: bool) -> WakeRule<'_> {
+        WakeRule {
+            chief: &self.participant,
+            group: self.group_wake,
+            chiefs: side && self.local_side,
+        }
+    }
+
     /// Whether the Chief reads every message of its channels and may stay
     /// quiet there (`NO_REPLY`).
     pub fn acts_on_its_own(&self) -> bool {
@@ -121,11 +140,15 @@ impl Membership {
         self.acts_on_its_own().then(|| {
             format!(
                 "## Channels\n\nYou take part in group conversations (channels) beside your \
-conversation with the user. Every person's message there reaches you, labelled \
-`[in conv <id> \"<title>\"]`, whether or not it names you. Act on your own when a message \
-concerns your role or you can move the work forward: answer, take the task, or start it. \
-Your reply goes into that message's thread. When a message needs nothing from you, reply \
-with exactly `{NO_REPLY}` and nothing else: then nothing is posted."
+conversation with the user. Every message there from a person or another Chief reaches you, \
+labelled `[in conv <id> \"<title>\" from person|Chief \"<name>\"]`, whether or not it names you. Act on \
+your own when a message concerns your role or you can move the work forward: answer, take \
+the task, or start it. Your reply goes into that message's thread. When a message needs \
+nothing from you, reply with exactly `{NO_REPLY}` and nothing else: then nothing is posted. \
+Another Chief's message that only acknowledges or thanks you needs nothing. After \
+{budget} Chief or agent messages in a row in one thread, Chiefs pause there until a person \
+writes there.",
+                budget = cmux_conversation::MAX_AGENT_TURNS
             )
         })
     }
