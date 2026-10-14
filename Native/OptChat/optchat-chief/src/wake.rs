@@ -25,16 +25,18 @@
 //! or a parameter to the host: its text goes to the log and to the turn as
 //! the user's words, exactly as a local message would.
 
-use cmux_chief::rules::wakes;
+use cmux_chief::rules::{WakeRule, wakes_as};
 use cmux_conversation::{Message, Summary};
 
-/// Whether `message` wakes the Chief: the shared rule, remote-origin gate
-/// included (`cmux_chief::rules::wakes`, the same as the TypeScript core's
+/// Whether `message` wakes the Chief under `rule`: the shared rule,
+/// remote-origin gate included (`cmux_chief::rules::wakes_as`; `wakes` is
+/// the same rule for agent_mux with mentions only, as the TypeScript core's
 /// `rules.wakes`; the shared behavior corpus checks all three brains).
 pub fn chief_wakes(
+    rule: &WakeRule<'_>,
     summary: &Summary,
     message: &Message,
     is_mux_message: impl Fn(&str) -> bool,
 ) -> bool {
-    wakes(summary, message, is_mux_message)
+    wakes_as(rule, summary, message, is_mux_message)
 }

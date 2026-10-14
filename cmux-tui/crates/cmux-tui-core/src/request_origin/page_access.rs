@@ -317,6 +317,8 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
+        // Page home-channels opens a clicked web link on the person's gesture.
+        | Op::WorkspaceOpenUrl
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList
@@ -338,6 +340,14 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
+        // A page never reads or edits the person's Chiefs.
+        | Op::ChiefProfileList
+        | Op::ChiefProfileGet
+        | Op::ChiefProfileCreate
+        | Op::ChiefProfileUpdate
+        | Op::ChiefProfileDelete
+        | Op::ChiefProfileAvatarSet
+        | Op::ChiefProfileAvatarGet
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
