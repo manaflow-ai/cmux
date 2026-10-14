@@ -127,6 +127,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
@@ -261,6 +262,7 @@ on:
       - scripts/cmux-next/bundle-ghostty-resources.sh
       - Resources/ghostty/**
       - Resources/terminfo-overlay/**
+      - Resources/cmux-themes/**
       # The bundled CLI shims the app ships.
       - Resources/bin/**
       - ghostty-next
