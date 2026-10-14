@@ -51,7 +51,11 @@ public nonisolated enum HomeEngineStrings {
     }
     /// This Mac's Chief: its owner daemon or brain host is not running.
     static var errorLocalUnreachable: String {
-        String(localized: "home.engine.error.localUnreachable", defaultValue: "This Mac's Chief is not running. Open Home to start it.", table: "Home", bundle: .module)
+        String(localized: "home.engine.error.localUnreachable", defaultValue: "This Mac's Chief is not running.", table: "Home", bundle: .module)
+    }
+    /// This Mac's brain was not running; the panel has just started it.
+    static var errorLocalStarting: String {
+        String(localized: "home.engine.error.localStarting", defaultValue: "This Mac's Chief was not running. It is starting now; try again in a moment.", table: "Home", bundle: .module)
     }
     static var errorForbidden: String {
         String(localized: "home.engine.error.forbidden", defaultValue: "This server does not let this connection change its Chief.", table: "Home", bundle: .module)
