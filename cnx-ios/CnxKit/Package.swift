@@ -36,6 +36,8 @@ let package = Package(
         // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
         .package(path: "../../Packages/iOS/CmuxTabsKit"),
         .package(path: "../../Packages/iOS/CmuxConversation"),
+        // The agents' brand marks (Claude, Codex), shared with the Mac app.
+        .package(path: "../../Packages/Shared/CmuxAgentBrands"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -92,6 +94,7 @@ let package = Package(
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         .target(name: "CnxChief", dependencies: [
             "CnxDesign", "CnxModel", "CnxTransport", "CnxAgentChat",
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),

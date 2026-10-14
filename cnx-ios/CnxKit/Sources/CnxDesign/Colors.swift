@@ -115,6 +115,10 @@ public struct CnxColors: Sendable {
     /// high-contrast system red (#D70015, 5.38:1). Dark #FF453A is 6.2:1 on black.
     public var dangerText = token("#FF453A", "#D70015")
     public var warning = token("#FFD60A", "#FFCC00")
+    /// A mark with no text that must read on its own (Home's "needs you"
+    /// gutter dot): at least 3:1 on the background. #C93400 is 4.9:1 on
+    /// white (system orange is 2.2:1); #FF9F0A is 8.6:1 on black.
+    public var needsYou = token("#FF9F0A", "#C93400")
     public var offline = token("#48484A", "#C7C7CC")
     public var diffAddText = token("#3FB950", "#1A7F37")
     public var diffDelText = token("#F85149", "#CF222E")

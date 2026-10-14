@@ -221,13 +221,16 @@ struct ChiefMockScript {
         let lines: [(me: Bool, minutesAgo: Double, text: String)] = [
             (false, 26 * 60, "Morning. Overnight: Codex finished the pricing page fix on cmux.com (14 tests pass), and the fleet build for feat-cnx-ios is green."),
             (true, 26 * 60 - 2, "nice. anything waiting on me?"),
-            (false, 26 * 60 - 1.5, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
+            (false, 26 * 60 - 3, "One thing: Claude in cmux wants to know which transport to default to on cellular. I left it in your Feed."),
             (true, 95, "Can you start a Claude session on the cnx-ios workspace to build the workspaces tab?"),
             (false, 94, "Started Claude in cnx-ios on cmux mini 2 with your note as the first prompt. I'll tell you when it needs you."),
             (false, 41, "Claude finished the TabsKit integration. It opened 3 files and ran the build: BUILD SUCCEEDED."),
             (true, 40, "🙌 thanks"),
             (false, 3, "Heads up: Claude in cmux is asking to run `cargo test -p cnx-link`. Want me to allow it?"),
         ]
+        // Each reply is later than the message it answers (the send-time
+        // drawer shows every time).
+        assert(zip(lines, lines.dropFirst()).allSatisfy { $0.minutesAgo > $1.minutesAgo })
         var messages: [ConversationMessage] = []
         for (index, line) in lines.enumerated() {
             let seq = index + 1

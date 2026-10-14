@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentBrands
 import CnxAgentChat
 import CnxDesign
 import CnxModel
@@ -11,6 +12,9 @@ private let theme = CnxTheme.standard
 struct AgentConversation: Identifiable, Hashable {
     let workspaceID: String
     let tabID: String
+    /// The row's title: the workspace ("cmux"); a workspace's second and
+    /// later agent tabs add the agent ("cmux · Codex").
+    let title: String
     let name: String
     let workspaceTitle: String
     let harness: String
@@ -18,7 +22,6 @@ struct AgentConversation: Identifiable, Hashable {
     let date: Date
     let needsYou: Bool
     var id: String { tabID }
-    var initials: String { harness == "codex" ? "CX" : String(name.prefix(2)).uppercased() }
 }
 
 /// Home (SPEC 3.1, 6): a Messages-style conversation list. Chief is pinned
@@ -80,14 +83,23 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         let chat = AgentSessionDirectory.shared.existingStore(id: tab.id)
         let lastTurn = chat?.turns.last
         let answer: String? = lastTurn.map { $0.answerMarkdown.isEmpty ? $0.prompt : $0.answerMarkdown }
-        let firstAgent = workspace.tabs.first { $0.kind == .agent }?.id
+        let agentTabs = workspace.tabs.filter { $0.kind == .agent }
         return AgentConversation(
-            workspaceID: workspace.id, tabID: tab.id, name: tab.title, workspaceTitle: workspace.title,
+            workspaceID: workspace.id, tabID: tab.id,
+            title: Self.title(of: tab, in: workspace.title, agentIDs: agentTabs.map(\.id)),
+            name: tab.title, workspaceTitle: workspace.title,
             harness: tab.harness ?? "claude",
             preview: Self.plain(answer ?? tab.subtitle ?? ""),
             date: lastTurn?.promptAt ?? workspace.lastActivityAt,
-            needsYou: workspace.needsAttention && tab.id == firstAgent
+            needsYou: workspace.needsAttention && tab.id == agentTabs.first?.id
         )
+    }
+
+    /// A row's title (SPEC 1.2): the workspace, and for its second and later
+    /// agent tabs the agent too, so rows read by topic, not by "Claude".
+    static func title(of tab: WorkspaceTab, in workspace: String, agentIDs: [String]) -> String {
+        guard let index = agentIDs.firstIndex(of: tab.id), index > 0 else { return workspace }
+        return "\(workspace) · \(tab.title)"
     }
 
     private func matches(_ conversation: AgentConversation) -> Bool {
@@ -102,8 +114,16 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return haystack.localizedCaseInsensitiveContains(query)
     }
 
+    /// Chief's pin follows the filter too (SPEC 1.6): Unread while it has
+    /// unread messages, Needs You while it waits on the user.
     private var showsChief: Bool {
-        query.isEmpty || "chief \(session.preview)".localizedCaseInsensitiveContains(query)
+        let passesFilter: Bool = switch filter {
+        case .all: true
+        case .unread: session.unreadCount > 0
+        case .needsYou: session.needsYou
+        }
+        guard passesFilter else { return false }
+        return query.isEmpty || "chief \(session.preview)".localizedCaseInsensitiveContains(query)
     }
 
     /// Markdown to one plain line, as a list preview.
@@ -128,23 +148,34 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(theme.colors.bg.color)
             }
-            ForEach(agents) { conversation in
+            let rows = agents
+            if filter != .all, rows.isEmpty, !showsChief {
+                Text("No Conversations")
+                    .font(.callout)
+                    .foregroundStyle(theme.colors.label2.color)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 120)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(theme.colors.bg.color)
+            }
+            ForEach(rows) { conversation in
                 NavigationLink(value: AgentChatDestination(workspaceID: conversation.workspaceID, tabID: conversation.tabID)) {
                     MessagesRow(
-                        title: "\(conversation.name) · \(conversation.workspaceTitle)",
+                        title: conversation.title,
                         preview: conversation.preview,
                         stamp: stamp.string(for: conversation.date),
                         isUnread: unread.contains(conversation.id),
                         isMuted: muted.contains(conversation.id),
                         needsYou: conversation.needsYou
-                    ) {
-                        Monogram(text: conversation.initials, size: 45)
+                    ) { size in
+                        AgentAvatar(harness: conversation.harness, size: size)
                     }
                 }
                 .navigationLinkIndicatorVisibility(.hidden)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                 .listRowBackground(theme.colors.bg.color)
-                .alignmentGuide(.listRowSeparatorLeading) { _ in 83 }
                 // Trailing only: a rightward pan on a tab root opens the team
                 // drawer (SPEC swipe rules). Messages' set, outermost first.
                 .swipeActions(edge: .trailing) {
@@ -195,15 +226,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     Image(systemName: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
-                // Messages' compose: New Message, addressed to Chief or an agent.
-                Button("New Message", systemImage: "square.and.pencil") {
-                    composer.present()
+                // Compose opens the Chief conversation with the keyboard up
+                // (SPEC 1.4): the phone cannot create conversations, so
+                // every other recipient is already a row here, and Chief
+                // routes work to agents itself.
+                Button("New Message to Chief", systemImage: "square.and.pencil") {
+                    open(.chiefComposing)
                 }
                 .accessibilityIdentifier("home.compose")
             }
         }
-        .navigationDestination(for: ChiefRoute.self) { _ in
-            ChiefConversationScreen(session: session, compose: composer)
+        .navigationDestination(for: ChiefRoute.self) { route in
+            ChiefConversationScreen(session: session, compose: composer, focusesComposer: route.focusesComposer)
         }
         .animation(theme.motion.smooth.animation, value: filter)
         .animation(theme.motion.smooth.animation, value: deleted)
@@ -222,13 +256,19 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 struct HomeSearchField: View {
     @Binding var query: String
     @FocusState private var focused: Bool
+    /// Body's line height, scaled with the text size (22 pt at Large).
+    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
+
+    /// 36 pt, or taller when the text needs it (SPEC 1.3).
+    private var height: CGFloat { max(36, lineHeight + 14) }
 
     var body: some View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(.body.weight(.medium))
                     .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityHidden(true)
                 TextField("Search", text: $query)
                     .focused($focused)
                     .submitLabel(.search)
@@ -242,7 +282,7 @@ struct HomeSearchField: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 36)
+            .frame(height: height)
             .background(theme.colors.surfaceRaised.color, in: .capsule)
             if focused {
                 Button("Cancel") {
@@ -269,8 +309,8 @@ struct PinnedGrid: View {
         NavigationLink(value: ChiefRoute()) {
             pin
                 .frame(maxWidth: .infinity)
-                .padding(.top, 26)
-                .padding(.bottom, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
                 .contentShape(.rect)
         }
         .navigationLinkIndicatorVisibility(.hidden)
@@ -283,23 +323,39 @@ struct PinnedGrid: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(session.isTyping ? "Chief, typing" : "Chief, pinned")
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("home.chief")
         .animation(theme.motion.snappy.animation, value: session.isTyping)
-        .animation(theme.motion.snappy.animation, value: session.unreadCount)
+        .animation(theme.motion.snappy.animation, value: showsPreview)
+    }
+
+    /// The preview bubble: something unread, or Chief waiting on the user
+    /// (an unsent message, or a question not yet opened), which stays up
+    /// after the unread count clears until the chat is opened (SPEC 1.5).
+    private var showsPreview: Bool {
+        session.unreadCount > 0 || session.isWaitingOnYou
+    }
+
+    private var accessibilityLabel: Text {
+        if session.isTyping { return Text("Chief, typing") }
+        if showsPreview { return Text("Chief, \(session.preview)") }
+        return Text("Chief, pinned")
     }
 
     private var pin: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topLeading) {
-                ChiefAvatar(size: 88)
+                ChiefAvatar(text: session.avatar, size: 88)
                 if session.isTyping {
                     TypingBubble()
                         .offset(x: -14, y: -18)
                         .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                } else if session.unreadCount > 0 {
+                } else if showsPreview {
                     Text(session.preview)
                         .font(.caption2)
+                        // A glance, not the message: it stays a small bubble
+                        // over the avatar at accessibility sizes too.
+                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                         .lineLimit(2)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
@@ -313,7 +369,11 @@ struct PinnedGrid: View {
                 if session.unreadCount > 0 {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
                 }
-                Text("Chief").font(.footnote).foregroundStyle(theme.colors.label.color)
+                Text("Chief")
+                    .font(.footnote)
+                    .foregroundStyle(theme.colors.label.color)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
                 if session.isMuted {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption2)
@@ -322,11 +382,14 @@ struct PinnedGrid: View {
                 }
             }
         }
-        .frame(width: 110)
+        .frame(minWidth: 110)
     }
 }
 
-/// A Messages conversation row.
+/// A Messages conversation row: the unread (or needs-you) gutter, the
+/// avatar, the title with the date and chevron, and a two-line preview. At
+/// accessibility text sizes it stacks as Messages does (SPEC 1.7): the
+/// title on its own lines, then the date and chevron, then the preview.
 struct MessagesRow<Avatar: View>: View {
     let title: String
     let preview: String
@@ -334,44 +397,93 @@ struct MessagesRow<Avatar: View>: View {
     let isUnread: Bool
     let isMuted: Bool
     let needsYou: Bool
-    @ViewBuilder let avatar: Avatar
+    @ViewBuilder let avatar: (CGFloat) -> Avatar
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .body) private var scaledAvatar: CGFloat = 45
+
+    /// 45 pt at Large, scaled with the text, at most 64 pt.
+    private var avatarSize: CGFloat { min(max(scaledAvatar, 45), 64) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
-            // Messages keeps a gutter for the unread dot (or the muted bell).
-            ZStack {
-                if isUnread {
-                    Circle().fill(theme.colors.label.color).frame(width: 10, height: 10)
-                } else if isMuted {
-                    Image(systemName: "bell.slash.fill").font(.system(size: 10)).foregroundStyle(theme.colors.label2.color)
-                }
-            }
-            .frame(width: 26, height: 45)
-            avatar
+            gutter
+                .frame(width: 26, height: avatarSize)
+            avatar(avatarSize)
                 .padding(.trailing, 12)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(title).font(.body.weight(.semibold)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text(stamp).font(.subheadline).foregroundStyle(theme.colors.label2.color)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(theme.colors.label3.color)
-                }
-                HStack(alignment: .top, spacing: 6) {
-                    Text(preview.isEmpty ? " " : preview)
-                        .font(.subheadline)
-                        .foregroundStyle(theme.colors.label2.color)
-                        .lineLimit(2, reservesSpace: true)
-                    if needsYou {
-                        Circle().fill(theme.colors.warning.color).frame(width: 7, height: 7).padding(.top, 6)
-                            .accessibilityLabel("Needs you")
-                    }
-                }
+            Group {
+                if typeSize.isAccessibilitySize { stacked } else { standard }
             }
+            // The separator starts under the text, as in Messages.
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
         }
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         .contentShape(.rect)
+    }
+
+    /// Messages keeps a gutter for the unread dot. Unread wins; then the
+    /// needs-you dot; then the muted bell.
+    @ViewBuilder private var gutter: some View {
+        if isUnread {
+            Circle().fill(theme.colors.label.color).frame(width: 10, height: 10)
+                .accessibilityLabel("Unread")
+        } else if needsYou {
+            Circle().fill(theme.colors.needsYou.color).frame(width: 10, height: 10)
+                .accessibilityLabel("Needs you")
+        } else if isMuted {
+            Image(systemName: "bell.slash.fill").font(.system(size: 10)).foregroundStyle(theme.colors.label2.color)
+                .accessibilityLabel("Alerts hidden")
+        } else {
+            Color.clear
+        }
+    }
+
+    private var titleText: some View {
+        Text(title).font(.body.weight(.semibold))
+    }
+
+    private var dateAndChevron: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(stamp)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.label2.color)
+                .lineLimit(1)
+                .fixedSize()
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(theme.colors.label3.color)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func previewText(lines: Int) -> some View {
+        Text(preview.isEmpty ? " " : preview)
+            .font(.subheadline)
+            .foregroundStyle(theme.colors.label2.color)
+            .lineLimit(lines, reservesSpace: true)
+    }
+
+    private var standard: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                titleText.lineLimit(1)
+                Spacer(minLength: 4)
+                dateAndChevron
+            }
+            previewText(lines: 2)
+        }
+    }
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            titleText
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            dateAndChevron
+            Text(preview.isEmpty ? " " : preview)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.label2.color)
+                .lineLimit(3)
+        }
     }
 }
 
@@ -399,15 +511,29 @@ struct Monogram: View {
     }
 }
 
-/// Chief's avatar: the monogram circle with Chief's glyph.
+/// Chief's avatar: its avatar text (the Mac's, else "C") white on the
+/// monogram gradient, the one drawing of Chief everywhere (SPEC 2).
 struct ChiefAvatar: View {
+    let text: String
+    let size: CGFloat
+
+    var body: some View {
+        Monogram(text: text, size: size)
+    }
+}
+
+/// An agent conversation's avatar: the harness's mark (Claude, Codex)
+/// white on the monogram gradient, 20 pt at the row's 45 pt.
+struct AgentAvatar: View {
+    let harness: String
     let size: CGFloat
 
     var body: some View {
         Circle()
             .fill(monogramGradient)
             .overlay {
-                Image(systemName: "sparkles").font(.system(size: size * 0.4, weight: .medium)).foregroundStyle(.white)
+                AgentBrandMark(agent: harness, size: size * 20 / 45)
+                    .foregroundStyle(.white)
             }
             .frame(width: size, height: size)
             .accessibilityHidden(true)

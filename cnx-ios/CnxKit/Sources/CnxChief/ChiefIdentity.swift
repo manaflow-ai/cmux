@@ -8,11 +8,20 @@ public struct ChiefIdentity: Sendable, Hashable {
     public var meID: String
     public var chiefID: String
     public var title: String
+    /// Chief's avatar text: an emoji or one or two letters, white on the
+    /// monogram gradient everywhere Chief is drawn (Home's pin, the chat
+    /// header, the details page). The Mac's Chief Settings set it
+    /// (`optchat/profile.json`); "C" until the Mac sends one.
+    public var avatar: String
 
-    public init(meID: String = "user_local", chiefID: String = "agent_mux", title: String = "Chief") {
+    public static let defaultAvatar = "C"
+
+    public init(meID: String = "user_local", chiefID: String = "agent_mux", title: String = "Chief",
+                avatar: String = ChiefIdentity.defaultAvatar) {
         self.meID = meID
         self.chiefID = chiefID
         self.title = title
+        self.avatar = avatar
     }
 
     public static let standard = ChiefIdentity()
@@ -22,7 +31,7 @@ public struct ChiefIdentity: Sendable, Hashable {
     }
 
     public var chief: ConversationParticipant {
-        ConversationParticipant(id: chiefID, name: title, initials: "C", colorHex: "#636366", isMe: false)
+        ConversationParticipant(id: chiefID, name: title, initials: avatar, colorHex: "#636366", isMe: false)
     }
 
     public func info(id: String) -> ConversationInfo {

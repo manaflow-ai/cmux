@@ -40,9 +40,10 @@ struct HomeScreen: View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.homePath) {
             ConversationsHome(store: shell.store, open: { route in
-                switch route {
-                case .chief: shell.homePath.append(ChiefRoute())
-                case let .agent(destination): shell.homePath.append(destination)
+                if let chief = route.chiefRoute {
+                    shell.homePath.append(chief)
+                } else if case let .agent(destination) = route {
+                    shell.homePath.append(destination)
                 }
             }) {
                 SidebarToolbarItem(sidebar: shell.sidebar)
