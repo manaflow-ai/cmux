@@ -14,7 +14,7 @@ import { HomeChannelsStore } from "./store";
 type Props = {
   /** The conversation the page opens with; default: the page's own first choice. */
   select?: string;
-  /** A thread root message to open in the thread panel. */
+  /** A thread root message to open in the thread sheet. */
   thread?: string;
   /** No host: the page shows its offline state. */
   offline?: boolean;
@@ -46,14 +46,14 @@ function HomeChannelsGallery({ select, thread, offline = false, draft, longThrea
   );
 }
 
-// The first Cmd-K mounts ui/Dialog (focus trap, the page behind made inert) and ui/Combobox; on
+// The first Cmd-K mounts ui/Dialog (focus trap, the page behind made inert) and the palette; on
 // the CPU-only VM the first case of a run has one ~50-58 ms frame, warm repeats stay under 33 ms.
 const openFrame = {
   value: 66,
   reason:
-    "Cold first open of the shared Dialog + Combobox: one ~55 ms frame on the CPU-only VM, warm runs pass at 33 ms.",
+    "Cold first open of the shared Dialog and the palette: one ~55 ms frame on the CPU-only VM, warm runs pass at 33 ms.",
 };
-const switcherField = ".hc-switcher input";
+const switcherField = ".lg-palette input";
 // Open, with the keyboard focus in its field (ui/Dialog moves focus to the first field).
 const switcherOpen = (ctx: { document: Document }) => {
   const field = ctx.document.querySelector(switcherField);
@@ -68,13 +68,14 @@ export default componentEntry<Props>({
   covers: [
     "page:cmux.home-channels",
     "pages/home-channels/HomeChannelsPage.tsx#HomeChannelsPage",
-    "pages/home-channels/Rail.tsx#Rail",
+    "pages/home-channels/ConversationList.tsx#ConversationList",
     "pages/home-channels/Timeline.tsx#Timeline",
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
     "pages/home-channels/Composer.tsx#Composer",
-    "pages/home-channels/ThreadPanel.tsx#ThreadPanel",
-    "pages/home-channels/Switcher.tsx#Switcher",
+    "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
+    "pages/home-channels/ThreadRow.tsx#ThreadRow",
+    "pages/home-channels/Palette.tsx#Palette",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
     "pages/home-channels/AddChannel.tsx#AddChannel",
@@ -87,24 +88,25 @@ export default componentEntry<Props>({
     await import("../../ui/ui.css");
     await import("../../agent-session/acpmux/conversation/conversation.css");
     await import("./styles.css");
+    await import("./ledger.css");
   },
   variants: {
-    normal: { note: "The rail and the page's first conversation.", props: {} },
+    normal: { note: "The conversation list and the page's first conversation.", props: {} },
     channel: {
       note: "The #release channel: day separator, grouped rows, a reply, a thread summary, code.",
       props: { select: "c-release" },
     },
     thread: {
-      note: "The thread panel open on the sidebar-fix message.",
+      note: "The thread sheet open on the sidebar-fix message.",
       props: { select: "c-release", thread: "c-release-m2" },
     },
     "thread-long": {
-      note: "A thread past one page: the panel counts every reply that is not retracted (the owner's stats), then loads the rest.",
+      note: "A thread past one page: the sheet counts every reply that is not retracted (the owner's stats), then loads the rest.",
       props: { select: "c-incident", thread: "c-incident-m1", longThread: true },
       play: async (ctx) => {
         const panelText = (selector: string) =>
-          [...ctx.document.querySelectorAll(`.hc-thread ${selector}`)].map((node) => node.textContent?.trim() ?? "");
-        const scroller = { selector: ".hc-thread .hc-timeline" };
+          [...ctx.document.querySelectorAll(`.lg-sheet ${selector}`)].map((node) => node.textContent?.trim() ?? "");
+        const scroller = { selector: ".lg-sheet .hc-timeline" };
         // The first page: 100 of the 130 replies, and the control for the rest.
         await ctx.waitFor(
           () => panelText(".hc-md").includes("Update 100.") && ctx.document.querySelector(".hc-thread-more"),
@@ -119,17 +121,17 @@ export default componentEntry<Props>({
       },
     },
     switcher: {
-      note: "Cmd-K opens the switcher; the best match is highlighted.",
+      note: "Cmd-K opens the palette; the best match is highlighted.",
       props: { select: "c-release" },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
       },
     },
     "switcher-filtered": {
-      note: "The switcher ranks conversations with the palette ranker as you type.",
+      note: "The palette ranks conversations, threads and actions with the palette ranker as you type.",
       props: { select: "c-release" },
       checks: {
         longFrameFailMs: openFrame,
@@ -140,7 +142,7 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("rev", { selector: switcherField });
@@ -152,11 +154,11 @@ export default componentEntry<Props>({
       props: { select: "c-release" },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("zzzz", { selector: switcherField });
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-switcher-none"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-palette-none"));
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
@@ -164,43 +166,44 @@ export default componentEntry<Props>({
       note: "Hovering a message shows its card: quick reactions, Add reaction, Reply in thread, More.",
       props: { select: "c-release" },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg .hc-thread-link"));
-        await ctx.hover({ selector: ".hc-msg:has(.hc-thread-link)" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-msg.head"));
+        await ctx.hover({ selector: ".lg-main .hc-msg.head" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-msg:hover .hc-msg-actions"));
       },
     },
     "thread-reply": {
-      note: "A reply sent from the thread panel lands in the thread and the summary counts it.",
+      note: "A reply sent from the thread sheet lands in the thread and the thread row counts it.",
       props: { select: "c-release", thread: "c-release-m2" },
       checks: {
         layoutShiftMax: {
           value: 0.001,
-          reason: "The new reply rewrites the summary's count and last-reply time in place (a few pixels of text).",
+          reason: "The new reply rewrites the thread row's count and last-reply time in place (a few pixels of text).",
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-thread .hc-composer [contenteditable]"));
-        await ctx.type("Shipping it.", { selector: ".hc-thread .hc-composer [contenteditable]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-sheet .hc-composer [contenteditable]"));
+        await ctx.type("Shipping it.", { selector: ".lg-sheet .hc-composer [contenteditable]" });
         await ctx.press("Enter");
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll(".hc-thread .hc-md")].some(
+          [...ctx.document.querySelectorAll(".lg-sheet .hc-md")].some(
             (node) => node.textContent?.trim() === "Shipping it.",
           ),
         );
         // The summary had 3 replies (one inline reply, two thread replies); the new one makes 4.
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-main .hc-thread-count")?.textContent?.includes("4"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-main .lg-thread-count")?.textContent?.includes("4"));
       },
     },
     composer: {
-      note: "Formatting: Bold applies a Markdown mark to the typed text; the toolbar shows it pressed.",
+      note: "Formatting (shown on demand): Bold applies a Markdown mark to the typed text; the toolbar shows it pressed.",
       props: { select: "c-chief" },
       play: async (ctx) => {
-        const field = { selector: ".hc-main .hc-composer [contenteditable]" };
+        const field = { selector: ".lg-main .hc-composer [contenteditable]" };
         await ctx.waitFor(() => ctx.document.querySelector(field.selector));
         await ctx.click(field);
+        await ctx.click({ role: "button", name: "Show formatting" });
         await ctx.click({ role: "button", name: "Bold" });
         await ctx.type("Ship the fix today", field);
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-main .hc-composer strong"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-main .hc-composer strong"));
       },
     },
     emoji: {
@@ -213,7 +216,7 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-main [data-bar="emoji"]'));
         await ctx.click({ role: "button", name: "Emoji" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
       },
@@ -232,7 +235,7 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('.hc-main [data-bar="emoji"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-main [data-bar="emoji"]'));
         await ctx.click({ role: "button", name: "Emoji" });
         await ctx.type("rocket", { selector: ".hc-emoji-search" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-emoji-cell"));
@@ -241,12 +244,12 @@ export default componentEntry<Props>({
         await ctx.waitFor(
           () =>
             !ctx.document.querySelector(".hc-emoji") &&
-            (ctx.document.querySelector(".hc-main .hc-composer [contenteditable]")?.textContent ?? "").includes(first),
+            (ctx.document.querySelector(".lg-main .hc-composer [contenteditable]")?.textContent ?? "").includes(first),
         );
       },
     },
     "add-channel": {
-      note: "Channels always shows, with Add channel; the popover asks for a name and members.",
+      note: "Add channel in the list header; the popover asks for a name and members.",
       props: { select: "c-chief" },
       checks: {
         longFrameFailMs: {
@@ -256,8 +259,8 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail-add"));
-        await ctx.click({ selector: ".hc-rail-add" });
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list-header .hc-icon-button"));
+        await ctx.click({ selector: ".lg-list-header .hc-icon-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
         await ctx.type("launch", { selector: ".hc-add-channel input" });
       },

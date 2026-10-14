@@ -1,12 +1,16 @@
 // The message timeline: a virtual window of rows (useTimelineWindow renders only the rows near the
-// viewport, measured after render because messages differ in height), day lines with a centered
-// date pill, message rows and the running reply. Scrolling near the top asks the store for one
-// older page.
+// viewport, measured after render because messages differ in height), day lines (a label on the
+// start edge and a hairline), message rows, thread rows (one titled row per thread, ThreadRow)
+// and the running reply. Scrolling near the top asks the store for one older page. The keyboard's
+// current message (j/k) is kept in view (useKeepInView).
 import { useMemo } from "react";
 import type { Strings } from "../shared/i18n";
 import { DraftRow, MessageRow } from "./MessageRow";
-import type { TimelineRow } from "./model";
+import { PENDING_PREFIX, type TimelineRow } from "./model";
+import type { ThreadObject } from "./threads";
+import { ThreadRow } from "./ThreadRow";
 import type { HomeMessage, HomeParticipant } from "./types";
+import { useKeepInView } from "./useKeepInView";
 import { useTimelineWindow } from "./useTimelineWindow";
 
 export interface TimelineProps {
@@ -32,10 +36,21 @@ export interface TimelineProps {
   className?: string;
   /** What the empty timeline says. */
   empty?: string;
+  /** The thread object of a root: given, thread roots show as one titled row (ThreadRow). */
+  threadFor?(root: HomeMessage): ThreadObject;
+  /** The thread the sheet shows. */
+  openThread?: string;
+  /** The keyboard's current message. */
+  focused?: string;
+  /** A pending message's state (my send the owner has not shown yet). */
+  pendingState?(key: string): "sending" | "failed" | undefined;
+  onRetry?(key: string): void;
+  onDiscard?(key: string): void;
+  stamp?(at: number): string;
 }
 
 const estimate = (row: TimelineRow) =>
-  row.kind === "day" || row.kind === "replies" ? 44 : row.kind === "new" ? 24 : row.head ? 64 : 28;
+  row.kind === "day" || row.kind === "replies" ? 36 : row.kind === "new" ? 24 : row.head ? 48 : 24;
 
 export function Timeline({
   conversation,
@@ -57,6 +72,13 @@ export function Timeline({
   highlight,
   className,
   empty,
+  threadFor,
+  openThread,
+  focused,
+  pendingState,
+  onRetry,
+  onDiscard,
+  stamp,
 }: TimelineProps) {
   const timeFormat = useMemo(
     () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
@@ -69,6 +91,7 @@ export function Timeline({
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
   // Destructured: `scroller` alone is the ref; the rest are plain render values.
   const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight);
+  useKeepInView(scroller, focused);
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (
@@ -95,8 +118,8 @@ export function Timeline({
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 {row.kind === "day" ? (
-                  <div className="hc-day">
-                    <span className="hc-day-pill">{dayLabel(row.at, strings, dayFormat)}</span>
+                  <div className="lg-day">
+                    <span>{dayLabel(row.at, strings, dayFormat)}</span>
                   </div>
                 ) : row.kind === "new" ? (
                   <div className="hc-new-line">
@@ -112,6 +135,18 @@ export function Timeline({
                   </div>
                 ) : row.kind === "draft" ? (
                   <DraftRow draft={row.draft} head={row.head} people={people} strings={strings} />
+                ) : row.thread && threadFor && onOpenThread && stamp ? (
+                  <ThreadRow
+                    thread={threadFor(row.message)}
+                    summary={row.thread}
+                    people={people}
+                    strings={strings}
+                    stamp={stamp}
+                    open={openThread === row.message.id}
+                    focused={focused === row.message.id}
+                    highlighted={highlight === row.message.id}
+                    onOpen={() => onOpenThread(row.message.id)}
+                  />
                 ) : (
                   <MessageRow
                     message={row.message}
@@ -133,6 +168,8 @@ export function Timeline({
                     depth={row.depth}
                     parent={row.parent}
                     highlighted={row.message.id === highlight}
+                    focused={row.message.id === focused}
+                    {...pendingProps(row.message, pendingState, onRetry, onDiscard)}
                   />
                 )}
               </div>
@@ -153,4 +190,19 @@ function dayLabel(at: number, strings: Strings, format: Intl.DateTimeFormat): st
   if (same(day, today)) return strings.t("day.today");
   if (same(day, yesterday)) return strings.t("day.yesterday");
   return format.format(day);
+}
+
+function pendingProps(
+  message: HomeMessage,
+  state: TimelineProps["pendingState"],
+  onRetry: TimelineProps["onRetry"],
+  onDiscard: TimelineProps["onDiscard"],
+) {
+  if (!message.id.startsWith(PENDING_PREFIX) || !state) return {};
+  const key = message.id.slice(PENDING_PREFIX.length);
+  return {
+    pending: state(key) ?? "sending",
+    onRetry: () => onRetry?.(key),
+    onDiscard: () => onDiscard?.(key),
+  };
 }

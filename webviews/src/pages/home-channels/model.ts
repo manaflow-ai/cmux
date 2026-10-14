@@ -358,3 +358,65 @@ export function disambiguators(
   }
   return out;
 }
+
+/** The id prefix of a message I sent that the owner has not shown yet. */
+export const PENDING_PREFIX = "pending:";
+
+/** My pending sends of one conversation as messages after the window (seq after `afterSeq`), so
+ * the timeline and the thread tree place them like owner messages. */
+export function pendingMessages(
+  pending: readonly { key: string; conversation: string; text: string; threadRoot?: string; replyTo?: string; createdAt: number }[],
+  conversation: string | undefined,
+  me: string | undefined,
+  afterSeq: number,
+): HomeMessage[] {
+  if (!conversation || !me) return [];
+  return pending
+    .filter((entry) => entry.conversation === conversation)
+    .map((entry, index) => {
+      const message: HomeMessage = {
+        id: `${PENDING_PREFIX}${entry.key}`,
+        conversation,
+        seq: afterSeq + 1 + index,
+        author: me,
+        createdAt: entry.createdAt,
+        retracted: false,
+        parts: [{ type: "text", text: entry.text, mentions: [] }],
+        reactions: [],
+        clientMessageId: entry.key,
+      };
+      if (entry.threadRoot) message.threadRoot = entry.threadRoot;
+      if (entry.replyTo) message.replyTo = { message: entry.replyTo, partIndex: 0 };
+      return message;
+    });
+}
+
+/** Every conversation, newest activity first (the one chronological list: rooms and people). */
+export function chronological(conversations: Iterable<HomeConversation>): HomeConversation[] {
+  return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
+}
+
+/** A conversation's last activity: its last message, else its last change (a new, empty room). */
+export function activityAt(conversation: HomeConversation): number {
+  return conversation.lastAt ?? conversation.updatedAt;
+}
+
+/** A Chief's live state as its row and header show it. */
+export type ChiefState = "working" | "waiting" | "idle";
+
+/** The state of the Chief a direct message is with (undefined: not a Chief's direct message).
+ * Working: it types or writes a reply now, or its last message carries running work. Waiting:
+ * its last message carries work that waits for me. Else idle. */
+export function chiefState(
+  conversation: HomeConversation,
+  me: string | undefined,
+  active: ReadonlySet<string> | undefined,
+): ChiefState | undefined {
+  const others = conversation.participants.filter((p) => p.id !== me);
+  const chief = others.length === 1 && others[0]!.chief ? others[0]! : undefined;
+  if (!chief) return undefined;
+  if (active?.has(chief.id)) return "working";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "waiting") return "waiting";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "running") return "working";
+  return "idle";
+}

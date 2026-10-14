@@ -35,15 +35,6 @@ body,
   overflow: hidden;
 }
 
-.hc-page {
-  display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
-  height: 100%;
-}
-.hc-page.with-thread {
-  grid-template-columns: 248px minmax(0, 1fr) minmax(320px, 400px);
-}
-
 .hc-icon {
   display: block;
   flex: none;
@@ -92,147 +83,6 @@ body,
   /* Danger is fitted against the app theme's window, so that is its ink. */
   color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
 }
-
-/* ---------- Rail ---------- */
-/* The rail paints no fill, as the native sidebar (Palette.sidebarBackground: "the same as the
-   window"): html's one background shows through it, the theme color in an opaque window and the
-   window material and art in a see-through one, where the window tint keeps text legible. */
-.hc-rail {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-inline-end: 1px solid var(--page-separator);
-}
-.hc-rail-header {
-  height: 52px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-}
-.hc-rail-title {
-  font-weight: 700;
-  font-size: var(--text-heading);
-  letter-spacing: -0.01em;
-}
-.hc-jump {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 0 10px 10px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  background: var(--hc-fill);
-  color: var(--page-text-3);
-  font: inherit;
-  cursor: default;
-}
-.hc-jump:hover {
-  background: var(--page-hover);
-  color: var(--page-text-2);
-}
-.hc-jump kbd {
-  font: inherit;
-  font-size: var(--text-caption);
-}
-.hc-rail-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding-bottom: 12px;
-}
-.hc-rail-empty {
-  padding: 8px 16px;
-  color: var(--page-text-3);
-}
-.hc-rail-section {
-  margin-top: 10px;
-}
-.hc-rail-section h2 {
-  margin: 0 0 2px;
-  padding: 0 8px;
-  font-size: inherit;
-  font-weight: inherit;
-}
-.hc-rail-fold {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  width: 100%;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--page-text-2);
-  font: inherit;
-  font-size: var(--text-detail);
-  font-weight: 600;
-  text-align: start;
-  cursor: default;
-}
-.hc-rail-fold:hover {
-  background: var(--page-hover);
-}
-.hc-rail-caret {
-  display: inline-grid;
-  place-items: center;
-  transform: rotate(90deg);
-  transition: transform 120ms ease-out;
-}
-.hc-rail-section.folded .hc-rail-caret {
-  transform: rotate(0deg);
-}
-:dir(rtl) .hc-rail-section.folded .hc-rail-caret {
-  transform: rotate(180deg);
-}
-.hc-rail-section ul {
-  list-style: none;
-  margin: 0;
-  padding: 0 8px;
-}
-.hc-rail-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--page-text-2);
-  font: inherit;
-  text-align: start;
-  cursor: default;
-}
-.hc-rail-row:hover {
-  background: var(--page-hover);
-}
-.hc-rail-row.active {
-  background: var(--page-selection);
-  color: var(--page-text);
-}
-.hc-rail-row.unread {
-  color: var(--page-text);
-  font-weight: 700;
-}
-.hc-rail-row.muted {
-  opacity: 0.55;
-}
-.hc-rail-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hc-hash {
-  width: 16px;
-  text-align: center;
-  color: var(--page-text-3);
-  font-weight: 400;
-}
 .hc-tag {
   padding: 0 5px;
   border-radius: 4px;
@@ -241,41 +91,6 @@ body,
   line-height: 16px;
   color: var(--page-text-2);
   background: var(--hc-fill-strong);
-}
-.hc-badge {
-  min-width: 18px;
-  padding: 0 6px;
-  border-radius: 9px;
-  font-size: var(--text-caption);
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-  color: var(--hc-on-accent);
-  background: var(--hc-accent);
-}
-.hc-badge.subtle {
-  color: var(--page-text-2);
-  background: var(--page-hover);
-}
-
-.hc-rail-extra {
-  color: var(--page-text-3);
-  font-weight: 400;
-  font-size: var(--text-caption);
-}
-.hc-rail-add {
-  color: var(--page-text-3);
-}
-.hc-rail-add-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: var(--hc-fill-strong);
-  color: var(--page-text-2);
-  font-weight: 600;
-  line-height: 1;
 }
 .hc-add-channel.ui-popover {
   width: 300px;
@@ -338,57 +153,6 @@ body,
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
 }
-
-/* ---------- Main ---------- */
-.hc-main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.hc-main-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 52px;
-  flex: none;
-  padding: 0 var(--hc-gutter);
-  border-bottom: 1px solid var(--page-separator);
-}
-.hc-main-title {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-  min-width: 0;
-  margin: 0;
-  font-size: var(--text-heading);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hc-main-title .hc-hash {
-  width: auto;
-  font-weight: 500;
-}
-.hc-connection {
-  color: var(--page-text-3);
-  font-size: var(--text-detail);
-}
-.hc-members {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-inline-start: auto;
-  height: 30px;
-  padding: 0 8px 0 4px;
-  border: 1px solid var(--page-separator);
-  border-radius: 8px;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-weight: 600;
-}
 .hc-members-faces,
 .hc-thread-faces {
   display: inline-flex;
@@ -396,9 +160,6 @@ body,
 .hc-members-faces > .hc-avatar,
 .hc-thread-faces > .hc-avatar {
   box-shadow: 0 0 0 2px var(--cmux-surface-solid, Canvas);
-}
-.hc-members-faces > .hc-avatar + .hc-avatar {
-  margin-inline-start: -6px;
 }
 .hc-thread-faces > .hc-avatar + .hc-avatar {
   margin-inline-start: 2px;
@@ -457,33 +218,6 @@ body,
   text-align: center;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-}
-/* A day: a hairline across the timeline with the date in a pill on it. */
-.hc-day {
-  position: relative;
-  display: flex;
-  justify-content: center;
-  padding: 12px var(--hc-gutter) 6px;
-}
-.hc-day::before {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  top: 50%;
-  margin-top: 3px;
-  height: 1px;
-  background: var(--page-separator);
-}
-.hc-day-pill {
-  position: relative;
-  padding: 0 12px;
-  border: 1px solid var(--page-separator);
-  border-radius: 6px;
-  background: var(--cmux-surface-solid, Canvas);
-  color: var(--page-text-2);
-  font-size: var(--text-caption);
-  font-weight: 600;
-  line-height: 22px;
 }
 .hc-new-line {
   display: flex;
@@ -833,16 +567,6 @@ body,
 .hc-confirm > span {
   flex: 1;
 }
-
-/* ---------- Composer ---------- */
-.hc-typing {
-  height: 18px;
-  flex: none;
-  padding: 0 var(--hc-gutter);
-  font-size: var(--text-caption);
-  line-height: 18px;
-  color: var(--page-text-3);
-}
 .hc-composer {
   flex: none;
   display: flex;
@@ -1020,14 +744,6 @@ body,
   gap: 6px;
   width: 300px;
 }
-
-/* ---------- Thread ---------- */
-.hc-thread {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-inline-start: 1px solid var(--page-separator);
-}
 @media (prefers-reduced-motion: no-preference) {
   .hc-thread {
     animation: hc-thread-in 140ms ease-out;
@@ -1037,15 +753,6 @@ body,
   from {
     opacity: 0;
   }
-}
-.hc-thread-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 52px;
-  flex: none;
-  padding: 0 12px 0 var(--hc-gutter);
-  border-bottom: 1px solid var(--page-separator);
 }
 /* The next page of a long thread's replies (the owner's thread read). */
 .hc-thread-more {
@@ -1064,91 +771,10 @@ body,
   background: var(--cmux-surface-solid, Canvas);
   color: var(--page-text);
 }
-.hc-thread-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-.hc-thread-title {
-  font-weight: 700;
-  font-size: var(--text-title);
-}
-.hc-thread-place {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--page-text-3);
-  font-size: var(--text-detail);
-}
-
-/* ---------- Switcher ---------- */
-/* ui/Dialog places the backdrop and the popup (ui.css .ui-backdrop, .ui-dialog); both sit on the
-   overlay layer, the popup after the backdrop. */
-.hc-scrim {
-  z-index: var(--layer-overlay);
-  background: var(--cmux-scrim, rgb(0 0 0 / 0.25));
-}
-/* A fixed height: filtering shrinks the list, never the dialog, so the key hint stays put. */
-.hc-switcher {
-  z-index: var(--layer-overlay);
-  width: min(600px, 90vw);
-  height: min(60vh, 460px);
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--page-separator);
-  border-radius: 12px;
-  background: var(--surface-popup);
-  box-shadow: 0 16px 48px rgb(0 0 0 / 0.28);
-  overflow: hidden;
-}
-.hc-switcher-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 14px 16px;
-  border: 0;
-  border-bottom: 1px solid var(--page-separator);
-  background: transparent;
-  font-size: var(--text-title);
-  outline: none;
-}
-.hc-switcher-list {
-  flex: 1;
-  list-style: none;
-  margin: 0;
-  min-height: 0;
-  padding: 6px;
-  overflow-y: auto;
-}
-.hc-switcher-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 6px;
-}
-.hc-switcher-row[data-highlighted] {
-  background: var(--cmux-row-focus, var(--page-selection));
-  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
-}
-.hc-switcher-row[data-highlighted]::after {
-  content: "↩";
-  color: var(--page-text-3);
-}
 .hc-switcher-none {
   margin: 0;
   padding: 12px 16px;
   color: var(--page-text-3);
-}
-.hc-switcher-hint {
-  margin: 0;
-  margin-top: auto;
-  padding: 8px 16px;
-  border-top: 1px solid var(--page-separator);
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
 }
 
 /* ---------- Danger rows in menus ---------- */
