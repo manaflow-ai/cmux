@@ -2,14 +2,14 @@
 // Labs flag as a row with its one-line intent and a toggle, so the team tries prototypes where
 // they start work. A toggle asks the app to save `labs.<flag>`; the row follows `data-labs`, the
 // app's answer. All Labs… opens Settings > Labs, the full list.
-import { LABS_FLAGS, labsTeamBuild, useLabsFlag, type LabsFlagName } from "../../../experiments/labs";
+import { LABS_FLAGS, useLabsFlag, useLabsTeamBuild, type LabsFlagName } from "../../../experiments/labs";
 import { useNt } from "./strings";
 
 type Props = { onSet(flag: LabsFlagName, on: boolean): void; onShowAll(): void };
 
 export function LabsList({ onSet, onShowAll }: Props) {
   const nt = useNt();
-  if (!labsTeamBuild()) return null;
+  if (!useLabsTeamBuild()) return null;
   return (
     <nav className="nt-open-tabs nt-labs" aria-label={nt("labs")}>
       <div className="nt-open-tabs-head">

@@ -25,7 +25,7 @@ export function labsFlag(name: LabsFlagName, root: Element = document.documentEl
 
 function subscribe(change: () => void): () => void {
   const observer = new MutationObserver(change);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-labs"] });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-labs", "data-labs-team"] });
   return () => observer.disconnect();
 }
 
@@ -39,6 +39,15 @@ export function useLabsFlag(name: LabsFlagName): boolean {
   return useSyncExternalStore(
     subscribe,
     () => labsFlag(name),
+    () => false,
+  );
+}
+
+/** `labsTeamBuild` for a component: it renders again if the attribute changes. */
+export function useLabsTeamBuild(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => labsTeamBuild(),
     () => false,
   );
 }
