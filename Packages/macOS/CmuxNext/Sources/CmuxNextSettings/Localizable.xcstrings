@@ -1,268 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.ui.paneAnimations": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Animate Panes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ペインをアニメーション"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تحريك الأجزاء"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animiraj panele"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animér paneler"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bereiche animieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animar paneles"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animer les volets"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anima i riquadri"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ចលនាផ្ទាំង"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "창 애니메이션"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animer ruter"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animuj panele"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Animar painéis"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Анимировать панели"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เคลื่อนไหวบานหน้าต่าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bölmeleri canlandır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Анімувати панелі"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiệu ứng ngăn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格动画"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "窗格動畫"
-          }
-        }
-      }
-    },
-    "settings.ui.paneAnimations.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "分割、閉じる、移動、ズーム、列のスクロール、画面の切り替えがスライドして収まります。オフにすると即座に切り替わります。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تنزلق عمليات التقسيم والإغلاق والنقل والتكبير وتمرير الأعمدة وتبديل الشاشات إلى أماكنها. عند الإيقاف: تتغير فورًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dijeljenja, zatvaranja, premještanja, zumiranja, pomicanja kolona i promjene ekrana klize na mjesto. Isključeno: mijenjaju se odmah."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdelinger, lukninger, flytninger, zoom, kolonnerulning og skærmskift glider på plads. Fra: de skifter med det samme."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teilen, Schließen, Verschieben, Zoomen, Spaltenscrollen und Bildschirmwechsel gleiten an ihren Platz. Aus: Sie wechseln sofort."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las divisiones, cierres, movimientos, zooms, desplazamientos de columnas y cambios de pantalla se deslizan a su sitio. Desactivado: cambian al instante."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les divisions, fermetures, déplacements, zooms, défilements de colonnes et changements d'écran glissent en place. Désactivé : ils changent immédiatement."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Divisioni, chiusure, spostamenti, zoom, scorrimenti delle colonne e cambi di schermata scorrono in posizione. Disattivato: cambiano subito."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការបំបែក ការបិទ ការផ្លាស់ទី ការពង្រីក ការរំកិលជួរឈរ និងការប្តូរអេក្រង់ រអិលចូលកន្លែង។ បិទ៖ ពួកវាប្តូរភ្លាមៗ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "분할, 닫기, 이동, 확대/축소, 열 스크롤, 화면 전환이 미끄러지듯 자리를 잡습니다. 끄면 즉시 바뀝니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Delinger, lukkinger, flyttinger, zoom, kolonnerulling og skjermbytter glir på plass. Av: de endres med en gang."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podziały, zamknięcia, przeniesienia, powiększenia, przewijanie kolumn i zmiany ekranów wsuwają się na miejsce. Wyłączone: zmieniają się od razu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Divisões, fechamentos, movimentos, zooms, rolagens de colunas e trocas de tela deslizam até o lugar. Desativado: mudam na hora."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разделение, закрытие, перемещение, масштабирование, прокрутка колонок и смена экранов плавно встают на место. Выкл.: меняются сразу."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแบ่ง การปิด การย้าย การซูม การเลื่อนคอลัมน์ และการสลับหน้าจอจะเลื่อนเข้าที่ ปิด: เปลี่ยนทันที"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bölme, kapatma, taşıma, yakınlaştırma, sütun kaydırma ve ekran geçişleri kayarak yerine oturur. Kapalı: hemen değişir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Розділення, закриття, переміщення, масштабування, прокручування колонок і зміна екранів плавно стають на місце. Вимк.: змінюються одразу."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chia, đóng, di chuyển, phóng to, cuộn cột và chuyển màn hình trượt vào chỗ. Tắt: thay đổi ngay lập tức."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "拆分、关闭、移动、缩放、列滚动和屏幕切换会滑动到位。关闭后立即切换。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "分割、關閉、移動、縮放、欄捲動和螢幕切換會滑動到位。關閉後立即切換。"
-          }
-        }
-      }
-    },
     "settings.choice.transparent": {
       "extractionState": "manual",
       "localizations": {
@@ -1831,6 +1569,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "全域快速鍵"
+          }
+        }
+      }
+    },
+    "settings.app.hideDockIconWithoutWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء أيقونة Dock عند عدم وجود نوافذ مفتوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij ikonu u Docku kada nema otvorenih prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbol, når ingen vinduer er åbne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Symbol ausblenden, wenn keine Fenster geöffnet sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Dock Icon When No Windows Are Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar el icono del Dock cuando no haya ventanas abiertas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer l’icône du Dock quand aucune fenêtre n’est ouverte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi l’icona nel Dock quando non ci sono finestre aperte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開いていないときは Dock アイコンを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់រូបតំណាង Dock នៅពេលគ្មានវីនដូបើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 윈도우가 없을 때 Dock 아이콘 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbolet når ingen vinduer er åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj ikonę w Docku, gdy żadne okno nie jest otwarte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar ícone do Dock quando não houver janelas abertas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывать значок в Dock, когда нет открытых окон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนไอคอนใน Dock เมื่อไม่มีหน้าต่างเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık pencere yokken Dock simgesini gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховати значок у Dock, коли немає відкритих вікон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn biểu tượng Dock khi không có cửa sổ nào mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的窗口时隐藏程序坞图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的視窗時隱藏 Dock 圖像"
+          }
+        }
+      }
+    },
+    "settings.app.hideDockIconWithoutWindows.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل cmux العمل في شريط القائمة، خارج Dock ومبدّل التطبيقات، حتى تُفتح نافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nastavlja raditi u traci menija, izvan Docka i prebacivača aplikacija, dok se ne otvori prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kører videre i menulinjen, uden for Dock og appskifteren, indtil et vindue åbnes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux läuft in der Menüleiste weiter, außerhalb von Dock und App-Umschalter, bis sich ein Fenster öffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sigue ejecutándose en la barra de menús, fuera del Dock y del selector de apps, hasta que se abra una ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux continue de tourner dans la barre des menus, hors du Dock et du sélecteur d’apps, jusqu’à l’ouverture d’une fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux resta attivo nella barra dei menu, fuori dal Dock e dal selettore di app, finché non si apre una finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開くまで、cmux は Dock とアプリスイッチャーに表示されず、メニューバーで動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បន្តដំណើរការនៅក្នុងរបារម៉ឺនុយ ក្រៅ Dock និងកម្មវិធីប្ដូរកម្មវិធី រហូតដល់មានវីនដូបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 열릴 때까지 cmux는 Dock과 앱 전환기에 표시되지 않고 메뉴 막대에서 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fortsetter å kjøre i menylinjen, utenfor Dock og appveksleren, til et vindu åpnes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux działa dalej na pasku menu, poza Dockiem i przełącznikiem aplikacji, dopóki nie otworzy się okno."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux continua em execução na barra de menus, fora do Dock e do alternador de apps, até que uma janela seja aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux продолжает работать в строке меню, вне Dock и переключателя приложений, пока не откроется окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังทำงานต่อในแถบเมนู โดยไม่อยู่ใน Dock และตัวสลับแอป จนกว่าจะมีหน้าต่างเปิดขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, bir pencere açılana kadar Dock ve uygulama değiştiricinin dışında, menü çubuğunda çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux і далі працює в рядку меню, поза Dock і перемикачем програм, доки не відкриється вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tiếp tục chạy trên thanh menu, không có trong Dock và trình chuyển ứng dụng, cho đến khi một cửa sổ mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在打开窗口之前，cmux 会在菜单栏中继续运行，不显示在程序坞和应用切换器中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在開啟視窗之前，cmux 會在選單列中繼續執行，不顯示在 Dock 和 App 切換器中。"
           }
         }
       }
@@ -89459,6 +89459,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
+          }
+        }
+      }
+    },
+    "settings.ui.paneAnimations": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate Panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك الأجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj panele"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animér paneler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les volets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i riquadri"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចលនាផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj panele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiệu ứng ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格动画"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格動畫"
+          }
+        }
+      }
+    },
+    "settings.ui.paneAnimations.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割、閉じる、移動、ズーム、列のスクロール、画面の切り替えがスライドして収まります。オフにすると即座に切り替わります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنزلق عمليات التقسيم والإغلاق والنقل والتكبير وتمرير الأعمدة وتبديل الشاشات إلى أماكنها. عند الإيقاف: تتغير فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dijeljenja, zatvaranja, premještanja, zumiranja, pomicanja kolona i promjene ekrana klize na mjesto. Isključeno: mijenjaju se odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdelinger, lukninger, flytninger, zoom, kolonnerulning og skærmskift glider på plads. Fra: de skifter med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teilen, Schließen, Verschieben, Zoomen, Spaltenscrollen und Bildschirmwechsel gleiten an ihren Platz. Aus: Sie wechseln sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las divisiones, cierres, movimientos, zooms, desplazamientos de columnas y cambios de pantalla se deslizan a su sitio. Desactivado: cambian al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les divisions, fermetures, déplacements, zooms, défilements de colonnes et changements d'écran glissent en place. Désactivé : ils changent immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Divisioni, chiusure, spostamenti, zoom, scorrimenti delle colonne e cambi di schermata scorrono in posizione. Disattivato: cambiano subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបំបែក ការបិទ ការផ្លាស់ទី ការពង្រីក ការរំកិលជួរឈរ និងការប្តូរអេក្រង់ រអិលចូលកន្លែង។ បិទ៖ ពួកវាប្តូរភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분할, 닫기, 이동, 확대/축소, 열 스크롤, 화면 전환이 미끄러지듯 자리를 잡습니다. 끄면 즉시 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delinger, lukkinger, flyttinger, zoom, kolonnerulling og skjermbytter glir på plass. Av: de endres med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podziały, zamknięcia, przeniesienia, powiększenia, przewijanie kolumn i zmiany ekranów wsuwają się na miejsce. Wyłączone: zmieniają się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Divisões, fechamentos, movimentos, zooms, rolagens de colunas e trocas de tela deslizam até o lugar. Desativado: mudam na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделение, закрытие, перемещение, масштабирование, прокрутка колонок и смена экранов плавно встают на место. Выкл.: меняются сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแบ่ง การปิด การย้าย การซูม การเลื่อนคอลัมน์ และการสลับหน้าจอจะเลื่อนเข้าที่ ปิด: เปลี่ยนทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölme, kapatma, taşıma, yakınlaştırma, sütun kaydırma ve ekran geçişleri kayarak yerine oturur. Kapalı: hemen değişir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розділення, закриття, переміщення, масштабування, прокручування колонок і зміна екранів плавно стають на місце. Вимк.: змінюються одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia, đóng, di chuyển, phóng to, cuộn cột và chuyển màn hình trượt vào chỗ. Tắt: thay đổi ngay lập tức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拆分、关闭、移动、缩放、列滚动和屏幕切换会滑动到位。关闭后立即切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割、關閉、移動、縮放、欄捲動和螢幕切換會滑動到位。關閉後立即切換。"
           }
         }
       }

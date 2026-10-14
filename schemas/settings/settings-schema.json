@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -246,8 +247,7 @@
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed",
-              "ui.paneAnimations"
+              "ui.animationSpeed"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -1533,6 +1533,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -9895,56 +9946,6 @@
       "title" : {
         "key" : "settings.ui.animationSpeed",
         "text" : "Animations"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : {
-        "key" : "settings.ui.paneAnimations.help",
-        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "ui.paneAnimations",
-      "keywords" : [
-        "motion",
-        "animation",
-        "pane",
-        "split",
-        "zoom",
-        "slide",
-        "spring"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "ui",
-        "paneAnimations"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.ui.paneAnimations",
-        "text" : "Animate Panes"
       },
       "validation" : "portable"
     },
@@ -23354,7 +23355,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "4ddb838791822fc3bb16e63bc97d2bf73d6e479165334690acf80f94046d386d",
+  "schema_hash" : "0d0e6647e73fe2b29233d9811d1850cceb70a5055f0589c999c5e9b8b61fff80",
   "sections" : [
     {
       "id" : "general",

@@ -72,6 +72,7 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    lazy var background = BackgroundActivation(manager: self) // no window open: accessory (cx-ghagp)
     /// Restore finished: windows saved in full screen may enter it.
     var fullScreenRestoreReady = false
     /// A restored window is entering full screen (one at a time).
@@ -313,9 +314,8 @@ final class WindowManager {
 
     /// Orders a new window in without taking focus under no-activate.
     private func present(_ controller: WindowController) {
-        // Tests: never on the user's display. Otherwise one rule: under
-        // no-activate behind the others (in front on a test screen), never key.
-        let behind = behindWindows.remove(controller.state.id) != nil
+        // Tests: never on screen. Else under no-activate behind the others (front on a test screen), never key. Regular first.
+        let behind = behindWindows.remove(controller.state.id) != nil; background.windowWillAppear(activates: !behind && ordersWindowsIn)
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
         enterRestoredFullScreens()
@@ -336,7 +336,7 @@ final class WindowManager {
 
     func windowWillClose(_ controller: WindowController) {
         let id = controller.state.id
-        controllers.removeAll { $0 === controller }
+        controllers.removeAll { $0 === controller }; background.windowsDidChange() // none left: background mode
         if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
         contentWaiters[id] = nil
