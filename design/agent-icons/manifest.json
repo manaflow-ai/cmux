@@ -635,6 +635,27 @@
       }
     },
     {
+      "id": "meta",
+      "name": "Meta",
+      "owner": "Meta Platforms",
+      "kind": "mark",
+      "color": {
+        "tone": "#0081FB"
+      },
+      "source": {
+        "url": "https://github.com/simple-icons/simple-icons/blob/16.34.0/icons/meta.svg",
+        "file": "simple-icons 16.34.0 icons/meta.svg (source https://about.meta.com/brand/resources/meta/company-brand/); path data kept as published (3 decimals).",
+        "license": "Simple Icons path data is CC0-1.0; the mark is a trademark of Meta Platforms."
+      },
+      "import": {
+        "fetch": {
+          "npm": "simple-icons@16.34.0",
+          "member": "package/icons/meta.svg"
+        },
+        "precision": 3
+      }
+    },
+    {
       "id": "codebuddy",
       "name": "CodeBuddy",
       "owner": "Tencent",
@@ -1015,6 +1036,14 @@
       ]
     },
     {
+      "id": "muse",
+      "name": "Muse Code",
+      "brand": "meta",
+      "aliases": [
+        "muse-code"
+      ]
+    },
+    {
       "id": "codebuddy",
       "name": "CodeBuddy",
       "brand": "codebuddy",
@@ -1085,6 +1114,10 @@
     {
       "id": "xai",
       "brand": "grok"
+    },
+    {
+      "id": "meta",
+      "brand": "meta"
     },
     {
       "id": "mistral",
@@ -1179,7 +1212,7 @@
       "xai",
       "grok"
     ],
-    ["github-copilot-cli", "copilot"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
+    ["github-copilot-cli", "copilot"], ["Muse Code", "meta"], ["acp:muse", "meta"], ["grok-build", "grok"], ["factory-droid", "factory"], ["qwen-code", "qwen"], ["antigravity-acp", "antigravity"], ["amp-acp", "amp"], ["codebuddy-code", "codebuddy"], [
       "prime-agent",
       null
     ],
