@@ -58,6 +58,45 @@ public final class TerminalThumbnails {
     public var cardPixelWidth: CGFloat { (cardSize.width * min(UIScreen.main.scale, 2)).rounded() }
 
     @ObservationIgnored private var pushTask: Task<Void, Never>?
+    /// Live cards hold their refreshes (the grid is scrolling).
+    @ObservationIgnored private var paused = false
+    /// The cards are on screen (false: no card renders at all).
+    @ObservationIgnored private var visible = true
+    @ObservationIgnored private var lifecycleObservers: [any NSObjectProtocol] = []
+
+    /// Holds (true) or resumes (false) the live cards' refreshes. While held,
+    /// a card that has an image keeps it (output is still parsed); one with
+    /// no image yet still draws its first. Resuming draws what changed.
+    public func setPaused(_ paused: Bool) {
+        guard paused != self.paused else { return }
+        self.paused = paused
+        for t in live.values { t.setHold(paused: paused, hidden: !visible) }
+    }
+
+    /// Whether the cards are on screen. Hidden cards never render (no
+    /// off-screen Ghostty draw or GPU readback while the grid is covered by
+    /// a page); their output is still parsed, so showing them again draws
+    /// each current screen once.
+    public func setVisible(_ visible: Bool) {
+        guard visible != self.visible else { return }
+        self.visible = visible
+        for t in live.values { t.setHold(paused: paused, hidden: !visible) }
+    }
+
+    /// The app went to the background: every off-screen surface and stream
+    /// stops; the cards keep their images and attach again in the foreground.
+    private func observeLifecycle() {
+        let center = NotificationCenter.default
+        lifecycleObservers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.stopAll() }
+        })
+        lifecycleObservers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.visible, !self.lastWanted.isEmpty else { return }
+                self.show(self.lastWanted, cardSize: self.cardSize, style: self.followsSystem ? .unspecified : self.style)
+            }
+        })
+    }
 
     public init(connection: HostConnection, maxLive: Int = 6, refreshInterval: Duration = .milliseconds(500)) {
         self.connection = connection
@@ -65,6 +104,7 @@ public final class TerminalThumbnails {
         self.refreshInterval = refreshInterval
         // Cards follow grid changes (a resize, the Mac's window) like the
         // live view does, so their layout matches.
+        observeLifecycle()
         pushTask = Task { [weak self, connection] in
             for await push in connection.pushes() {
                 guard case .terminalUpdated(let t) = push else { continue }
@@ -73,7 +113,10 @@ public final class TerminalThumbnails {
         }
     }
 
-    isolated deinit { pushTask?.cancel() }
+    isolated deinit {
+        pushTask?.cancel()
+        for o in lifecycleObservers { NotificationCenter.default.removeObserver(o) }
+    }
 
     /// Keeps these terminals live (attached and re-rendered on output).
     /// Others beyond `maxLive` are detached, oldest first. Cards render at
@@ -163,6 +206,7 @@ public final class TerminalThumbnails {
             self.startPending()
         }
         live[id] = headless
+        headless.setHold(paused: paused, hidden: !visible)
         headless.start()
     }
 
@@ -388,6 +432,16 @@ final class HeadlessTerminal {
     private var dirty = false
     private var rendering = false
     private var stopped = false
+    /// Refreshes wait while the grid scrolls (the first image does not)
+    /// and while the cards are hidden (nothing renders).
+    private var paused = false
+    private var hidden = false
+
+    func setHold(paused: Bool, hidden: Bool) {
+        self.paused = paused
+        self.hidden = hidden
+        renderIfIdle()
+    }
 
     init(terminalId: String, client: HostClient, interval: Duration, mirrored: Bool, style: UIUserInterfaceStyle,
          page: (size: CGSize, scale: CGFloat), onResult: @escaping (CardResult) -> Void) {
@@ -410,8 +464,12 @@ final class HeadlessTerminal {
         config.font_size = Float(fontSize)
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
         guard let surface = ghostty_surface_new(app.app, &config) else { return }
-        // Drawn (never shown): the page at card resolution.
-        ghostty_surface_set_occlusion(surface, true)
+        // Drawn (never shown): the page at card resolution. Occluded between
+        // card refreshes: a visible surface's renderer thread draws a Metal
+        // frame on every output change (a spinner in a TUI meant continuous
+        // GPU work for each off-screen card); `renderIfIdle` makes it
+        // visible only for the frame it takes.
+        ghostty_surface_set_occlusion(surface, false)
         ref = SurfaceRef(surface)
         applyStyle()
         applySize()
@@ -557,7 +615,7 @@ final class HeadlessTerminal {
 
     /// Renders now, then at most once per interval while output keeps coming.
     private func renderIfIdle() {
-        guard dirty, !rendering, !stopped, let ref else { return }
+        guard dirty, !rendering, !stopped, !hidden, !(paused && delivered), let ref else { return }
         dirty = false
         rendering = true
         // After the output queued so far was parsed.
@@ -566,14 +624,22 @@ final class HeadlessTerminal {
                 guard let self, !self.stopped else { return }
                 self.fitMirrorFont()
                 let before = GhosttySnapshot.frameID(of: self.view)
+                ghostty_surface_set_occlusion(ref.surface, true)
                 ghostty_surface_refresh(ref.surface)
                 ghostty_surface_draw(ref.surface)
                 await self.deliverFrame(ref, after: before)
+                if !self.stopped { ghostty_surface_set_occlusion(ref.surface, false) }
                 do { try await Task.sleep(for: self.interval) } catch {}
                 self.rendering = false
                 self.renderIfIdle()
             }
         }
+    }
+
+    /// The presented frame as an image, read off the main thread.
+    private func readFrame() async -> CGImage? {
+        guard let frame = GhosttySnapshot.presentedFrame(of: view) else { return nil }
+        return await Task.detached(priority: .utility) { GhosttySnapshot.image(of: frame) }.value
     }
 
     /// The presented frame once Ghostty has set it (a few main-actor turns
@@ -585,7 +651,8 @@ final class HeadlessTerminal {
             await Task.yield()
             if stopped { return }
             if let id = GhosttySnapshot.frameID(of: view), previous.map({ $0 != id }) ?? true,
-               let cg = GhosttySnapshot.image(of: view) {
+               let cg = await readFrame() {
+                if stopped { return }
                 TerminalMemory.trace("thumbnail \(terminalId): frame \(cg.width)x\(cg.height) style=\(style == .dark ? "dark" : "light")")
                 onResult(.image(UIImage(cgImage: cg), style))
                 delivered = true
@@ -595,7 +662,7 @@ final class HeadlessTerminal {
         }
         // A frame from before this draw may be in the old theme: only use it
         // when the card has nothing yet.
-        if !delivered, let cg = GhosttySnapshot.image(of: view) {
+        if !delivered, let cg = await readFrame(), !stopped {
             TerminalMemory.trace("thumbnail \(terminalId): earlier frame (no new frame in time)")
             onResult(.image(UIImage(cgImage: cg), style))
             delivered = true

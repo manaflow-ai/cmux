@@ -13,7 +13,23 @@ import UIKit
 /// cursor, wide glyphs).
 @MainActor
 struct GhosttySnapshot {
-    private static let context = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: false])
+    nonisolated(unsafe) private static let context = CIContext(options: [.cacheIntermediates: false, .useSoftwareRenderer: false])
+
+    /// A presented frame's surface, to be read off the main thread.
+    struct Frame: @unchecked Sendable {
+        let surface: IOSurfaceRef
+    }
+
+    /// The surface Ghostty last presented for a view (main thread).
+    static func presentedFrame(of view: UIView) -> Frame? {
+        presentedSurface(in: view.layer).map(Frame.init)
+    }
+
+    /// Copies a frame into an image (any thread; a GPU render and readback,
+    /// so card refreshes do it off the main thread).
+    nonisolated static func image(of frame: Frame, maxPixelWidth: CGFloat? = nil) -> CGImage? {
+        render(frame.surface, maxPixelWidth: maxPixelWidth)
+    }
 
     /// The renderer's last frame, scaled to `width` pixels (keeping its
     /// aspect), or nil when Ghostty has not presented a frame yet.
@@ -26,6 +42,10 @@ struct GhosttySnapshot {
 
     static func image(of view: UIView, maxPixelWidth: CGFloat? = nil) -> CGImage? {
         guard let surface = presentedSurface(in: view.layer) else { return nil }
+        return render(surface, maxPixelWidth: maxPixelWidth)
+    }
+
+    nonisolated private static func render(_ surface: IOSurfaceRef, maxPixelWidth: CGFloat?) -> CGImage? {
         var image = CIImage(ioSurface: surface)
         guard image.extent.width >= 1, image.extent.height >= 1 else { return nil }
         if let maxPixelWidth, image.extent.width > maxPixelWidth {

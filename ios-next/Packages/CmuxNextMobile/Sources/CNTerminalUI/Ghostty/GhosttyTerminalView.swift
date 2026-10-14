@@ -49,6 +49,8 @@ final class GhosttyTerminalView: UIView {
     private var contentRowComputedAt: CFTimeInterval = 0
     private var contentRowCache: (draws: Int, value: (row: Int, cellHeight: CGFloat, paddingTop: CGFloat)?)?
     private var appliedStyle: UIUserInterfaceStyle?
+    /// The drawable size and scale last given to the surface.
+    private var appliedSize: (width: UInt32, height: UInt32, scale: CGFloat)?
     /// The text size in points (setting `cmuxNext.terminalFontSize`).
     private(set) var fontSize: Double = TerminalFontSize.stored
     /// A pinch owns the text size until it ends.
@@ -149,6 +151,7 @@ final class GhosttyTerminalView: UIView {
             }
         }
         surface = ghostty_surface_new(app.app, &config)
+        appliedSize = nil
         if surface != nil { Self.liveCount += 1; TerminalMemory.log() }
         diagnostics["surface"] = surface == nil ? "nil" : "ok"
         if let surface {
@@ -171,6 +174,12 @@ final class GhosttyTerminalView: UIView {
         guard let surface, let window else { return }
         let scale = window.screen.scale
         guard let pixels = Self.drawablePixels(bounds.size, scale: scale) else { return }
+        // Layout passes that keep the size (the view moving with the tab
+        // grid's scroll, a zoom scaling it) need no new drawable and no
+        // frame: redrawing on each made the live terminal card render (and
+        // allocate surfaces) on every scroll frame.
+        if let applied = appliedSize, applied.width == pixels.width, applied.height == pixels.height, applied.scale == scale { return }
+        appliedSize = (pixels.width, pixels.height, scale)
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, pixels.width, pixels.height)
         requestFrame()
