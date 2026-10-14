@@ -210,6 +210,7 @@ let package = Package(
                 "CmuxNextRemote",
                 "CmuxNextMobile",
                 "CmuxNextUpdater",
+                "CmuxNextUpdateEverything",
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
@@ -612,6 +613,13 @@ let package = Package(
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/WhatsNew"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Update Everything (cx-1mbnu): the plan, confirmation words, runner and relaunch
+        // note over the App's update paths (kept out of CmuxNextApp's size cap).
+        .target(
+            name: "CmuxNextUpdateEverything",
+            resources: [.process("Resources/Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
         ),
         // Cloud machines: auth, REST client, tunnel and link processes. The

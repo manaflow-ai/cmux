@@ -38,6 +38,7 @@ enum SettingsHandlers {
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
                             openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
+        UpdateEverythingHandlers.bind(into: registry, services: context.services)
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
