@@ -97,7 +97,6 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
-import { PermissionStatus } from "./PermissionStatus";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
@@ -2164,7 +2163,6 @@ function DefaultComposerChips({
       {...(addAgent ? { onAddAgent: addAgent } : {})}
       harnessesListed={harnessesListed}
       showPlan={false}
-      onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -4693,24 +4691,6 @@ function AcpmuxPane() {
       )}
     </div>
   ) : null;
-  const permissionStatus = (
-    <PermissionStatus
-      trusted={trustAsk.trusted}
-      chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
-      trustLabel={
-        trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
-          ? isAgentHome(trustAsk.ask.cwd)
-            ? t("trust.trustedPrivate")
-            : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
-          : undefined
-      }
-      recentTrust={trustAsk.justTrusted}
-      onUndoTrust={trustAsk.undo}
-      onRevoke={
-        snapshot.permissionGroups?.chatAllowance ? () => void callNative("chat.permission_chat.revoke", {}) : undefined
-      }
-    />
-  );
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -4859,7 +4839,6 @@ function AcpmuxPane() {
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
-          permissionStatus={permissionStatus}
           draft={draft}
           onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
@@ -4949,8 +4928,6 @@ function AcpmuxPane() {
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
-          // Start Agent's pickers head its panel: the folder row comes before the prompt.
-          contextFirst={quick}
           onBrowseProject={
             freshChat && !quick
               ? () => {
