@@ -72,12 +72,15 @@ extension TabStripView {
             m.width.target = slot.width
             // Members of a collapsed group shrink into the chip and fade.
             m.alpha.target = slot.isCollapsed ? 0 : 1
-            if !animated || (insertsAtOnce && !groups.isDragged(slot.id) && !dying.contains(slot.id)) { m.snap() }
+            if !animated || (insertsAtOnce && !groups.isDragged(slot.id)) { m.snap() }
             motion[slot.id] = m
         }
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if !animated {
             scroll.snap()
+            for id in dying { removeTab(id) }
+        } else if insertsAtOnce {
+            // The layout already gave a closing tab's room away: it goes now too, one consistent frame.
             for id in dying { removeTab(id) }
         }
         TabSeparatorVisibility.apply(to: self)
