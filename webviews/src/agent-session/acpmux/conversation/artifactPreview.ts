@@ -9,6 +9,8 @@ const KINDS: Record<string, ArtifactKind> = {
   html: "html",
   htm: "html",
   xhtml: "html",
+  // A page the reply runs inline (renderCall.ts); its rewrites are versions of one document.
+  "cmux-render": "html",
   svg: "svg",
   markdown: "markdown",
   md: "markdown",
