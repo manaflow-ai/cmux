@@ -2324,7 +2324,9 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
     # build legs beside them take the owned side lane on attempt 1. Once every
     # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
     # queued on Blacksmith macOS at its cap while the minis had room. The first
-    # attempt uses the same route as the build legs; a rerun goes to the PR pool.
+    # attempt uses the same route as the build legs. 2026-10-14: a rerun stays
+    # on the minis too; it fell through to MACOS_RUNNER_PR, the nightly build's
+    # 12 vCPU macOS 26 label (tests/test_ci_tui_routes_avoid_nightly_label.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     build_route = jobs["build"]["with"]["macos_runner"]
@@ -2341,9 +2343,12 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
         "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
     )
     assert fork_gate in build_route
-    assert daemon == build_route.replace(fork_gate, fork_gate + promote, 1), daemon
-    assert "github.run_attempt == 1" in daemon
-    assert retry_route.split("|| ", 1)[1] in daemon  # a rerun falls back to the PR pool
+    side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
+    assert side_attempt_one in build_route
+    every_attempt = build_route.replace(side_attempt_one, "vars.CI_SIDE_LANE_RUNNER", 1)
+    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
+    assert "MACOS_RUNNER_PR" not in daemon
+    assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
 
 
 if __name__ == "__main__":

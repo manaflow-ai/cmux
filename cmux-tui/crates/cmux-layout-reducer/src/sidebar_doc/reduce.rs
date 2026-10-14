@@ -213,37 +213,37 @@ impl<'d> Batch<'d> {
 }
 
 /// The rows one op list touched, with their first old copies.
-struct Tx<'a> {
-    doc: &'a mut Doc,
+pub(super) struct Tx<'a> {
+    pub(super) doc: &'a mut Doc,
     items: HashMap<ItemId, Option<Item>>,
     sections: HashMap<SectionId, Option<Section>>,
 }
 
 impl Tx<'_> {
-    fn touch_item(&mut self, id: &str) {
+    pub(super) fn touch_item(&mut self, id: &str) {
         if !self.items.contains_key(id) {
             self.items.insert(id.to_string(), self.doc.item(id).cloned());
         }
     }
 
-    fn touch_section(&mut self, id: &str) {
+    pub(super) fn touch_section(&mut self, id: &str) {
         if !self.sections.contains_key(id) {
             self.sections.insert(id.to_string(), self.doc.section(id).cloned());
         }
     }
 
-    fn put_item(&mut self, item: Item) {
+    pub(super) fn put_item(&mut self, item: Item) {
         self.touch_item(&item.id);
         self.doc.replace_item(item);
     }
 
-    fn remove_item(&mut self, id: &str) {
+    pub(super) fn remove_item(&mut self, id: &str) {
         self.touch_item(id);
         self.doc.remove_item(id);
     }
 
     /// Change one item with `edit` (its indexes follow).
-    fn edit_item(
+    pub(super) fn edit_item(
         &mut self,
         id: &str,
         edit: impl FnOnce(&mut Item) -> Result<(), Refusal>,
@@ -256,12 +256,12 @@ impl Tx<'_> {
         Ok(())
     }
 
-    fn put_section(&mut self, section: Section) {
+    pub(super) fn put_section(&mut self, section: Section) {
         self.touch_section(&section.id);
         self.doc.replace_section(section);
     }
 
-    fn remove_section(&mut self, id: &str) {
+    pub(super) fn remove_section(&mut self, id: &str) {
         self.touch_section(id);
         self.doc.remove_section(id);
     }
@@ -291,6 +291,8 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             Ok(())
         }
         Op::ItemUpdate { id, patch } => update_item(tx, id, patch),
+        Op::ItemRemoveRef { reference } => super::reset::remove_ref(tx, reference),
+        Op::Reset => super::reset::reset(tx),
         Op::SectionAdd { section, place } => add_section(tx, section, place),
         Op::SectionUpdate { id, patch } => update_section(tx, id, patch),
         Op::SectionMove { id, place } => {
@@ -438,12 +440,10 @@ pub(crate) fn validate_span(span: Option<i64>) -> Result<(), Refusal> {
     }
 }
 
-pub(crate) fn validate_section_numbers(
-    columns: Option<i64>,
-    max_rows: Option<i64>,
-) -> Result<(), Refusal> {
-    if columns.is_some_and(|c| !(1..=12).contains(&c))
-        || max_rows.is_some_and(|r| !(1..=50).contains(&r))
+pub(crate) fn validate_section_numbers(section: &Section) -> Result<(), Refusal> {
+    if section.columns.is_some_and(|c| !(1..=12).contains(&c))
+        || section.max_rows.is_some_and(|r| !(1..=50).contains(&r))
+        || section.gap.is_some_and(|gap| !GAP_RANGE.contains(&gap))
     {
         return Err(Refusal::InvalidValue);
     }
@@ -537,7 +537,7 @@ fn neighbors(
 }
 
 /// Move `ids` (in this order, as one run) to `to`.
-fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
+pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
     let mut moved: Vec<ItemId> = Vec::with_capacity(ids.len());
     for id in ids {
         if !moved.contains(id) {
@@ -649,7 +649,7 @@ fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refusal> {
 
 /// The machine section of `session`, made at the end of the machine
 /// sections when missing.
-fn ensure_machine_section(tx: &mut Tx, session: &str) -> SectionId {
+pub(super) fn ensure_machine_section(tx: &mut Tx, session: &str) -> SectionId {
     if let Some(section) = tx.doc.machine_section(session) {
         return section.id.clone();
     }
@@ -817,7 +817,7 @@ fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
-    validate_section_numbers(section.columns, section.max_rows)?;
+    validate_section_numbers(section)?;
     let mut section = section.clone();
     place_section(tx, &mut section, place)?;
     tx.put_section(section);
@@ -839,6 +839,10 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
     if let Some(arrangement) = &patch.arrangement {
         section.arrangement = arrangement.clone();
     }
+    if let Some(align) = &patch.align {
+        section.align = align.clone();
+    }
+    patch.gap.apply(&mut section.gap);
     patch.columns.apply(&mut section.columns);
     patch.max_rows.apply(&mut section.max_rows);
     patch.room.apply(&mut section.room);
@@ -848,7 +852,7 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
     if let Some(scroll) = patch.scroll {
         section.scroll = scroll;
     }
-    validate_section_numbers(section.columns, section.max_rows)?;
+    validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);
     }
@@ -858,7 +862,11 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
 /// Give `section` its region and order key among the other sections of
 /// its region (renumbering them when no key fits). A scroll that is the
 /// old region's default (the user never changed it) follows the region.
-fn place_section(tx: &mut Tx, section: &mut Section, place: &SectionPlace) -> Result<(), Refusal> {
+pub(super) fn place_section(
+    tx: &mut Tx,
+    section: &mut Section,
+    place: &SectionPlace,
+) -> Result<(), Refusal> {
     if let Some(region) = &place.region
         && *region != section.region
     {

@@ -3794,8 +3794,11 @@ jobs:
     permissions:
       contents: read
       issues: read
+      actions: read
     outputs:
+      action: ${{ steps.target.outputs.action }}
       build: ${{ steps.target.outputs.build }}
+      pending_run: ${{ steps.target.outputs.pending_run }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3812,23 +3815,54 @@ jobs:
           set -euo pipefail
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o next.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"
           curl -fsSL --retry 3 -A "cmux-nightly-legacy/1" -o old.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
-          build="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX")"
-          # A build that already failed twice (the open failure issue names it
-          # twice) is not tried again by every later run; a newer build is.
-          if [ -n "$build" ]; then
+          # A cmux NIGHTLY-identity submission still in Apple's queue is kept by
+          # publish-nightly-identity-legacy as the artifacts
+          # cmux-nightly-identity-pending-meta/-bundle of its run: the newest
+          # unexpired one from a nightly-next run of this repository (never a
+          # fork's) is continued first (never resubmitted) while it is under 6
+          # hours old.
+          pending_args=()
+          # Newest first; the first candidate whose run is this repository's
+          # nightly.yml run on nightly-next wins, so a foreign or unreadable
+          # artifact never hides a valid pending submission.
+          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"' || true)"
+          for candidate in $(tr ' ' ':' <<<"$candidates"); do
+            meta_id="${candidate%%:*}" meta_run="${candidate##*:}"
+            origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$meta_run" --jq '"\(.path) \(.event)"' 2>/dev/null || true)"
+            case "$origin" in
+              ".github/workflows/nightly.yml push"|".github/workflows/nightly.yml workflow_dispatch") ;;
+              *) echo "::warning::skipping pending artifact $meta_id of run $meta_run ($origin)"; continue ;;
+            esac
+            rm -rf pending && mkdir -p pending
+            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending && [ -f pending/pending.json ]; then
+              pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
+              break
+            fi
+            echo "::warning::could not read pending artifact $meta_id of run $meta_run; trying an older one"
+          done
+          decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 ${pending_args[@]+"${pending_args[@]}"})"
+          action="$(sed -n 's/^action=//p' <<<"$decision")"
+          build="$(sed -n 's/^build=//p' <<<"$decision")"
+          pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
+          # Only real failures count (Apple rejected the copy, or a check or
+          # smoke failed: comments "Build N failed:"); a submission still in
+          # Apple's queue is never a failure. A build that failed twice is
+          # not tried again by every later run; a newer build is.
+          if [ "$action" = new ]; then
             title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
             number="$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" --jq ".[] | select(.title == \"$title\") | .number" | head -1)"
             if [ -n "$number" ]; then
-              failures="$( { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } | grep -c "^Build $build was not published" || true)"
+              failures="$( { gh api "repos/$GITHUB_REPOSITORY/issues/$number" --jq .body; gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$number/comments" --jq '.[].body'; } | grep -c "^Build $build failed:" || true)"
               if [ "${failures:-0}" -ge 2 ]; then
                 echo "::warning title=cmux NIGHTLY-identity build $build skipped (cx-x7hwx)::it failed $failures times (issue #$number); a newer cmux NEXT build is tried again"
-                build=""
+                action=none build=""
               fi
             fi
           fi
-          echo "build=$build" >> "$GITHUB_OUTPUT"
+          { echo "action=$action"; echo "pending_run=$pending_run"; echo "build=$build"; } >> "$GITHUB_OUTPUT"
           if [ -n "$build" ]; then
-            echo "### cmux NIGHTLY-identity: old feed gets cmux NEXT build $build (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+            echo "### cmux NIGHTLY-identity: $action build $build for the old feed (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "### cmux NIGHTLY-identity: old feed is current (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -3867,19 +3901,23 @@ jobs:
     permissions:
       contents: write
       issues: write
+      # Read and retire the pending-submission artifacts of earlier runs.
+      actions: write
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    # TEMPORARY (hq-a3, 2026-10-14; bead cx-x7hwx follow-up): Apple's notary
-    # queue takes 90+ min, so this copy waits up to
-    # NIGHTLY_LEGACY_NOTARY_WAIT_MIN (default 150) minutes inside a 200-minute
-    # job. The next nightly-next run can wait that long behind it in the
-    # workflow concurrency group. Lower the variable (and this limit) when
-    # Apple's queue is normal again.
-    timeout-minutes: 200
+    # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
+    # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
+    # -bundle) and a later run continues that exact submission
+    # (legacy-identity-target: action continue); it is never resubmitted and
+    # never counted as a failure.
+    timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
-      LEGACY_NOTARY_WAIT_MIN: ${{ vars.NIGHTLY_LEGACY_NOTARY_WAIT_MIN || '150' }}
+      # new: sign and submit this build; continue: ask Apple about the pending
+      # submission of run PENDING_RUN (the same signed DMG, no new upload).
+      LEGACY_ACTION: ${{ needs.legacy-identity-target.outputs.action }}
+      PENDING_RUN: ${{ needs.legacy-identity-target.outputs.pending_run }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3938,7 +3976,7 @@ jobs:
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
       - name: Download the published cmux NEXT DMG
-        if: steps.order.outputs.skip != 'true'
+        if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -3968,7 +4006,7 @@ jobs:
           security list-keychains -d user -s build.keychain
 
       - name: Sign the build as cmux NIGHTLY
-        if: steps.order.outputs.skip != 'true'
+        if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'new'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
@@ -3985,10 +4023,38 @@ jobs:
               "next-in/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" "$NIGHTLY_BUILD" legacy-app
           rm -f "$NIGHTLY_PROFILE_PATH"
 
+      - name: Download the pending cmux NIGHTLY-identity submission
+        if: steps.order.outputs.skip != 'true' && env.LEGACY_ACTION == 'continue'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$PENDING_RUN" =~ ^[0-9]+$ ]] || { echo "invalid pending run '$PENDING_RUN'" >&2; exit 1; }
+          # Only this repository's own nightly.yml run on nightly-next made it.
+          origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN" --jq '"\(.path) \(.event) \(.head_branch) \(.head_repository.full_name)"')"
+          case "$origin" in
+            ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
+            *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
+          esac
+          if ! gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
+            # A meta artifact whose bundle is confirmed gone can never continue:
+            # retire it so the next run submits anew instead of waiting out the
+            # 6-hour limit. Any API error keeps it.
+            ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$PENDING_RUN" >&2
+            echo "could not download the bundle of pending run $PENDING_RUN" >&2
+            exit 1
+          fi
+          python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
+          mkdir -p legacy-app legacy-out
+          tar -C legacy-app -xzf pending/app.tar.gz
+          cp pending/release.dmg legacy-out/release.dmg
+          cp pending/legacy.notarization.state "$RUNNER_TEMP/legacy.notarization.state"
+
       # Same packaging, notarization, stapling, spctl, smoke launch and
       # metadata checks as every NIGHTLY DMG. The Computer Use helper keeps
       # its own stapled ticket (keep-stapled-computer-use-helper.sh).
       - name: Notarize the cmux NIGHTLY DMG
+        id: notarize
         if: steps.order.outputs.skip != 'true'
         env:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -3997,26 +4063,70 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          if ! [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] || [ "$LEGACY_NOTARY_WAIT_MIN" -lt 10 ] || [ "$LEGACY_NOTARY_WAIT_MIN" -gt 165 ]; then
-            echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2
-            exit 1
-          fi
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
-          CMUX_CHANNEL=nightly \
-            CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT_MIN}m" \
+          continue_args=()
+          if [ "$LEGACY_ACTION" = continue ]; then
+            # Asks Apple once about the recorded submission of this exact DMG.
+            continue_args=("CMUX_NOTARY_CONTINUE_STATE=$RUNNER_TEMP/legacy.notarization.state")
+          fi
+          env ${continue_args[@]+"${continue_args[@]}"} \
+            CMUX_CHANNEL=nightly \
+            CMUX_NOTARY_WAIT_TIMEOUT=20m \
+            CMUX_NOTARY_PENDING_ON_TIMEOUT=true \
             CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
             CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
             CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/legacy.notarization.state" \
             CMUX_NOTARY_OUTPUT_FILE="$RUNNER_TEMP/legacy.notarization.log" \
             ./scripts/ci/notarize-nightly-dmg.sh "legacy-app/cmux NIGHTLY.app" \
               "legacy-out/release.dmg" "legacy-out/${LEGACY_DMG_PREFIX}${NIGHTLY_BUILD}.dmg"
+          if grep -Fxq "submission_pending=true" "$GITHUB_OUTPUT"; then
+            echo "### cmux NIGHTLY-identity build $NIGHTLY_BUILD is still in Apple's queue; a later run continues it (cx-x7hwx)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           codesign --verify --deep --strict --verbose=2 "legacy-app/cmux NIGHTLY.app"
           spctl -a -vv --type execute "legacy-app/cmux NIGHTLY.app"
           xcrun stapler validate "legacy-app/cmux NIGHTLY.app"
 
+      # A new submission still in Apple's queue: keep the exact signed DMG,
+      # app and submission for a later run (legacy-identity-target continues
+      # it while it is under 6 hours old). Not a failure.
+      - name: Keep the pending cmux NIGHTLY-identity submission
+        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
+        run: |
+          set -euo pipefail
+          mkdir -p pending
+          tar -C legacy-app -czf pending/app.tar.gz "cmux NIGHTLY.app"
+          cp legacy-out/release.dmg pending/release.dmg
+          cp "$RUNNER_TEMP/legacy.notarization.state" pending/legacy.notarization.state
+          submission="$(sed -n 's/^submission_id=//p' pending/legacy.notarization.state)"
+          [[ "$submission" =~ ^[A-Za-z0-9-]+$ ]] || { echo "pending state names no submission" >&2; exit 1; }
+          printf '{"build": "%s", "submission_id": "%s", "submitted_epoch": %s}\n' "$NIGHTLY_BUILD" "$submission" "$(date +%s)" > pending/pending.json
+          cp pending/pending.json pending-meta.json
+          mkdir -p pending-meta && mv pending-meta.json pending-meta/pending.json
+
+      # The bundle first: a meta artifact always has its bundle.
+      - name: Upload the pending submission bundle
+        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-pending-bundle
+          path: pending/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload the pending submission metadata
+        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-pending-meta
+          path: pending-meta/pending.json
+          if-no-files-found: error
+          retention-days: 2
+
       - name: Generate the old feed's appcast
-        if: steps.order.outputs.skip != 'true'
+        id: appcast
+        if: steps.order.outputs.skip != 'true' && steps.notarize.outputs.submission_pending != 'true'
         env:
           TRACK: nightly-next
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
@@ -4055,7 +4165,8 @@ jobs:
           cat "legacy-out/$LEGACY_APPCAST"
 
       - name: Publish the cmux NIGHTLY DMG, release notes and the old feed
-        if: steps.order.outputs.skip != 'true'
+        id: publish
+        if: steps.order.outputs.skip != 'true' && steps.notarize.outputs.submission_pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
@@ -4108,8 +4219,48 @@ jobs:
             echo "- DMG: $url"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Retire the continued submission once it is published, or when Apple's
+      # final answer means it can never publish (Invalid, Rejected, or Accepted
+      # with a later check failing); keep it when only the publication failed.
+      # Count a failure only for a final answer or a failed new attempt; a
+      # submission still in Apple's queue never counts
+      # (scripts/ci/nightly-next-legacy-resolve.py). A valid stapled ticket is
+      # Apple's answer too: notarize-nightly-dmg.sh staples an Accepted
+      # continuation and writes no notary log.
+      - name: Resolve the attempt
+        id: resolve
+        if: always() && steps.order.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.notarize.outputs.submission_pending == 'true' }}
+          NOTARIZE: ${{ steps.notarize.outcome }}
+          PUBLISHED: ${{ steps.publish.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          answered=false
+          if grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
+             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
+            answered=true
+          fi
+          decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
+            --notarize "$NOTARIZE" --published "$PUBLISHED" --answered "$answered")"
+          echo "$decision" >> "$GITHUB_OUTPUT"
+          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED answered=$answered -> $(tr '\n' ' ' <<<"$decision")"
+          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
+            for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=$name" --jq '.artifacts[].id' \
+                | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+            done
+            echo "retired the pending submission of run $PENDING_RUN"
+          elif [ "$LEGACY_ACTION" = continue ]; then
+            echo "kept the pending submission of run $PENDING_RUN"
+          fi
+          if grep -Fxq real=false <<<"$decision" && [ "$NOTARIZE" = failure ]; then
+            echo "::warning title=cmux NIGHTLY-identity attempt not counted (cx-x7hwx)::Apple did not answer about the pending submission of run $PENDING_RUN, or it is still in Apple's queue; it is kept for the next run"
+          fi
+
       - name: Report a failed publication
-        if: failure()
+        if: failure() && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}
@@ -4117,7 +4268,10 @@ jobs:
           script: |
             const title = 'cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)';
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = `Build ${process.env.BUILD} was not published to the cmux NIGHTLY-identity installs (cx-x7hwx). cmux NEXT is not affected; the old feed keeps its previous build.\n\nRun: ${run}\n\nStop it with repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.`;
+            // "Build N failed:" is what legacy-identity-target counts (two
+            // failures of one build stop its retries); a submission still in
+            // Apple's queue never reaches this step.
+            const body = `Build ${process.env.BUILD} failed: it was not published to the cmux NIGHTLY-identity installs (cx-x7hwx). cmux NEXT is not affected; the old feed keeps its previous build.\n\nRun: ${run}\n\nStop it with repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.`;
             const { data: open } = await github.rest.issues.listForRepo({ ...context.repo, state: 'open', per_page: 100, labels: '' });
             const existing = open.find((issue) => issue.title === title);
             if (existing) {
