@@ -302,15 +302,11 @@ function Lightbox({
       initialFocus={closeButton}
     >
       <KeyboardScope
-        className="hc-lightbox-keys"
+        className="hc-lightbox-body"
         handleKeyDown={(event) => {
-          if (event.key === "ArrowRight" && images.length > 1) {
-            event.preventDefault();
-            step(1);
-          } else if (event.key === "ArrowLeft" && images.length > 1) {
-            event.preventDefault();
-            step(-1);
-          }
+          if (images.length < 2 || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+          event.preventDefault();
+          step(event.key === "ArrowRight" ? 1 : -1);
         }}
       >
         <header className="hc-lightbox-bar">
