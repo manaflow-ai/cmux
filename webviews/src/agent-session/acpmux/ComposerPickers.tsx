@@ -672,7 +672,7 @@ function setupTokens(sessionId?: string, turnCount?: number, used?: number): num
   return firstReadings.get(sessionId) ?? undefined;
 }
 
-/// How much of the context window the session has used, as a ring that fills. A click opens
+/// How much of the context window the session has used, as a pie that fills. A click opens
 /// the details: the share used, tokens used of the window, and Compact when the agent offers it.
 export function ContextRing({
   used,
@@ -699,8 +699,10 @@ export function ContextRing({
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const radius = 6.5;
-  const circumference = 2 * Math.PI * radius;
+  // A 1px track ring, and the share used as a filled wedge inside it (a pie, not a spinner):
+  // a circle stroked as wide as its diameter, dashed to the share, with butt ends.
+  const wedgeRadius = 2.75;
+  const wedgeCircumference = 2 * Math.PI * wedgeRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% popover.
@@ -735,19 +737,23 @@ export function ContextRing({
         }}
       >
         <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
-          {fraction > 0 && (
-            <circle
-              cx="8"
-              cy="8"
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeDasharray={`${circumference * fraction} ${circumference}`}
-              transform="rotate(-90 8 8)"
-            />
+          <circle cx="8" cy="8" r={7} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={1} />
+          {fraction >= 1 ? (
+            <circle cx="8" cy="8" r={wedgeRadius * 2} fill="currentColor" />
+          ) : (
+            fraction > 0 && (
+              <circle
+                cx="8"
+                cy="8"
+                r={wedgeRadius}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={wedgeRadius * 2}
+                strokeLinecap="butt"
+                strokeDasharray={`${wedgeCircumference * fraction} ${wedgeCircumference}`}
+                transform="rotate(-90 8 8)"
+              />
+            )
           )}
         </svg>
       </button>
@@ -1142,7 +1148,7 @@ export const MicIcon = () => (
 export const RingIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="5.5" opacity="0.35" />
-    <path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" />
+    <path d="M8 8V4a4 4 0 0 1 4 4Z" fill="currentColor" stroke="none" />
   </Icon>
 );
 export const SlashIcon = () => (
