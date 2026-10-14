@@ -8,7 +8,8 @@
 // - the read list admits no mutating git command, not even by an abbreviated option;
 // - a repository's own config never runs a program (fsmonitor, filter drivers, a driver named
 //   with "=", a lazy fetch from a promisor remote, a submodule's diff driver), and the dev's
-//   GIT_* environment never redirects a read.
+//   GIT_* environment never redirects a read;
+// - the repository's orderfile and global attributes file are never read.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -310,6 +311,25 @@ describe("untrusted repository", () => {
       git("config", "--unset", "core.fsmonitor");
       git("config", "--remove-section", "filter.evil");
       fs.rmSync(path.join(repo, ".git", "info", "attributes"));
+      write("docs/readme.md", "# Readme\n\nMore.\n");
+    }
+  });
+
+  test("the repository's orderfile and global attributes file are never read", async () => {
+    // A path git cannot read stands in for /dev/zero, which git would read until memory ran out.
+    git("config", "diff.orderFile", path.join(root, "no-such-orderfile"));
+    git("config", "core.attributesFile", path.join(root, "binary-attributes"));
+    fs.writeFileSync(path.join(root, "binary-attributes"), "*.md -diff\n");
+    write("docs/readme.md", "# Readme\n\nMore, changed.\n");
+    try {
+      const { body } = await read("git.diff", { scope: "unstaged", include_patch: true });
+      expect(body.ok).toBe(true);
+      const readme = body.value.files.find((file: { path: string }) => file.path === "docs/readme.md");
+      expect(readme.binary ?? false).toBe(false);
+      expect(readme.patch).toContain("+More, changed.");
+    } finally {
+      git("config", "--unset", "diff.orderFile");
+      git("config", "--unset", "core.attributesFile");
       write("docs/readme.md", "# Readme\n\nMore.\n");
     }
   });
