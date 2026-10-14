@@ -151,9 +151,7 @@ extension TabStripView {
             let resolved = TabGroupDropMath.resolveGroup(entries: entries, start: start, draggedMinX: contentX - width / 2)
             return TabGroupDropResolution(index: pinnedCount + resolved.tabIndex, groupID: nil)
         }
-        // A tab goes to the slot edge nearest the pointer: past a tab's middle is after it. The
-        // ghost card follows the pointer, not a tab of the standard width, which on a strip of
-        // narrow tabs put most of the last tab (and the space past it) before it (cx-6ggef).
+        // A tab goes to the slot edge nearest the pointer, as its ghost card follows it (cx-6ggef).
         let resolved = TabGroupDropMath.resolveTab(
             entries: entries,
             start: start,
