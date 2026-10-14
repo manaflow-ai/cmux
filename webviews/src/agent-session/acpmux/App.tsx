@@ -103,7 +103,7 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
-import { useDockRoom, useSummaryCard } from "./summary/cardState";
+import { useSummaryCard, useSummaryRoom } from "./summary/cardState";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -2552,9 +2552,9 @@ function AcpmuxPane() {
   }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
   // Another chat never opens on a subagent of this one.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  // The summary docks right of a chat where the pane has room beside it (an open artifact takes
-  // that place; a new chat has nothing to sum up), else it is a popover (summary/cardState.ts).
-  const summaryCard = useSummaryCard(useDockRoom(artifact !== undefined || freshView));
+  // The summary's card makes room beside a chat where the pane has it (an open artifact takes that
+  // place; a new chat has nothing to sum up), else it lies over the chat (summary/cardState.ts).
+  const summaryCard = useSummaryCard(useSummaryRoom(artifact !== undefined || freshView));
   const askedToolCalls = useMemo(
     () => pendingToolCalls(snapshot),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
@@ -5063,10 +5063,8 @@ function AcpmuxPane() {
       </ShortcutsContext.Provider>
     );
   if (paneRenderStart > 0) acpmuxPerf.span("pane.body", performance.now() - paneRenderStart);
-  // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the docked
-  // panel's place.
-  const summaryCovered =
-    summaryCard.docked && (Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen);
+  // A side view (replay, the Inspector, diff review) or the Harnesses screen takes the card's place.
+  const summaryCovered = Boolean(replaying) || inspectorOpen || Boolean(diffFiles) || harnessesOpen;
   const summaryPanel = (
     <SummaryCard
       // Another chat closes this one's gallery, as it does the image viewer.
@@ -5084,7 +5082,12 @@ function AcpmuxPane() {
   return (
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
-        <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
+        <div
+          className="acpmux-main"
+          data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // The chat's column moves left of the open card (summary.css).
+          data-summary={summaryCard.shown && summaryCard.push && !summaryCovered ? "push" : undefined}
+        >
           {!harnessesOpen && showNewTab && !newTab.history && (
             // The page's style, under it; a pick shows in place at once.
             <StyleSwitch
@@ -5304,7 +5307,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!summaryCard.docked && summaryPanel}
+                {!summaryCovered && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -5391,8 +5394,6 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {/* Beside the chat and its composer; hidden under the Inspector and diff review, as they take the chat's place. */}
-        {summaryCard.docked && !summaryCovered && summaryPanel}
         {artifact && (
           <ArtifactPanel
             key={artifact.opened}
