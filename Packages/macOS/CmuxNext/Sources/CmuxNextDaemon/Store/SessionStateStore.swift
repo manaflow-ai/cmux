@@ -79,7 +79,7 @@ public final class SessionStateStore {
     }
 
     /// Lays `state`'s tab record and terminal records over `tab` (`overlay`'s tab step).
-    private static func lay(_ state: SessionStateMirror?, over tab: TabModel) {
+    static func lay(_ state: SessionStateMirror?, over tab: TabModel) {
         tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
                        progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
                        programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
