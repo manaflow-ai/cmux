@@ -227,9 +227,9 @@ fn host_stops(dir: &Path, mux_home: &Path, acpmux_home: &Path, shared: Option<&P
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    command
-        .env("OPTCHAT_CHIEF_PARTICIPANT", "agent_test")
-        .env("MUX_CHIEF_TITLE", "Test Chief");
+    // A Chief's identity the shared daemon must not get (the participant
+    // stays the default: a non-default one needs the owner daemon to start).
+    command.env("MUX_CHIEF_TITLE", "Test Chief");
     if let Some(chief_home) = shared {
         command.env("OPTCHAT_ACPMUX_SHARED", "1").env("CMUX_CHIEF_HOME", chief_home);
     }
