@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409. */
+/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b5e8acd548f02d39d9b7089e61adf503d46d76ff4a5d3ef9656dd18034a1b409" as const;
+export const SDK_IR_SHA256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2038,13 +2038,19 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 10,
     "capability": "browser-provider-v1",
-    "fields": {},
+    "fields": {
+      "hosting": {
+        "since": null,
+        "capability": "browser-provider-native-hosting-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The lease is scoped to the trusted local control connection and is released on disconnect.",
       "The endpoint must be an explicit loopback ws URL with no credentials or fragment.",
       "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
-      "Each registration replaces that connection's complete target set; target ids are never journaled."
+      "Each registration replaces that connection's complete target set; target ids are never journaled.",
+      "All provider clients of one live registration must agree on hosting."
     ]
   },
   "release-attached-view-size": {
@@ -3947,6 +3953,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "session": {
         "nullable": true,
         "presence": "required",
@@ -4456,6 +4472,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "bearer"
     ]
   },
+  "BrowserProviderHosting": {
+    "kind": "enum",
+    "values": [
+      "daemon",
+      "native"
+    ]
+  },
   "BrowserProviderSnapshot": {
     "additional_properties": false,
     "constraints": [
@@ -4493,6 +4516,15 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "hosting": {
+        "capability": "browser-provider-native-hosting-v1",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "BrowserProviderHosting"
         }
       },
       "provider_id": {
@@ -5109,6 +5141,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "thread": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadState"
+        }
+      },
       "thread_root": {
         "nullable": false,
         "presence": "optional",
@@ -5569,6 +5609,73 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ConversationThreadResolution": {
+    "additional_properties": false,
+    "fields": {
+      "at": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "by": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "seq": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadState": {
+    "additional_properties": false,
+    "fields": {
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadResolution"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ConversationThreadStatus": {
+    "kind": "enum",
+    "values": [
+      "open",
+      "resolved"
+    ]
+  },
   "ConversationThreadSummary": {
     "additional_properties": false,
     "fields": {
@@ -5599,6 +5706,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "owner": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "reply_count": {
         "nullable": false,
         "presence": "required",
@@ -5607,9 +5722,41 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint64"
         }
       },
+      "resolved_at": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "resolved_by": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "root": {
         "nullable": false,
         "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ConversationThreadStatus"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -20701,6 +20848,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "hosting": {
+          "capability": "browser-provider-native-hosting-v1",
+          "constraints": [
+            "\"native\": the provider presents each page in its own native view. The daemon never sends a geometry Emulation.setDeviceMetricsOverride, never activates a target to recover stalled frames, and screencasts a target only while a frame viewer is attached. Absent or \"daemon\" keeps the original contract: the daemon sizes and screencasts every attached target."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProviderHosting"
+          }
+        },
         "provider_id": {
           "nullable": false,
           "presence": "required",
@@ -24815,6 +24975,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "agent-changed"
+        }
+      },
+      "last_prompt": {
+        "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "session": {
