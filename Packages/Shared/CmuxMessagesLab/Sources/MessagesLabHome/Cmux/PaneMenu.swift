@@ -14,6 +14,12 @@ extension ChatController {
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let menu = NSMenu()
+        // Real Messages (macOS 27, right-click references): 295 pt wide in both
+        // directions; AppKit spreads the palette cells over the width (45 pt apart).
+        menu.minimumWidth = Self.menuWidth
+        // MessagesLab bd44207: no Services lookup. AppKit asks the responder chain for Services at
+        // each open (6-8 ms of main-thread work per open) and adds no item to this menu.
+        menu.allowsContextMenuPlugIns = false
         // The pressed bubble is highlighted while the menu is open (real Messages, macOS 27:
         // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
         // the press; back when the menu closes).
@@ -74,6 +80,9 @@ extension ChatController {
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         return menu
     }
+
+    /// The context menu's width (real Messages, macOS 27).
+    static let menuWidth: CGFloat = 295
 
     // MARK: Menu actions
 
