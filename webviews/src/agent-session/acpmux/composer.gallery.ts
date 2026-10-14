@@ -94,8 +94,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
-    // The context-usage-menu play draws it beside Hide Context Usage.
-    "agent-session/acpmux/ComposerPickers.tsx#RingIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -478,34 +476,6 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-context .acpmux-location-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='dialog']"));
-      },
-    },
-    "context-usage-menu": {
-      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the composer's button row then offers Show Context Usage.",
-      snapshot: chat(finished, {
-        summary: {
-          sessionId: "gallery-usage",
-          harness: "claude",
-          model: "claude-opus-5-5",
-          cwd: CWD,
-          turnCount: 2,
-          usage: { used: 48_000, size: 200_000 },
-        },
-      }),
-      play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-context-ring"));
-        const ring = ctx.document.querySelector<HTMLElement>("button.acpmux-context-ring")!;
-        const box = ring.getBoundingClientRect();
-        const view = ctx.document.defaultView!;
-        ring.dispatchEvent(
-          new view.MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: box.left + 4,
-            clientY: box.top + 4,
-          }),
-        );
-        await ctx.waitFor(() => ctx.document.querySelector(".ui-context-menu [role=menuitem]"));
       },
     },
     "add-menu": {
@@ -1101,8 +1071,9 @@ export default agentPaneEntry({
         if (contextStyle.borderTopWidth !== "0px" || contextStyle.boxShadow !== "none")
           throw new Error("location scope still draws a divider or inner box");
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
-        const spacer = ctx.find({ selector: ".acpmux-chips-spacer" });
-        if (Number(ctx.document.defaultView!.getComputedStyle(spacer).flexGrow) < 1)
+        // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
+        const actions = ctx.find({ selector: ".acpmux-composer-actions" });
+        if (ctx.document.defaultView!.getComputedStyle(actions).marginLeft === "0px")
           throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");

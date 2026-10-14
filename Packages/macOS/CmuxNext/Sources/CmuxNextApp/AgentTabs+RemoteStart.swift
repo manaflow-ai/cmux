@@ -26,6 +26,7 @@ extension AgentTabStore {
     /// Starts tab `key`'s chat on its machine (`agent-session-start`) once, from the page's first
     /// send, in the page's folder and agent (nil: the seed's, then a workspace folder there).
     func startRemoteChat(_ key: String, machine: String, cwd: String? = nil, harness: String? = nil,
+                         personKey: AgentSessionAttachClient.PersonKey? = nil,
                          endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let running = remoteStarts[resolveRemote(key)] { return try await running.value }
@@ -33,7 +34,7 @@ extension AgentTabStore {
         // handshake that overlap share it (the daemon refuses a second start with `limit`)
         let task = Task<AgentTabRemoteStart.Started, any Error> { [weak self] in
             guard let self else { throw CancellationError() }
-            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, endpoint: endpoint)
+            return try await runRemoteStart(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
         }
         remoteStarts[resolveRemote(key)] = task
         defer { if remoteStarts[resolveRemote(key)] == task { remoteStarts[resolveRemote(key)] = nil } }
@@ -41,7 +42,7 @@ extension AgentTabStore {
     }
 
     private func runRemoteStart(_ key: String, machine: String, cwd chosen: String?, harness chosenHarness: String?,
-                                endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
+                                personKey: AgentSessionAttachClient.PersonKey?, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) async throws
         -> AgentTabRemoteStart.Started {
         if let pending = remoteCreations[key] ?? remoteCreations[resolveRemote(key)] { _ = try await pending.value() }
         let key = resolveRemote(key)
@@ -59,7 +60,7 @@ extension AgentTabStore {
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
         let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home)) } catch { result = .failure(error) }
+        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home, personKey: personKey)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -71,7 +72,8 @@ extension AgentTabStore {
             if error.code == "agent_session.bound", let session = lookup(resolveRemote(key))?.record.session {
                 return .init(surface: surface, session: session)
             }
-            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message)
+            throw AgentRemoteStartRefusal(code: error.code, machine: machine, folder: cwd, detail: error.message,
+                                          keyedRestartSafe: error.keyedRestartSafe)
         case .failure(let error):
             throw error
         }
@@ -97,6 +99,9 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
     let machine: String
     var folder: String?
     var detail: String?
+    /// `agent_session.needs_keyed_start`: the machine's daemon says a keyed restart of its acpmux
+    /// loses nothing (cx-0w0jj); nil for any other refusal.
+    var keyedRestartSafe: Bool?
 
     /// No folder to start in (no seed folder, no folder in the workspace).
     static let folderNeededCode = "app.folder_needed"

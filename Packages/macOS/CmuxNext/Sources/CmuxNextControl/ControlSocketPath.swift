@@ -20,6 +20,11 @@ import Darwin
 /// still use the old path connect. A path that would not fit `sun_path`
 /// (104 bytes, a long home or tag) stays at the old `/tmp` name.
 ///
+/// The app names its socket through ``BuildIdentity/controlSocket(userHome:)``
+/// (per-build isolation S3) and then ``moved(_:home:)``: these names where
+/// they belong to one build or DEV tag, else `cmux-<kind>--<key hash>.sock`
+/// (the untagged DEV build too).
+///
 /// The inputs are this app's own identity only. Inherited environment
 /// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
 /// another cmux) never reaches this function; see ``LaunchIdentity``.
@@ -49,10 +54,16 @@ public struct ControlSocketPath: Sendable {
         isDebugBuild: Bool,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> String {
-        let old = tmpPath(bundleID: bundleID, tag: tag, isDebugBuild: isDebugBuild, home: home)
-        guard old.hasPrefix("/tmp/") else { return old }
+        moved(tmpPath(bundleID: bundleID, tag: tag, isDebugBuild: isDebugBuild, home: home), home: home).path
+    }
+
+    /// A socket's pre-move `/tmp` name `old` in the state folder, and the
+    /// `/tmp` name the app keeps as a symlink to it (nil when not moved:
+    /// release, or a path too long for `sun_path`).
+    public func moved(_ old: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> (path: String, link: String?) {
+        guard old.hasPrefix("/tmp/") else { return (old, nil) }
         let moved = stateDirectory(home: home) + "/" + old.dropFirst("/tmp/".count)
-        return moved.utf8.count <= Self.maxPathBytes ? moved : old
+        return moved.utf8.count <= Self.maxPathBytes ? (moved, old) : (old, nil)
     }
 
     /// The old `/tmp` name of the socket ``resolve(bundleID:tag:isDebugBuild:home:)``
@@ -130,7 +141,8 @@ public struct ControlSocketPath: Sendable {
         ])
         for directory in ["/tmp", state] {
             for entry in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? []
-            where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging"].contains(where: entry.hasPrefix) && entry.hasSuffix(".sock") {
+            where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging", "cmux-release"].contains(where: entry.hasPrefix)
+                && entry.hasSuffix(".sock") {
                 paths.insert(directory + "/" + entry)
             }
         }
