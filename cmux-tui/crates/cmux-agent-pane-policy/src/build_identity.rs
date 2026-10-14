@@ -16,7 +16,8 @@
 //! gets roots of its own under its key.
 //!
 //! It lives in this crate because every acpmux host and client (acpmux,
-//! the cmux CLI) already depends on it; the Swift mirror is `BuildIdentity`
+//! the cmux CLI) already depends on it (it can move to its own crate
+//! later, with the chief's Cargo LOCK turn); the Swift mirror is `BuildIdentity`
 //! (CmuxNextCompat). Both follow
 //! `schemas/build-identity/vectors.json`. Design:
 //! hq `.cmux-scratch/hq6d-per-build-isolation/DESIGN.md`.
