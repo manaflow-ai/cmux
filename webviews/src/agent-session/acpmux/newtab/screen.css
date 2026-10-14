@@ -80,10 +80,6 @@
 /* The location row tints itself with the card's bottom corners in every template. The card itself
    never clips: the model picker opens in the card, above or below its chip (a clipping card cut it
    to its search field, Lawrence 2026-10-13). */
-/* RED (cx-qe8fn): the card clip from before 4b35f13b, which the stale DEV builds carried. */
-.nt-box {
-  overflow: hidden;
-}
 .nt-box .acpmux-composer-context {
   border-radius: 0 0 20px 20px;
 }
