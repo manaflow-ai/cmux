@@ -21,6 +21,12 @@ public struct SidebarDebugStatusGlyph: Sendable {
     public var title: String? = nil
     public var titleCapCenterY: CGFloat? = nil
     public var badge: CGRect? = nil
+    /// What the indicator draws (`StatusIndicatorPlan.Glyph`): `arc` for the spinner, `mark` for a
+    /// status icon set's mark, `dot`, `dots`, ... (cx-qtgj2: working is a spinner, not a pulse).
+    public var glyph: String = ""
+    /// The animation the layer runs now (`spin`, `pulse`, ...), nil when it is still (occluded,
+    /// minimized, Reduce Motion or a still state).
+    public var animation: String? = nil
 }
 
 extension SidebarView {
@@ -44,6 +50,8 @@ extension SidebarView {
                 badgeHeight: SidebarStyle.badgeHeight,
                 soft1x: layer.debugMarkMask(scale: 1).flatMap(MaskMeasure.softness),
                 soft2x: layer.debugMarkMask(scale: 2).flatMap(MaskMeasure.softness))
+            if case .mark = layer.plan.glyph { glyph.glyph = "mark" } else { glyph.glyph = String(describing: layer.plan.glyph) }
+            glyph.animation = layer.runningAnimation.map { String(describing: $0) }
             if let mask = layer.debugMarkMask(scale: scale), let box = MaskMeasure.alphaBox(mask) {
                 // Mask rows run top to bottom; the glyph square is centered in the indicator.
                 let side = CGFloat(mask.width) / scale
