@@ -1,4 +1,5 @@
 import type { conversation } from "@cmux/home-core"
+import { NO_REPLY } from "./prompts.ts"
 
 type Head = NonNullable<conversation.ConversationState>
 type Message = conversation.Message
@@ -58,4 +59,17 @@ export const formatMessage = (head: Head, m: Message): string => {
 export const replyTarget = (kind: string, message: string, threadRoot: string | null): { reply_to?: string; thread_root?: string } => {
   if (kind === "chief" || kind === "dm") return threadRoot ? { reply_to: message, thread_root: threadRoot } : {}
   return { reply_to: message, thread_root: threadRoot ?? message }
+}
+
+/** The model's "post nothing" answer, with punctuation and case ignored ("NO_REPLY.", "no_reply"). */
+export const isNoReply = (text: string) => text.replace(/[^A-Za-z_]/g, "").toUpperCase() === NO_REPLY
+
+/** Reply text stays under message.send's text limit (64 KiB). */
+const REPLY_BYTES = 60 * 1024
+export const clipReply = (text: string) => {
+  const enc = new TextEncoder()
+  if (enc.encode(text).length <= REPLY_BYTES) return text
+  let out = [...text]
+  while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
+  return `${out.join("")}\n[... cut]`
 }

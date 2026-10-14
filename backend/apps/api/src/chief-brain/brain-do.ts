@@ -11,8 +11,8 @@ import { type BrainConfig, PROFILE_LIMITS, readConfig, SCHEMA, writeConfig } fro
 import { Compactor, type CallRecord } from "./compactor.ts"
 import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
 import { brainModels, FAKE, validModelName } from "./models.ts"
-import { formatMessage, replyTarget, systemFirst, textParts } from "./brain-text.ts"
-import { AGENT, DATE_DESCRIPTION, NO_REPLY, systemPrompt, ZOOM_DESCRIPTION } from "./prompts.ts"
+import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
+import { AGENT, DATE_DESCRIPTION, systemPrompt, ZOOM_DESCRIPTION } from "./prompts.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -48,20 +48,9 @@ const SETTLE_MS = 60_000
 /** A turn that runs longer is stopped and recorded failed. */
 const TURN_MS = 10 * 60_000
 const DEFAULT_DAILY_TURNS = 300
-/** Reply text stays under message.send's text limit (64 KiB). */
-const REPLY_BYTES = 60 * 1024
 
 export const brainName = (agent: string, conversation: string) => `${agent}/${conversation}`
 export type Admission = { readonly ok: true; readonly config: BrainConfig } | { readonly ok: false; readonly reason: string }
-
-const isNoReply = (text: string) => text.replace(/[^A-Za-z_]/g, "").toUpperCase() === NO_REPLY
-const clipReply = (text: string) => {
-  const enc = new TextEncoder()
-  if (enc.encode(text).length <= REPLY_BYTES) return text
-  let out = [...text]
-  while (enc.encode(out.join("")).length > REPLY_BYTES - 16) out = out.slice(0, Math.floor(out.length * 0.9))
-  return `${out.join("")}\n[... cut]`
-}
 
 export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compactor_model" | "role" | "personality" | "instructions">>
 
@@ -323,12 +312,15 @@ export class ChiefBrainDO extends DurableObject<Env> {
 
   private kick(): void {
     if (this.draining) return
+    let failed = false
     this.draining = this.drain()
-      .catch((e: unknown) => console.error(JSON.stringify({ msg: "chief_brain.drain_failed", error: String(e).slice(0, 300) })))
+      .catch((e: unknown) => void (failed = true, console.error(JSON.stringify({ msg: "chief_brain.drain_failed", error: String(e).slice(0, 300) }))))
       .finally(() => {
         this.draining = undefined
-        // A wake that queued rows while the drain was ending saw it still running: look again.
-        if (this.sql.exec(`SELECT 1 FROM cb_inbox WHERE state = 'queued' AND woke = 1 LIMIT 1`).toArray().length > 0) this.kick()
+        // A wake that queued rows while the drain was ending saw it still running: look again (after a failure, later).
+        if (this.sql.exec(`SELECT 1 FROM cb_inbox WHERE state = 'queued' AND woke = 1 LIMIT 1`).toArray().length === 0) return
+        if (failed) void this.schedule("drain", "drain", Date.now() + RETRY_MS)
+        else this.kick()
       })
     this.ctx.waitUntil(this.draining)
   }
@@ -348,6 +340,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const rows = this.sql
         .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
         .toArray()
+      if (!a.ok && a.reason === "owner.unreachable") return void (await this.schedule("drain", "drain", Date.now() + RETRY_MS))
       if (!a.ok) {
         // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
         this.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
@@ -491,6 +484,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
       const next = await this.post(String(job.id).slice("post:".length))
       return next === null ? undefined : { rescheduleAt: next }
     }
+    if (job.fn === "drain") return void this.kick()
     if (job.fn !== "compact") return
     this.compactor.pump()
     if (!(await this.compactor.settle(AbortSignal.timeout(60_000)))) return { rescheduleAt: Date.now() + RETRY_MS }
