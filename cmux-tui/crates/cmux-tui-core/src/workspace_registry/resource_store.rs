@@ -3926,21 +3926,24 @@ fn set_resource_workspace_order(
         &live,
         workspace_ids.iter().map(WorkspacePublicId::as_str),
     )?;
-    for (position, workspace_id) in workspace_ids.iter().enumerate() {
-        transaction.execute(
-            "UPDATE workspaces
-             SET position = ?1, updated_revision = ?2
-             WHERE workspace_key = (
-               SELECT workspace_key FROM resource_workspaces
-               WHERE public_id = ?3 AND deleted_revision IS NULL
-             ) AND tombstoned = 0 AND position != ?1",
-            params![
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                revision,
-                workspace_id.as_str(),
-            ],
-        )?;
-    }
+    // One statement: the order as a JSON array (index = position), so a
+    // creation or move at 2000 workspaces is not 2000 statements; only rows
+    // whose position changes are written.
+    let order = serde_json::to_string(
+        &workspace_ids.iter().map(WorkspacePublicId::as_str).collect::<Vec<_>>(),
+    )?;
+    transaction.execute(
+        "UPDATE workspaces
+         SET position = target.position, updated_revision = ?2
+         FROM (SELECT rw.workspace_key AS workspace_key, CAST(entry.key AS INTEGER) AS position
+               FROM json_each(?1) AS entry
+               JOIN resource_workspaces AS rw
+                 ON rw.public_id = entry.value AND rw.deleted_revision IS NULL) AS target
+         WHERE workspaces.workspace_key = target.workspace_key
+           AND workspaces.tombstoned = 0
+           AND workspaces.position != target.position",
+        params![order, revision],
+    )?;
     Ok(())
 }
 

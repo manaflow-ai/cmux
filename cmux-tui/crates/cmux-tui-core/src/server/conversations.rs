@@ -15,6 +15,7 @@ use super::remote_relay::participants::{device_id_refused, is_device_id};
 use super::{Mux, MuxEvent, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::attachments::AttachmentRejected;
+use crate::conversation_store::runs::RunRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
@@ -193,6 +194,7 @@ pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
             error.downcast_ref::<ConversationSearchRejected>().map(|r| r.0.code().to_string())
         })
         .or_else(|| error.downcast_ref::<AttachmentRejected>().map(|r| r.0.to_string()))
+        .or_else(|| error.downcast_ref::<RunRejected>().map(|r| r.0.to_string()))
 }
 
 /// The `error_code` of a conversation reject.
@@ -201,6 +203,9 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
         || error.downcast_ref::<ConversationSearchRejected>().is_some();
     if error.downcast_ref::<AttachmentRejected>().is_some() {
         return Some(AttachmentRejected::CODE.to_string());
+    }
+    if error.downcast_ref::<RunRejected>().is_some() {
+        return Some(RunRejected::CODE.to_string());
     }
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
