@@ -71,7 +71,7 @@ public final class HoverCardCoordinator {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification] {
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
                 MainActor.assumeIsolated { self?.windowGeometryChanged(number) } // main-proof: observer on queue: .main
@@ -119,7 +119,11 @@ public final class HoverCardCoordinator {
     /// column scroll, an animation frame, tabs added, removed or
     /// reordered). The pointer may now be over another target, or none,
     /// without having moved. Cheap when idle and the pointer is elsewhere.
+    /// Nothing during a live resize: the pointer is on the window's edge,
+    /// and every strip and list hit-tested again on every frame (resize
+    /// jank, Leo on cosmic-gray 2026-10-13). Its end hit-tests once.
     public func geometryChanged(in window: NSWindow?) {
+        if window?.inLiveResize == true { return }
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
