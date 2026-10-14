@@ -39,6 +39,19 @@ test("a turn stopped mid-tool folds its work under the stop line", () => {
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
 });
 
+test("a turn that edited and then ran a tool in one step folds its interim text", () => {
+  const step = row("step", "activity", {
+    items: [
+      { kind: "tool", text: "", tool: { id: "patch", title: "patch", kind: "edit", status: "completed" } },
+      { kind: "tool", text: "", tool: { id: "test", title: "test", kind: "execute", status: "completed" } },
+    ],
+  });
+  const rows = [row("u", "user"), text("interim"), step, summary("cancelled")];
+  const shaped = drawn(rows);
+  expect(shaped.slice(0, 2)).toEqual(["user:u", "worked:worked-u"]);
+  expect(shaped).not.toContain("assistant:interim");
+});
+
 test("an edit after the answer still joins the turn's edit card, and the answer stays open", () => {
   const rows = [row("u", "user"), tool("read"), text("answer"), tool("patch", "edit"), summary()];
   const shaped = drawn(rows);
