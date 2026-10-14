@@ -166,6 +166,15 @@ mod outbound;
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workflow_tests;
+mod workflows;
+
+/// The internal ACP request that stops one of Claude Code's background
+/// tasks (`hub/processes.rs`), `{sessionId, taskId}`: Claude Code's
+/// `stop_task` control request. The answer is `{}` once Claude Code took it;
+/// the task's end arrives as its own event.
+pub const STOP_TASK: &str = "_acpmux/claude/stop_task";
 
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
@@ -286,6 +295,12 @@ pub struct Translator {
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
+    /// The skills Claude Code names in its system/init (`skills`, names
+    /// without "/"): their slash commands are tagged as skills.
+    skills: Mutex<Vec<String>>,
+    /// The `availableCommands` list last sent, so a turn's system/init that
+    /// changes nothing sends no new one.
+    sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
     /// to control requests acpmux declines). The reader drains them.
     stdin_replies: Mutex<Vec<Value>>,
@@ -298,6 +313,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// Running Workflow tool calls (`workflows.rs`), each with its run's
+    /// transcript dir once its launch named it.
+    workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -329,6 +347,8 @@ struct BackgroundShell {
     command: String,
     task: Option<String>,
     background: bool,
+    /// Started in the background (`run_in_background`), not moved there.
+    launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
 }
@@ -340,6 +360,8 @@ enum Pending {
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.
     Control(Setting, String),
+    /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
+    StopTask,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -368,10 +390,13 @@ impl Translator {
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
+            skills: Mutex::new(Vec::new()),
+            sent_commands: Mutex::new(None),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
@@ -415,6 +440,41 @@ impl Translator {
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
+    }
+
+    /// The `available_commands_update` for Claude's slash commands, an entry
+    /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
+    /// labels it "Skill"). Without `always`, a list that is unchanged, or
+    /// empty before any was sent, sends nothing.
+    async fn commands_update(&self, always: bool) -> Option<Value> {
+        let skills = self.skills.lock().await.clone();
+        let list: Vec<Value> = self
+            .slash_commands
+            .lock()
+            .await
+            .iter()
+            .map(|c| {
+                let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
+                let name = c.get("name").and_then(Value::as_str).unwrap_or("");
+                let name = name.strip_prefix('/').unwrap_or(name);
+                if !name.is_empty()
+                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                {
+                    entry["_meta"] = json!({"kind": "skill"});
+                }
+                entry
+            })
+            .collect();
+        let mut sent = self.sent_commands.lock().await;
+        let unchanged = match sent.as_ref() {
+            Some(before) => *before == list,
+            None => list.is_empty(),
+        };
+        if !always && unchanged {
+            return None;
+        }
+        *sent = Some(list.clone());
+        Some(json!({"sessionUpdate": "available_commands_update", "availableCommands": list}))
     }
 
     pub async fn modes_value(&self) -> Value {

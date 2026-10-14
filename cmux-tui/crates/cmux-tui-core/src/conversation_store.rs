@@ -788,6 +788,19 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A participant's avatar changed (`participant-avatars-v1`): the stored
+    /// reference, or none. Not conversation state (no conversation, no rev);
+    /// `subscribe` delivers it only to a connection that echoed the
+    /// capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Avatar { participant: String, avatar: Option<Value> },
+    /// A Chief was created, edited (a picture too) or deleted
+    /// (`chief-events-v1`, cx-ebm.60.4): its id and `created`, `updated` or
+    /// `deleted`; a client reads the record with `chief.profile.get`. Not
+    /// conversation state; `subscribe` delivers it only to a connection that
+    /// echoed the capability in `set-client-info` (never the remote relay or
+    /// `conversation.events`).
+    Chief { chief: String, change: &'static str },
 }
 
 impl ConversationEvent {
@@ -827,12 +840,32 @@ impl ConversationEvent {
                 "run": run,
                 "steps": steps,
             }),
+            Self::Avatar { participant, avatar } => json!({
+                "event": "participant-avatar-changed",
+                "participant": participant,
+                "avatar": avatar,
+            }),
+            Self::Chief { chief, change } => json!({
+                "event": "chief-changed",
+                "chief": chief,
+                "change": change,
+            }),
         }
     }
 
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Avatar changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_avatar(&self) -> bool {
+        matches!(self, Self::Avatar { .. })
+    }
+
+    /// Chief changes go on `subscribe` only to a connection that asked.
+    pub(crate) const fn is_chief(&self) -> bool {
+        matches!(self, Self::Chief { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

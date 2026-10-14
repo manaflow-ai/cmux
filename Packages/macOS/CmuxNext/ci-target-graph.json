@@ -641,7 +641,8 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextCompat",
-        "CmuxNextSidebar"
+        "CmuxNextSidebar",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

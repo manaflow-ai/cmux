@@ -36,7 +36,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
@@ -49,8 +49,10 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
+import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
@@ -94,7 +96,6 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
-import { PermissionStatus } from "./PermissionStatus";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
@@ -1036,6 +1037,11 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// the latest line, which stopped the chat following for good (cx-02st5).
 const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
+/// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
+/// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
+/// else the chat opens at its latest message.
+const OPEN_AT_PAGE_MS = 1500;
+const OPEN_AT_SEEK_MS = 8000;
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
 function scrollRangeIn(scroller: HTMLElement, range: Range) {
   const box = range.getBoundingClientRect();
@@ -1355,6 +1361,20 @@ export function VirtualTranscript({
   }, [rows]);
   useLayoutEffect(flushDrawn);
   const didOpenAtLatest = useRef(false);
+  /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
+  const [seeking, setSeeking] = useState(false);
+  const [seekExpired, setSeekExpired] = useState(false);
+  const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// When the walk began, and the first row it had then: a new first row is a page landed.
+  const seekStart = useRef<number | undefined>(undefined);
+  const seekFirstRow = useRef<string | undefined>(undefined);
+  const endSeek = () => {
+    clearTimeout(seekTimer.current);
+    seekTimer.current = undefined;
+    seekStart.current = undefined;
+    seekFirstRow.current = undefined;
+  };
+  useEffect(() => () => clearTimeout(seekTimer.current), []);
   const previousSession = useRef(sessionId);
   useEffect(() => {
     const node = ref.current;
@@ -1642,6 +1662,9 @@ export function VirtualTranscript({
       // openAt position or latest row.
       previousSession.current = sessionId;
       didOpenAtLatest.current = false;
+      endSeek();
+      setSeeking(false);
+      setSeekExpired(false);
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
@@ -1716,27 +1739,49 @@ export function VirtualTranscript({
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
-    if (!didOpenAtLatest.current && node && layout.totalHeight > node.clientHeight) {
+    if (!didOpenAtLatest.current && node) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message.
       const at = openAt ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
-      const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
-      node.scrollTop = top;
-      followTrace.set(top);
-      setScroll({ top, delta: 0 });
-      follow(top >= latest - 1);
-      didOpenAtLatest.current = true;
+      // That row is older than the pages loaded so far (a chat opens on its tail): page back to it
+      // unseen, one older page after another: each page that lands changes `rows` and looks again
+      // (cx-odzaz).
+      if (openAt && at < 0 && canLoadOlder && onLoadOlder && !seekExpired) {
+        const now = performance.now();
+        seekStart.current ??= now;
+        if (seekFirstRow.current !== rows[0]?.id || seekTimer.current === undefined) {
+          seekFirstRow.current = rows[0]?.id;
+          clearTimeout(seekTimer.current);
+          const left = Math.min(OPEN_AT_PAGE_MS, OPEN_AT_SEEK_MS - (now - seekStart.current));
+          seekTimer.current = setTimeout(() => setSeekExpired(true), Math.max(0, left));
+        }
+        setSeeking(true);
+        onLoadOlder().catch(() => {});
+      } else if (layout.totalHeight <= node.clientHeight) {
+        // A tail that fits shows from the top, as before; it opens once it overflows.
+        endSeek();
+        setSeeking(false);
+      } else {
+        const top = at < 0 ? latest : Math.min(latest, layout.tops[at] + openAt!.offset);
+        node.scrollTop = top;
+        followTrace.set(top);
+        setScroll({ top, delta: 0 });
+        follow(top >= latest - 1);
+        didOpenAtLatest.current = true;
+        endSeek();
+        setSeeking(false);
+      }
     }
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width };
-    if (node && node.clientHeight > 0) {
+    if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId]);
+  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -1840,7 +1885,8 @@ export function VirtualTranscript({
   }, [sessionId]);
   const reportAnchor = () => {
     const node = ref.current;
-    if (!node || !onAnchor) return;
+    // Before the chat opens its offset is not the reader's: the kept place stays.
+    if (!node || !onAnchor || !didOpenAtLatest.current) return;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
     anchorDeferred.current = node.clientHeight === 0;
     if (anchorDeferred.current) return;
@@ -1868,6 +1914,8 @@ export function VirtualTranscript({
   }, [anchorNow]);
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
+    // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
+    if (!didOpenAtLatest.current) return;
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
@@ -1988,7 +2036,7 @@ export function VirtualTranscript({
     pointedTurn.current = footer;
     markTurns();
   };
-  const behind = !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
+  const behind = !seeking && !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <>
@@ -2000,6 +2048,8 @@ export function VirtualTranscript({
         onScroll={onScroll}
         // Soft edges (conversation.css): the top once scrolled from the start, the bottom while more
         // lies below. A followed reply has nothing below it, even while its growth outruns the offset.
+        data-seeking={seeking || undefined}
+        aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
       >
@@ -2129,6 +2179,8 @@ function DefaultComposerChips({
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   const addAgent = useHarnessesPage();
+  // acpmux has answered with its harnesses: only then can the chip say none is installed.
+  const harnessesListed = useHarnessesListed();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -2172,10 +2224,11 @@ function DefaultComposerChips({
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
-      // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
+      // Add harness… (the picker's last row; the chip itself with no harness): the Harnesses page,
+      // in place, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
+      harnessesListed={harnessesListed}
       showPlan={false}
-      onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
       catalogRefresh={{ status: refreshStatus, date: picker.date, refresh: refreshCatalog }}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
@@ -2780,9 +2833,7 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
-  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
-  const harnessesListed = useHarnessesListed();
-  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
@@ -3659,6 +3710,11 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
+        setBookmarkTransport({
+          get: (id) => client.readBookmarks(id),
+          set: (id, seq, on) => client.setBookmark(id, seq, on),
+        });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
@@ -4153,6 +4209,7 @@ function AcpmuxPane() {
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
+      setBookmarkTransport(undefined);
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };
@@ -4452,11 +4509,8 @@ function AcpmuxPane() {
       setImportError(error instanceof Error ? error.message : undefined);
     }
   }, []);
-  const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
-    if (kind !== "agent") {
-      void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
-      return;
-    }
+  /// The classic page's chat: a terminal or browser tab opens through `newTabPageSubmit`.
+  const chatFromNewTab = (text: string, cwd?: string) => {
     const inherited = newTab?.cwd;
     setNewTab(undefined);
     const start = (folder?: string) =>
@@ -4700,24 +4754,6 @@ function AcpmuxPane() {
       )}
     </div>
   ) : null;
-  const permissionStatus = (
-    <PermissionStatus
-      trusted={trustAsk.trusted}
-      chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
-      trustLabel={
-        trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
-          ? isAgentHome(trustAsk.ask.cwd)
-            ? t("trust.trustedPrivate")
-            : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
-          : undefined
-      }
-      recentTrust={trustAsk.justTrusted}
-      onUndoTrust={trustAsk.undo}
-      onRevoke={
-        snapshot.permissionGroups?.chatAllowance ? () => void callNative("chat.permission_chat.revoke", {}) : undefined
-      }
-    />
-  );
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -4866,7 +4902,6 @@ function AcpmuxPane() {
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
-          permissionStatus={permissionStatus}
           draft={draft}
           onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
@@ -4956,8 +4991,6 @@ function AcpmuxPane() {
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
-          // Start Agent's pickers head its panel: the folder row comes before the prompt.
-          contextFirst={quick}
           onBrowseProject={
             freshChat && !quick
               ? () => {
@@ -5147,9 +5180,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
-              harnessesListed={harnessesListed}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(
@@ -5187,7 +5218,8 @@ function AcpmuxPane() {
               omnibar={newTab.omnibar}
               projects={newTabProjects}
               chips={ComposerChips}
-              onSubmit={(...args: Parameters<typeof openFromNewTab>) => whenHandshaken(() => openFromNewTab(...args))}
+              // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
+              onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
