@@ -363,7 +363,7 @@ fn apply_personal_change(
             let after = row_index(tx, session, key)?.unwrap_or(0);
             match before {
                 Some(before) if before != after => {
-                    super::placement_shift::queue(tx, before.min(after), Some(before.max(after)))?
+                    super::placement_shift::queue(tx, before.min(after), Some(before.max(after)))?;
                 }
                 Some(_) => {}
                 None => super::placement_shift::queue(tx, after.saturating_add(1), None)?,
