@@ -821,9 +821,9 @@ impl Supervisor {
                     },
                 );
             }
-            Err(error) => eprintln!(
-                "cmux-tui: ending the sessions of Chief {chief} did not start: {error}"
-            ),
+            Err(error) => {
+                eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}")
+            }
         }
     }
 
@@ -929,7 +929,8 @@ fn stop_lock_holder(lock: &Path) {
 fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     // Without HOME the person's default home cannot be ruled out: keep all.
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
-    let shared_default = std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
+    let shared_default =
+        std::fs::canonicalize(PathBuf::from(user).join(".cmux/chief/default")).ok();
     let Ok(canonical) = std::fs::canonicalize(home) else { return };
     if shared_default.as_deref() == Some(canonical.as_path()) {
         return;
