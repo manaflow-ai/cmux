@@ -77,6 +77,8 @@ export default defineConfig({
           BILLING_LEVELS_KEY: "test-billing-levels-key-0123456789abcdef",
           // The usage sync's payment key: a test-mode shape; the payment service is faked in test/inference-spend-facts.test.ts.
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
+          // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
+          CHIEF_BRAIN_ENABLED: "1",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).
