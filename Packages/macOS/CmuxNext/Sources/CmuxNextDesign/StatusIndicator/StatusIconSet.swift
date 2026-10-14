@@ -81,7 +81,11 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     func plan(for state: StatusIndicatorState) -> StatusIndicatorPlan? {
         guard self != .current else { return nil }
         // Idle draws nothing in every set; the idle glyph is for hosts that show a still idle mark.
-        if self == .still { return state == .idle ? nil : StaticStatusGlyph(state)?.plan }
+        // Known progress keeps its ring, which never moves and says how far along the work is.
+        if self == .still {
+            if state == .idle || (state.isWorking && state.progress != nil) { return nil }
+            return StaticStatusGlyph(state)?.plan
+        }
         switch state {
         case .working where state.progress == nil:
             if self == .bars { return StatusIndicatorPlan(glyph: .bars, animation: .wave, tint: .accent) }

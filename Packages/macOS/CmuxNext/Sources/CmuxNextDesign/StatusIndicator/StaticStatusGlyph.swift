@@ -1,7 +1,7 @@
 /// Which static glyph a status shows (the Static status mode, Leo 2026-10-14).
 nonisolated extension StaticStatusGlyph {
     /// The glyph for `state`: nil for loading (busy, paused), which keeps its loading style, still
-    /// when nothing animates. A working agent is `working` with or without known progress; a
+    /// when nothing animates. A working agent is `working` (the Static set keeps a known-progress ring, which never moves); a
     /// permission or sign-in request is `permission`, any other wait `waiting`.
     public init?(_ state: StatusIndicatorState) {
         switch state {
