@@ -11,10 +11,9 @@ import os
 /// Home's client of the Chief home's conversation owner
 /// (`ChiefConversationOwner`, plans/cmux-next/home-state-ownership.md): the
 /// conversation list, one session (mirror + intent log) per open
-/// conversation, and the typed ops the user sends. The owner is the Chief
-/// home's daemon session, the same in every build of one account, so every
-/// build shows the same history; nothing here is persisted. The build's own
-/// daemon keeps only the Home workspace and its tabs.
+/// conversation, and the typed ops the user sends. The owner is this build's
+/// Chief home's daemon session (`ChiefHome`); nothing here is persisted.
+/// The build's own daemon keeps only the Home workspace and its tabs.
 @Observable @MainActor
 final class HomeService {
     /// Conversations, newest activity first, as the owner reports them.
@@ -26,14 +25,20 @@ final class HomeService {
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
-    /// The owner of every Home conversation: one per Chief home, never per build.
+    /// The owner of every Home conversation: this build's Chief home's (one Chief per build).
     @ObservationIgnored let chief: ChiefConversationOwner
+    /// Keeps the Chief home's brain host running (ChiefBrainKeeper).
+    @ObservationIgnored lazy var brain = ChiefBrainKeeper(
+        home: chief.home, connection: { [weak self] in self?.connection },
+        resolveHost: { [weak self] connection in
+            guard let self, let socket = await connection.endpoint?.socketPath else { return nil }
+            return HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath, home: chief.home)
+        },
+        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
-    /// The brain host was started on this app launch (it outlives the app).
-    @ObservationIgnored private var startedBrainHost = false
     /// Home opened in a window this launch; the host starts once the Chief
     /// owner is connected, even when Home opened first.
     @ObservationIgnored private var homeWasOpened = false
@@ -139,7 +144,8 @@ final class HomeService {
                 homeSource.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)
-                // Home opened before the owner answered: start the host now.
+                // Home opened before the owner answered, or the owner came back
+                // after a stop: start the host now if it does not run.
                 if homeWasOpened { homeDidOpen() }
                 // The Chief tab may wait on this owner (a local Chief with history
                 // takes it back from a placed chief): check it again now.
@@ -165,32 +171,15 @@ final class HomeService {
         if cloudChief != chief { cloudChief = chief }
     }
 
-    /// Home opened in a window: start the Chief home's brain host once per
-    /// launch. Its lock keeps one host per home, so a host another build
-    /// started keeps running, with its token: no new token revokes its binding.
+    /// Home opened in a window (or its owner reconnected): start the Chief
+    /// home's brain host when none runs (ChiefBrainKeeper).
     func homeDidOpen() {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
-        guard !startedBrainHost, let connection else { return }
-        // task-owner: reads the endpoint, then spawns the detached host once
-        Task { [weak self] in
-            guard let self, let socket = await connection.endpoint?.socketPath,
-                  let host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath,
-                                                   home: chief.home) else { return }
-            guard !startedBrainHost else { return }
-            startedBrainHost = true
-            // The mux proves its principal with a token this (user) connection mints.
-            do {
-                let outcome = try await host.start { try await ConversationClient(connection).agentToken(for: HomeService.mux.id) }
-                logger.info("mux host: \(String(describing: outcome), privacy: .public)")
-            } catch {
-                startedBrainHost = false
-                logger.error("mux agent token: \(String(describing: error), privacy: .public)")
-            }
-        }
+        brain.ensure()
     }
 
     /// The open session for `conversation`, loaded on first use.

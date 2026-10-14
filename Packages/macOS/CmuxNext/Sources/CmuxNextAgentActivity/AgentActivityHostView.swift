@@ -112,6 +112,9 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
 
     @MainActor
     private func reply(to method: String, params: [String: Any]) async -> (Any?, String?) {
+        // One tuple return after the do/catch: Swift 6.3 and 6.4 at -O drop the first element of
+        // a tuple returned from both an awaiting `do` and its `catch` (swiftlang/swift#92698, cx-21wc5).
+        let body: [String: Any]
         do {
             let value: Any
             switch method {
@@ -134,16 +137,17 @@ private final class AgentActivityBridge: NSObject, WKScriptMessageHandlerWithRep
                 value = try await Self.frameData(source: source, frame: AgentActivityFrameRef(blob: blob, width: width, height: height))
             default: throw AgentActivitySourceError.refused(method)
             }
-            return (["ok": true, "value": value], nil)
+            body = ["ok": true, "value": value]
         } catch {
-            return (["ok": false, "error": ["userMessage": String(describing: error)]], nil)
+            body = ["ok": false, "error": ["userMessage": String(describing: error)]]
         }
+        return (body, nil)
     }
 
     @MainActor static func state(_ model: AgentActivityModel) -> [String: Any] {
         var sessions: [String: [[String: Any]]] = [:]
         for (machine, values) in model.sessionsByMachine { sessions[machine] = values.map(session) }
-        return ["sessionsByMachine": sessions, "machineNames": model.machineNames, "connections": model.connections.mapValues(connection), "eventsBySession": model.eventsBySession.mapValues { $0.map(event) }, "selectedSessionID": model.selectedSessionID as Any, "scrubSeq": model.scrubSeq as Any, "filter": model.filter, "watching": Array(model.watching), "layout": model.layout.rawValue, "strings": ["title": AgentActivityStrings.title, "filter": AgentActivityStrings.filter, "emptyTitle": AgentActivityStrings.emptyTitle, "emptyDetail": AgentActivityStrings.emptyDetail, "noFrame": AgentActivityStrings.noFrame, "active": AgentActivityStrings.status(.active), "idle": AgentActivityStrings.status(.idle), "paused": AgentActivityStrings.status(.paused), "live": AgentActivityStrings.live, "stop": AgentActivityStrings.stop, "pause": AgentActivityStrings.pause, "resume": AgentActivityStrings.resume, "watch": AgentActivityStrings.watch, "unwatch": AgentActivityStrings.watch]]
+        return ["sessionsByMachine": sessions, "machineNames": model.machineNames, "connections": model.connections.mapValues(connection), "eventsBySession": model.eventsBySession.mapValues { $0.map(event) }, "selectedSessionID": model.selectedSessionID as Any, "scrubSeq": model.scrubSeq as Any, "filter": model.filter, "watching": Array(model.watching), "layout": model.layout.rawValue, "strings": AgentActivityStrings.page]
     }
 
     static func session(_ value: AgentActivitySession) -> [String: Any] { ["id": value.id, "machine": value.machine, "machineName": value.machineName, "label": value.label, "agentKind": value.agentKind, "agentName": value.agentName, "attribution": value.attribution.rawValue, "workspaceTitle": value.workspaceTitle as Any, "terminalTitle": value.terminalTitle as Any, "colorHex": value.colorHex, "targetApps": value.targetApps, "status": status(value.status), "startedAt": value.startedAt.timeIntervalSince1970 * 1000, "lastActionAt": value.lastActionAt.timeIntervalSince1970 * 1000, "endedAt": value.endedAt?.timeIntervalSince1970 as Any, "acts": value.acts, "observes": value.observes, "errors": value.errors, "foregroundOnly": value.foregroundOnly] }

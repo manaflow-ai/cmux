@@ -1,4 +1,5 @@
 import CmuxNextApps
+import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
 import Foundation
@@ -45,7 +46,7 @@ extension DaemonService {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: firstPartyAppsEnvironment,
-                                                webSocketPageOrigin: pageOrigin) else { return nil }
+                                                webSocketPageOrigins: pageOrigins) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey))
@@ -61,10 +62,14 @@ extension DaemonService {
         return environment
     }
 
-    /// The page origin the daemon's loopback listener admits: the channels page
-    /// (`PageDescriptor.homeChannels`, `cmux-page://cmux.home-channels`), the app's client of the
-    /// daemon WebSocket (cx-hnmbt.2).
-    nonisolated static let pageOrigin = "cmux-page://cmux.home-channels"
+    /// The page origins the daemon's loopback listener admits: every first-party page of the app
+    /// (`cmux-page://cmux.home-channels`, `cmux-page://cmux.history`, ...; cx-hnmbt.2, cx-hnmbt.10),
+    /// so each can open its own daemon WebSocket and gets its page id from its Origin. No other
+    /// origin.
+    nonisolated static var pageOrigins: [String] { FirstPartyPages.origins }
+    /// The origin an owner without `ws-listen-origins-v1` gets on `ws-listen`: the Channels page,
+    /// the app's one WebSocket client before cx-hnmbt.10.
+    nonisolated static let channelsPageOrigin = "cmux-page://cmux.home-channels"
 
     /// `pages/` of the CmuxNextPages resource bundle inside this app (built by
     /// build-pages-web.sh), nil when it is not there (tests, a bare binary).

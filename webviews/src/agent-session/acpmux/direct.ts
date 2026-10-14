@@ -8,6 +8,7 @@ import type {
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -30,6 +31,7 @@ import { translate } from "./i18n";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
+import { WORKSPACE_CONTEXT } from "./workspaceContext";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -53,6 +55,9 @@ export type AcpmuxHostConfig = {
   prompt?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
+  /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
+   *  context (workspaceContext.ts), hidden from the transcript. */
+  workspaceContext?: boolean;
 };
 
 /** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
@@ -146,11 +151,13 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
     kind: raw.toolCall?.kind,
+    ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
+      kind: typeof option.kind === "string" ? option.kind : undefined,
     })),
   };
 }
@@ -601,6 +608,8 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
+  /// A prompt carrying the workspace context is on its way (send).
+  private contextInFlight = false;
 
   private constructor(
     host: AcpmuxHostConfig,
@@ -1842,10 +1851,15 @@ export class AcpmuxDirectClient {
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
+    // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
+    // and a prompt sent while one carrying it is in flight goes without it.
+    const context = this.host.workspaceContext && !this.contextInFlight ? WORKSPACE_CONTEXT : undefined;
+    if (context) this.contextInFlight = true;
     const accept = () => {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      if (context) this.host = { ...this.host, workspaceContext: undefined };
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
@@ -1855,7 +1869,7 @@ export class AcpmuxDirectClient {
         sessionId,
         prompt: promptBlocks(input, attachments),
         _meta: {
-          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}) },
+          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       });
@@ -1865,6 +1879,8 @@ export class AcpmuxDirectClient {
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
       this.promptAccepts.delete(promptId);
+      // A refused prompt did not use the context: the next send carries it.
+      if (context && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
       if (queued) {
@@ -2263,14 +2279,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
@@ -2546,6 +2563,22 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
   return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
 }
 
+/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
+/// known fields.
+function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
+  if (!value || typeof value !== "object") return undefined;
+  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const source = (raw: unknown) =>
+    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const start = {
+    ...(typeof model === "string" && model ? { model } : {}),
+    ...(typeof effort === "string" && effort ? { effort } : {}),
+    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
+    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
+  };
+  return start.model || start.effort ? start : undefined;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
@@ -2562,6 +2595,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),

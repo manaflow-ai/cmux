@@ -10,6 +10,7 @@ use base64::Engine;
 
 use super::ConnectionCancellation;
 use super::DeliveryClassifiedError;
+use super::MessageWriter;
 use super::ProtocolKeyInput;
 use super::get_surface;
 use super::image_paste;
@@ -64,16 +65,36 @@ pub(super) fn paste_image(
     .handle(mux, client)
 }
 
+#[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
-    surface: SurfaceId,
+    writer: &MessageWriter,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
     text: Option<String>,
     bytes: Option<String>,
     paste: bool,
 ) -> anyhow::Result<Value> {
+    let surface = match (surface, terminal_id) {
+        (Some(surface), None) => surface,
+        (None, Some(terminal_id)) => {
+            return super::creating_input::send_to_terminal(
+                mux,
+                client,
+                writer,
+                &terminal_id,
+                text,
+                bytes,
+                paste,
+            );
+        }
+        _ => anyhow::bail!("bad request: send takes exactly one of surface and terminal_id"),
+    };
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
+    // Bytes queued for this terminal while it was being created go first.
+    mux.wait_for_creating_input_flush(&surface);
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -112,6 +133,8 @@ pub(super) fn clear_history(
         .map(KeyInput::try_from)
         .transpose()
         .map_err(DeliveryClassifiedError::known_not_delivered)?;
+    // Bytes queued for this terminal while it was being created go before the clear or its key.
+    mux.wait_for_creating_input_flush(&surface);
     surface
         .clear_history_or_encode_key_classified(fallback_key.as_ref())
         .map_err(DeliveryClassifiedError::from)?;
@@ -304,6 +327,7 @@ pub(super) fn send_key(
         }
         Ok::<(), anyhow::Error>(())
     })??;
+    mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))

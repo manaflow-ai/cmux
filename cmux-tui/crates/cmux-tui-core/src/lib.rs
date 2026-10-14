@@ -23,11 +23,13 @@ pub mod first_party_dir;
 mod lock_rank;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
+mod chief_registry;
 mod conversation_drafts;
 mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+mod browser_profile_ops;
 pub mod diagnostics;
 mod event_bus;
 #[cfg(unix)]
@@ -106,8 +108,8 @@ pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
 
 pub use agent_hooks::{
-    AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
-    stamp_agent_hook_observed_now,
+    AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, LIVE_PROMPT_CHARS,
+    agent_hook_journal_ingress, agent_hook_live_prompt, stamp_agent_hook_observed_now,
 };
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 /// The owner raises its open-file soft limit at start; terminal hosts and

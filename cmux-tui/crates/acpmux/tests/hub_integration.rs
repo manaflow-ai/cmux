@@ -16,6 +16,8 @@ mod cursor_requests;
 mod drafts;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/prompt_context.rs"]
+mod prompt_context;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/secrets.rs"]
@@ -1493,6 +1495,9 @@ mod claude_failover;
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
+#[cfg(unix)]
+#[path = "hub_integration/session_list_order.rs"]
+mod session_list_order;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]

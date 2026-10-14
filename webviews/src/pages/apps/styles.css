@@ -13,7 +13,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 12px;
-  padding: 10px 16px;
+  padding: 10px var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
 }
 
@@ -58,7 +58,7 @@
 
 .apps-error {
   display: block;
-  padding: 6px 16px;
+  padding: 6px var(--page-edge);
   color: var(--page-text-2);
   border-bottom: 1px solid var(--page-separator);
 }
@@ -72,7 +72,7 @@
 .apps-discover-list {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 16px 24px;
+  padding: 0 var(--page-edge) 24px;
 }
 
 .apps-chips {
@@ -462,7 +462,7 @@ code {
 .apps-installed {
   max-width: 980px;
   margin: 0 auto;
-  padding: 16px;
+  padding: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -213,9 +213,10 @@ served by the normal protocol handler. `identify` then reports
 fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
 another.
-`server ensure --ws-loopback [--ws-allow-origin <origin>]` (private app
+`server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
-one extra page origin): that owner mints its WebSocket credential and writes it
+extra page origins, a comma-separated list: the app passes every first-party page origin
+`cmux-page://cmux.<page>`, cx-hnmbt.10; one malformed member refuses the list): that owner mints its WebSocket credential and writes it
 to `<socket>.websocket.json` (transports.md "App listener and page files"). A
 running owner keeps the listener it was started with. The owner serves the page
 bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
@@ -484,6 +485,7 @@ client <selector> cell pixels set
 workspace list|create
 workspace <selector> show|rename|move|focus|close|run
 workspace <selector> layout apply
+workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
 screen list|create
@@ -520,7 +522,6 @@ browser list
 browser profile list
 browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile delete --profile <id-or-name>
 browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
@@ -558,6 +559,7 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
+chief list | chief new --name <name> [<profile>] | chief edit <chief> [<profile>] [--clear-avatar] | chief delete <chief>
 agent list|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
@@ -704,7 +706,13 @@ the input stay at the bottom; Enter sends, Alt+Enter or Ctrl+J adds a line,
 Ctrl+D quits, Ctrl+C stops the Chief's turn (`chief.stop`), `/model` and
 `/effort` read or set the engine (`chief.engine.get|set`), `/help` lists the
 commands. `chief engine` and `chief stop` make one such call without the
-chat. It refuses a socket under
+chat. `chief list`, `chief new`, `chief edit` and `chief delete` make the
+person's Chiefs with the Chief registry (`chief.profile.list`, `chief.profile.create`,
+`chief.profile.update`, `chief.profile.delete`, `chief.profile.avatar.set`): `<chief>` is an id or one
+Chief's display name; `<profile>` is `--name`, `--role`, `--personality`,
+`--instructions` or `--instructions-file`, `--avatar <png|jpeg|gif|webp file>`,
+`--tools`, `--harnesses`, `--self-edit` (comma lists) and `--harness`,
+`--model`, `--effort`. `--json` prints the record. It refuses a socket under
 `~/.cmux/brains/` (a Chief brain's own session, where a client acts as the
 Chief) and `--machine`. Exit codes: 0, 1 refused, 2 usage, 3 transport, 124
 timeout.

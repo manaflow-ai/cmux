@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815. */
+/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -20,7 +20,13 @@ export type ActivitySubscribeResult = {
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
 export type AgentRecord = {
+  /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
+  "agent"?: (string) | null;
+  /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
+  "last_prompt"?: (string) | null;
   "session": (string) | null;
+  /** When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`. */
+  "since_ms"?: bigint;
   "source": AgentSource;
   "state": AgentState;
   "surface": Id;
@@ -125,11 +131,14 @@ export type BrowserHostProviderResult = {
 
 export type BrowserProviderAuthentication = "none" | "bearer";
 
+export type BrowserProviderHosting = "daemon" | "native";
+
 export type BrowserProviderSnapshot = {
   "authentication"?: BrowserProviderAuthentication;
   "available": boolean;
   "clients"?: bigint;
   "endpoint"?: string;
+  "hosting"?: BrowserProviderHosting;
   "provider_id"?: string;
   "revision": bigint;
   "targets": Array<BrowserProviderTarget>;
@@ -239,6 +248,7 @@ export type ConversationMessage = {
   "reply_to"?: ConversationPartRef;
   "retracted_at"?: string;
   "seq": bigint;
+  "thread"?: ConversationThreadState;
   "thread_root"?: string;
 };
 
@@ -332,12 +342,31 @@ export type ConversationTextRun = {
   "start": number;
 };
 
+export type ConversationThreadResolution = {
+  "at": string;
+  "by": string;
+  "seq": bigint;
+};
+
+export type ConversationThreadState = {
+  "owner"?: string;
+  "resolved"?: ConversationThreadResolution;
+  "title"?: string;
+};
+
+export type ConversationThreadStatus = "open" | "resolved";
+
 export type ConversationThreadSummary = {
   "authors": Array<string>;
   "last_reply_at": (string) | null;
   "last_reply_seq": (bigint) | null;
+  "owner"?: string;
   "reply_count": bigint;
+  "resolved_at"?: string;
+  "resolved_by"?: string;
   "root": string;
+  "status"?: ConversationThreadStatus;
+  "title"?: string;
 };
 
 export type CopyResult = {

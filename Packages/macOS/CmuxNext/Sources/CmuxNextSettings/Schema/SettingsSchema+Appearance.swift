@@ -222,11 +222,20 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
             ),
+            ChromeStyleSetting.descriptor(group: panes),
+            SettingDescriptor(
+                PaneAnimationsSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.ui.paneAnimations", "Animate Panes"),
+                help: SettingsText.keyed("settings.ui.paneAnimations.help",
+                                        "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."),
+                kind: .toggle, default: .bool(PaneAnimationsSetting.fallback),
+                keywords: ["motion", "animation", "pane", "split", "zoom", "slide", "spring"]
+            ),
             SettingDescriptor(
                 ["layout", "paneSeparation"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
                 help: SettingsText.keyed("settings.layout.paneSeparation.help",
-                                        "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."),
+                                        "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."),
                 summary: SettingsText.keyed("settings.layout.paneSeparation.summary", "How panes are told apart"),
                 kind: .choice([
                     SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
@@ -234,7 +243,8 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
                     SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
                 ]),
-                default: .string(PaneSeparation.borders.rawValue),
+                // The default depends on the curved main pane (`Metrics.defaultPaneSeparation`).
+                default: nil, defaultLabel: SettingsText.keyed("settings.choice.default", "Default"),
                 keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
             ),
             SettingDescriptor(

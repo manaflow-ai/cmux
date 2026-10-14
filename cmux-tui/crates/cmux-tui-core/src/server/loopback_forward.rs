@@ -334,6 +334,11 @@ impl LoopbackForwarder {
         *self.policy.write().unwrap() = policy;
     }
 
+    /// Denies one more port (a listener the daemon opened after startup).
+    pub(crate) fn deny_port(&self, port: u16) {
+        self.policy.write().unwrap_or_else(std::sync::PoisonError::into_inner).deny_port(port);
+    }
+
     pub(crate) fn set_diagnostics(&self, reporter: AuditReporter) {
         *self.diagnostics.lock().unwrap() = Some(reporter);
     }

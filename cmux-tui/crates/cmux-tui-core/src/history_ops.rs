@@ -8,25 +8,30 @@
 //!   each finished main-frame navigation with `history.visit.record`.
 //! - The hides of journal history (`history.hidden`, a personal frontend
 //!   projection): this module is its only writer.
-//! - The merged read model: page visits, agent sessions and finished
-//!   commands folded from the session journal, closed items from the
-//!   closed-history store, and the app's location trail (read only; the
-//!   app owns the trail).
+//! - The location trail (`history.locations`, a personal frontend
+//!   projection; cx-hnmbt.12): the hosting app records each step with
+//!   `history.trail.record`; this module is its only writer.
+//! - The merged read model: page visits, the location trail, agent sessions
+//!   folded from the session journal, the terminal command rows, and closed
+//!   items from the closed-history store.
 //!
 //! Every delete of page visits keeps a backup and answers its restore id
 //! (RECOVERABLE-BY-DEFAULT); only `history.backups.purge`, a user-origin
 //! operation, deletes a backup before the 90-day retention does. A remove or
 //! clear of closed items deletes them through the closed-history store
-//! (`closed.delete`, permanent; closed.rs). Every committed change emits
+//! (`closed.delete`, permanent; closed.rs); a remove or clear of command
+//! rows deletes them in the command store. Every committed change emits
 //! `history-changed`.
 
 mod closed;
+mod commands;
 mod hidden_doc;
 mod journal_feed;
-mod ledger;
+pub(crate) mod ledger;
 mod merged;
 mod pages;
 mod sources;
+mod trail;
 
 use std::sync::Arc;
 
@@ -52,6 +57,10 @@ pub(crate) const TITLE_OPERATION: &str = "history.visit.title";
 /// The app hands over its own visit log from before the daemon owned page
 /// history, by path: only the verified app may make the daemon read a file.
 pub(crate) const IMPORT_OPERATION: &str = "history.visit.import";
+/// The location trail's steps come from the hosting app (the window the
+/// person moved in), the verified app connection: an agent cannot add a
+/// place the person never went to.
+pub(crate) const TRAIL_RECORD_OPERATION: &str = "history.trail.record";
 
 /// `history.entries.list` answers at most this many entries.
 pub(crate) const MAX_LIST: usize = 5000;
@@ -73,6 +82,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::HistoryVisitRemove
             | ResourceOperation::HistoryVisitSummaries
             | ResourceOperation::HistoryVisitImport
+            | ResourceOperation::HistoryTrailRecord
     )
 }
 
@@ -105,6 +115,9 @@ pub(crate) fn dispatch(
     // A retry answers the first result and changes nothing again.
     let actor = &request.actor;
     if ledger::seen(mux, key, operation)? {
+        if operation == TRAIL_RECORD_OPERATION {
+            trail::log(mux, "replayed (idempotency key seen): the first answer, no change");
+        }
         return ledger::commit(mux, key, operation, &fingerprint, &Value::Null, actor);
     }
     let (value, changed) =
@@ -114,6 +127,13 @@ pub(crate) fn dispatch(
         mux.history.changed(mux, &changed);
     }
     Ok(reply)
+}
+
+/// Logs a `history.trail.record` the origin rules refused on `client` (the
+/// trail's failure log, cx-hnmbt.14).
+pub(crate) fn log_trail_refusal(mux: &Mux, client: u64, error: &ResourceError) {
+    let (code, message, details) = (&error.code, &error.message, &error.details);
+    trail::log(mux, format!("refused on client {client} ({code}: {message} {details})"));
 }
 
 fn invalid(field: &str, reason: impl Into<String>) -> ResourceError {

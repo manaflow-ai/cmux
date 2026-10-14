@@ -10,11 +10,13 @@ mod content;
 mod credential;
 mod effects;
 mod mouse;
+mod open_url;
 mod owner;
 mod revision_conflict;
 mod session;
 mod topology;
 
+pub(crate) use open_url::CAPABILITY as OPEN_URL_CAPABILITY;
 pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
 pub(crate) use revision_conflict::is_revision_conflict;
@@ -253,8 +255,10 @@ fn dispatch_resource_request(
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::History => crate::history_ops::dispatch(mux, request),
+        OperationOwner::BrowserProfile => crate::browser_profile_ops::dispatch(mux, request),
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
+        OperationOwner::OpenUrl => open_url::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -118,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        FreeTierAttestStarter(tag: environment.tag, bundle: .main, apiBaseURL: services.feed.apiBaseURL, settings: services.settings, signedIn: { [weak services] in services.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()

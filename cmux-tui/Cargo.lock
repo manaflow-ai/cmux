@@ -986,6 +986,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-local-auth",
  "fs4",
  "futures-util",
@@ -1016,7 +1017,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9#684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=c30e6489d483265dae15360901fafa75bad24a65#c30e6489d483265dae15360901fafa75bad24a65"
 dependencies = [
  "serde_json",
 ]
@@ -1076,6 +1077,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1559,6 +1569,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",

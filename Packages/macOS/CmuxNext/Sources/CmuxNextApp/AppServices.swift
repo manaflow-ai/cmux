@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
@@ -83,8 +85,8 @@ final class AppServices {
     /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
     private(set) lazy var modelRouter: ModelRouterLease? = {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
-                                                               environment: ProcessInfo.processInfo.environment) else { return nil }
+        guard let acpmux = AcpmuxEnvironment.resolve(tag: environment.tag, bundledBinDirectory: bin,
+                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()
@@ -99,6 +101,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).

@@ -406,6 +406,12 @@ impl RemoteSession {
                     session: agent.session.as_deref().map(Arc::from),
                     agent: agent.agent.as_deref().map(Arc::from),
                     updated_at_ms,
+                    // An older daemon sends no state start: count from the last report.
+                    since_ms: value
+                        .get("since_ms")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(updated_at_ms),
+                    last_prompt: value.get("last_prompt").and_then(Value::as_str).map(Arc::from),
                 };
                 {
                     let retired_surfaces = self.retired_surfaces.lock().unwrap();

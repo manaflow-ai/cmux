@@ -37,7 +37,7 @@ extension TabStripView {
         if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
-        updateSeparators()
+        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still

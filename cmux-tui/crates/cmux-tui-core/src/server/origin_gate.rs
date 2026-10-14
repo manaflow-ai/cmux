@@ -50,7 +50,14 @@ pub(super) fn handle_resource_line(
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
         Ok(request) => handle_resource_connection_message(mux, client, request, writer),
-        Err(error) => send_resource_response(writer, id, operation, Err(error)),
+        Err(error) => {
+            if operation == ResourceOperation::HistoryTrailRecord {
+                // The trail's failure log (cx-hnmbt.14): an origin refusal
+                // never reaches the history module.
+                crate::history_ops::log_trail_refusal(mux, client, &error);
+            }
+            send_resource_response(writer, id, operation, Err(error))
+        }
     }
 }
 
@@ -126,6 +133,12 @@ pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
 /// plain local user to the daemon and may only deny.
 pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
     matches!(connection_actor(mux, client), Actor::Frontend { .. })
+}
+
+/// Whether `client` derives origin `user` (the verified cmux app). On every
+/// platform; a client with no record, or one with no proof, is not.
+pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::User
 }
 
 /// The origin `client` derives; a client with no record is an agent.
@@ -216,6 +229,20 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// The subscribe events a page relay connection hears (page-router.json
+/// `events` of its page; none for a relay without a page), or `None` for
+/// any other connection, whose stream stays as it was.
+pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let origin = &state.clients.get(&client)?.origin;
+    (origin.role == HelloRole::PageRelay).then(|| {
+        origin
+            .page
+            .as_deref()
+            .map_or(&[][..], crate::request_origin::page_router_table::page_events)
+    })
+}
+
 #[cfg(unix)]
 /// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
 /// origin `user` (a verified cmux app connection).
@@ -243,6 +270,7 @@ pub(super) fn set_hello(
     role: HelloRole,
     peer_key: Option<String>,
     signature_proved: bool,
+    page: Option<String>,
 ) -> bool {
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -252,8 +280,19 @@ pub(super) fn set_hello(
     }
     record.origin.role = role;
     record.origin.peer_key = peer_key;
+    record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     true
+}
+
+/// The page a WebSocket connection serves, from its handshake Origin
+/// (`page-router-v1`): fixed at accept, before the connection's first line.
+pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.page = Some(page);
+    }
 }
 
 /// Step 2 passed (prover B): `client`, a role-main connection, is the
@@ -293,14 +332,17 @@ fn issue(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
-    let operation =
-        serde_json::from_value::<ResourceOperation>(json!(string_field(request, "operation")))
-            .map_err(|_| {
-                ResourceError::validation_invalid(
-                    Some("operation"),
-                    "operation must be a cmux.protocol/2 catalog operation",
-                )
-            })?;
+    // A catalog operation, or a routed one (page-router-v1 namespaces).
+    let operation = string_field(request, "operation");
+    let known = serde_json::from_value::<ResourceOperation>(json!(operation)).is_ok()
+        || crate::request_origin::page_router_table::routed(operation).is_some();
+    if !known {
+        return Err(ResourceError::validation_invalid(
+            Some("operation"),
+            "operation must be a cmux.protocol/2 catalog or routed operation",
+        ));
+    }
+    let operation = operation.to_owned();
     let params_sha256 = string_field(request, "params_sha256").to_string();
     if !valid_sha256_hex(&params_sha256) {
         return Err(ResourceError::validation_invalid(
@@ -347,7 +389,7 @@ fn issue(
             json!({"required": "user", "derived": derived.wire_name(), "reason": "relay_mismatch"}),
         ));
     };
-    relay_record.origin.store_confirmation(
+    relay_record.origin.store_named_confirmation(
         token.clone(),
         operation,
         params_sha256,

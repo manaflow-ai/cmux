@@ -57,8 +57,13 @@ SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
+    send_all([obj])
+
+
+def send_all(objs):
+    """Write `objs` as one write: a burst the agent sends at once."""
     with lock:
-        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
 
@@ -211,6 +216,8 @@ def handle_prompt(rid, params):
         choices = []
         for wave in [fixture["items"], fixture.get("after", [])]:
             wave_ids = []
+            # One write for the wave: parallel tool calls asked at once (cx-nx5mb).
+            asks = []
             for item in wave:
                 global next_id
                 with lock:
@@ -220,7 +227,7 @@ def handle_prompt(rid, params):
                 pending[aid] = [ev, None]
                 wave_ids.append(aid)
                 allow_kind = item.get("allowKind", "allow_once")
-                send({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
+                asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
                                 "rawInput":{"fixture":item["title"]},
@@ -229,6 +236,8 @@ def handle_prompt(rid, params):
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
                                if item.get("reject", True) else [])
                 }})
+            if asks:
+                send_all(asks)
             for aid in wave_ids:
                 pending[aid][0].wait()
                 reply = pending.pop(aid)[1] or {}
@@ -595,18 +604,43 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
-        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
-        # start a child that leaves this process group (setsid), as a harness that
-        # daemonizes a helper does, and write its pid to that file.
+        # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
+        # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
+        # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
+        if os.environ.get("FAKE_PICKER") == "1" and m in ("session/new", "session/set_model", "session/set_config_option"):
+            if os.environ.get("FAKE_CALLS") and m != "session/new":
+                with open(os.environ["FAKE_CALLS"], "a") as calls:
+                    calls.write(json.dumps({"method": m, "params": params}) + "\n")
+            effort = {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+                      "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
+            if m == "session/new":
+                sessions += 1
+                send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+            elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
+            elif m == "session/set_model":
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                effort["currentValue"] = params.get("value")
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [effort]}})
+            continue
+        # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
+        # process group (setsid), as a harness that daemonizes a helper does, and
+        # write its pid to <path>.<this harness pid>. Every harness with the env
+        # does it (the daemon's model probe too), so one file per harness: a test
+        # reads the file of the exact harness it checks. session/new answers only
+        # once the helper has left the group: until then the group signal still
+        # reaches it (cx-n3uid).
         if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
             import subprocess
             helper = subprocess.Popen(
-                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
-            with open(tmp, "w") as f:
+                [sys.executable, "-c", "import os, sys, time; os.setsid(); sys.stdout.write('1'); sys.stdout.flush(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            helper.stdout.read(1)
+            out = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
                 f.write(str(helper.pid))
-            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
+            os.replace(f"{out}.tmp", out)
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:

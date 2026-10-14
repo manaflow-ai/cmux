@@ -187,3 +187,39 @@ fn the_apps_daemon_mints_its_websocket_credential_and_serves_its_pages() {
     assert!(stopped.status.success(), "{stopped:?}");
     assert!(!path.exists(), "credential file outlived its daemon");
 }
+
+/// An owner that the CLI or an agent starts from the app's bundled binary has
+/// no `CMUX_TUI_PAGES_DIR` (only the app sets it), and must still serve the
+/// pages the app bundles (cx-hnmbt.7): the binary is
+/// `<app>/Contents/Resources/bin/cmux-tui`, the pages are in
+/// `<app>/Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages`.
+#[test]
+fn an_owner_started_from_the_app_bundle_serves_its_pages_without_the_pages_env() {
+    let fixture = Fixture::new("bundle");
+    let resources = fixture.dir.join("cmux DEV.app/Contents/Resources");
+    let pages = resources.join("CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages");
+    fs::create_dir_all(pages.join("home-channels")).unwrap();
+    fs::write(pages.join("home-channels/index.html"), PAGE_HTML).unwrap();
+    fs::create_dir_all(resources.join("bin")).unwrap();
+    let binary = resources.join("bin/cmux-tui");
+    fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &binary).unwrap();
+
+    let mut command = Command::new(&binary);
+    command
+        .args(["server", "ensure", "--json", "--ws-loopback", "--session", &fixture.session])
+        .arg("--socket")
+        .arg(&fixture.socket)
+        .env("CMUX_TUI_STATE_DIR", fixture.dir.join("state"))
+        .env("CMUX_TUI_CONFIG", fixture.dir.join("config.json"))
+        .env_remove("CMUX_TUI_PAGES_DIR");
+    let started = parse_success(&command.output().unwrap());
+    assert_eq!(started["status"], "started", "{started}");
+
+    let credential: Value =
+        serde_json::from_slice(&fs::read(fixture.credential_file()).unwrap()).unwrap();
+    let url = credential["url"].as_str().unwrap();
+    let addr = url.strip_prefix("ws://").unwrap().trim_end_matches('/').to_owned();
+    let page = http_get(&addr, "/pages/home-channels/", &addr);
+    assert_eq!(status(&page), "200", "{page}");
+    assert!(page.ends_with(PAGE_HTML), "{page}");
+}

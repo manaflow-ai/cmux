@@ -30,6 +30,7 @@ import PackageDescription
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
+//   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
@@ -118,15 +119,15 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b000e1b0e06b6ebedb692091080628b28731af8c/CCmuxAppFFI.xcframework.zip",
-    checksum: "961dd2d84e1658bef826ac32796ebdc816c7eead9743765915d60eceacca602e"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-a47e5ed8489913eacb4d2d1bcf1f5ca22bf62166/CCmuxAppFFI.xcframework.zip",
+    checksum: "d9982704358010068020d2b69ab10843644f6e1251939e490117043491952245"
 )
 
 let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v26),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
@@ -138,6 +139,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
+        .package(path: "../../Shared/CmuxAppAttest"),
         .package(path: "../../Shared/CmuxAgentBrands"),
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
@@ -185,6 +188,8 @@ let package = Package(
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 // The signed approve answer format shared with the iPhone (cx-aocz).
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+                // The free tier's App Attest provider is composed here (cx-ds09i).
+                .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -197,6 +202,7 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextBrowserHistory",
                 "CmuxNextBrowserAutomation",
                 "CmuxNextBrowserHost",
                 "CmuxNextRemoteLocalhost",
@@ -228,10 +234,18 @@ let package = Package(
                 "CmuxNextServer",
                 "CmuxNextServerHelper",
                 "CmuxNextFeed",
+                "CmuxNextNowPlaying",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The sidebar's Now Playing card source (cx-ouoxo): the playing browser tab,
+        // the pick it shares with macOS Now Playing, and the card's feed. Wiring stays in the App.
+        .target(
+            name: "CmuxNextNowPlaying",
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -241,7 +255,8 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+                           .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-pane"),
@@ -250,7 +265,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -295,6 +310,14 @@ let package = Package(
         // (Chrome, Arc, Dia, Brave, Edge, Vivaldi, Helium, Chromium, Safari,
         // Firefox), parsers for bookmarks, history, open tabs and extensions,
         // and the cancellable importer. No UI, nothing main-actor.
+        // A browser tab's saved history across relaunches: the writer that stores a page's
+        // entries (and this Mac's engine state) with its daemon tab, and the restored pages
+        // that start from it (cx-p0im9). Kept out of the App target (SW14).
+        .target(
+            name: "CmuxNextBrowserHistory",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextBrowser"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextBrowserImport",
             dependencies: ["CmuxNextCompat"],
@@ -869,12 +892,12 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+            dependencies: ["CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
                            "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

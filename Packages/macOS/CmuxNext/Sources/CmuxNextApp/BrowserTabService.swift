@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import Foundation
 
@@ -85,6 +86,10 @@ final class BrowserTabService {
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
+    /// Restored pages that start once their saved history is read.
+    let historyStarts = BrowserHistoryStarts()
+    /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
+    var emulationFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -304,6 +309,7 @@ final class BrowserTabService {
     }
 
     func track(_ page: any BrowserTab, for tab: TabModel) {
+        trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
@@ -346,17 +352,23 @@ final class BrowserTabService {
             // The page may have been released or replaced while the daemon
             // answered: its record writer is then gone.
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
+            self.historyStarts.start(id, saved: saved)
+            // A page its engine restored has its real list: no saved entries on top (Chromium's comes in later).
+            let engineRestored = self.historyStarts.takeEngineRestored(id, page: page, saved: saved)
             // The saved page is the one the tab reopened at, and the user
             // has not gone elsewhere while the daemon answered.
-            if !restored, let saved, let session = BrowserHistoryWriter.session(saved),
+            if !restored, !engineRestored, let saved, let session = BrowserHistoryWriter.session(saved),
                session.entries[session.current].url.absoluteString == recordURL,
                restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)
             }
-            self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, delay: self.writeBackDelay,
-                                                           sleep: self.sleep) { [weak self] history in
+            self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
+                                                           && !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID),
+                                                           delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
-                return await storeHistory(daemonForTab(tab), tab.surface, history)
+                // Engine state stays on this Mac, also for a tab that moved to another machine.
+                let daemon = daemonForTab(tab)
+                return await storeHistory(daemon, tab.surface, daemon.isLocal ? history : history.with(engineState: nil))
             }
         }
     }
@@ -372,9 +384,9 @@ final class BrowserTabService {
         writers.removeValue(forKey: key)?.cancel()
         historyWriters.removeValue(forKey: key)?.cancel()
         historyFetches.removeValue(forKey: key)?.cancel()
+        historyStarts.forget(key)
+        emulationFollowers.removeValue(forKey: key)?.cancel()
     }
-
-    func isTracking(_ key: String) -> Bool { writers[key] != nil }
 
     /// Sends every page change still waiting out the write-back delay, so
     /// the record reopened at relaunch is the page the user last saw.

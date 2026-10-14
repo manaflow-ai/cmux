@@ -27,10 +27,13 @@ mod client_log;
 mod cloud_conversations_backend;
 #[cfg(unix)]
 mod coderouter_usage;
+#[cfg(unix)]
+mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
 mod local_actor;
+mod page_listener;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
@@ -1682,6 +1685,9 @@ fn run_main() {
         if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
             client_log::exit(claude_wrapper::run(wrapper_args));
         }
+        if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
+            client_log::exit(codex_wrapper::run(wrapper_args));
+        }
     }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
@@ -2222,6 +2228,14 @@ fn run_server(
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
     claude_wrapper::configure_pane_path(&mut surface_options);
+    // The Codex shim lives in the same shim directory, so its PATH entry is
+    // usually the one the Claude shim already added.
+    #[cfg(unix)]
+    if let Some(path) = codex_wrapper::pane_path()
+        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
+    {
+        surface_options.extra_env.push(("PATH".into(), path));
+    }
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2434,6 +2448,14 @@ fn run_server(
     let websocket_server = websocket_server.map(|server| {
         websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
     });
+    // `ws-listen` (ws-listen-v1): an owner without the listener opens it on request.
+    let page_listener = page_listener::PageListener::install(
+        &mux,
+        socket_path.clone(),
+        args.ws_access.clone(),
+        websocket_server,
+        ws_token.filter(|_| ws_token_minted),
+    );
     // Nor the remote runtime's listeners: a Cloud daemon serves its
     // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
     // `--remote-http`, both reachable at a loopback address on the machine.
@@ -2577,7 +2599,7 @@ fn run_server(
     #[cfg(unix)]
     {
         let shutdown_result = headless::finish_server_shutdown(
-            websocket_server,
+            page_listener.take(),
             &mux,
             &socket_path,
             remote_shutdown,
@@ -2589,7 +2611,7 @@ fn run_server(
     }
     #[cfg(not(unix))]
     {
-        drop(websocket_server);
+        drop(page_listener.take());
         mux.shutdown();
         mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();

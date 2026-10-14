@@ -219,7 +219,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
-        router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+        router.userGestureEvent = { [weak self] in (self?.webView as? PageWKWebView)?.recentUserGestureEvent() }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
@@ -275,12 +275,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
-        guard let window else { return }
-        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-        case "Minimize": window.miniaturize(nil)
-        case "None": break
-        default: window.zoom(nil)
-        }
+        WindowTitlebar.performDoubleClick(in: window)
     }
 
     public override var isFlipped: Bool { true }
