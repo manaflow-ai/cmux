@@ -11,7 +11,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const DEFAULT_LINE: &str = "Never run builds or tests on this Mac";
+const DEFAULT_LINE: &str = "Do not run heavy builds or tests on this Mac";
 
 fn start_host(dir: &Path) -> Child {
     let token = dir.join("agent-token");
@@ -73,6 +73,9 @@ fn a_host_writes_a_default_person_profile_and_the_turns_read_the_users_edit() {
     assert!(written.contains(DEFAULT_LINE), "{written}");
     assert!(written.contains("without asking"), "{written}");
     assert!(first.contains(written.trim()), "the profile is in the system text");
+    // The Chief's own Turns paragraph replaces the spec's (cause 3).
+    assert!(first.contains("Keep your own turns short."), "{first}");
+    assert!(!first.contains("Use subagents only when the user asks"), "{first}");
 
     // The user's edit, and their own instructions file after it.
     std::fs::write(&person, "# The user\n\nCall me Ada. Ask before any push.\n").unwrap();
