@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
@@ -59,6 +60,7 @@ struct NewTabStyleSwitchTests {
     }
 
     @Test func theLabsStyleSwitchLookReachesEveryNewTab() async throws {
+        _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-newtab-look-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
