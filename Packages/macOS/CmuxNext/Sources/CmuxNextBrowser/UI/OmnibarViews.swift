@@ -141,9 +141,10 @@ final class OmnibarPillView: NSView {
                     layer?.shadowColor = Palette.shadow.cgColor
                 } else if look.material == .transparent {
                     // Flat and clear: no fill at rest or while editing (the
-                    // ring shows focus), the hover lift, the opaque card top.
+                    // ring shows focus); on hover the toolbar buttons' see-through
+                    // hover fill, not the opaque lift; the opaque card top.
                     fill = switch state {
-                    case .idle: isHovering ? OmnibarStyle.barHoverFill : .clear
+                    case .idle: isHovering ? Palette.hoverFill : .clear
                     case .editing: .clear
                     case .card: OmnibarStyle.cardFill
                     }
