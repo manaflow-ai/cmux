@@ -23,6 +23,9 @@ public final class WorkspaceSync {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
+    /// When an event last arrived per surface (agent state or title): the
+    /// only activity time the daemon gives.
+    @ObservationIgnored private var activity: [Int: Date] = [:]
     @ObservationIgnored public private(set) var macID = ""
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
@@ -39,6 +42,7 @@ public final class WorkspaceSync {
     public func bind(_ channel: (any LinkChannel)?, macID: String) async {
         eventTask?.cancel()
         client = nil
+        activity = [:]
         guard let channel else { return }
         self.macID = macID
         let client = DaemonClient(channel: channel)
@@ -91,7 +95,10 @@ public final class WorkspaceSync {
 
     func handle(_ event: DaemonEvent) {
         switch event {
-        case .treeChanged, .titleChanged:
+        case .titleChanged(let surface, _):
+            activity[surface] = Date()
+            Task { await refresh() }
+        case .treeChanged:
             Task { await refresh() }
         case .resubscribe:
             Task {
@@ -100,6 +107,7 @@ public final class WorkspaceSync {
                 await refresh()
             }
         case .agentChanged(let surface, let state, let agent):
+            if agents.bySurface[surface]?.state != state { activity[surface] = Date() }
             agents.bySurface[surface] = AgentState(state: state, agent: agent)
             Task { await refresh() }
         case .other:
@@ -127,7 +135,7 @@ public final class WorkspaceSync {
             dirty = false
             do {
                 let reply = try await client.request("list-workspaces")
-                let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+                let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
                 tree = next
                 lastError = nil
                 onTree?(next)
@@ -145,7 +153,7 @@ public final class WorkspaceSync {
     public func listNow() async throws -> DaemonTree {
         guard let client else { throw DaemonReplyError(message: "Not connected") }
         let reply = try await client.request("list-workspaces")
-        let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+        let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents, activity: activity)
         tree = next
         lastError = nil
         onTree?(next)
