@@ -171,7 +171,7 @@
 
 use super::*;
 
-pub use super::start_mode::{
+pub use super::start_gate::{
     CALLER_FIELD, CALLER_TOKEN_ENV, START_MODE_FIELD, StartMode, caller_proves, caller_token,
     host_label, mode_person_required, take_caller,
 };
