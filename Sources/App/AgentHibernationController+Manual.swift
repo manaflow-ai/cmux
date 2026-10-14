@@ -90,6 +90,7 @@ extension AgentHibernationController {
     static func manualHibernationRefusal(
         for record: AgentHibernationRecord,
         teardownInFlight: Bool,
+        trigger: AgentHibernationReclaimTrigger = .manual,
         now: TimeInterval = Date().timeIntervalSince1970
     ) -> AgentHibernationManualRefusal? {
         if record.terminalPanel.isAgentHibernated {
@@ -115,7 +116,8 @@ extension AgentHibernationController {
     func hibernateNow(
         workspaceId: UUID?,
         panelId: UUID,
-        index: RestorableAgentSessionIndex
+        index: RestorableAgentSessionIndex,
+        trigger: AgentHibernationReclaimTrigger = .manual
     ) async -> AgentHibernationManualRefusal? {
         guard let appDelegate = AppDelegate.shared,
               let located = appDelegate.workspaceContainingPanel(
