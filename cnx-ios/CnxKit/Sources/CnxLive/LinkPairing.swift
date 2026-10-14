@@ -68,10 +68,10 @@ public struct LinkPairing: Sendable {
     }
 
     /// Answers the challenge on an `auth` channel from ``open(link:)``.
-    public func finish(_ opened: Result<Opened, LinkError>, macID: String,
+    public func finish(_ auth: Result<Opened, LinkError>, macID: String,
                        onWaiting: @MainActor @Sendable () -> Void) async -> Outcome {
         let opened: Opened
-        switch opened {
+        switch auth {
         case .success(let value): opened = value
         case .failure(let error): return .refused(error)
         }

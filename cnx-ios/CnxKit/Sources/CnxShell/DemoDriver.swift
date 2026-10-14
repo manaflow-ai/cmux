@@ -382,9 +382,12 @@ struct DemoDriver {
     }
 
     /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
-    /// the Mac's pairing, then answers each ask that reaches the Feed through the
-    /// card's own path: Allow (Face ID signs it) for a permission, the first
-    /// option for a question. Three asks at most.
+    /// the Mac's pairing, then works through the plan in the `cnx.demo.approve` default
+    /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
+    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
+    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
+    /// forget it).
     private func approve() async {
         step("start")
         shell.tab = .feed
@@ -396,15 +399,27 @@ struct DemoDriver {
         let feed = FeedStore.shared
         var answered: Set<String> = []
         let open = { feed.items.first { $0.needsYou && !answered.contains($0.id) } }
-        for _ in 0..<3 {
+        let plan = (UserDefaults.standard.string(forKey: "cnx.demo.approve") ?? "allow,allow,allow")
+            .split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        for action in plan {
+            if action == "signout" {
+                step("sign out")
+                await shell.auth.signOut()
+                step("signed out")
+                continue
+            }
             guard await until(600, { open() != nil }), let item = open() else { return step("no more asks") }
             answered.insert(item.id)
             await pause(1.5)
+            let allow = action != "deny"
             switch item.kind {
             case .permission(let request):
-                guard let allow = request.options.first(where: { $0.kind == .allowOnce }) ?? request.options.first(where: \.isAllow) else { continue }
-                step("feed allow \(item.id)")
-                feed.respond(item.id, option: allow)
+                let option = allow
+                    ? request.options.first(where: { $0.kind == .allowOnce }) ?? request.options.first(where: \.isAllow)
+                    : request.options.first(where: { $0.kind == .rejectOnce }) ?? request.options.first(where: { !$0.isAllow })
+                guard let option else { continue }
+                step("feed \(allow ? "allow" : "deny") \(item.id)")
+                feed.respond(item.id, option: option)
             case .question(let question):
                 guard let first = question.items.first, let option = first.options.first else { continue }
                 step("feed answer \(item.id)")
@@ -416,6 +431,7 @@ struct DemoDriver {
             let after = feed.items.first { $0.id == item.id }
             step("result \(item.id): resolution=\(after?.resolution ?? "-") error=\(after?.error ?? "-")")
         }
+        step("plan done")
     }
 
     /// Live end to end (real Mac): Mac online and connected, the daemon's
