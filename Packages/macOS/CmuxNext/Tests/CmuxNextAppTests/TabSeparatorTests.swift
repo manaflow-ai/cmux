@@ -7,7 +7,8 @@ import Testing
 /// Some separator between tabs, minimal but noticeable (Leo 2026-10-14): a short 1 pt line in
 /// the gap between two tabs, in the theme's separator tone, and none beside the selected or the
 /// hovered tab (Safari, Chrome), so it never cuts into the selected tab's shape. Read from the
-/// strip as drawn, in the default and the compact strip.
+/// strip as drawn, in the default and the compact strip. Behind the Debug Settings toggle
+/// `tabs.separators`, off by default.
 @MainActor @Suite(.serialized) struct TabSeparatorTests {
     /// What the eye gets in the gap after each tab: the largest luminance step (0-255) from the
     /// strip's background along the gap's middle row.
@@ -70,16 +71,36 @@ import Testing
         #expect(rested[0] <= clear && rested[1] <= clear, "a line touches the selected tab: \(rested)")
     }
 
+    /// Debug Settings overrides for this test only (the store is active without a file, so nothing
+    /// is written): the separators toggle, and Compact tabs when asked.
+    func withOverrides(separators: Bool, compact: Bool, _ body: () throws -> Void) throws {
+        TunableStore.shared.activate(file: nil)
+        let separatorsKey = "tabs.separators", compactKey = ChromeTunables.compactTabs.descriptor.key
+        TunableStore.shared.register(TabTunables.all + [ChromeTunables.compactTabs.descriptor])
+        try #require(TunableStore.shared.set(separatorsKey, .bool(separators)) == .bool(separators), "the separators toggle takes the override")
+        try #require(TunableStore.shared.set(compactKey, .bool(compact)) == .bool(compact), "the compact toggle takes the override")
+        defer {
+            TunableStore.shared.set(separatorsKey, nil)
+            TunableStore.shared.set(compactKey, nil)
+        }
+        try body()
+    }
+
     @Test func aShortLineSitsBetweenTabsAndNeverBesideTheSelectedOrHoveredOne() throws {
-        try checkSeparators()
+        try withOverrides(separators: true, compact: false) { try checkSeparators() }
     }
 
     @Test func theCompactStripHasTheSameLines() throws {
-        let key = ChromeTunables.compactTabs.descriptor.key
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([ChromeTunables.compactTabs.descriptor])
-        try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the toggle takes the override")
-        defer { TunableStore.shared.set(key, nil) }
-        try checkSeparators()
+        try withOverrides(separators: true, compact: true) { try checkSeparators() }
+    }
+
+    /// Lawrence removed the lines (7f9fc1ed): they are opt-in until the default call is made.
+    @Test func theStripDrawsNoLinesWhileTheToggleIsOff() throws {
+        try withOverrides(separators: false, compact: false) {
+            let (strip, window) = Self.strip(tabs: 5)
+            defer { window.orderOut(nil) }
+            let contrast = try Self.gapContrast(strip, tabs: 5)
+            #expect(contrast.allSatisfy { $0 <= 4 }, "a line between tabs with the toggle off: \(contrast)")
+        }
     }
 }
