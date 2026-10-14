@@ -10,7 +10,9 @@ import Foundation
 ///
 /// `computer_use.status`: the Settings Computer Use card's state (`ComputerUseSetup.pageJSON`:
 /// phase, the helper's Accessibility and Screen Recording grants, null while unknown, and the
-/// helper's name) for `cmux agents doctor`. Read-only: never a prompt, never a recheck.
+/// helper's name) for `cmux agents doctor`. Read-only: it never prompts and never changes a
+/// setting or a grant. The first call may make the model, which applies its inputs at once
+/// (`starting` while the helper's grants are read, never a stale `off`) and reads the grants.
 enum SettingsControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
