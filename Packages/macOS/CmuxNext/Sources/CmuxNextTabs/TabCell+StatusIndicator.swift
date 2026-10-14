@@ -10,7 +10,8 @@ extension TabCell: StatusIndicatorConfigClient {
     var spinnerPlan: StatusIndicatorPlan {
         guard item.indicator.replacesTabIcon else { return .hidden }
         let config = StatusIndicatorAppearance.shared.config
-        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops, set: config.iconSet)
+        var plan = StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle), animates: config.animatesLoops, set: config.iconSet,
+                                            isStatic: config.isStatic)
         if item.isWaiting, plan.animation == .spin { plan.animation = .spinBackward }
         return plan
     }

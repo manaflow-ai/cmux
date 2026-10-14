@@ -13,7 +13,7 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let activity = StatusIndicatorView()
+    let activity = StatusIndicatorView(), statusLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont) // the static look's state name
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     private let agentMark = NSImageView()
     private(set) var agentMarkVariant = SidebarAgentMarkVariant.off
@@ -89,7 +89,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
+        [icon, title, subtitle, timeLabel, metaLabel, activity, statusLabel, agentMark, mutedMark, badge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -251,7 +251,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            subtitle.textColor = Palette.textSecondary; [timeLabel, metaLabel].forEach { $0.textColor = Palette.textTertiary }
+            [subtitle, statusLabel].forEach { $0.textColor = Palette.textSecondary }; [timeLabel, metaLabel].forEach { $0.textColor = Palette.textTertiary }
             tabCount.textColor = Palette.textTertiary
             mutedMark.contentTintColor = Palette.textTertiary
             prBadge.textColor = Palette.textSecondary
@@ -350,10 +350,8 @@ final class WorkspaceRowView: SidebarRowView {
         if markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
             trailing = agentMark.frame.minX - Metrics.space2
-        } else if activity.showsGlyph {
-            activity.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
-            trailing = activity.frame.minX - Metrics.space2
         }
+        trailing = layoutActivity(trailing: trailing, titleTop: top, line: sh, shown: !markReplacesStatus && activity.showsGlyph)
         if !mutedMark.isHidden {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
@@ -388,7 +386,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, statusLabel, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

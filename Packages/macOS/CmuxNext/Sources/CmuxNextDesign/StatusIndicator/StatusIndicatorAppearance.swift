@@ -27,11 +27,13 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var terminalFontFamily: String?
     /// The status icon set (Debug Settings `status.iconSet`, cx-kxa2).
     public var iconSet: StatusIconSet
+    /// System Reduce Motion (or its test override).
+    public var reduceMotion: Bool
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
-                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current) {
+                terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current, reduceMotion: Bool = false) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -44,7 +46,13 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.pulsePeriod = pulsePeriod
         self.terminalFontFamily = terminalFontFamily
         self.iconSet = iconSet
+        self.reduceMotion = reduceMotion
     }
+
+    /// The static look (cx-sya4n): the setting says static, or Reduce Motion
+    /// is on. Nothing animates, each state draws its own shape whatever the
+    /// icon set, and a sidebar row names the state beside its mark.
+    public var isStatic: Bool { settings.animation == .static || reduceMotion }
 
     /// The style for a report that asked for `hint`: the Debug Settings
     /// override, else the hint, else the setting.
@@ -66,7 +74,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             spinnerPeriod: Motion.period(.spinner),
             pulsePeriod: Motion.period(.pulse),
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
-            iconSet: StatusIconSet.tunable.value)
+            iconSet: StatusIconSet.tunable.value,
+            reduceMotion: Motion.reduceMotion)
     }
 }
 
