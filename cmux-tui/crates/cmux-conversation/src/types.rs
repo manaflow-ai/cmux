@@ -283,13 +283,19 @@ pub struct ConversationHead {
     pub created_at: String,
     pub updated_at: String,
     pub read_cursors: BTreeMap<String, u64>,
-    /// Agent text messages since the last human text message: the loop guard
-    /// (budget.rs). Always on the wire, as the cloud head has it.
+    /// Agent text messages at the top level since its last human text
+    /// message: the loop guard (budget.rs). Always on the wire, as the cloud
+    /// head has it.
     #[serde(default)]
     pub agent_text_streak: u32,
     /// When the last agent text message was sent (RFC 3339 UTC, milliseconds).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_agent_text_at: Option<String>,
+    /// The same streak per thread (key: the root message id; the top level is
+    /// `agent_text_streak`): only threads above 0, absent when none is
+    /// (budget.rs, home-core `thread_agent_streaks`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub thread_agent_streaks: BTreeMap<String, u32>,
 }
 
 impl ConversationHead {

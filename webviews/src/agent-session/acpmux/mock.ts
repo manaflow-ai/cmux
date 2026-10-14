@@ -184,6 +184,7 @@ export class MockAcpmuxSocket {
   private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
+  private bookmarks = new Map<string, Set<number>>();
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -450,6 +451,16 @@ export class MockAcpmuxSocket {
           throw Object.assign(new Error("no such session"), { code: -32001 });
         this.touch(target, { unread: true }, false);
         return {};
+      // Prompt bookmarks, as acpmux keeps them (hub/bookmarks.rs), without its seq check.
+      case "_acpmux/bookmark_get":
+      case "_acpmux/bookmark_set": {
+        const marks = this.bookmarks.get(target) ?? new Set<number>();
+        if (method === "_acpmux/bookmark_set")
+          if (params.bookmarked === true) marks.add(Number(params.seq));
+          else marks.delete(Number(params.seq));
+        this.bookmarks.set(target, marks);
+        return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/permission_respond":
@@ -650,17 +661,17 @@ export class MockAcpmuxSocket {
 
   /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
   /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
-  private page(target: string, params: Record<string, any>): { events: EventRecord[]; more: boolean } {
+  private page(target: string, params: Record<string, any>): { events: EventRecord[]; hasMore: boolean } {
     const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
     const wanted = (event: EventRecord) =>
       kinds.length === 0 ||
       (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
     const own = this.events.filter((event) => event.sessionId === target && wanted(event));
     if (params.beforeSeq === undefined)
-      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), more: false };
+      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), hasMore: false };
     const older = own.filter((event) => event.seq < Number(params.beforeSeq));
     const limit = Math.max(1, Number(params.limit ?? older.length));
-    return { events: older.slice(-limit), more: older.length > limit };
+    return { events: older.slice(-limit), hasMore: older.length > limit };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

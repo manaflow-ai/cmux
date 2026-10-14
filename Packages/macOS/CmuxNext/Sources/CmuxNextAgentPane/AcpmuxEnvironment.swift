@@ -1,12 +1,18 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// Where this app's acpmux daemon lives and how to start it.
 ///
-/// Same rule as `cmux acp` (cmux-tui `acp::tagged_home`), so the pane and
-/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else a
-/// tagged dev build uses `~/.acpmux/tags/<slug>`, else `~/.acpmux`, shared
-/// with a standalone `acpmux`. A daemon this app starts for a tag listens on
-/// an ephemeral port, never the release daemon's 47811.
+/// Same rule as `cmux acp` (cmux-tui `acp::build_home`), so the pane and
+/// the CLI in its terminals reach one daemon: `ACPMUX_HOME` wins, else the
+/// build's own home (``BuildIdentity/acpmuxHome(userHome:)``, per-build
+/// isolation cx-is1kf): NIGHTLY keeps `~/.acpmux`, shared with a standalone
+/// `acpmux`; every other build has `~/.acpmux/builds/<key>`, so no build
+/// starts, stops or hands off another build's daemon. A daemon in a home of
+/// its own listens on an ephemeral port, never the shared daemon's 47811.
+/// `ACPMUX_SOCKET` counts only with an explicit `ACPMUX_HOME`: inherited
+/// alone (an app launched from another cmux's terminal), it is another
+/// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var executable: URL
     public var home: URL
@@ -29,10 +35,12 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 
     public var logPath: String { home.appendingPathComponent("daemon.log").path }
 
-    /// Resolves the environment, or nil when no `acpmux` executable exists.
-    /// `bundledBinDirectory` is the app's `Contents/Resources/bin`.
+    /// Resolves the environment of `build` (nil: no build, the shared home),
+    /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
+    /// app's `Contents/Resources/bin`. A Debug compile takes a test root for
+    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests only).
     public static func resolve(
-        tag: String?,
+        build: BuildIdentity?,
         bundledBinDirectory: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -40,18 +48,45 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:]
     ) -> AcpmuxEnvironment? {
-        guard let executable = executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
+        // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift).
+        // Release passes nil, so it compiles no read of it.
+        #if DEBUG
+        let executableOverride = debugExecutableOverride
+        #else
+        let executableOverride: URL? = nil
+        #endif
+        return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
+                       uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
+                       executableOverride: executableOverride)
+    }
+
+    /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
+    /// the executable override given: tests pass nil, so a developer's exported
+    /// `CMUX_NEXT_ACPMUX_BIN` cannot change what they resolve.
+    static func resolve(
+        build: BuildIdentity?,
+        bundledBinDirectory: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+        uid: UInt32 = getuid(),
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        launchEnvironment: [String: String] = [:],
+        executableOverride: URL?
+    ) -> AcpmuxEnvironment? {
+        guard let executable = executableOverride
+            ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
-        let slug = tag.flatMap(tagSlug)
+        let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
-        if let custom = environment["ACPMUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
-        } else if let slug {
-            home = userHome.appendingPathComponent(".acpmux/tags/\(slug)", isDirectory: true)
+        let customHome = environment["ACPMUX_HOME"].flatMap { $0.isEmpty ? nil : $0 }
+        if let customHome {
+            home = URL(fileURLWithPath: customHome, isDirectory: true)
         } else {
-            home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
+            home = ownHome
         }
-        let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
+        let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+        let socket = socketPath(configured: configured, home: home, uid: uid)
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
@@ -60,8 +95,19 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         }
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
-            daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment
+            daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment
         )
+    }
+
+    /// `CMUX_NEXT_ACPMUX_ROOT`, the directory that stands for `~/.acpmux` in a
+    /// Debug compile (live per-build tests); nil in Release.
+    static func testRoot(_ environment: [String: String]) -> URL? {
+        #if DEBUG
+        guard let root = environment["CMUX_NEXT_ACPMUX_ROOT"], !root.isEmpty else { return nil }
+        return URL(fileURLWithPath: root, isDirectory: true).standardizedFileURL
+        #else
+        return nil
+        #endif
     }
 
     /// The usual install directories, searched after `PATH`. The pane names
@@ -119,21 +165,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
             hash = hash &* 0x0000_0100_0000_01b3
         }
         return hash
-    }
-
-    /// cmux-tui `acp::sanitize_tag`: lowercase, runs of anything outside
-    /// `[a-z0-9]` become one `-`, no leading or trailing `-`; nil when empty.
-    static func tagSlug(_ raw: String) -> String? {
-        var slug = ""
-        for character in raw.lowercased() {
-            if character.isASCII, character.isLetter || character.isNumber {
-                slug.append(character)
-            } else if !slug.hasSuffix("-") {
-                slug.append("-")
-            }
-        }
-        let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

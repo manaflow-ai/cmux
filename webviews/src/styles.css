@@ -486,7 +486,7 @@ body {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
   background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  box-shadow: var(--elevation-2);
   z-index: 120;
   overflow: hidden;
 }
@@ -1067,7 +1067,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
     pointer-events: auto;
     border-left: 1px solid var(--cmux-diff-border);
     background: var(--cmux-diff-solid-bg);
-    box-shadow: -18px 0 42px color-mix(in srgb, #000 34%, transparent);
+    box-shadow: var(--elevation-2);
     isolation: isolate;
   }
   #app[data-file-search-open="true"] #files-resize-handle {
@@ -1312,7 +1312,7 @@ body[data-loading="true"] #status::before {
     color-mix(in lab, var(--cmux-diff-bg) 97%, var(--cmux-diff-fg)),
     color-mix(in lab, var(--cmux-diff-bg) 90%, var(--cmux-diff-fg))
   );
-  box-shadow: 0 1px 2px color-mix(in lab, #000 10%, transparent), 0 2px 8px color-mix(in lab, #000 6%, transparent);
+  box-shadow: var(--elevation-1);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: 13px;
@@ -1434,7 +1434,7 @@ body[data-loading="true"] #status::before {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 8px;
   background: var(--cmux-diff-bg);
-  box-shadow: 0 16px 34px color-mix(in lab, #000 28%, transparent);
+  box-shadow: var(--elevation-2);
 }
 #diff-find-input {
   width: 180px;
@@ -1480,7 +1480,7 @@ body[data-loading="true"] #status::before {
   border: 1px solid var(--cmux-diff-border);
   border-radius: 7px;
   background: var(--cmux-diff-solid-bg);
-  box-shadow: 0 8px 24px color-mix(in lab, var(--cmux-diff-fg) 18%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .file-review-controls {
   display: inline-flex;
@@ -1743,7 +1743,7 @@ svg[data-icon-fill] {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 12px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
 }
 .toolbar-menu-section {
@@ -1976,7 +1976,7 @@ svg[data-icon-fill] {
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
   border-radius: 9px;
   background: color-mix(in lab, var(--cmux-diff-bg) 86%, var(--cmux-diff-fg));
-  box-shadow: 0 6px 18px color-mix(in lab, #000 22%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
   font-size: 12px;
   white-space: nowrap;
@@ -2023,7 +2023,7 @@ svg[data-icon-fill] {
 .base-picker-popover {
   border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
-  box-shadow: 0 16px 34px color-mix(in lab, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .base-picker-search {
   padding: 9px 12px;

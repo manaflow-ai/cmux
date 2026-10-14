@@ -2,12 +2,15 @@
 // or held at `durationMs` while text streams. While it ticks, the "Thinking" sweep runs across it;
 // when the turn ends, the "Worked for" disclosure takes its place (foldMotion.ts moves the rows).
 import { useEffect, useState } from "react";
+import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "./turns";
 
-export const workingLabel = (at: number, now: number) => `Working for ${formatDuration(Math.max(0, now - at))}`;
+export const workingLabel = (t: Translate, at: number, now: number) =>
+  t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
+  const t = useT();
   const [time, setTime] = useState(now);
   const held = row.durationMs !== undefined;
   useEffect(() => {
@@ -19,7 +22,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   return (
     <div className="cv-worked has-divider">
       <span className={`cv-worked__label${held ? "" : " cv-thinking"}`}>
-        {workingLabel(row.at, held ? row.at + row.durationMs! : time)}
+        {workingLabel(t, row.at, held ? row.at + row.durationMs! : time)}
       </span>
     </div>
   );

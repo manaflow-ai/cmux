@@ -7,13 +7,45 @@ use serde_json::Value;
 
 use super::trail::TrailEntry;
 
+/// The closed items worth reopening as entries, newest first, a page closed again once, at
+/// its newest close (Leo 2026-10-14: Recently Closed is high signal).
+pub(super) fn closed_entries(items: &[Value]) -> Vec<HistoryEntry> {
+    let mut entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.at_ms));
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|entry| page_key(entry).is_none_or(|page| seen.insert(page.to_owned())));
+    entries
+}
+
+/// The closed groups the row `id` (`closed:daemon:<closed id>`) stands for: its own, and for a
+/// page every other close of it, so removing the row leaves no older close to take its place.
+pub(super) fn closed_ids_of(items: &[Value], id: &str) -> Vec<String> {
+    let entries = items.iter().filter_map(closed_entry).collect::<Vec<_>>();
+    let page = entries.iter().find(|entry| entry.id == id).and_then(page_key);
+    match page {
+        Some(page) => entries
+            .iter()
+            .filter(|entry| page_key(entry) == Some(page))
+            .map(|entry| entry.id.clone())
+            .collect(),
+        None => vec![id.to_owned()],
+    }
+}
+
+/// What a closed row is shown once by: a browser tab's address. A terminal, chat, screen,
+/// workspace or window carries nothing that tells one close of it from another (two shells in
+/// one folder), so each close stays its own row.
+fn page_key(entry: &HistoryEntry) -> Option<&str> {
+    (entry.closed_kind == Some(ClosedKind::BrowserTab)).then_some(entry.url.as_deref()).flatten()
+}
+
 /// One closed-history item (`closed.list` shape) as an entry
 /// `closed:daemon:<closed id>`. An item that reopens as nothing (only tabs
 /// `closed.list` marks `empty`: untouched New Tab pages, blank browsers) is
 /// left out, and a row is named by its first other tab, never by the
 /// `about:blank` placeholder a chat or New Tab page is kept on (Leo
 /// 2026-10-11).
-pub(super) fn closed_entry(item: &Value) -> Option<HistoryEntry> {
+fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     let id = item.get("id")?.as_str()?;
     let at_ms = decimal(item.get("closed_at_ms")?)?;
     let tabs = closed_tabs(item);

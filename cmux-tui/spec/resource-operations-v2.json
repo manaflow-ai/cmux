@@ -188,6 +188,138 @@
       },
       "extra": false
     },
+    "AvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarImage": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        },
+        "data": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "base64"
+          },
+          "description": "The picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarPage": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ParticipantAvatarImage"
+            }
+          },
+          "description": "null when the participant has no picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarResult": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "AvatarRef"
+            }
+          },
+          "description": "The stored reference, null after clear."
+        }
+      },
+      "extra": false
+    },
     "ChiefAvatarRef": {
       "kind": "object",
       "fields": {
@@ -3030,10 +3162,14 @@
     "AgentMessageState": {
       "kind": "enum",
       "values": [
+        "held",
         "queued",
         "delivered",
         "acknowledged",
-        "failed"
+        "failed",
+        "unsent",
+        "retracted",
+        "declined"
       ]
     },
     "AgentMessageDelivery": {
@@ -3089,6 +3225,68 @@
               "name": "string"
             }
           }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the delivery is held or declined: workspace_unknown or cross_workspace (held), approved (released), declined or expired (declined)."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "queued_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the delivery became queued: at the send, or when a person approved it."
+        },
+        "delivered_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a delivery path last handed the message over."
+        },
+        "acknowledged_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the recipient acknowledged the message."
+        },
+        "held_until_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a held delivery expires (declined, reason expired) without a decision."
         }
       },
       "extra": false
@@ -10202,6 +10400,22 @@
           },
           "description": "list, inline or grid."
         },
+        "align": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill (a newer value is kept): where an inline or grid section's rows or tiles sit on their line. Default leading."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "0 to 32 points between the section's rows or tiles. Absent: the look's default spacing."
+        },
         "columns": {
           "required": false,
           "type": {
@@ -10214,7 +10428,16 @@
           "type": {
             "kind": "primitive",
             "name": "uint32"
-          }
+          },
+          "description": "1 to 50: the section grows with its content up to this many rows (or tile lines), then scrolls inside itself. Absent: it grows without limit (the fixed stack as a whole is capped at half the sidebar height, then each fixed section scrolls inside itself)."
+        },
+        "scroll": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "fixed (stays visible: in the fixed stack at the top, or at the bottom for the bottom region) or flow (scrolls with the main list). Default by kind and region: builtin and pinned fixed, machine flow, custom and app fixed in the top and bottom regions and flow in the middle."
         },
         "room": {
           "required": false,
@@ -10292,7 +10515,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
+          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?, icon_url?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
         },
         "shows_label": {
           "required": true,
@@ -10399,7 +10622,7 @@
               "name": "SidebarSectionSnapshot"
             }
           },
-          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, room?, order, keeps_closed}; unknown keys are kept."
+          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, align, gap?, columns?, max_rows?, scroll, room?, order, keeps_closed}; unknown keys are kept."
         },
         "items": {
           "required": true,
@@ -13205,6 +13428,85 @@
         "validation.invalid"
       ]
     },
+    "agent.message.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "decision": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "approve",
+                "decline"
+              ]
+            },
+            "description": "approve queues the held delivery; decline declines it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only a held delivery is released; another state is refused with operation.failed, reason not_held, or reason expired once its 24 hours ended.",
+          "Only the person decides, in the verified cmux app (the frontend actor): any other request, a plain local connection or the CLI included, is refused with operation.failed, reason release_needs_app. Any local connection may be an agent that left out its launch credential."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "agent.message.send": {
       "class": "mutation",
       "idempotency": "required",
@@ -13239,9 +13541,9 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1,
-              "max_length": 32768
-            }
+              "min_length": 1
+            },
+            "description": "At most 32768 bytes of UTF-8; a longer body is refused with validation.invalid, reason body_too_large."
           },
           "sender": {
             "required": false,
@@ -13251,7 +13553,7 @@
               "min_length": 1,
               "max_length": 256
             },
-            "description": "The sender's address, as the caller asserts it; it is not verified. Defaults to cli."
+            "description": "The sender is the request's verified actor: the terminal (term_...) or ACP session (acp:<session id>) its launch credential names, else cli (the person). A sender given here must match it, or the send is refused with validation.invalid, reason sender_mismatch."
           },
           "sender_name": {
             "required": false,
@@ -13294,7 +13596,10 @@
         "extra": false,
         "constraints": [
           "The body is text: newlines and tabs are the only control characters allowed.",
-          "Every recipient starts queued. Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued."
+          "A recipient's delivery starts queued when the sender is the person or shares the recipient's workspace, held (reason workspace_unknown) when either workspace is unknown, and for different workspaces as the daemon's CMUX_AGENT_MESSAGE_CROSS_WORKSPACE says: hold (default; reason cross_workspace), refuse (operation.failed, reason cross_workspace) or allow (queued). The person is the local user or the verified app; every other actor without a known workspace starts held. A held delivery waits 24 hours for agent.message.release, then is declined with reason expired. Holds are advisory against an agent that leaves out its launch credential: it then sends as the person, until launch credentials are mandatory.",
+          "Limits, each refused with operation.failed and its details.reason: 5 sends in 10 seconds per sender and 20 a minute per sender and recipient (rate_limited), 50 queued or held deliveries per recipient (queue_full), replies at most 8 deep (reply_depth), 40 messages per thread, counted apart from pruning (thread_budget), and the same body from the same sender to the same recipient within 10 seconds (duplicate). Every limit counts stored rows, so a restart keeps them.",
+          "An agent puts a message, or a reply, in an existing thread only when it sent one of its messages or one was addressed to it; otherwise operation.failed, reason thread_not_joined.",
+          "Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued or held."
         ]
       },
       "result": {
@@ -14819,6 +15124,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
@@ -21276,6 +21599,120 @@
         "validation.invalid"
       ]
     },
+    "participant.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ParticipantAvatarPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the person's own clients of the local conversations (a Unix connection, or an authenticated WebSocket: the Channels page reads it through its page allow list). A relayed or remote connection is refused with origin.forbidden.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "avatar is null when the participant has no picture (also for an id that is no person or live Chief)."
+      ]
+    },
+    "participant.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          },
+          "bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The picture, at most 1048576 bytes; its type comes from its signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no bytes)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ParticipantAvatarResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A person sets only their own picture: the connection's principal is that person (user_local on the owner's Unix or authenticated WebSocket connection, or a person bound with a person credential). Nobody sets another person's: operation.failed details.reason avatar_not_yours.",
+        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief only its own and only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
+      ]
+    },
     "project.add": {
       "class": "mutation",
       "idempotency": "required",
@@ -24903,7 +25340,7 @@
                 "name": "JsonValue"
               }
             },
-            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
+            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.remove_ref {ref}, reset, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
           }
         },
         "extra": false,
@@ -25286,6 +25723,56 @@
         "validation.invalid"
       ]
     },
+    "sidebar.item.remove_ref": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ref": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarItemRef"
+            },
+            "description": "The old layout ref {kind, value}: workspace <session>:<workspace id>, url (the url), app, built_in, tab, room, saved_group, or an unknown kind kept by the document. A group has no ref."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "Removes every item that shows the ref, in every section (the old layout's item.remove_ref, \"Remove from Sidebar\"); unknown_item when none does. A removed workspace is unplaced and shows again at the end of its machine section."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar.item.update": {
       "class": "mutation",
       "idempotency": "required",
@@ -25314,7 +25801,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "{shows_label?, span?, label?, title?}; title is a url item's."
+            "description": "{shows_label?, span?, label?, title?, icon_url?}; title and icon_url are a url item's (another body is invalid_value); null clears them."
           }
         },
         "extra": false,
@@ -25462,6 +25949,50 @@
         "validation.invalid"
       ]
     },
+    "sidebar.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Restores the default sections (the old layout's layout.reset): sec_top (built-in, top: Home, App Store), an empty sec_pinned, one machine section per machine with its default look (its title stays), sec_recents (the recent agent chats app section) and sec_bottom (built-in, bottom, inline: the account). Every other section is removed.",
+          "Keeps the user's workspaces and groups: those in a machine section stay in place; a workspace or group in Pinned or a removed section moves to the end of its machine section (a group with its items; an empty group to the first machine section). Other items in Pinned and in removed sections are removed.",
+          "This machine's placed workspaces that are closed are removed (the machine sections they would move into do not keep closed items)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar.section.add": {
       "class": "mutation",
       "idempotency": "required",
@@ -25482,7 +26013,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; unknown keys are kept."
+            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, scroll? (fixed|flow; default by kind and region), room?, keeps_closed?}; unknown keys are kept."
           },
           "place": {
             "required": false,
@@ -25657,7 +26188,7 @@
               "kind": "ref",
               "name": "JsonValue"
             },
-            "description": "{title?, shows_title?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; null clears title, columns, max_rows and room."
+            "description": "{title?, shows_title?, look?, arrangement?, align? (leading|center|trailing|fill), gap? (0-32 points), columns?, max_rows?, scroll? (fixed|flow), room?, keeps_closed?}; null clears title, gap, columns, max_rows and room; a gap outside 0-32 is invalid_value. A section.move into another region moves a scroll the user never changed to that region's default."
           }
         },
         "extra": false,

@@ -77,17 +77,16 @@ public final class AgentSubagentPanes {
     }
 
     /// Shows subagent `agent`'s pane for chat tab `chat`: focuses the open one (with `focus`), or
-    /// opens one right of the chat, or below the newest subagent pane; one open at a time. The
-    /// daemon's move focuses the new pane, so an unfocused open focuses the chat again after the
-    /// move (a move that keeps focus belongs in the daemon, cx-3hw0i). False when nothing opened.
+    /// opens one right of the chat, or below the newest subagent pane; one open at a time. An
+    /// unfocused open moves the tab with the daemon's `keep_focus` (cx-3hw0i), so the chat keeps
+    /// focus throughout. False when nothing opened.
     public func open(_ agent: String, focus: Bool, chat: String, hooks: Hooks) -> Bool {
         if let open = tab(for: agent, isOpen: hooks.isOpen) {
             if focus { hooks.focus(open, false) }
             return true
         }
         guard begin(agent, focus: focus, chat: chat) else { return true }
-        let next: @MainActor (Bool) -> Void = { [weak self] moved in
-            if moved, !focus { hooks.focus(chat, true) }
+        let next: @MainActor (Bool) -> Void = { [weak self] _ in
             if let request = self?.finish() { hooks.again(request) }
         }
         let stack = stackAnchor(isOpen: hooks.isOpen)

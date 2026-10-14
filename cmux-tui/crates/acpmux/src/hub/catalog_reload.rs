@@ -67,6 +67,7 @@ impl Hub {
             current.web_roots = next.web_roots;
             current.web_asking_modes = next.web_asking_modes;
             current.default_permission_mode = next.default_permission_mode;
+            current.last_permission_mode = next.last_permission_mode;
             self.refresh_web_modes(&current);
             (
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),

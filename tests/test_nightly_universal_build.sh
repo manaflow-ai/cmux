@@ -899,4 +899,196 @@ for cache_workflow in "$WORKFLOW_FILE"; do
   fi
 done
 
+# cx-x7hwx: the cmux NIGHTLY-identity old feed follows the newest cmux NEXT
+# build, whichever run published it. #20518 hands a build still in Apple's
+# queue to recovery, so a later run (or a continue-only run) publishes it; the
+# legacy job must start then too, and must not start for a build the old feed
+# already has. A cmux NIGHTLY-identity submission still in Apple's queue is
+# continued (never resubmitted) until it is resolved or 6 hours old.
+legacy_dir="$(mktemp -d)"
+trap 'rm -rf "$legacy_dir"' EXIT
+legacy_feed() {  # <file> <build>...
+  local file="$1"; shift
+  {
+    echo '<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0"><channel>'
+    local build
+    for build in "$@"; do
+      echo "<item><sparkle:version>$build</sparkle:version><enclosure url=\"https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64-$build.dmg\" type=\"application/octet-stream\"/></item>"
+    done
+    echo '</channel></rss>'
+  } > "$file"
+}
+legacy_target() {  # [extra args]; prints "action build pending_run"
+  python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-target.py" "$legacy_dir/next.xml" "$legacy_dir/old.xml" cmux-nightly-next-macos-arm64- "$@" \
+    | awk -F= '{v[$1]=$2} END {printf "%s %s %s", v["action"], v["build"], v["pending_run"]}'
+}
+legacy_expect() {  # <expected "action build pending_run"> <message> [extra args]
+  local expected="$1" message="$2"; shift 2
+  local actual
+  actual="$(legacy_target "$@")"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+}
+now=1800000000
+pending_meta() {  # <build> <submitted epoch>
+  printf '{"build": "%s", "submission_id": "62484bfc-d2e2-4e80-89d9-4a7a927490ce", "submitted_epoch": %s}\n' "$1" "$2" > "$legacy_dir/pending.json"
+}
+# A recovered build (published by a later run) is newer than the old feed: copy it.
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+legacy_expect "new 3851000000001 " "a cmux NEXT build newer than the old feed (published by recovery) must start the cmux NIGHTLY-identity job"
+# The old feed already has it, or a newer one: nothing to do.
+legacy_feed "$legacy_dir/old.xml" 3851000000001
+legacy_expect "none  " "a cmux NEXT build the old feed already has must not start the cmux NIGHTLY-identity job"
+legacy_feed "$legacy_dir/old.xml" 3852000000001
+legacy_expect "none  " "a cmux NEXT build older than the old feed must not start the cmux NIGHTLY-identity job"
+# A pending submission still in Apple's queue is continued, even when a newer
+# cmux NEXT build exists, while it is younger than 6 hours.
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+pending_meta 3850073942601 $((now - 3 * 3600))
+legacy_expect "continue 3850073942601 38566549515" "a pending cmux NIGHTLY-identity submission under 6 h must be continued, not replaced" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+# After 6 hours the newest cmux NEXT build gets a new submission.
+pending_meta 3850073942601 $((now - 7 * 3600))
+legacy_expect "new 3851000000001 " "a pending submission older than 6 h must give way to the newest cmux NEXT build" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+# Apple can hold a submission for many hours: with no newer cmux NEXT build,
+# the pending submission is continued up to 48 hours, never resubmitted.
+legacy_feed "$legacy_dir/next.xml" 3850073942601
+pending_meta 3850073942601 $((now - 7 * 3600))
+legacy_expect "continue 3850073942601 38566549515" "a pending submission of the newest cmux NEXT build at 7 h must be continued, not resubmitted" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+pending_meta 3850073942601 $((now - 49 * 3600))
+legacy_expect "new 3850073942601 " "a pending submission older than 48 h must give way to a new submission" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
+# Once the old feed has the pending build, the pending record is stale.
+legacy_feed "$legacy_dir/old.xml" 3850073942601
+pending_meta 3850073942601 $((now - 3600))
+legacy_expect "new 3851000000001 " "a pending build the old feed already has must not be continued" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+# The enclosure must be the exact published cmux NEXT DMG of that build.
+sed 's#arm64-3851000000001.dmg#arm64-1.dmg#' "$legacy_dir/next.xml" > "$legacy_dir/bad.xml" && mv "$legacy_dir/bad.xml" "$legacy_dir/next.xml"
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+if python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-target.py" "$legacy_dir/next.xml" "$legacy_dir/old.xml" cmux-nightly-next-macos-arm64- >/dev/null 2>&1; then
+  echo "FAIL: a cmux NEXT item whose enclosure is not its own DMG must stop the cmux NIGHTLY-identity job"
+  exit 1
+fi
+# After an attempt: retire the continued submission, and count a failure, only
+# when Apple's answer makes it final. A stapled ticket counts as Apple's answer
+# (notarize-nightly-dmg.sh staples an Accepted continuation and writes no log).
+legacy_resolve() {  # <expected "retire real"> <message> <args...>
+  local expected="$1" message="$2"; shift 2
+  local actual
+  actual="$(python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-resolve.py" "$@" \
+    | awk -F= '{v[$1]=$2} END {printf "%s %s", v["retire"], v["real"]}')"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+}
+legacy_resolve "true true" "an Accepted continuation whose later check failed (stapled ticket) must be retired and counted" \
+  --action continue --pending false --notarize failure --published false --answered true
+legacy_resolve "false true" "a continuation that notarized but failed only to publish must be kept for the next run" \
+  --action continue --pending false --notarize success --published false --answered true
+legacy_resolve "true false" "a published continuation must be retired" \
+  --action continue --pending false --notarize success --published true --answered true
+legacy_resolve "false false" "a continuation that failed before Apple answered must be kept and not counted" \
+  --action continue --pending false --notarize failure --published false --answered false
+legacy_resolve "false false" "a submission still in Apple's queue must be kept and never counted (even if keeping it failed)" \
+  --action new --pending true --notarize success --published false --answered false
+legacy_resolve "false true" "a failed new attempt must count" \
+  --action new --pending false --notarize failure --published false --answered true
+# A pending metadata artifact is retired only when its run confirms the bundle
+# is gone; an API error (rate limit, 5xx, timeout) keeps it.
+fake_gh_dir="$legacy_dir/fakegh"
+mkdir -p "$fake_gh_dir"
+cat > "$fake_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *"-X DELETE"*)
+    [ "${FAKE_GH_DELETE:-ok}" = error ] && { echo "HTTP 503" >&2; exit 1; }
+    echo "DELETE $*" >> "$FAKE_GH_LOG"; exit 0 ;;
+  *pending-bundle*)
+    case "$FAKE_GH_BUNDLES" in error) echo "HTTP 502: Bad Gateway" >&2; exit 1 ;; *) echo "$FAKE_GH_BUNDLES"; exit 0 ;; esac ;;
+  *pending-meta*)
+    [ "${FAKE_GH_META:-ok}" = error ] && { echo "HTTP 403: rate limit exceeded" >&2; exit 1; }
+    echo 4242; exit 0 ;;
+esac
+exit 1
+GH
+chmod +x "$fake_gh_dir/gh"
+orphan() {  # <bundles: error|0|1> [meta: ok|error] [delete: ok|error] -> prints the script's verdict
+  : > "$legacy_dir/gh.log"
+  PATH="$fake_gh_dir:$PATH" FAKE_GH_LOG="$legacy_dir/gh.log" FAKE_GH_BUNDLES="$1" FAKE_GH_META="${2:-ok}" FAKE_GH_DELETE="${3:-ok}" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-orphan-meta.sh" manaflow-ai/cmux 38566549515
+}
+if [ "$(orphan error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: an API error while checking the bundle must keep the pending metadata"
+  exit 1
+fi
+if [ "$(orphan 1 | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: a pending metadata artifact whose bundle exists must be kept"
+  exit 1
+fi
+if [ "$(orphan 0 error | cut -c1-5)" != kept: ] || [ -s "$legacy_dir/gh.log" ]; then
+  echo "FAIL: an API error while listing the pending metadata must keep it"
+  exit 1
+fi
+if [ "$(orphan 0 ok error | cut -c1-5)" != kept: ]; then
+  echo "FAIL: a failed delete of the pending metadata must report it as kept"
+  exit 1
+fi
+if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.log"; then
+  echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
+  exit 1
+fi
+# Wiring: the macOS job takes its build and mode from legacy-identity-target,
+# not from this run's publish-nightly; a pending submission is stored and
+# continued, never counted as a failure.
+legacy_job="$(awk '/^  publish-nightly-identity-legacy:/{on=1} on && /^  [a-z0-9-]+:$/ && !/publish-nightly-identity-legacy/{exit} on' "$WORKFLOW_FILE")"
+target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
+for expected in \
+  "needs: [decide, legacy-identity-target]" \
+  "needs.legacy-identity-target.outputs.build != ''" \
+  "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
+  "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
+  "vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'" \
+  "group: nightly-next-legacy-identity" \
+  "- name: Skip a build older than the old feed's" \
+  "CMUX_NOTARY_WAIT_TIMEOUT=20m" \
+  "CMUX_NOTARY_PENDING_ON_TIMEOUT=true" \
+  "CMUX_NOTARY_CONTINUE_STATE=" \
+  "- name: Keep the pending cmux NIGHTLY-identity submission" \
+  "name: cmux-nightly-identity-pending-meta" \
+  "name: cmux-nightly-identity-pending-bundle" \
+  "Build \${process.env.BUILD} failed:" \
+  "if: failure() && steps.resolve.outputs.real != 'false'" \
+  ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
+  "scripts/ci/nightly-next-legacy-resolve.py" \
+  "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
+  'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
+  if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
+    echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
+    exit 1
+  fi
+done
+for expected in \
+  "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
+  "--max-pending-hours 6 --max-same-build-hours 48" \
+  '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
+  'grep -c "^Build $build failed:"' \
+  "for candidate in"; do
+  if ! grep -Fq -- "$expected" <<<"$target_job"; then
+    echo "FAIL: legacy-identity-target must contain: $expected"
+    exit 1
+  fi
+done
+if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
+  echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
+  exit 1
+fi
+
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

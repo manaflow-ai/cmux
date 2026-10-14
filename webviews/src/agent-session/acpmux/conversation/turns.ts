@@ -45,7 +45,7 @@ export function formatDuration(ms: number): string {
   return [h && `${h}h`, m && `${m}m`, s && `${s}s`].filter(Boolean).join(" ");
 }
 
-export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count} tool calls`);
+export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
 /// or "34 previous messages" for a turn whose timing is unknown (a reloaded turn without a
@@ -53,7 +53,7 @@ export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count}
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
-  if (row.durationMs === undefined) return toolCalls(row.toolCount);
+  if (row.durationMs === undefined) return toolCalls(t, row.toolCount);
   const time = formatDuration(row.durationMs);
   return row.status === "cancelled" ? t("turn.stopped", { time }) : t("turn.worked", { time });
 }
@@ -372,7 +372,11 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 /// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
 /// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
 const staysOut = (row: AcpmuxRow) =>
-  isSubagentGroup(row) || (row.kind === "plan" && row.plan !== undefined) || row.kind === "backgroundTask";
+  isSubagentGroup(row) ||
+  (row.kind === "plan" && row.plan !== undefined) ||
+  row.kind === "backgroundTask" ||
+  // A session offer waits for the person's Start or Dismiss.
+  row.kind === "sessionOffer";
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
