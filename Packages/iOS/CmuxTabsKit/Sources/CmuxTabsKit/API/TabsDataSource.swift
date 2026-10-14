@@ -70,6 +70,12 @@ public protocol TabsDataSource: AnyObject, Observable {
     func reloadOrStop(_ id: TabsKitTab.ID)
     /// The page menu's groups (`TabsKitTabFeatures.pageMenu`).
     func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// A short message the kit shows as a glass toast at the top (a tab that
+    /// could not be created, a step that failed). Set it when `createTab`
+    /// returns nil so the user learns why; the grid stays as it was.
+    var notice: String? { get }
+    /// The toast was tapped away or timed out (5 s).
+    func clearNotice()
 }
 
 extension TabsDataSource where Card == TabsKitThumbnailCard {
@@ -99,6 +105,8 @@ extension TabsDataSource {
     public func navigate(_ id: TabsKitTab.ID, to text: String) {}
     public func reloadOrStop(_ id: TabsKitTab.ID) {}
     public func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
+    public var notice: String? { nil }
+    public func clearNotice() {}
 }
 
 /// Where and how a tab's live page is shown.

@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import CmuxAgentQuestion
 import CnxAgentChat
 import Foundation
@@ -132,3 +134,4 @@ extension FeedStore {
         ]
     }
 }
+#endif

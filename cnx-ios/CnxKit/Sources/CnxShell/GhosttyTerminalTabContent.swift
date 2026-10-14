@@ -12,18 +12,24 @@ import SwiftUI
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
     private var hosts: [String: TerminalTabHost] = [:]
-    /// Tabs whose host runs on a live session (the rest are mock hosts).
+    /// Tabs whose host runs on a live session (the rest show the connecting
+    /// placeholder, or the mock in DEBUG mock mode).
     private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
-    /// or nil to fall back to the mock.
+    /// or nil while there is none yet (the tab then shows "Connecting…").
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
-    /// Live mode: Files and Links previews from the Mac (else the mock files).
+    /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
+    /// DEBUG mock mode (Settings → Developer → Mock data): tabs with no live
+    /// session run the scripted mock. Ignored outside DEBUG builds.
+    var mockDataEnabled = false
+    /// The workspace's Mac, for the connecting placeholder's label.
+    var macName: (@MainActor (Workspace) -> String?)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
-        // A mock host built before live data arrived (no coordinator or no
-        // tree yet) is replaced once the tab has a live session.
+        // A placeholder (or mock) host built before live data arrived (no
+        // coordinator or no tree yet) is replaced once the tab has a live session.
         if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
@@ -35,9 +41,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let live = sessionProvider?(tab)
         if let host = hosts[tab.id], live == nil { return host }
         if live != nil { liveTabs.insert(tab.id) }
-        let session = live ?? MockTerminalSession()
+        // A live tab never builds the mock: without a session it shows the
+        // honest connecting placeholder (TerminalSessionChoice).
+        let mock = mockDataEnabled && live == nil && sessionProvider == nil
+        let session = TerminalSessionChoice.session(live: live, mockDataEnabled: mock, macName: macName?(workspace), programName: tab.title)
         let artifacts = live == nil ? nil : artifactSourceProvider?(tab)
-        let model = TerminalModel(session: session, artifactSource: artifacts ?? MockArtifactSource(), title: tab.title)
+        let model = TerminalModel(
+            session: session,
+            artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
+            title: tab.title
+        )
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         workspaceOwner[tab.id] = workspace.id

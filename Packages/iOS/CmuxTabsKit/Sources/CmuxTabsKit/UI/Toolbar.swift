@@ -133,19 +133,6 @@ struct TabsToolbar: View {
         let control = theme.metrics.control
         let half = splitBack ? r.width / 2 : control
         ZStack(alignment: .leading) {
-            if splitBack {
-                // Inserted and removed with the capsule's animation (fade,
-                // scale and slide from the back circle's center).
-                Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(theme.colors.label)
-                    .frame(width: max(1, r.width / 2), height: r.height)
-                    .offset(x: r.width / 2)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2)),
-                        removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2))))
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
             historyControl(.back, action: onBack) {
                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
                     .frame(width: half, height: r.height)
@@ -158,20 +145,27 @@ struct TabsToolbar: View {
             if splitBack {
                 // Laid out (not offset) beside the back half, so its hit
                 // area is exactly the forward half.
+                // The forward glyph is this control's label, inserted and
+                // removed with the capsule's animation (fades in sliding out
+                // of the back circle's center); a separate transparent glyph
+                // stayed in the accessibility tree as a stray "Forward".
                 HStack(spacing: 0) {
                     Spacer(minLength: 0).frame(width: half)
                     historyControl(.forward, action: onForward) {
-                        Color.clear
+                        Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
+                            .foregroundStyle(theme.colors.label)
                             .frame(width: max(1, r.width - half), height: r.height)
                             .contentShape(.rect)
                     }
                     .accessibilityLabel("Forward")
                 }
+                .transition(.opacity.combined(with: .offset(x: control / 2 - r.width / 2)))
             }
         }
         .buttonStyle(.plain)
         .opacity(chrome.menuOpen ? 0.3 : 1)
         .frame(width: r.width, height: r.height, alignment: .leading)
+        .accessibilityElement(children: .contain)
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
@@ -375,7 +369,7 @@ struct TabsToolbar: View {
             .frame(maxWidth: collapsed ? nil : maxW)
             // The label rides with its page during a toolbar swipe.
             .offset(x: chrome.swiping ? chrome.swipeOffset : 0)
-            .opacity(chrome.swiping ? Double(1 - min(CGFloat(1), abs(chrome.swipeOffset) / (size.width * 0.5))) : 1)
+            .opacity(chrome.swiping ? 1 - min(1, abs(chrome.swipeOffset) / (size.width * 0.5)) : 1)
             .fixedSize(horizontal: collapsed, vertical: false)
             .scaleEffect(collapsed ? m.collapsedScale : 1)
             // Expanded, the label owns only the middle; the 48 pt slots at

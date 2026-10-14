@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import CnxArtifacts
 import Foundation
 
@@ -127,3 +129,4 @@ extension MockAgentSession {
 
     public var artifactSource: any ArtifactSource { MockArtifactSource() }
 }
+#endif

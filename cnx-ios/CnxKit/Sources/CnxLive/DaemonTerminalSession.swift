@@ -55,6 +55,17 @@ public final class DaemonTerminalSession: TerminalSession {
     private var ended = false
     /// Attached to the surface now.
     public var isAttached: Bool { attached }
+    /// Has been attached once (a later attach is a reattach).
+    private var everAttached = false
+    /// The Mac's name, for the connecting placeholder.
+    public var macName: String?
+
+    /// `connecting` until the first attach, `reattaching` after a dropped
+    /// link, `attached` while the screen mirrors the Mac's terminal.
+    public var connectionState: TerminalConnectionState {
+        if attached { return .attached }
+        return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
+    }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac.
     public init(surface: Int, programName: String = "zsh", open: @escaping @Sendable () async throws -> DaemonClient) {
@@ -66,6 +77,7 @@ public final class DaemonTerminalSession: TerminalSession {
     public func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {
         guard self.handler == nil else { return }
         self.handler = handler
+        handler(.connection(connectionState))
         Task { await attach() }
     }
 
@@ -130,6 +142,8 @@ public final class DaemonTerminalSession: TerminalSession {
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { return }
             attached = true
+            everAttached = true
+            handler?(.connection(.attached))
             lastError = nil
             pendingSize = nil
             if let size = lastSize {
@@ -152,6 +166,7 @@ public final class DaemonTerminalSession: TerminalSession {
         attached = false
         draining = false
         guard handler != nil, !ended else { return }
+        handler?(.connection(connectionState))
         log.info("surface \(self.surface): link dropped, waiting to reattach")
     }
 
@@ -246,6 +261,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 if self.client === client {
                     self.client = nil
                     attached = false
+                    handler?(.connection(connectionState))
                 }
                 outbox.insert(next, at: 0)
                 draining = false
