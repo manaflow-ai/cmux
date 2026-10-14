@@ -3276,6 +3276,137 @@
         }
       }
     },
+    "macScreen.home.error.secretNotSaved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تحفظ سلسلة المفاتيح إقران جهاز Mac هذا. افتح قفل سلسلة مفاتيح تسجيل الدخول والصق الرابط مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Privjesak ključeva nije sačuvao uparivanje ovog Maca. Otključajte privjesak ključeva za prijavu i ponovo zalijepite link."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nøgleringen gemte ikke parringen for denne Mac. Lås din login-nøglering op, og sæt linket ind igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Schlüsselbund hat die Kopplung dieses Mac nicht gesichert. Entsperre deinen Anmeldeschlüsselbund und füge den Link erneut ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Keychain did not save this Mac’s pairing. Unlock your login Keychain and paste the link again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El llavero no guardó el emparejamiento de este Mac. Desbloquea el llavero de inicio de sesión y vuelve a pegar el enlace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le trousseau n’a pas enregistré le jumelage de ce Mac. Déverrouillez votre trousseau de session et collez de nouveau le lien."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il portachiavi non ha salvato l’abbinamento di questo Mac. Sblocca il portachiavi di login e incolla di nuovo il link."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キーチェーンにこのMacのペアリングを保存できませんでした。ログインキーチェーンのロックを解除して、リンクをもう一度ペーストしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keychain មិនបានរក្សាទុកការផ្គូផ្គងរបស់ Mac នេះទេ។ សូមដោះសោ Keychain ចូលរបស់អ្នក ហើយបិទភ្ជាប់តំណម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키체인에 이 Mac의 페어링이 저장되지 않았습니다. 로그인 키체인의 잠금을 해제하고 링크를 다시 붙여넣으십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nøkkelringen lagret ikke sammenkoblingen for denne Macen. Lås opp påloggingsnøkkelringen og lim inn lenken på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pęk kluczy nie zapisał parowania tego Maca. Odblokuj pęk kluczy logowania i wklej łącze ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As Chaves não salvaram o emparelhamento deste Mac. Desbloqueie as chaves de início de sessão e cole o link novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Связка ключей не сохранила сопряжение этого Mac. Разблокируйте связку ключей входа и вставьте ссылку снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พวงกุญแจไม่ได้บันทึกการจับคู่ของ Mac เครื่องนี้ ปลดล็อกพวงกุญแจล็อกอินแล้ววางลิงก์อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anahtar Zinciri bu Mac’in eşleştirmesini kaydetmedi. Giriş anahtar zincirinizin kilidini açın ve bağlantıyı yeniden yapıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зв’язка ключів не зберегла з’єднання цього Mac. Розблокуйте зв’язку ключів входу й вставте посилання ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chuỗi khóa đã không lưu ghép đôi của máy Mac này. Hãy mở khóa chuỗi khóa đăng nhập và dán lại liên kết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "钥匙串未存储这台 Mac 的配对。请解锁登录钥匙串，然后再次粘贴链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "鑰匙圈未儲存這部 Mac 的配對。請解鎖登入鑰匙圈，然後再次貼上連結。"
+          }
+        }
+      }
+    },
     "macScreen.home.forget": {
       "extractionState": "manual",
       "localizations": {

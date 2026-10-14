@@ -32,7 +32,9 @@ public enum MacScreenSecretRead: Equatable {
 /// Where pairing secrets live. The app uses the login Keychain; tests use memory.
 public protocol MacScreenSecrets: AnyObject {
     func read(_ account: String) -> MacScreenSecretRead
-    func save(_ pairing: VNCPairing, for account: String)
+    /// False when the store refused the write (a locked Keychain, or a process it denies).
+    @discardableResult
+    func save(_ pairing: VNCPairing, for account: String) -> Bool
     func remove(_ account: String)
 }
 
@@ -65,15 +67,16 @@ public final class KeychainMacScreenSecrets: MacScreenSecrets {
         return .found(pairing)
     }
 
-    public func save(_ pairing: VNCPairing, for account: String) {
-        guard let data = try? JSONEncoder().encode(pairing) else { return }
+    @discardableResult
+    public func save(_ pairing: VNCPairing, for account: String) -> Bool {
+        guard let data = try? JSONEncoder().encode(pairing) else { return false }
         let query = baseQuery(account)
-        if SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
-            var add = query
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(add as CFDictionary, nil)
-        }
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        guard status == errSecItemNotFound else { return status == errSecSuccess }
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     public func remove(_ account: String) {
@@ -97,9 +100,11 @@ public final class MemoryMacScreenSecrets: MacScreenSecrets {
         if failing.contains(account) { return .failed(-25308) }
         return items[account].map(MacScreenSecretRead.found) ?? .missing
     }
-    public func save(_ pairing: VNCPairing, for account: String) {
-        if writesFail { return }
+    @discardableResult
+    public func save(_ pairing: VNCPairing, for account: String) -> Bool {
+        if writesFail { return false }
         items[account] = pairing
+        return true
     }
     public func remove(_ account: String) { items[account] = nil }
 }
@@ -116,6 +121,8 @@ public final class MacScreenStore {
         case notAScreenStream
         /// This Mac's own Share This Mac link.
         case ownLink
+        /// The Keychain refused the pairing's secret, so the Mac is not saved.
+        case secretNotSaved
     }
 
     nonisolated private struct File: Codable, Sendable {
@@ -191,13 +198,13 @@ public final class MacScreenStore {
         guard pairing.isStream else { return .failure(.notAScreenStream) }
         if let own = secrets.pairing(for: Self.hostAccount), own.room == pairing.room { return .failure(.ownLink) }
         if let index = macs.firstIndex(where: { secrets.pairing(for: $0.id.uuidString)?.room == pairing.room }) {
+            guard secrets.save(pairing, for: macs[index].id.uuidString) else { return .failure(.secretNotSaved) }
             macs[index].name = pairing.name
-            secrets.save(pairing, for: macs[index].id.uuidString)
             save()
             return .success(macs[index])
         }
         let mac = SavedMac(name: pairing.name)
-        secrets.save(pairing, for: mac.id.uuidString)
+        guard secrets.save(pairing, for: mac.id.uuidString) else { return .failure(.secretNotSaved) }
         macs.append(mac)
         save()
         return .success(mac)
@@ -261,11 +268,12 @@ public final class MacScreenStore {
     }
 
     /// A new room and secret: every Mac paired with the old link loses access.
+    /// Nil when the Keychain refused it (a link it does not keep would change
+    /// on every launch); the old link, if any, stays.
     @discardableResult
-    public func resetHostPairing(name: String) -> VNCPairing {
+    public func resetHostPairing(name: String) -> VNCPairing? {
         let pairing = VNCPairing.generate(name: name, kind: "stream")
-        secrets.save(pairing, for: Self.hostAccount)
-        return pairing
+        return secrets.save(pairing, for: Self.hostAccount) ? pairing : nil
     }
 
     /// Writes the list off the main thread, in order.

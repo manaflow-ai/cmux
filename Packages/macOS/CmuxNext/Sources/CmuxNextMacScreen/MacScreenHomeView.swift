@@ -175,6 +175,7 @@ public struct MacScreenHomeView: View {
         case .notALink: L.t("macScreen.home.error.notALink", "That is not a Mac Screen link. It starts with cmux-vnc://pair.")
         case .notAScreenStream: L.t("macScreen.home.error.notAStream", "This link is for a VNC relay, not a screen stream. Share the Mac from cmux or with cmux-vnc-host --capture.")
         case .ownLink: L.t("macScreen.home.error.ownLink", "That is this Mac’s own link. Paste it on the other Mac.")
+        case .secretNotSaved: L.t("macScreen.home.error.secretNotSaved", "The Keychain did not save this Mac’s pairing. Unlock your login Keychain and paste the link again.")
         }
     }
 

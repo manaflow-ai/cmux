@@ -110,7 +110,7 @@ struct MacScreenStoreTests {
         #expect(store.hostPairing(name: "Mac A") == first)
         let renamed = try #require(store.hostPairing(name: "Mac B"))
         #expect(renamed.room == first.room && renamed.name == "Mac B")
-        let reset = store.resetHostPairing(name: "Mac B")
+        let reset = try #require(store.resetHostPairing(name: "Mac B"))
         #expect(reset.room != first.room && reset.secret != first.secret)
         store.setShareEnabled(true)
         await store.flush()
@@ -127,10 +127,7 @@ extension MacScreenStoreTests {
         let (store, _, secrets) = makeStore()
         secrets.writesFail = true
         let link = VNCPairing.generate(name: "Mac B", kind: "stream").link.absoluteString
-        guard case .failure = store.add(link: link) else {
-            Issue.record("a Mac whose secret was not stored was saved")
-            return
-        }
+        #expect(store.add(link: link) == .failure(.secretNotSaved))
         #expect(store.macs.isEmpty)
     }
 
