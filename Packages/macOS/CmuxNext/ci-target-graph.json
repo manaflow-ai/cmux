@@ -108,6 +108,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -146,8 +147,10 @@
         "CmuxNextBridge",
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
+        "CmuxNextCLIInstall",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -213,6 +216,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextApp",
+        "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -296,6 +300,16 @@
       ],
       "packages": []
     },
+    "CmuxNextBrowserHistory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHistory",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
     "CmuxNextBrowserHost": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHost",
@@ -325,6 +339,12 @@
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
       ]
+    },
+    "CmuxNextCLIInstall": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
+      "targets": [],
+      "packages": []
     },
     "CmuxNextCloud": {
       "kind": "regular",
@@ -382,6 +402,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextControlTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",

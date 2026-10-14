@@ -158,7 +158,7 @@ jobs:
             printf '%s\n' '  printf("abi %u\n", cmux_layout_reducer_ffi_abi_version());' '  return 0;' '}'
           } > "$smoke/smoke.c"
           for arch in arm64 x86_64; do
-            xcrun clang -target "$arch-apple-macos26.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
+            xcrun clang -target "$arch-apple-macos14.0" -I "$headers" "$smoke/smoke.c" "$lib" -o "$smoke/smoke-$arch"
           done
           "$smoke/smoke-arm64"
           dist="$RUNNER_TEMP/dist"

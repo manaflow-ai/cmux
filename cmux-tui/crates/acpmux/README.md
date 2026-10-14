@@ -80,6 +80,14 @@ tailnet name, for example) in `websocket.allowedHosts`, because any other `Host`
 
 ### Remote connections (`webRoots`, `webAskingModes`)
 
+Every connection is authenticated before it gets a session or any data. Each one carries the
+proof it presented (`ConnAuth`, `src/server/conn_auth.rs`), reported as `initialize`
+`_meta.acpmux.auth`: `localSocket` (the daemon socket, owner-only), `listenerToken` (the
+WebSocket token, checked at the upgrade; a missing or wrong token gets 401 and no connection),
+`localApp` (the token plus this launch's LocalApp token) or `peerToken` (the token plus this
+launch's peer token). A connection with no proof (`none`) gets error -32001 for its first
+request and is closed. The mode rule reads `ConnAuth::authenticated`, not the transport.
+
 A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
 device, a peer daemon) works only inside folders that are known projects (the cwds of local
 sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed

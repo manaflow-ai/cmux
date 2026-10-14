@@ -115,6 +115,27 @@ SECTIONS = [
         "lists": {"shortcutHints": ("descriptors", "ModifierHoldHintsSetting")},
         "enums": {},
     },
+    {
+        "source": "schemas/settings/source/chats.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Chats.generated.swift",
+        "type": "ChatSettingsSchema",
+        "lists": {"chats": ("descriptors", "ChatSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/tasks.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Tasks.generated.swift",
+        "type": "TaskSettingsSchema",
+        "lists": {"tasks": ("descriptors", "TasksLayoutSetting")},
+        "enums": {"tasks.layout": "TasksLayoutPreference"},
+    },
+    {
+        "source": "schemas/settings/source/feed.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
+        "type": "FeedSettingsSchema",
+        "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+        "enums": {},
+    },
 ]
 SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "seconds", "minutes", "days", "count", "fraction"}
@@ -270,7 +291,10 @@ def load_section(section, seen_keys, section_ids):
                 if key not in section["enums"]:
                     fail(src, "%s: add its Swift enum name to SECTIONS" % key)
                 for choice in row["choices"]:
+                    if set(choice) - {"value", "title", "note"}:
+                        fail(src, "%s choice %r: fields are value, title, note" % (key, choice.get("value")))
                     check_text(src, key + " choice " + choice["value"], choice["title"])
+                    check_note(src, key + " choice " + choice["value"], choice.get("note"))
                 for old, new in row.get("aliases", {}).items():
                     if new not in values or old in values:
                         fail(src, "%s: alias %r -> %r must map an old value to a choice" % (key, old, new))
@@ -315,6 +339,8 @@ def enums_swift(section, rows):
             out.append("public nonisolated enum %s: String, Sendable, Hashable, CaseIterable {" % enum)
             for choice in row["choices"]:
                 case = camel(choice["value"])
+                if choice.get("note"):
+                    out.append("    /// " + choice["note"])
                 out.append("    case %s%s" % (case, "" if case == choice["value"] else " = " + swift_string(choice["value"])))
             if row.get("aliases"):
                 out.append("")

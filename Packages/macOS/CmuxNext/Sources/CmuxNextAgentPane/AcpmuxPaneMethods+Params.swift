@@ -46,6 +46,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/markUnread": (["sessionId"], []),
+        "_acpmux/harness/health": (["refresh", "rescan"], []),
+        "_acpmux/side": (["sessionId", "chat"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

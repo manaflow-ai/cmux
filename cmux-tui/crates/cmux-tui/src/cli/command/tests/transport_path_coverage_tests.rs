@@ -221,6 +221,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "history.visit.record"
                         | "history.visit.title"
                         | "history.visit.import"
+                        | "history.trail.record"
                         | "history.visit.remove"
                         | "history.visit.summaries"
             )

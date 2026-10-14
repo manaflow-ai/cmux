@@ -57,8 +57,8 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
 }
 
 /// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or
-/// null), `size {height}` (the page's content height), `openChangelog`,
-/// `dismiss` and `share`; the stream `cmux.changelog.surface.changes` sends the
+/// null), `size {height}` (the page's content height), `openChangelog`
+/// and `dismiss`; the stream `cmux.changelog.surface.changes` sends the
 /// highlights again whenever they change (the notes arrive after staging).
 @MainActor
 final class UpdateSurfaceProvider: PageProvider {
@@ -100,9 +100,6 @@ final class UpdateSurfaceProvider: PageProvider {
             return .null
         case "cmux.changelog.surface.dismiss":
             services.updater.whatsNew.dismissUpdated()
-            return .null
-        case "cmux.changelog.surface.share":
-            _ = services.registry.perform("app.shareCmux", invocation: ActionInvocation(origin: .user))
             return .null
         default:
             throw PageError.unknownOp(op)

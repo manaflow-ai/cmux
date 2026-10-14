@@ -773,6 +773,11 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
+    public final Object pageCredential() throws CmuxException {
+        Object result = execute(Commands.PAGE_CREDENTIAL, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final EmptyResult pairingResponse(PairingResponseRequest request) throws CmuxException {
         Object result = execute(Commands.PAIRING_RESPONSE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -968,9 +973,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final EmptyResult send(SendRequest request) throws CmuxException {
+    public final SendResult send(SendRequest request) throws CmuxException {
         Object result = execute(Commands.SEND, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SendResult.fromWire(result);
     }
 
     public final EmptyResult sendKey(SendKeyRequest request) throws CmuxException {
@@ -1272,6 +1277,11 @@ public abstract class GeneratedCmuxClient {
     public final WaitForResult waitFor(WaitForRequest request) throws CmuxException {
         Object result = execute(Commands.WAIT_FOR, request.toWire());
         return WaitForResult.fromWire(result);
+    }
+
+    public final Object wsListen(WsListenRequest request) throws CmuxException {
+        Object result = execute(Commands.WS_LISTEN, request.toWire());
+        return Wire.immutableJson(result);
     }
 
     public final ZoomPaneResult zoomPane(ZoomPaneRequest request) throws CmuxException {

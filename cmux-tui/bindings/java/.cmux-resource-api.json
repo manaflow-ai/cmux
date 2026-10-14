@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b72181fd3b55e48d7e11d39be82dbeacf75b128a26b35b9b7df0006bcffcbd42",
+  "catalog_sha256": "8f97c9a547c2824c5ff929fad1d83572baeaf02d35f5efaf1791e5ba0038e0de",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -68,6 +68,9 @@
       "class": "mutation"
     },
     "browser.tab.emulate.clear": {
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "class": "mutation"
     },
     "browser.viewer.release": {
@@ -221,6 +224,9 @@
       "class": "mutation"
     },
     "history.site.remove": {
+      "class": "mutation"
+    },
+    "history.trail.record": {
       "class": "mutation"
     },
     "history.visit.import": {

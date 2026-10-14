@@ -263,6 +263,20 @@ CMUX_NIGHTLY_NEXT_MAX_REFUSED=1 request --tree-ready "$head"
 rm -f "$TMP/bin/node"
 git_q -C "$src" checkout -q --detach "$head"
 
+# A tree published before its daemon tests ended (source.json daemonTests
+# "separate", chief 2026-10-13) is promoted only once daemon-tests.json exists.
+publish "$other"
+okey=$(key "$other")
+printf '{"key": "%s", "commit": "%s", "daemonTests": "separate"}\n' "$okey" "$other" > "$cdn/tree/$okey/source.json"
+git_q -C "$src" checkout -q --detach "$other"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "daemon tests have not passed" <<<"$out" \
+  || fail "a tree without its daemon-tests marker must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+printf '{"key": "%s", "result": "success"}\n' "$okey" > "$cdn/tree/$okey/daemon-tests.json"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$other" || fail "a tree with its daemon-tests marker must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"

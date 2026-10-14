@@ -30,6 +30,9 @@ pub(super) enum ServerAction {
         /// on stdout before the result, so the app bounds its wait by
         /// progress instead of a fixed timeout.
         progress: bool,
+        /// Private app contract (cx-hnmbt.2): an owner this call spawns
+        /// opens its loopback WebSocket listener (`--ws-loopback`).
+        websocket: Option<crate::local_owner::EnsureWebSocket>,
     },
     Stop {
         force: bool,
@@ -96,7 +99,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress } = plan.action {
+    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress, websocket } =
+        plan.action
+    {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
@@ -109,9 +114,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             expected_session,
             terminal_reap_grace,
             install_key,
-            socket,
-            socket_is_derived,
+            (socket, socket_is_derived),
             progress,
+            websocket,
             global.output,
         );
     }
@@ -416,14 +421,15 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 
 /// `server ensure`: connect to a ready owner, spawning a detached one when
 /// nothing serves the socket. Reports `running` for an owner that already
-/// existed and `started` for one this call spawned.
+/// existed and `started` for one this call spawned. `socket` is the socket
+/// path and whether it was derived from the session name.
 fn run_ensure(
     expected_session: Option<String>,
     terminal_reap_grace: Option<Duration>,
     install_key: Option<cmux_tui_core::server::FrontendKey>,
-    socket: std::path::PathBuf,
-    socket_is_derived: bool,
+    (socket, socket_is_derived): (std::path::PathBuf, bool),
     progress: bool,
+    websocket: Option<crate::local_owner::EnsureWebSocket>,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
@@ -440,6 +446,7 @@ fn run_ensure(
         // The app's Chief owner: the brain tools socket this client was
         // started with (taken out of its environment at start).
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
+        websocket,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     let report = |restoring: &crate::local_owner::Restoring| {

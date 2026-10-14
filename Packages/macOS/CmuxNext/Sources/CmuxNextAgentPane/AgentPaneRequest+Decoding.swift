@@ -134,6 +134,12 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.setTemplate":
+            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
+                self = .setNewTabTemplate(template)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -166,13 +172,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "harness.health":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
-                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true,
-                                      rescan: params?["rescan"] as? Bool == true)
-            } else {
-                self = .unsupported(method)
-            }
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
@@ -201,6 +200,10 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
+        case "chat.newHere":
+            if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
+        case "chat.openTab":
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

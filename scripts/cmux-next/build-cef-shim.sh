@@ -26,7 +26,7 @@ SHIM_HEADER_DIR="$REPO_ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/
 SHIM_HEADER="$SHIM_HEADER_DIR/cmux_cef_shim.h"
 ABI_ID="$(shasum -a 256 "$SHIM_HEADER" | awk '{print $1}')"
 ARCH="${CMUX_CEF_ARCH:-arm64}"
-MIN_OS="${CMUX_CEF_MIN_OS:-26.0}"
+MIN_OS="${CMUX_CEF_MIN_OS:-14.0}"
 
 CXX="$(xcrun --sdk macosx --find clang++)"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
@@ -59,7 +59,7 @@ common=(
   -fvisibility=hidden -fvisibility-inlines-hidden -fobjc-call-cxx-cdtors
   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
   -I"$CEF_DIR"
-  -Wno-deprecated-declarations -Wno-undefined-var-template
+  -Wno-deprecated-declarations -Wno-undefined-var-template -Werror=unguarded-availability-new
 )
 export CXX CEF_DIR OUT_DIR
 export COMMON_FLAGS="${common[*]}"

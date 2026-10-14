@@ -702,6 +702,10 @@ impl Hub {
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        // From the profile, before its CODEX_PATH picks the binary.
+        let codex_bridge = command_line.is_none()
+            && translator.is_none()
+            && crate::codex_app_server::is_profile_launch(&profile.argv);
         let cmd = crate::agent::harness_command(
             &meta.harness,
             profile,
@@ -718,6 +722,7 @@ impl Hub {
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
             env: crate::agent::command_env(&cmd),
             cwd: meta.cwd.clone(),
+            codex_bridge,
             translator,
             socket: crate::agent_host::socket_path(&hosts, &session.id),
             hosts_dir: hosts,
@@ -725,7 +730,47 @@ impl Hub {
             router_owner_fifo: crate::daemon::router_owner_path(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
-        let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
+        let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
+            Ok(child) => return Ok(child),
+            Err(e) => e,
+        };
+        // A host that started but did not answer (a wedged or dead host:
+        // its hello missed `link::connect`'s budget) is ended and one fresh
+        // host takes its place, once. A remote-origin chain is not started
+        // again: its sandbox canary proves only the start it preceded.
+        let Some(failed) = first.started else { return Err(internal(first.error)) };
+        let ended = self.end_unanswered_host(session, &failed, &first.error).await;
+        if !ended || meta.remote_origin {
+            return Err(internal(first.error));
+        }
+        tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
+        match self.start_hosted(session, meta, &launcher, &spec, tap).await {
+            Ok(child) => Ok(child),
+            Err(second) => {
+                if let Some(failed) = &second.started {
+                    let _ = self.end_unanswered_host(session, failed, &second.error).await;
+                }
+                Err(RpcError::internal(format!(
+                    "{:#} (a fresh agent host also failed: {:#})",
+                    first.error, second.error
+                )))
+            }
+        }
+    }
+
+    /// Start one host for `spec` and attach to it. A failure after the host
+    /// started carries its record, so the caller can end it.
+    async fn start_hosted(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        meta: &SessionMeta,
+        launcher: &crate::agent_host::link::HostLauncher,
+        spec: &crate::agent_host::SpawnSpec,
+        tap: crate::agent::Tap,
+    ) -> Result<Arc<ChildAgent>, HostStartFailed> {
+        let record = crate::agent_host::link::spawn(launcher, spec)
+            .await
+            .map_err(|error| HostStartFailed { error, started: None })?;
         // Logged before the first entry, so a later controller counts every
         // entry of this incarnation.
         self.append(
@@ -736,20 +781,57 @@ impl Hub {
         );
         let attached = ChildAgent::attach_hosted(
             &meta.harness,
-            record,
+            record.clone(),
             0,
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
         )
-        .await
-        .map_err(internal)?;
-        let child = match attached {
-            crate::agent::Attached::Ready(child, _, _) => child,
-            crate::agent::Attached::Incompatible { .. } => {
-                return Err(RpcError::internal("a host of this build refused its controller"));
-            }
-        };
-        Ok(child)
+        .await;
+        match attached {
+            Ok(crate::agent::Attached::Ready(child, _, _)) => Ok(child),
+            Ok(crate::agent::Attached::Incompatible { .. }) => Err(HostStartFailed {
+                error: anyhow::anyhow!("a host of this build refused its controller"),
+                started: None,
+            }),
+            Err(error) => Err(HostStartFailed { error, started: Some(record) }),
+        }
     }
+
+    /// End a host this daemon started but could not attach to, by nonce
+    /// proof, and remove its files, so a fresh host can take the session's
+    /// socket and record. True when it no longer runs.
+    async fn end_unanswered_host(
+        &self,
+        session: &Session,
+        record: &agent_host::HostRecord,
+        error: &anyhow::Error,
+    ) -> bool {
+        let dir = agent_host::hosts_dir();
+        let ended = end_host_blocking(
+            dir.clone(),
+            record.session_id.clone(),
+            Some(record.start_nonce.clone()),
+            Some(record.host_pid),
+        )
+        .await;
+        if ended {
+            agent_host::remove_artifacts(&dir, record);
+        } else {
+            tracing::warn!(session = %session.id, "could not end an agent host that did not answer");
+        }
+        self.append(
+            session,
+            "mux",
+            "host_unanswered",
+            json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "ended": ended, "error": format!("{error:#}")}),
+        );
+        ended
+    }
+}
+
+/// [`Hub::start_hosted`] failed; `started` is the host that runs anyway.
+struct HostStartFailed {
+    error: anyhow::Error,
+    started: Option<agent_host::HostRecord>,
 }

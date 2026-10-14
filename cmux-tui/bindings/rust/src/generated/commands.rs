@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815.
+// cmux-tui mux protocol 12, IR 8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -479,6 +479,9 @@ pub struct CloseWorkspaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_empty: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2278,6 +2281,14 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PageCredentialRequest {
+}
+
+#[rustfmt::skip]
+pub type PageCredentialResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingResponseRequest {
     pub approve: bool,
@@ -2745,19 +2756,26 @@ pub struct SelectWorkspaceRequest {
 pub type SelectWorkspaceResult = T::EmptyResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
-    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub text: Optional<String>,
 }
 
 #[rustfmt::skip]
-pub type SendResult = T::EmptyResult;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SendResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub queued: Option<bool>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3569,6 +3587,18 @@ pub struct WaitForRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct WsListenRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origins: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+pub type WsListenResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ZoomPaneRequestMode {
     #[serde(rename = "toggle")]
@@ -3777,6 +3807,9 @@ impl CmuxClient {
         }
         if !request.expected_revision.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
+        }
+        if request.if_empty.is_some() {
+            self.require_capability_field("close-workspace", "close-workspace-if-empty-v1")?;
         }
         if !request.key.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
@@ -4451,6 +4484,10 @@ impl CmuxClient {
         self.execute(&NOTIFY_METADATA, &request)
     }
 
+    pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
+        self.execute(&PAGE_CREDENTIAL_METADATA, &request)
+    }
+
     pub fn pairing_response(&mut self, request: PairingResponseRequest) -> Result<PairingResponseResult> {
         self.execute(&PAIRING_RESPONSE_METADATA, &request)
     }
@@ -4641,6 +4678,9 @@ impl CmuxClient {
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_capability_field("send", "terminal-input-while-creating-v1")?;
         }
         self.execute(&SEND_METADATA, &request)
     }
@@ -5019,6 +5059,10 @@ impl CmuxClient {
 
     pub fn wait_for(&mut self, request: WaitForRequest) -> Result<T::WaitForResult> {
         self.execute(&WAIT_FOR_METADATA, &request)
+    }
+
+    pub fn ws_listen(&mut self, request: WsListenRequest) -> Result<WsListenResult> {
+        self.execute(&WS_LISTEN_METADATA, &request)
     }
 
     pub fn zoom_pane(&mut self, request: ZoomPaneRequest) -> Result<T::ZoomPaneResult> {

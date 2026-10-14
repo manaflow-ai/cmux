@@ -1138,8 +1138,15 @@ body,
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--hc-border, rgba(128, 128, 128, 0.25));
+  border-bottom: 1px solid var(--page-separator);
   font-size: var(--text-detail);
+}
+.hc-instance-url {
+  margin-inline-start: auto;
+  font-family: ui-monospace, monospace;
+  opacity: 0.7;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .hc-gate {
   max-width: 420px;
@@ -1173,5 +1180,5 @@ body,
   font-variant-numeric: tabular-nums;
 }
 .hc-gate-error {
-  color: #d33;
+  color: var(--hc-danger);
 }

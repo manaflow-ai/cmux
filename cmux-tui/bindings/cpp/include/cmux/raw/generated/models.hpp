@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815";
+inline constexpr std::string_view kProtocolIrSha256 = "8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -394,6 +394,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PasteImageRequest;
@@ -438,6 +439,7 @@ struct SelectScreenRequest;
 struct SelectTabRequest;
 struct SelectWorkspaceRequest;
 struct SendRequest;
+struct SendResult;
 struct SendKeyRequest;
 struct ServerStatsRequest;
 struct SetCellPixelsRequest;
@@ -501,6 +503,7 @@ struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
+struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
@@ -565,6 +568,7 @@ struct TabClosedEvent;
 struct TabRenamedEvent;
 struct TerminalClipboardReadEvent;
 struct TerminalClipboardReadCancelledEvent;
+struct TerminalInputUnclaimedEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -677,6 +681,7 @@ enum class AgentState {
 struct AgentChangedEvent {
     Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -707,7 +712,9 @@ struct AgentPresenceChangedEvent {
 };
 
 struct AgentRecord {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
+    std::optional<std::uint64_t> since_ms{};
     AgentSource source{};
     AgentState state{};
     Id surface{};
@@ -1427,6 +1434,7 @@ struct CloseWorkspaceRequest {
     std::optional<bool> end_terminals{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
+    std::optional<bool> if_empty{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
@@ -3531,6 +3539,10 @@ struct OverflowEvent {
     friend bool operator==(const OverflowEvent&, const OverflowEvent&) = default;
 };
 
+struct PageCredentialRequest {
+    friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
+};
+
 struct PairingRequestedEvent {
     std::string code{};
     std::uint64_t expires_in{};
@@ -4182,9 +4194,15 @@ struct SendKeyRequest {
 struct SendRequest {
     Field<Base64> bytes{};
     std::optional<bool> paste{};
-    Id surface{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct SendResult {
+    std::optional<bool> queued{};
+    friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
 struct ServerStatsConnections {
@@ -4884,6 +4902,13 @@ struct TerminalHistoryRequest {
     friend bool operator==(const TerminalHistoryRequest&, const TerminalHistoryRequest&) = default;
 };
 
+struct TerminalInputUnclaimedEvent {
+    Base64 bytes_base64{};
+    std::string reason{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
+};
+
 struct TerminalPlacement {
     bool already_exited{};
     std::optional<TerminalExit> exit{};
@@ -5284,6 +5309,12 @@ struct WorkspaceRenamedEvent {
     Id workspace{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const WorkspaceRenamedEvent&, const WorkspaceRenamedEvent&) = default;
+};
+
+struct WsListenRequest {
+    Field<std::string> allow_origin{};
+    Field<std::vector<std::string>> allow_origins{};
+    friend bool operator==(const WsListenRequest&, const WsListenRequest&) = default;
 };
 
 enum class ZoomPaneRequestMode {
@@ -7574,6 +7605,12 @@ struct Codec<NotifyRequest> {
 };
 
 template <>
+struct Codec<PageCredentialRequest> {
+    static Result<Json> encode(const PageCredentialRequest& value);
+    static Result<PageCredentialRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PairingResponseRequest> {
     static Result<Json> encode(const PairingResponseRequest& value);
     static Result<PairingResponseRequest> decode(const Json& value);
@@ -7835,6 +7872,12 @@ template <>
 struct Codec<SendRequest> {
     static Result<Json> encode(const SendRequest& value);
     static Result<SendRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SendResult> {
+    static Result<Json> encode(const SendResult& value);
+    static Result<SendResult> decode(const Json& value);
 };
 
 template <>
@@ -8213,6 +8256,12 @@ template <>
 struct Codec<WaitForRequest> {
     static Result<Json> encode(const WaitForRequest& value);
     static Result<WaitForRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<WsListenRequest> {
+    static Result<Json> encode(const WsListenRequest& value);
+    static Result<WsListenRequest> decode(const Json& value);
 };
 
 template <>
@@ -8597,6 +8646,12 @@ template <>
 struct Codec<TerminalClipboardReadCancelledEvent> {
     static Result<Json> encode(const TerminalClipboardReadCancelledEvent& value);
     static Result<TerminalClipboardReadCancelledEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalInputUnclaimedEvent> {
+    static Result<Json> encode(const TerminalInputUnclaimedEvent& value);
+    static Result<TerminalInputUnclaimedEvent> decode(const Json& value);
 };
 
 template <>

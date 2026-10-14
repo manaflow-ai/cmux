@@ -43,6 +43,9 @@ public struct DaemonCapabilities: Sendable {
     /// A frontend browser tab's back/forward entries and scroll positions,
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
+    /// `profile_id` on `update-frontend-browser-tab`: a browser tab moves to
+    /// another browser profile in place (same tab id and position).
+    public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
     /// `name` on `move-tab-to-new-workspace`: the new workspace takes the
     /// moved tab's name in the same commit (else the app renames after).
@@ -102,6 +105,9 @@ public struct DaemonCapabilities: Sendable {
     public let batchClose = "batch-close-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
+    /// `if_empty` on `close-workspace`: the daemon closes the workspace only
+    /// when it has no tab at commit time (`workspace_not_empty` otherwise).
+    public let closeWorkspaceIfEmpty = "close-workspace-if-empty-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     public let browserHostProvider = "browser-host-provider-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
@@ -228,6 +234,15 @@ public struct DaemonCapabilities: Sendable {
     /// commands and their `cloud-*` events. Advertised only when the daemon
     /// has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
+    /// `page-credential`: the verified app gets a credential for its own page, which then gets
+    /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
+    public let pageCredential = "page-credential-v1"
+    /// `ws-listen`: a running owner opens its loopback page listener on
+    /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
+    public let wsListen = "ws-listen-v1"
+    /// `ws-listen {allow_origins}`: the listener admits every first-party page origin
+    /// (cx-hnmbt.10); an owner without it gets the Channels origin only.
+    public let wsListenOrigins = "ws-listen-origins-v1"
     /// Groups placed among the loose personal workspaces: `top_index` on
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).
@@ -275,6 +290,9 @@ public struct DaemonCapabilities: Sendable {
     /// `palette_usage.get|record|import`: the user's palette usage history
     /// and learned picks, owned by the daemon (plans/cmux-next/palette-ranking.md 5.3).
     public let paletteUsage = "palette-usage-v1"
+    /// `browser.devices.*` and `browser.tab.emulate*`: Chrome's device toolbar
+    /// list and each browser tab's emulation (`extra.emulation`), owned by the daemon (cx-ocbf3).
+    public let browserDevices = "browser-devices-v1"
     /// keybindings.json owned by the daemon (`keybindings.*`, cx-9ce.17).
     public let keybindings = "keybindings-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
@@ -310,6 +328,9 @@ public struct DaemonCapabilities: Sendable {
     /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
     /// `ClientHello.originClaimCapability`).
     public let originClaim = "origin-claim-v1"
+    /// Page ids on page relays and the per-page allow list (`page-router-v1`;
+    /// `DaemonClientRole.pageRouterCapability`).
+    public let pageRouter = "page-router-v1"
     /// `read-session-journal` for agent history (`AgentHistory`).
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
@@ -323,17 +344,17 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
+                                            sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, browserDevices, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

@@ -25,6 +25,7 @@ pub mod claude_stdio;
 pub mod cli;
 pub mod client;
 pub mod clock;
+pub mod codex_app_server;
 pub mod config;
 pub mod cua_socket;
 pub mod cua_v2;

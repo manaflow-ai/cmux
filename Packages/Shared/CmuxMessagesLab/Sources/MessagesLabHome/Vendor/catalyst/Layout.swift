@@ -6,7 +6,12 @@ import AppKit
 
 /// Text measured and wrapped with Core Text, the way the bubbles draw it.
 struct TextLayout: Hashable {
-    struct Line: Hashable { var range: NSRange; var width: CGFloat }
+    struct Line: Hashable {
+        var range: NSRange; var width: CGFloat
+        /// The width without the line's trailing whitespace: what the typesetter fits to the column
+        /// (a wrapped line's trailing space hangs past it, `width` counts it). Infinity when unknown.
+        var fit: CGFloat = .infinity
+    }
     var text: String
     var runs: [TextRun]
     var lines: [Line]
@@ -35,11 +40,11 @@ struct TextLayout: Hashable {
             if s.hasSuffix("\n") { range.length -= 1 }
             let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
             let w = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-            lines.append(Line(range: range, width: w))
+            lines.append(Line(range: range, width: w, fit: w - CGFloat(CTLineGetTrailingWhitespaceWidth(line))))
             start += n
-            if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0)) }
+            if start == len && s.hasSuffix("\n") { lines.append(Line(range: NSRange(location: len, length: 0), width: 0, fit: 0)) }
         }
-        if lines.isEmpty { lines = [Line(range: NSRange(location: 0, length: 0), width: 0)] }
+        if lines.isEmpty { lines = [Line(range: NSRange(location: 0, length: 0), width: 0, fit: 0)] }
         return TextLayout(text: text, runs: runs, lines: lines, width: lines.map(\.width).max() ?? 0)
     }
 
@@ -404,13 +409,33 @@ struct PartRow: Hashable {
 }
 
 enum Sizing {
+    /// A text balloon's frame width: its widest line (typographic width with a wrapped line's trailing space, at most
+    /// the column) plus 12 pt on each side, rounded UP to whole device pixels. Messages (macOS 27 and 26) does this on
+    /// both sides (cx-3cb incoming-width, tools/evidence/ANIMATIONS.md, tools/evidence/anim/balwidth): the accessibility
+    /// frames of 50 balloons in the reference scenes (ax-scene.json, round 3-6) are ceil(2 (t + 24)) / 2 pt exactly, and
+    /// 117 balloons in the lossless stills (incoming right edges, outgoing left edges; windows 434-628 pt) are within
+    /// 0.09 px of it; without the rounding the frames were 0.01-0.50 pt narrower. The grid is 2x, the references'
+    /// scale (layout runs off the main thread and keys its cache on the width only; a 1x screen keeps half points). The
+    /// iOS app keeps the unrounded width (no reference).
+    static func textBalloonWidth(_ text: CGFloat, column: CGFloat) -> CGFloat {
+        let w = min(text, column) + 2 * Fixture.bubblePadX
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        return w
+#else
+        // 1e-4 px: a width on the grid stays there (no step up from float noise).
+        return (w * balloonGrid - 1e-4).rounded(.up) / balloonGrid
+#endif
+    }
+    /// Device pixels per point of `textBalloonWidth`'s grid.
+    static let balloonGrid: CGFloat = 2
+
     static func size(of part: Part, width: CGFloat) -> (CGSize, TextLayout?) {
         let m = Metrics(width: width)
         let maxTextWidth = m.maxTextWidth, mediaWidth = m.mediaWidth
         switch part {
         case let .text(t, runs):
             let tl = TextLayout.make(t, runs: runs, maxWidth: maxTextWidth)
-            let w = min(tl.width, maxTextWidth) + 2 * Fixture.bubblePadX
+            let w = Sizing.textBalloonWidth(tl.width, column: maxTextWidth)
             return (CGSize(width: w, height: CGFloat(tl.lines.count) * Fixture.lineHeight + 2 * Fixture.bubblePadY), tl)
         case let .link(_, title, site, image, _):
             if Sizing.linkPending(title: title, site: site, image: image) { return (Sizing.linkPlaceholder, nil) }
@@ -694,9 +719,19 @@ final class MeasureCache: @unchecked Sendable {
     /// end of the text (no soft wrap) and whose widest line fits the new column. CTTypesetter breaks
     /// a paragraph only where it does not fit, so each paragraph is one line again; the bubble size
     /// follows from the lines alone (Sizing.size). Nil otherwise.
+    /// Also a narrower column (live resize, a divider drag: cx-3cb resize-drops2) whose every line still fits
+    /// it without its trailing whitespace (`Line.fit`): CTTypesetter's break is greedy, each line was the
+    /// longest that fit the wider column, so the word after it does not fit the narrower one either, and
+    /// each line is the same again; the bubble width follows the new column (Sizing.size: a wrapped line's
+    /// trailing space can reach past it). A line within 0.01 pt of the column is measured again (Core Text's
+    /// own fit test may sum the widths differently from the cut line's).
     static func sameLayout(_ v: Value, at width: CGFloat, part: Part) -> Value? {
         guard v.markdown == nil, !v.estimated, let tl = v.text, case .text = part else { return nil }
-        guard tl.width <= Metrics(width: width).maxTextWidth else { return nil }
+        let col = Metrics(width: width).maxTextWidth
+        if v.width > 0, col <= Metrics(width: v.width).maxTextWidth, tl.lines.allSatisfy({ $0.fit <= col - 0.01 }) {
+            return Value(size: CGSize(width: Sizing.textBalloonWidth(tl.width, column: col), height: v.size.height), text: tl, width: width)
+        }
+        guard tl.width <= col else { return nil }
         let s = tl.text as NSString
         for l in tl.lines {
             let end = NSMaxRange(l.range)
@@ -719,7 +754,7 @@ final class MeasureCache: @unchecked Sendable {
         let col = Metrics(width: width).maxTextWidth
         let total = tl.lines.reduce(0) { $0 + $1.width }
         let lines = max(1, CrashGuard.int((total / col).rounded(.up), in: CrashGuard.countRange)) // no trap on NaN
-        let w = min(col, max(tl.width, total / CGFloat(lines))) + 2 * Fixture.bubblePadX
+        let w = Sizing.textBalloonWidth(max(tl.width, total / CGFloat(lines)), column: col)
         return Value(size: CGSize(width: w, height: CGFloat(lines) * Fixture.lineHeight + 2 * Fixture.bubblePadY),
                      text: nil, width: width, estimated: true)
     }

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815'
+IR_SHA256 = '8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609'
 
 
 @dataclass(frozen=True)
@@ -473,6 +473,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'expected_generation': CommandFieldMetadata(7, None),
             'expected_revision': CommandFieldMetadata(7, None),
+            'if_empty': CommandFieldMetadata(None, 'close-workspace-if-empty-v1'),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
@@ -2090,6 +2091,16 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'page-credential': CommandMetadata(
+        'page-credential',
+        'local-admin',
+        12,
+        'page-credential-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'pairing-response': CommandMetadata(
         'pairing-response',
         'local-admin',
@@ -2605,6 +2616,7 @@ COMMANDS = {
             'bytes': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
             'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
         },
     ),
@@ -3429,6 +3441,18 @@ COMMANDS = {
             'timeout_ms': CommandFieldMetadata(None, None),
         },
     ),
+    'ws-listen': CommandMetadata(
+        'ws-listen',
+        'local-admin',
+        12,
+        'ws-listen-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_origin': CommandFieldMetadata(None, None),
+            'allow_origins': CommandFieldMetadata(None, None),
+        },
+    ),
     'zoom-pane': CommandMetadata(
         'zoom-pane',
         'control',
@@ -3507,6 +3531,7 @@ EVENTS = {
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'terminal-clipboard-read': EventMetadata('terminal-clipboard-read', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
     'terminal-clipboard-read-cancelled': EventMetadata('terminal-clipboard-read-cancelled', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
+    'terminal-input-unclaimed': EventMetadata('terminal-input-unclaimed', 12, 'terminal-input-while-creating-v1', ('control',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),

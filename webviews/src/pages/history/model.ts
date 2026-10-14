@@ -15,6 +15,10 @@ export const HISTORY_GROUPINGS: readonly HistoryGrouping[] = ["day", "workspace"
 /** The Swift page loads at most this many entries. */
 export const PAGE_LIMIT = 1000;
 
+/**
+ * The kinds a chip shows (empty: every kind). Clear History clears exactly these kinds under every
+ * chip: the daemon owns each kind, the location trail included (cx-hnmbt.12).
+ */
 export function filterKinds(filter: HistoryFilter): HistoryKind[] {
   switch (filter) {
     case "all":
@@ -30,15 +34,6 @@ export function filterKinds(filter: HistoryFilter): HistoryKind[] {
     case "closed":
       return ["closed"];
   }
-}
-
-/**
- * Whether Clear History can clear anything under the filter: the daemon's `history.clear` clears
- * page visits, hides agent and command entries and deletes closed items, and never touches
- * locations (the app's trail).
- */
-export function canClear(filter: HistoryFilter): boolean {
-  return filter !== "locations";
 }
 
 export interface HistoryGroup {
