@@ -23,6 +23,9 @@ import Testing
 
     final class Owner: ResizeTarget {
         var sent: [CellSize] = []
+        /// Grids sent that the daemon has not echoed yet.
+        var unechoed = 0
+        var awaitsEcho: Bool { unechoed > 0 }
         func applySettled(_ size: CellSize) { sent.append(size) }
     }
 
@@ -136,5 +139,31 @@ import Testing
         #expect(owner.sent.count == sent)
         for _ in 0..<ResizeCoordinator.settleFrames { _ = coordinator.tick() }
         #expect(owner.sent.last == CellSize(cols: 90, rows: 24))
+    }
+
+    @Test func aDragKeepsOneGridInFlightPerTerminal() {
+        let coordinator = ResizeCoordinator()
+        let owner = Owner()
+        Self.liveResize {
+            coordinator.submit(owner, size: CellSize(cols: 81, rows: 24))
+            _ = coordinator.tick()
+            owner.unechoed = 1
+            // The daemon is still rebuilding 81 columns: frames that fit 82 and 83 hold.
+            for columns in 82...83 {
+                coordinator.submit(owner, size: CellSize(cols: columns, rows: 24))
+                _ = coordinator.tick()
+            }
+            #expect(owner.sent == [CellSize(cols: 81, rows: 24)], "a grid went before the daemon echoed the last one")
+            // The echo came back: the newest grid goes the next frame; 82 never does.
+            owner.unechoed = 0
+            _ = coordinator.tick()
+            #expect(owner.sent == [CellSize(cols: 81, rows: 24), CellSize(cols: 83, rows: 24)])
+            owner.unechoed = 1
+            coordinator.submit(owner, size: CellSize(cols: 84, rows: 24))
+            _ = coordinator.tick()
+        }
+        // An echo that never comes holds a grid only until the drag ends.
+        for _ in 0..<ResizeCoordinator.settleFrames { _ = coordinator.tick() }
+        #expect(owner.sent.last == CellSize(cols: 84, rows: 24))
     }
 }
