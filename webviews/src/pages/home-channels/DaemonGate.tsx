@@ -1,7 +1,10 @@
 // The Channels page connected straight to its cmux instance over the daemon WebSocket. In a plain
 // browser (`?daemon=ws://host:port`, or the page the daemon serves itself at /pages/home-channels/)
 // the person either pastes the instance's credential or pairs this browser with a code they approve
-// in cmux; the credential stays in this tab's sessionStorage, never in the URL. In the app the host
+// in cmux; the credential stays in this tab's sessionStorage, never in the URL. A same-origin endpoint
+// whose server answers `GET /auth/session` with `{"authorized": true}` (a relay that identified the
+// person, for example by a private-network identity, and attaches the credential upstream itself)
+// connects with no credential and no form. In the app the host
 // hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb), and
 // `owner` when this build's Chief conversations live on the Chief home's owner: the page opens a
 // second socket there for the local conversations (a credential bound to this page, single use, so
@@ -13,6 +16,30 @@ import { DaemonSocket, type DaemonAuth } from "../shared/daemonSocket";
 import type { Strings } from "../shared/i18n";
 
 const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
+
+/** The endpoint is this page's own origin (same host and port, ws for http, wss for https). */
+function sameOrigin(url: string): boolean {
+  try {
+    const endpoint = new URL(url);
+    const scheme = location.protocol === "https:" ? "wss:" : location.protocol === "http:" ? "ws:" : "";
+    return endpoint.protocol === scheme && endpoint.host === location.host;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether this page's origin already authorized the person (`GET /auth/session`). Any other answer,
+ *  a 404 from a daemon that serves the page itself included, means no: the form is shown. */
+async function originAuthorized(): Promise<boolean> {
+  try {
+    const response = await fetch("/auth/session", { cache: "no-store", credentials: "same-origin" });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { authorized?: unknown };
+    return body.authorized === true;
+  } catch {
+    return false;
+  }
+}
 
 /** The endpoint and credential the host hands the page (`cmux.host.credential.load`). */
 export interface HostCredential {
@@ -50,7 +77,9 @@ export function DaemonGate({
   const { t, format } = strings;
   const url = source.kind === "url" ? source.url : "";
   const [phase, setPhase] = useState<Phase>(() =>
-    source.kind === "host" || sessionStorage.getItem(storageKey(url)) ? { kind: "connecting" } : { kind: "form" },
+    source.kind === "host" || sessionStorage.getItem(storageKey(url)) || sameOrigin(url)
+      ? { kind: "connecting" }
+      : { kind: "form" },
   );
   const [credential, setCredential] = useState("");
   const live = useRef({
@@ -159,6 +188,12 @@ export function DaemonGate({
     }
     const saved = sessionStorage.getItem(storageKey(url));
     if (saved) connect(url, { token: saved }, saved);
+    else if (sameOrigin(url))
+      void originAuthorized().then((authorized) => {
+        if (!live.current.mounted) return;
+        if (authorized) connect(url, { origin: true });
+        else setPhase({ kind: "form" });
+      });
     else setPhase({ kind: "form" });
   };
 
