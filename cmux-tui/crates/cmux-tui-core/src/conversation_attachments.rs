@@ -555,11 +555,14 @@ pub(crate) fn write_refs(
     Ok(())
 }
 
+/// The pieces an upload declares: each with its hash and size.
+pub(crate) type DeclaredPieces = Vec<(Piece, String, u64)>;
+
 /// The record and the pieces an upload declares, by the attachment rules
 /// (the cloud owner's `validateAttachmentMeta` and derived image rules).
 pub(crate) fn declared_record(
     declaration: &UploadDeclaration,
-) -> anyhow::Result<(StoredAttachment, Vec<(Piece, String, u64)>)> {
+) -> anyhow::Result<(StoredAttachment, DeclaredPieces)> {
     let mime_type = declaration.mime_type.to_lowercase();
     let class = validate_attachment_meta(
         &declaration.sha256,
@@ -666,7 +669,7 @@ impl ConversationStore {
         actor: &str,
         conversation: &str,
         record: StoredAttachment,
-        pieces: Vec<(Piece, String, u64)>,
+        pieces: DeclaredPieces,
         cloud: Option<serde_json::Value>,
     ) -> anyhow::Result<String> {
         let now = Instant::now();
