@@ -21,4 +21,31 @@ extension BrowserHistoryStarts {
         hold(page, url: url, tabID: key)
         return cache.install(page, for: key)
     }
+
+    /// `configuration` for restored Chromium tab `tab`, with the navigation state saved with its
+    /// history when it was saved at the page's address (cx-il4fv): Chromium restores its back list
+    /// and page state, and loads the address itself when it cannot. Tabs that open as before, as
+    /// in `page`, and pages with a local file in their history (Chromium's file access is not
+    /// bounded to a folder) keep `configuration`.
+    func chromium(_ tab: TabModel, _ configuration: BrowserTabConfiguration, cache: TabContentCache) async -> BrowserTabConfiguration {
+        let service = cache.browserTabs, key = tab.id, daemon = service.daemon(for: tab)
+        guard configuration.restoreState == nil, configuration.machineStore == nil, let url = configuration.initialURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil,
+              tab.isFrontendOwned, !service.isIncognitoTab(key), !service.wasOpenedHere(tab), daemon.isLocal,
+              daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) else { return configuration }
+        // As for a WebKit page, a slow read makes the page at its address.
+        let saved = await BrowserHistoryWriter.within(Self.budget, sleep: service.sleep) {
+            await service.fetchHistory(daemon, tab.surface)
+        }
+        guard let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef),
+              !(saved?.entries ?? []).contains(where: { URL(string: $0.url)?.isFileURL ?? true }) else {
+            outcomes[key] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
+            return configuration
+        }
+        var restored = configuration
+        restored.restoreState = state
+        outcomes[key] = "engine"
+        markEngineRestored(key)
+        return restored
+    }
 }
