@@ -24,8 +24,8 @@ struct NewTabPageHandler {
     var typeAhead: (String, String) -> Void = { _, _ in }
     /// The agent the screen picked, and the model picked on it, remembered on this Mac.
     var remember: (AgentPaneRememberedPick) -> Void = { _ in }
-    /// The page's style switch picked a template, saved as `tabs.newTabTemplate`.
-    var setTemplate: (String) -> Void = { _ in }
+    /// The page changed a setting: its style switch's template or a Labs flag (NewTabPage.save).
+    var setSetting: (AgentPaneNewTabSetting) -> Void = { _ in }
     /// The location bar picked an open tab or workspace.
     var jump: (AgentPaneJumpTarget, String) -> Void
     var editShortcut: (AgentPaneTabKind) -> Void
@@ -221,9 +221,9 @@ enum NewTabPage {
             open: open,
             typeAhead: { [weak services] key, text in services?.newTabTypeAhead.update(key, text: text) },
             remember: { [weak services] pick in services?.newTabChoices.remember(pick) },
-            setTemplate: { [weak services] template in
+            setSetting: { [weak services] change in
                 guard let settings = services?.settings else { return }
-                Task { await saveTemplate(template, settings: settings) }
+                Task { await save(change, settings: settings) }
             },
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
@@ -259,14 +259,17 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick, through the schema as the Settings window writes it. Terminal and
-    /// unknown values are ignored: New Tab never opens a terminal by itself.
-    static func saveTemplate(_ value: String, settings: SettingsController) async {
-        guard let template = NewTabTemplate(rawValue: value), template != .terminal,
-              let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        do { try await settings.setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+    /// The page's change, through the schema as the Settings window writes it. Terminal and unknown styles
+    /// are ignored (New Tab never opens a terminal by itself), and so is a name that is no Labs flag.
+    static func save(_ change: AgentPaneNewTabSetting, settings: SettingsController) async {
+        let write: (path: [String], value: CmuxNextSettings.JSONValue)? = switch change {
+        case .template(let raw): NewTabTemplate(rawValue: raw).flatMap { $0 == .terminal ? nil : (path: NewTabTemplate.configPath, value: .string($0.rawValue)) }
+        case .lab(let name, let on): LabsFlag(rawValue: name).map { (path: $0.path, value: .bool(on)) }
+        }
+        guard let write, let descriptor = SettingsSchema.descriptor(for: write.path) else { return }
+        do { try await settings.setSetting(descriptor, to: write.value, by: .caller("page")) } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                .error("new tab template write failed: \(String(describing: error), privacy: .public)")
+                .error("new tab setting write failed: \(String(describing: error), privacy: .public)")
         }
     }
 
