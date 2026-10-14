@@ -857,6 +857,10 @@ final class MachinesPanelViewModel: ObservableObject {
                 index = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
             }
         }
+        // Same as a list read: a streamed label that matches a pending rename
+        // settles it; until then the pending label wins over the record's.
+        reconcileOptimisticLabels(with: rows.filter { upsertedIDs.contains($0.id) })
+        rows = applyingOptimisticLabels(to: rows)
         var removed = deletions
         if authoritative {
             removed.formUnion(rows.map(\.id).filter { !upsertedIDs.contains($0) })
