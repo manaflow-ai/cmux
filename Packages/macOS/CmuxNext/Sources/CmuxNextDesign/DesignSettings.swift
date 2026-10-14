@@ -87,6 +87,9 @@ public final class DesignSettings {
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
+    /// `appearance.chromeStyle`: the window look whose defaults the finer
+    /// keys refine (`ChromeStyle`).
+    public var chromeStyle: ChromeStyle = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .both
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

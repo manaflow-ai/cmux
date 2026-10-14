@@ -148,10 +148,13 @@ public struct Metrics {
     public static var paneSeparation: PaneSeparation {
         PaneSeparation.resolve(DesignSettings.shared.paneChrome, unset: defaultPaneSeparation)
     }
-    /// The separation when cmux.json sets none: inside the curved main pane,
-    /// whose gutter is the window's one inset, panes are flush and divided by
-    /// one line (no padded, outlined box per pane); without it, borders.
-    public static var defaultPaneSeparation: PaneSeparation { mainPaneCurved ? .dividers : .borders }
+    /// The separation when cmux.json sets none: the `appearance.chromeStyle`
+    /// one, else inside the curved main pane, whose gutter is the window's
+    /// one inset, panes are flush and divided by one line (no padded,
+    /// outlined box per pane); without it, borders.
+    public static var defaultPaneSeparation: PaneSeparation {
+        DesignSettings.shared.chromeStyle.paneSeparation ?? (mainPaneCurved ? .dividers : .borders)
+    }
     /// Pane border: subtle only for the `borders` separation, and none
     /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {

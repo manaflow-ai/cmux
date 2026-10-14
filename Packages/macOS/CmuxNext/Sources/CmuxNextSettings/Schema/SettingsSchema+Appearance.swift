@@ -222,6 +222,7 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
             ),
+            ChromeStyleSetting.descriptor(group: panes),
             SettingDescriptor(
                 ["layout", "paneSeparation"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),

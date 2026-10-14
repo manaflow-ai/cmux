@@ -55,6 +55,11 @@ enum AppearanceHandlers {
             design.setPaneChrome(chrome)
             context.writeSetting("reset pane border color", ["layout", "paneBorderColor"], nil, reloadOnFailure: true)
         })
+        ChromeStyleSetting.bindActions(into: registry, design: context.design) { path, value in
+            if let managed = context.services.settings?.managedKey(forPath: path) { return RefusalStrings.settingManaged(managed.key) }
+            context.writeSetting("set window style", path, value, reloadOnFailure: true)
+            return nil
+        }
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
