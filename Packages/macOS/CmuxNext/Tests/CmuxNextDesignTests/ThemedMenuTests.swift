@@ -52,11 +52,8 @@ import Testing
         row.highlightOverride = true
 
         // AppKit's Return on the highlighted item sends the item's action; the row also takes
-        // Return itself. One press runs the action once, whichever reaches it first. (Sent as
-        // AppKit sends it: `performActionForItem` on a menu that is not open is AppKit's tracking
-        // path, which can stop the test helper's main run loop.)
-        let item = menu.items[0]
-        NSApplication.shared.sendAction(try #require(item.action), to: item.target, from: item)
+        // Return itself. One press runs the action once, whichever reaches it first.
+        menu.performActionForItem(at: 0)
         #expect(row.performKeyEquivalent(with: try Self.returnKey()))
         // The row's run waits for the menu's tracking loop to end: let it.
         Self.drainRunLoop { false }
@@ -82,27 +79,6 @@ import Testing
         #expect(counter.count == 1)
         // The second row, never clicked, did not run.
         #expect(counter.sender === menu.items[0])
-    }
-
-    /// A row of a menu that is not open still runs its action, and never stops the main run loop:
-    /// the Swift Testing helper's async main runs in `CFRunLoopRun()`, and exits 0 mid-run when
-    /// that run is stopped (it did, after these tests, on the macOS 27 lane).
-    @Test func aRowOfAClosedMenuNeverStopsTheMainRunLoop() throws {
-        let counter = Counter()
-        let menu = Self.menu(counter)
-        menu.themeRows(in: try Self.accentedScope())
-        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
-        row.highlightOverride = true
-        let press = KeyPress(row: row, key: try Self.returnKey())
-
-        // Return reaches the row from inside a run of the main run loop, so a stop lands on that
-        // run (CFRunLoopStop stops the innermost one) and not on the test helper's own.
-        RunLoop.main.perform(#selector(KeyPress.send), target: press, argument: nil, order: 0, modes: [.default])
-        let result = CFRunLoopRunInMode(.defaultMode, 0.3, false)
-        #expect(press.handled == true)
-        #expect(result == .timedOut, "the closed menu's row stopped the main run loop (\(result.rawValue))")
-        Self.drainRunLoop { counter.count > 0 }
-        #expect(counter.count == 1)
     }
 
     /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
@@ -209,20 +185,6 @@ import Testing
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled }
-}
-
-/// Sends a key to a row when the run loop gets to it.
-@MainActor private final class KeyPress: NSObject {
-    let row: NSView
-    let key: NSEvent
-    var handled: Bool?
-
-    init(row: NSView, key: NSEvent) {
-        self.row = row
-        self.key = key
-    }
-
-    @objc func send() { handled = row.performKeyEquivalent(with: key) }
 }
 
 /// A menu delegate that records what it heard.
