@@ -1,8 +1,11 @@
 //! `_acpmux/stats` (hq#1920): the fold over session logs.
 
+use acpmux::config::Config;
+use acpmux::hub::Hub;
 use acpmux::stats::{StatsOptions, civil_date, summarize};
 use acpmux::store::{EventRecord, MemoryStore, SessionMeta, Store};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 
 const MIN: u64 = 60_000;
 const HOUR: u64 = 60 * MIN;
@@ -79,6 +82,11 @@ fn session(store: &MemoryStore, meta: SessionMeta) -> Log<'_> {
     Log { store, id: meta.id, seq: 0 }
 }
 
+/// The sessions this daemon holds running or waiting now.
+fn live_ids(ids: &[&str]) -> HashSet<String> {
+    ids.iter().map(|id| (*id).to_owned()).collect()
+}
+
 fn options(until: u64, days: u64) -> StatsOptions {
     StatsOptions { since: until - days * DAY, until, tz_offset_minutes: 0 }
 }
@@ -103,7 +111,7 @@ fn stats_turns_working_time_and_harnesses() {
     codex.started(DAY0 + 11 * HOUR);
     codex.result(DAY0 + 11 * HOUR + 5 * MIN, "failed");
 
-    let s = summarize(&store, &options(DAY0 + DAY - 1, 7)).unwrap();
+    let s = summarize(&store, &options(DAY0 + DAY - 1, 7), &live_ids(&[])).unwrap();
     assert_eq!(s.sessions, 2);
     assert_eq!(s.turns, 3);
     assert_eq!((s.turns_completed, s.turns_cancelled, s.turns_failed), (1, 1, 1));
@@ -130,7 +138,7 @@ fn stats_overlapping_turns_are_parallel_but_back_to_back_ones_are_not() {
         log.started(DAY0 + start * MIN);
         log.result(DAY0 + end * MIN, "completed");
     }
-    let s = summarize(&store, &options(DAY0 + DAY / 2, 1)).unwrap();
+    let s = summarize(&store, &options(DAY0 + DAY / 2, 1), &live_ids(&[])).unwrap();
     assert_eq!(s.peak_parallel, 3);
     assert_eq!(s.peak_parallel_at, Some(DAY0 + 20 * MIN));
 }
@@ -149,7 +157,7 @@ fn stats_waiting_on_a_permission_answer() {
     log.push(DAY0 + 6 * MIN, "mux", "permission_auto", json!({}));
     log.result(DAY0 + 10 * MIN, "completed");
     log.status(DAY0 + 10 * MIN, "ready");
-    let s = summarize(&store, &options(DAY0 + HOUR, 1)).unwrap();
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&[])).unwrap();
     assert_eq!(s.waiting_ms, 4 * MIN);
     assert_eq!((s.permission_requests, s.permission_auto), (1, 1));
 }
@@ -163,7 +171,7 @@ fn stats_a_running_turn_counts_until_now_and_a_dead_one_is_dropped() {
     let mut dead = session(&store, meta("dead", "claude", "idle", DAY0 + HOUR));
     dead.prompt(DAY0);
     dead.started(DAY0);
-    let s = summarize(&store, &options(DAY0 + HOUR, 1)).unwrap();
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&["live"])).unwrap();
     assert_eq!(s.working_ms, 20 * MIN);
     assert_eq!(s.sessions, 1);
     // A running turn has no outcome yet.
@@ -181,9 +189,12 @@ fn stats_ranges_clip_and_old_sessions_are_skipped() {
     edge.prompt(DAY0 - HOUR);
     edge.started(DAY0 - HOUR);
     edge.result(DAY0 + HOUR, "completed");
-    let s =
-        summarize(&store, &StatsOptions { since: DAY0, until: DAY0 + DAY, tz_offset_minutes: 0 })
-            .unwrap();
+    let s = summarize(
+        &store,
+        &StatsOptions { since: DAY0, until: DAY0 + DAY, tz_offset_minutes: 0 },
+        &live_ids(&[]),
+    )
+    .unwrap();
     assert_eq!(s.sessions, 1);
     assert_eq!(s.working_ms, HOUR);
 }
@@ -201,7 +212,7 @@ fn stats_days_hours_and_streaks_follow_the_callers_offset() {
     }
     let pacific =
         StatsOptions { since: DAY0 - DAY, until: DAY0 + 3 * DAY, tz_offset_minutes: -8 * 60 };
-    let s = summarize(&store, &pacific).unwrap();
+    let s = summarize(&store, &pacific, &live_ids(&[])).unwrap();
     assert_eq!(
         s.days.iter().map(|d| d.day.as_str()).collect::<Vec<_>>(),
         ["2026-10-12", "2026-10-13", "2026-10-14"]
@@ -210,7 +221,7 @@ fn stats_days_hours_and_streaks_follow_the_callers_offset() {
     assert_eq!((s.streak.current, s.streak.longest), (3, 3));
     // The same turns at UTC fall on the same three dates.
     let utc = StatsOptions { tz_offset_minutes: 0, ..pacific };
-    let s = summarize(&store, &utc).unwrap();
+    let s = summarize(&store, &utc, &live_ids(&[])).unwrap();
     assert_eq!(s.days.first().map(|d| d.day.as_str()), Some("2026-10-12"));
 }
 
@@ -247,7 +258,7 @@ fn stats_a_turn_cut_by_a_restart_ends_at_its_last_record() {
         "turn_result",
         json!({"status": "failed", "detail": "outcome_unknown"}),
     );
-    let s = summarize(&store, &options(DAY0 + 2 * DAY, 7)).unwrap();
+    let s = summarize(&store, &options(DAY0 + 2 * DAY, 7), &live_ids(&[])).unwrap();
     assert_eq!(s.working_ms, 10 * MIN);
     assert_eq!(s.waiting_ms, 0);
     assert_eq!(s.turns_failed, 1);
@@ -267,7 +278,7 @@ fn stats_a_prompt_after_a_dead_turn_ends_it_at_its_last_record() {
     log.started(DAY0 + 2 * DAY);
     log.result(DAY0 + 2 * DAY + MIN, "completed");
     log.status(DAY0 + 2 * DAY + MIN, "ready");
-    let s = summarize(&store, &options(DAY0 + 3 * DAY, 7)).unwrap();
+    let s = summarize(&store, &options(DAY0 + 3 * DAY, 7), &live_ids(&[])).unwrap();
     assert_eq!(s.working_ms, 5 * MIN + MIN);
     assert_eq!(s.waiting_ms, 0);
 }
@@ -305,7 +316,7 @@ fn stats_an_unreadable_log_is_skipped() {
         log.started(DAY0);
         log.result(DAY0 + 10 * MIN, "completed");
     }
-    let s = summarize(&store, &options(DAY0 + HOUR, 1)).unwrap();
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&[])).unwrap();
     assert_eq!((s.sessions, s.working_ms), (1, 10 * MIN));
 }
 
@@ -320,7 +331,120 @@ fn stats_the_streak_does_not_depend_on_the_range() {
         log.result(at + MIN, "completed");
     }
     let until = DAY0 + 20 * DAY + 13 * HOUR;
-    let week = summarize(&store, &options(until, 7)).unwrap();
+    let week = summarize(&store, &options(until, 7), &live_ids(&[])).unwrap();
     assert_eq!((week.streak.current, week.streak.longest), (21, 21));
     assert_eq!(week.days.len(), 7);
+}
+
+#[test]
+fn stats_a_wait_the_daemon_lost_ends_at_its_last_record() {
+    let store = MemoryStore::default();
+    // session.json still says waiting: a restarted daemon resets it in memory.
+    let mut log = session(&store, meta("a", "claude", "waiting", DAY0 + 10 * MIN));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.result(DAY0 + 10 * MIN, "completed");
+    // A subagent still asking keeps the chat waiting after its turn.
+    log.status(DAY0 + 10 * MIN, "waiting");
+    let s = summarize(&store, &options(DAY0 + 5 * HOUR, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.waiting_ms, 0);
+    // The same log in a daemon that holds the wait: it runs to now.
+    let s = summarize(&store, &options(DAY0 + 5 * HOUR, 1), &live_ids(&["a"])).unwrap();
+    assert_eq!(s.waiting_ms, 5 * HOUR - 10 * MIN);
+}
+
+#[test]
+fn stats_a_status_after_a_restart_does_not_extend_the_lost_wait() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + DAY + 9 * HOUR));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.result(DAY0 + 10 * MIN, "completed");
+    log.status(DAY0 + 10 * MIN, "waiting");
+    // The daemon died; its next start marks the wait it lost, and the agent
+    // respawns hours later.
+    log.push(DAY0 + DAY, "mux", "status", json!({"status": "idle", "detail": "restart"}));
+    log.status(DAY0 + DAY + 9 * HOUR, "ready");
+    let s = summarize(&store, &options(DAY0 + 2 * DAY, 7), &live_ids(&[])).unwrap();
+    assert_eq!(s.waiting_ms, 0);
+    assert_eq!(s.working_ms, 10 * MIN);
+}
+
+#[test]
+fn stats_a_prompt_the_daemon_lost_before_its_turn_started_is_not_running() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "running", DAY0));
+    log.prompt(DAY0);
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&[])).unwrap();
+    assert_eq!((s.prompts, s.turns, s.sessions, s.working_ms), (1, 0, 0, 0));
+}
+
+#[test]
+fn stats_a_prompt_ends_a_wait_after_the_turn_at_its_own_time() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 4 * HOUR));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.result(DAY0 + 10 * MIN, "completed");
+    log.status(DAY0 + 10 * MIN, "waiting");
+    // Nothing logged for three hours, then the person's next prompt.
+    let next = DAY0 + 10 * MIN + 3 * HOUR;
+    log.prompt(next);
+    log.status(next, "running");
+    log.started(next);
+    log.result(next + 10 * MIN, "completed");
+    log.status(next + 10 * MIN, "ready");
+    let s = summarize(&store, &options(DAY0 + 4 * HOUR, 1), &live_ids(&[])).unwrap();
+    assert_eq!(s.waiting_ms, 3 * HOUR);
+}
+
+#[test]
+fn stats_a_steer_sent_again_as_a_prompt_counts_once() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + HOUR));
+    log.prompt(DAY0);
+    log.started(DAY0);
+    log.result(DAY0 + MIN, "completed");
+    // The steer found the turn over (`STEER_NO_TURN`): the same message,
+    // under the same id, runs as the next prompt.
+    log.push(DAY0 + 2 * MIN, "mux", "user_message", json!({"steer": true, "promptId": "s"}));
+    log.push(DAY0 + 2 * MIN, "mux", "user_message", json!({"promptId": "s"}));
+    log.started(DAY0 + 2 * MIN);
+    log.result(DAY0 + 3 * MIN, "completed");
+    let s = summarize(&store, &options(DAY0 + HOUR, 1), &live_ids(&[])).unwrap();
+    assert_eq!((s.prompts, s.steers), (2, 0));
+    assert_eq!(s.turns_completed, 2);
+}
+
+#[test]
+fn stats_a_prompt_that_never_started_is_not_a_finished_turn() {
+    let store = MemoryStore::default();
+    let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 3 * DAY));
+    // Lost before its turn started; the next prompt runs two days later.
+    log.prompt(DAY0 + 12 * HOUR);
+    let next = DAY0 + 2 * DAY + 12 * HOUR;
+    log.prompt(next);
+    log.started(next);
+    log.result(next + MIN, "completed");
+    let s = summarize(&store, &options(DAY0 + 3 * DAY, 7), &live_ids(&[])).unwrap();
+    assert_eq!((s.prompts, s.turns, s.turns_completed), (2, 1, 1));
+    assert_eq!(s.working_ms, MIN);
+    assert_eq!(s.days.len(), 1);
+    assert_eq!(s.streak.longest, 1);
+}
+
+/// A session waiting when the daemon died (a subagent still asking after its
+/// turn) gets a restart status record, so the log and session.json stop
+/// saying `waiting` and the stats end the wait at its last record.
+#[tokio::test]
+async fn restart_ends_a_lost_wait_for_stats() {
+    let store = MemoryStore::default();
+    session(&store, meta("w", "claude", "waiting", DAY0)).status(DAY0, "waiting");
+    let hub = Hub::new(Config::default(), Box::new(store));
+    let events = hub.events("w", 0, 100).unwrap();
+    let last = events.last().unwrap();
+    assert_eq!(last.kind, "status", "{events:?}");
+    assert_eq!(last.msg, json!({"status": "idle", "detail": "restart"}));
+    let range = options(acpmux::store::now_ms(), 366);
+    assert_eq!(hub.stats(&range).unwrap().waiting_ms, 0);
 }

@@ -14,7 +14,7 @@ use crate::store::{EventRecord, SessionMeta, SessionStatus, Store};
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 const HOUR_MS: u64 = 3_600_000;
 const DAY_MS: u64 = 24 * HOUR_MS;
@@ -112,8 +112,13 @@ pub struct Streak {
     pub longest: u64,
 }
 
-/// One pass over every session that changed in the range.
-pub fn summarize(store: &dyn Store, options: &StatsOptions) -> Result<StatsSummary> {
+/// One pass over every session that changed in the range. `live` holds the
+/// sessions running or waiting in this daemon now.
+pub fn summarize(
+    store: &dyn Store,
+    options: &StatsOptions,
+    _live: &HashSet<String>,
+) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
         // The streak looks back the longest range whatever range was asked.

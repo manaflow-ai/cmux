@@ -823,7 +823,7 @@ impl Hub {
         &self,
         options: &crate::stats::StatsOptions,
     ) -> Result<crate::stats::StatsSummary> {
-        crate::stats::summarize(&*self.store, options)
+        crate::stats::summarize(&*self.store, options, &std::collections::HashSet::new())
     }
 
     /// Turn-by-turn summary from the event log.
