@@ -482,16 +482,11 @@ impl Hub {
     }
 
     /// The login environment changed: `CLAUDE_CONFIG_DIR` / `CODEX_HOME`
-    /// and harnesses on the login PATH may come from it only.
+    /// and harnesses on the login PATH may come from it only. Watchers hear
+    /// the new catalog, so a client that listed the old one catches up.
     async fn after_login_env(self: &Arc<Self>) -> bool {
         self.set_harness_homes(crate::adopt::HarnessHomes::from_env());
-        match self.reload_catalog().await {
-            Ok(_) => true,
-            Err(e) => {
-                tracing::warn!("catalog reload after login env: {e}");
-                false
-            }
-        }
+        self.reload_and_announce().await
     }
 
     pub fn startup_complete(&self) -> bool {
