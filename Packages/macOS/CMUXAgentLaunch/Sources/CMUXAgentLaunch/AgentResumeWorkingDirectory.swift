@@ -5,7 +5,8 @@ import Foundation
 /// This is the single source of truth shared by the app-side resolver
 /// (``RestorableAgentSessionIndex`` in the app target) and the CLI surface-resume-binding publisher
 /// (`publishAgentSurfaceResumeBinding` in the standalone `cmux-cli` target), so both apply one
-/// policy: directory-namespaced agents pin the launch cwd, id-keyed agents keep the runtime cwd.
+/// policy: directory-namespaced agents use the transcript's project directory when available, then
+/// pin the launch cwd; id-keyed agents keep the runtime cwd.
 ///
 /// The type is a stateless value; construct one at the call site (`AgentResumeWorkingDirectory()`)
 /// rather than reaching through a static namespace, per the package design discipline.
@@ -39,17 +40,18 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
 
     /// The directory a resumed agent session should `cd` into.
     ///
-    /// Directory-namespaced agents prefer the launch working directory: it is captured once at launch,
-    /// matches the session store's namespace, and does not drift when the agent `cd`s into a
-    /// subdirectory (e.g. a worktree) mid-session. Claude first selects a candidate whose project
-    /// slug matches the transcript's directory, when available. Id-keyed agents keep the runtime cwd so they reopen
-    /// where the agent was working. Inputs are trimmed and empty values are treated as absent.
+    /// Claude's transcript path identifies the project directory that `claude --resume` searches, so
+    /// it wins when one of the candidate directories encodes to that project name. If the hook's
+    /// launch and runtime directories have both drifted, the transcript's first record can recover
+    /// the original cwd after a round-trip slug check. Other directory-namespaced agents prefer the
+    /// launch working directory; id-keyed agents keep the runtime cwd. Inputs are trimmed and empty
+    /// values are treated as absent.
     ///
     /// - Parameters:
     ///   - kind: the agent's raw kind identifier.
     ///   - runtimeCwd: the agent's last-reported runtime cwd (may have drifted).
     ///   - launchWorkingDirectory: the directory the agent was launched in.
-    ///   - transcriptPath: The hook-reported transcript path, when available.
+    ///   - transcriptPath: the hook-reported Claude transcript path, when available.
     /// - Returns: the directory to `cd` into, or `nil` when neither input is usable.
     public func resolve(
         kind: String,
@@ -64,33 +66,83 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
             return runtime ?? launch
         case .byDirectory:
             if kind == "claude",
-               let transcriptProject = transcriptProjectDirectoryName(transcriptPath),
-               let transcriptCwd = [launch, runtime].compactMap({ $0 }).first(where: {
-                   encodedProjectDirectoryName(forPath: $0) == transcriptProject
-               }) {
+               let transcriptCwd = claudeTranscriptWorkingDirectory(
+                   transcriptPath: transcriptPath,
+                   candidates: [launch, runtime].compactMap { $0 }
+               ) {
                 return transcriptCwd
             }
             return launch ?? runtime
         }
     }
 
-    /// Returns the Claude project-directory component from a transcript path.
-    /// Claude stores transcripts below `<config>/projects/<encoded-cwd>/`; the
-    /// session file may be either directly in that directory or nested below it.
-    private func transcriptProjectDirectoryName(_ transcriptPath: String?) -> String? {
-        guard let rawPath = normalized(transcriptPath) else { return nil }
-        let components = (rawPath as NSString).expandingTildeInPath
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(String.init)
-        guard let projectsIndex = components.lastIndex(of: "projects"),
-              projectsIndex + 1 < components.count else {
+    private func claudeTranscriptWorkingDirectory(
+        transcriptPath: String?,
+        candidates: [String]
+    ) -> String? {
+        guard let transcriptPath = normalized(transcriptPath),
+              let projectDirectory = transcriptProjectDirectoryName(at: transcriptPath) else {
             return nil
         }
-        return components[projectsIndex + 1]
+
+        let slug = ClaudeProjectSlug()
+        if let candidate = candidates.first(where: {
+            slug.slug(forWorkingDirectory: $0) == projectDirectory
+        }) {
+            return candidate
+        }
+
+        // SessionStart may arrive after both cwd values have drifted. Claude records the launch
+        // cwd in the first JSONL record; only accept it when it round-trips to the transcript's
+        // project directory so a malformed or foreign transcript cannot redirect the resume.
+        guard let recordedCwd = recordedWorkingDirectory(in: transcriptPath),
+              slug.slug(forWorkingDirectory: recordedCwd) == projectDirectory else {
+            return nil
+        }
+        return recordedCwd
     }
 
-    private func encodedProjectDirectoryName(forPath path: String) -> String {
-        ClaudeProjectSlug().slug(forWorkingDirectory: path)
+    private func transcriptProjectDirectoryName(at path: String) -> String? {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        let components = expandedPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        // Prefer the last `projects` component so a user's path can itself contain a directory
+        // with that name. Claude's current direct and nested layouts both live below this segment.
+        if let projectsIndex = components.lastIndex(of: "projects"),
+           projectsIndex + 1 < components.count {
+            return components[projectsIndex + 1]
+        }
+
+        // Keep a conservative fallback for custom config roots that do not contain a literal
+        // `projects` component in the supplied path.
+        var directory = (expandedPath as NSString).deletingLastPathComponent
+        if (directory as NSString).lastPathComponent == "messages" {
+            directory = (directory as NSString).deletingLastPathComponent
+            directory = (directory as NSString).deletingLastPathComponent
+        }
+        let name = (directory as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
+    }
+
+    private func recordedWorkingDirectory(in path: String) -> String? {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return nil }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: 64 * 1024),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let cwd = normalized(object["cwd"] as? String) else {
+                continue
+            }
+            return cwd
+        }
+        return nil
     }
 
     private func normalized(_ value: String?) -> String? {
