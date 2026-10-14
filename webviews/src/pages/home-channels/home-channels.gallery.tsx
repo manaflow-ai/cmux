@@ -26,6 +26,8 @@ type Props = {
   runs?: MockRuns;
   /** The owner refuses pins and marks. */
   refuseInbox?: boolean;
+  /** Adds #media: images, a video with its poster and a PDF. */
+  media?: boolean;
 };
 
 function HomeChannelsGallery({
@@ -36,9 +38,12 @@ function HomeChannelsGallery({
   longThread = false,
   runs = "none",
   refuseInbox = false,
+  media = false,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox));
+    const created = new HomeChannelsStore(
+      offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media),
+    );
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -96,6 +101,7 @@ export default componentEntry<Props>({
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
     "pages/home-channels/RunSheet.tsx",
+    "pages/home-channels/AttachmentViews.tsx",
   ],
   load: async () => HomeChannelsGallery,
   styles: async () => {
@@ -177,6 +183,51 @@ export default componentEntry<Props>({
       },
     },
     offline: { note: "No host answers: the page is offline and empty.", props: { offline: true } },
+    attachments: {
+      note: "A message with three images (a grid), a video with its poster and a PDF row.",
+      props: { select: "c-media", media: true },
+      play: async (ctx) => {
+        await ctx.scroll({ selector: ".lg-main .hc-timeline" }, "bottom");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+      },
+    },
+    "attachments-lightbox": {
+      note: "A click on an image opens the lightbox; the arrow keys move to the next image.",
+      props: { select: "c-media", media: true },
+      checks: {
+        longFrameFailMs: openFrame,
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The arrow key swaps the lightbox's image for the next one, which has its own size.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
+        await ctx.click({ selector: ".hc-att-image" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-lightbox img"));
+        await ctx.press("ArrowRight");
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".hc-lightbox-bar .hc-att-name")?.textContent === "sidebar-after.png",
+        );
+      },
+    },
+    "attachments-composer": {
+      note: "Files pasted into the composer show in its tray with their progress, then are ready to send.",
+      props: { select: "c-media", media: true },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-main-compose button[aria-label="Attach files"]'));
+        await ctx.click({ selector: field });
+        const data = new DataTransfer();
+        data.items.add(new File(["# Notes\n"], "notes.md", { type: "text/markdown" }));
+        data.items.add(new File(["{}"], "result.json", { type: "application/json" }));
+        ctx.document
+          .querySelector(field)
+          ?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
+      },
+    },
     "row-menu": {
       note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
       props: { select: "c-chief" },

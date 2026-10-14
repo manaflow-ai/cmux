@@ -36,6 +36,14 @@
      bar in the theme accent is an option, 0 (off) by default. */
   --cmux-row-focus: color-mix(in srgb, var(--cmux-text, currentColor) 10%, transparent);
   --cmux-row-focus-bar: 0px;
+  /* One elevation scale for every drop shadow (Leo 2026-10-14, no dramatic shadows): a tight,
+     low-alpha drop under the surface, while the thin rim carries the edge. `--elevation-1` lifts
+     rows, cards and inline surfaces; `--elevation-2` popovers, menus, the palette, hover cards, the
+     composer, sheets and find bars. The native scale is the same numbers (PopupStyle.swift,
+     `elevation1`/`elevation2`); subtle-elevation.test.ts holds the two in step and fails on any
+     other blurred drop shadow. Dark mode darkens the same geometry a little. */
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent);
   /* The one inset between a page's content and the pane edge: headers, scrollers and first-level
      rows start here. A row with a hover pill pads its list by less so its text still lands on it.
      The pane is the page's only container: no page wraps its content in another rounded box. */
@@ -46,6 +54,17 @@
 html,
 body {
   overscroll-behavior: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+    --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  }
+}
+:root[data-theme="dark"] {
+  --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
+  --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
 }
 
 @media (min-resolution: 2dppx) {
@@ -86,7 +105,7 @@ select {
   border: 1px solid var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
   background: var(--surface-popup);
-  box-shadow: 0 2px 8px color-mix(in srgb, black 16%, transparent);
+  box-shadow: var(--elevation-2);
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: var(--text-caption);
