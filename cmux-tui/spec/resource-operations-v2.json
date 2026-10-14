@@ -12844,7 +12844,8 @@
                 "closed",
                 "window_record",
                 "git_checkpoint",
-                "conversation"
+                "conversation",
+                "stash"
               ]
             }
           },

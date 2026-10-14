@@ -67,7 +67,7 @@ pub(crate) fn choose_members(
     if let Some(unknown) =
         ids.iter().find(|id| !members.iter().any(|member| member["id"] == id.as_str()))
     {
-        return Err(super::commit::state_not_found("stash member", unknown));
+        return Err(super::commit::state_not_found("stash", unknown));
     }
     Ok(members.into_iter().partition(|member| ids.iter().any(|id| member["id"] == id.as_str())))
 }
