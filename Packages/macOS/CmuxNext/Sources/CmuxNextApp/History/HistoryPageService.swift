@@ -20,7 +20,8 @@ import CmuxNextRemoteBrowser
 final class HistoryPageService: HistoryPageSource {
     private unowned let services: AppServices
     /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: services)
+    private(set) lazy var stash = StashService(host: stashHost)
+    private(set) lazy var stashHost = StashAppHost(services)
 
     init(services: AppServices) {
         self.services = services

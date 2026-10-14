@@ -32,30 +32,41 @@ final class StashTopPage: InternalPageProvider {
 }
 
 /// The App's side of Stash (CmuxNextStash): this Mac's daemon, the windows and the pages.
-extension AppServices: StashHost {
-    var localDaemon: DaemonService { daemon }
+final class StashAppHost: StashHost {
+    private weak var services: AppServices?
+    let registry: ActionRegistry
+    let localDaemon: DaemonService
+
+    init(_ services: AppServices) {
+        self.services = services
+        registry = services.registry
+        localDaemon = services.daemon
+    }
+
     var stashImportEngine: String {
-        if case .open(let choice)? = cache.browserTabs.resolve(requested: nil) { return choice.engine.rawValue }
+        if case .open(let choice)? = services?.cache.browserTabs.resolve(requested: nil) { return choice.engine.rawValue }
         return BrowserEngineTag.webkit.rawValue
     }
     var stashRestorePane: ResourceID? {
-        guard let focused = windows.active?.focusedPane?.pane, machines.daemon(forPane: focused).isLocal else { return nil }
+        guard let services, let focused = services.windows.active?.focusedPane?.pane,
+              services.machines.daemon(forPane: focused).isLocal else { return nil }
         return focused.resourceID
     }
-    var stashCountPages: [String: AgentPaneView] { agentTabs.views }
-    var stashCountStandalonePages: [AgentPaneView] { agentTabs.standaloneViews.allObjects }
+    var stashCountPages: [String: AgentPaneView] { services?.agentTabs.views ?? [:] }
+    var stashCountStandalonePages: [AgentPaneView] { services?.agentTabs.standaloneViews.allObjects ?? [] }
 
     func stashOrigin(_ invocation: ActionInvocation) -> StashOrigin? {
-        guard let (tab, pane) = AppActionContext(services: self).daemonTab(invocation) else { return nil }
-        let daemon = machines.daemon(forPane: pane)
+        guard let services, let (tab, pane) = AppActionContext(services: services).daemonTab(invocation) else { return nil }
+        let daemon = services.machines.daemon(forPane: pane)
         let workspace = daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
-        let strip = paneController(for: pane).map { controller in controller.orderedIDs.compactMap { controller.tab($0) } }
+        let strip = services.paneController(for: pane).map { controller in controller.orderedIDs.compactMap { controller.tab($0) } }
         return StashOrigin(tab: tab, workspace: workspace, daemon: daemon, strip: strip ?? pane.tabs)
     }
 
     func showRestored(_ reopened: StateResourceClient.ReopenedItem, asWorkspace: Bool) {
-        DaemonClosedHistory.show(reopened, kind: asWorkspace ? .workspace : .tab, daemon: daemon, services: self)
+        guard let services else { return }
+        DaemonClosedHistory.show(reopened, kind: asWorkspace ? .workspace : .tab, daemon: localDaemon, services: services)
     }
 
-    func showStashedPage() -> String? { TopPages.show(.page(.stashed), services: self) }
+    func showStashedPage() -> String? { services.flatMap { TopPages.show(.page(.stashed), services: $0) } }
 }

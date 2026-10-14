@@ -4,9 +4,9 @@ import CmuxNextIcons
 import SwiftUI
 
 /// The Stashed page (a native OneTab): stashed groups, newest first, each
-/// dated and named after its workspace, in the History page's rows and
-/// density. A row's click restores that tab; its × or menu deletes it. The
-/// page is disabled while an op is in flight; deletes offer Undo in a toast.
+/// dated and named after its workspace, one compact line per page. A row's
+/// click restores that tab; its × or menu deletes it. The page is disabled
+/// while an op is in flight; deletes offer Undo in a toast.
 struct StashPageView: View {
     let model: StashPageModel
     @Bindable var draft: StashImportDraft
@@ -82,30 +82,49 @@ struct StashPageView: View {
             }
         }
         .listStyle(.plain)
+        .environment(\.defaultMinListRowHeight, Self.rowHeight)
         .scrollContentBackground(.hidden)
         .thinScrollers()
     }
 
+    /// A page row: one compact line (polish bar: 26-28 px rows). No shared list-row metric exists.
+    private static let rowHeight: CGFloat = 28
+    private static let rowInsets = EdgeInsets(top: 0, leading: Metrics.panelInset, bottom: 0, trailing: Metrics.panelInset)
+
     /// A row: a button that restores its page (keyboard and VoiceOver reach it), then its ×.
+    /// Globe, title, host, then the time; the full URL is the tooltip.
     private func row(_ tab: StashedGroup.Tab, in group: StashedGroup) -> some View {
-        let entry = HistoryEntry(id: "\(group.id)#\(tab.id)", kind: .page, time: group.createdAt, title: tab.displayTitle,
-                                 detail: tab.url, payload: .page(url: tab.url, profile: tab.profile ?? ""))
-        return HStack(spacing: Metrics.panelInset) {
+        HStack(spacing: Metrics.panelInset) {
             Button { Task { await model.restore(group, tab: tab) } } label: {
-                HistoryPageRow(entry: entry, colors: colors).contentShape(Rectangle())
+                HStack(spacing: Metrics.panelInset * 1.5) {
+                    Icon(.browser, size: Metrics.iconSize).frame(width: Metrics.iconSize, height: Metrics.iconSize)
+                        .foregroundStyle(colors.secondary)
+                    Text(tab.displayTitle).font(Font(Typography.body)).foregroundStyle(colors.primary)
+                        .lineLimit(1).truncationMode(.tail)
+                    if let host = URL(string: tab.url)?.host(), !host.isEmpty {
+                        Text(host).font(Font(Typography.caption)).foregroundStyle(colors.tertiary).lineLimit(1).layoutPriority(-1)
+                    }
+                    Spacer(minLength: Metrics.panelInset)
+                    Text(group.createdAt.formatted(date: .omitted, time: .shortened))
+                        .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).monospacedDigit()
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help(tab.url)
             .accessibilityHint(StashStrings.restore)
             Button { Task { await model.delete(group, tab: tab, undoIn: window()) } } label: {
                 Icon(.actionClose, size: Metrics.iconSize).foregroundStyle(colors.tertiary)
             }
             .buttonStyle(.plain).help(StashStrings.delete).accessibilityLabel(StashStrings.delete)
         }
+        .frame(height: Self.rowHeight)
         .contextMenu {
             Button(StashStrings.restore) { Task { await model.restore(group, tab: tab) } }
             Divider()
             Button(StashStrings.delete, role: .destructive) { Task { await model.delete(group, tab: tab, undoIn: window()) } }
         }
+        .listRowInsets(Self.rowInsets)
         .listRowBackground(Color.clear)
     }
 
@@ -123,6 +142,8 @@ struct StashPageView: View {
             Button(StashStrings.deleteGroup) { Task { await model.delete(group, undoIn: window()) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.danger).fixedSize()
         }
+        .padding(.vertical, 2)
+        .listRowInsets(Self.rowInsets)
         .contextMenu {
             Button(StashStrings.restoreAll) { Task { await model.restore(group) } }
             Button(StashStrings.restoreInNewWorkspace) { Task { await model.restoreInNewWorkspace(group) } }
