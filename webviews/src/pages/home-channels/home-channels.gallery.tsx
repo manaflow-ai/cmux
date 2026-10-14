@@ -104,6 +104,7 @@ export default componentEntry<Props>({
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
     "pages/home-channels/Avatar.tsx#ChannelMark",
+    "pages/home-channels/Avatar.tsx#PicturesContext",
     "pages/home-channels/Composer.tsx#Composer",
     "pages/home-channels/ThreadSheet.tsx#ThreadSheet",
     "pages/home-channels/ThreadRow.tsx#ThreadRow",
