@@ -100,6 +100,9 @@ public:
     [[nodiscard]] Result<ConversationLinkResolveResult> conversation_link_resolve(const ConversationLinkResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationListResult> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunResult> conversation_run(const ConversationRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunAppendResult> conversation_run_append(const ConversationRunAppendRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationRunsResult> conversation_runs(const ConversationRunsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSnapshotResult> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationThreadResult> conversation_thread(const ConversationThreadRequest& request, RequestOptions options = {});

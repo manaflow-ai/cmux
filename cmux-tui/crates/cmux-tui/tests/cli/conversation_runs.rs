@@ -245,4 +245,21 @@ fn a_chief_writes_its_run_and_a_page_streams_reads_and_pages_it() {
         append("conv_00000000000000000000000000", json!({"id": TURN}), json!([])),
     );
     refused(&nowhere, "unknown_conversation");
+
+    // A conversation keeps its newest 200 runs: a new run past them drops the oldest finished one.
+    for index in 0..200 {
+        chief.request(
+            "conversation-run-append",
+            append(
+                &channel,
+                json!({"id": format!("turn:bulk:{index}"), "status": "done", "started_at": 1_000_000 + index}),
+                json!([]),
+            ),
+        );
+    }
+    let kept = page.request("conversation-runs", json!({"conversation": channel, "limit": 200}));
+    assert_eq!(kept["runs"].as_array().unwrap().len(), 200, "{kept}");
+    assert_eq!(kept["has_more"], false, "{kept}");
+    let oldest = page.reply("conversation-run", json!({"conversation": channel, "run": "turn:bulk:0"}));
+    refused(&oldest, "unknown_run");
 }

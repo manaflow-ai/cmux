@@ -121,6 +121,18 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
+                // A run's steps go only to a connection that asked for runs in
+                // set-client-info (`conversation-runs-v1`): old clients never
+                // see the event, and its steps can be large.
+                MuxEvent::Conversation(event)
+                    if event.is_run()
+                        && !event_mux.control_clients.supports_capability(
+                            client,
+                            super::conversation_runs::CONVERSATION_RUNS_CAPABILITY,
+                        ) =>
+                {
+                    continue;
+                }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
                 MuxEvent::CloudConversation(_) if !conversation_client => {

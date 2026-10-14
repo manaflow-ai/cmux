@@ -556,6 +556,9 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-run-append",
+      "conversation-runs",
+      "conversation-run",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -654,6 +657,12 @@
     },
     {
       "name": "conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-run-changed",
       "streams": [
         "subscribe"
       ]

@@ -308,6 +308,21 @@ public abstract class GeneratedCmuxClient {
         return ConversationOpResult.fromWire(result);
     }
 
+    public final ConversationRunResult conversationRun(ConversationRunRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUN, request.toWire());
+        return ConversationRunResult.fromWire(result);
+    }
+
+    public final ConversationRunAppendResult conversationRunAppend(ConversationRunAppendRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUN_APPEND, request.toWire());
+        return ConversationRunAppendResult.fromWire(result);
+    }
+
+    public final ConversationRunsResult conversationRuns(ConversationRunsRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_RUNS, request.toWire());
+        return ConversationRunsResult.fromWire(result);
+    }
+
     public final ConversationSearchResult conversationSearch(ConversationSearchRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_SEARCH, request.toWire());
         return ConversationSearchResult.fromWire(result);
