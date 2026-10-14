@@ -22,12 +22,13 @@ New UI looks and behaviors land behind a Labs flag that the team turns on. They 
 3. Regenerate the settings exports on the current base. Use the fleet's exclusive class with `scripts/measure/export-settings-artifacts.sh`. This updates the settings schema, the MDM manifest and the defaults snapshot.
 4. Read the flag only through its helper:
    - **Swift:** `settings.snapshot.lab(.name)`. Observe it with `ObservationStream({ settings.snapshot.lab(.name) })`.
-   - **Web:** `useLabsFlag("name")` in a component, or `labsFlag("name")` once, from `webviews/src/experiments/labs.ts`. Every `PageWebView` page gets `data-labs` on `<html>`. The agent pane's own web view doesn't get it yet.
+   - **Web:** `useLabsFlag("name")` in a component, or `labsFlag("name")` once, from `webviews/src/experiments/labs.ts`. Every `PageWebView` page, the agent pane and New Tab included, gets `data-labs` on `<html>`. `labsTeamBuild()` says whether this is a nightly or dev build (`data-labs-team`).
 
 The flag then shows up in these places without further work:
 - Settings > Experimental > Labs, as a toggle with its intent line.
 - The palette's settings scope: type `, <title>` and flip it.
 - Help > Feature Flags.
+- The New Tab page's Labs section, in nightly and dev builds only: the intent line and a toggle, with All Labs… for Settings.
 - cmux.json and MDM, as `labs.<name>`.
 - Agents, which may set it.
 
