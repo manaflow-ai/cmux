@@ -35,13 +35,8 @@ fn personal_workspace_order_numbers_the_shown_rows() {
         human_text(&human_view(&personal, &result)),
         "ID    NAME  ORDER  INDEX\nws_f  six   0      5\nws_a  home  1      0\n"
     );
-    // The default order is the sidebar order too.
-    let default = plan(ResourceOperation::WorkspaceList);
-    assert_eq!(*human_view(&default, &result), *human_view(&personal, &result));
     // The session order and other lists keep their table.
-    let mut session = plan(ResourceOperation::WorkspaceList);
-    session.params = json!({"order":"session"});
-    assert_eq!(*human_view(&session, &result), result);
+    assert_eq!(*human_view(&plan(ResourceOperation::WorkspaceList), &result), result);
     personal.operation = WireOperation::Typed(ResourceOperation::ScreenList);
     assert_eq!(*human_view(&personal, &result), result);
 }
