@@ -1391,6 +1391,10 @@
   flex-direction: column;
   gap: 8px;
 }
+/* The arrow keys' scope adds no box: the bar and stage stay the dialog's flex items. */
+.hc-lightbox-keys {
+  display: contents;
+}
 .hc-lightbox-bar {
   display: flex;
   align-items: center;
