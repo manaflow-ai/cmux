@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import QuartzCore
 
 // A tab that takes another's place (DESIGN P2, P5): what a New Tab page
