@@ -3,6 +3,7 @@
 //
 //   pointer-probe move X Y     post a mouse move (needs an Accessibility grant; the proof moves through cua-driver)
 //   pointer-probe path X0 Y0 X1 Y1 N   post N mouse moves along a line, about 120 Hz, as a mouse does
+//   pointer-probe drag X0 Y0 X1 Y1 N   press at the start, N left-drag events along a line, release at the end
 //   pointer-probe where        print the pointer (screen points from the top left)
 //   pointer-probe click X Y    post a left press and release there
 //   pointer-probe cursor       print the cursor on screen now: iBeam, arrow, or other:<hot spot> <size>
@@ -42,6 +43,21 @@ case "path":
         post(.mouseMoved, at: CGPoint(x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t))
         usleep(8_000) // a mouse reports about every 8 ms; the window server coalesces faster posts
     }
+case "drag":
+    guard args.count >= 7, let x0 = Double(args[2]), let y0 = Double(args[3]), let x1 = Double(args[4]), let y1 = Double(args[5]),
+          let steps = Int(args[6]), steps > 0 else {
+        FileHandle.standardError.write("usage: pointer-probe drag X0 Y0 X1 Y1 N\n".data(using: .utf8)!)
+        exit(2)
+    }
+    post(.leftMouseDown, at: CGPoint(x: x0, y: y0))
+    usleep(50_000)
+    for step in 1...steps {
+        let t = Double(step) / Double(steps)
+        post(.leftMouseDragged, at: CGPoint(x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t))
+        usleep(16_000)
+    }
+    usleep(100_000) // the pointer rests over the end before the release, as a hand does
+    post(.leftMouseUp, at: CGPoint(x: x1, y: y1))
 case "where":
     let location = CGEvent(source: nil)?.location ?? .zero
     print("\(location.x) \(location.y)")

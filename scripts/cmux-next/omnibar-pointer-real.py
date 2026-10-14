@@ -26,7 +26,7 @@ The page is a local test page (link at the top, two lines of text), served here.
 
 Exits 1 when a check fails.
 """
-import argparse, base64, functools, glob, http.server, json, os, plistlib, socket, struct, subprocess, sys, tempfile, threading, time
+import argparse, functools, glob, http.server, json, os, plistlib, socket, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -238,27 +238,13 @@ def element_center(origin, element_id):
     return (origin[0] + rect[0] + min(rect[2], 160) / 2, origin[1] + rect[1] + rect[3] / 2)
 
 
-def png_width(b64):
-    data = base64.b64decode(b64[:200] + "=" * (-len(b64[:200]) % 4))
-    return struct.unpack(">I", data[16:20])[0] if data[:8] == b"\x89PNG\r\n\x1a\n" else None
-
-
 def real_drag(start, end):
-    """cua-driver's drag (window-local screenshot pixels; foreground: a background drag is not
-    possible on macOS)."""
-    found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or [])
-             if (w.get("bounds") or {}).get("width", 0) > 600]
-    if not found:
-        return print("cua-driver lists no cmux window", flush=True)
-    window_id = found[0]["window_id"]
-    state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_accessibility_tree": False})
-    width = png_width(state.get("screenshot_png_b64") or "")
-    frame = (main_window() or {}).get("frame") or {}
-    scale = (width / frame["width"]) if width and frame.get("width") else SCALE
-    params = {"pid": app.pid, "window_id": window_id, "from_x": round(start[0] * scale), "from_y": round(start[1] * scale),
-              "to_x": round(end[0] * scale), "to_y": round(end[1] * scale), "delivery_mode": "foreground", "steps": 30,
-              "duration_ms": 900}
-    print("   cua drag", params, json.dumps(cua("drag", params))[:200], flush=True)
+    """A real press, left-drag events along a line and a release (pointer-probe drag); window points."""
+    activate()
+    (x0, y0), (x1, y1) = to_screen(start), to_screen(end)
+    real_move(x0, y0)
+    probe("drag", x0, y0, x1, y1, 30)
+    print(f"   drag from screen ({x0:.0f}, {y0:.0f}) to ({x1:.0f}, {y1:.0f})", flush=True)
 
 
 def still_pointer_checks(engine, text):

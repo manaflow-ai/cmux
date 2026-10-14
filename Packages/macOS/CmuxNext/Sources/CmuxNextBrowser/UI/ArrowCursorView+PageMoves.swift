@@ -23,7 +23,9 @@ public import AppKit
 extension ArrowCursorView {
     /// Experiments for the at-rest cursor (DEBUG, `CMUX_NEXT_OMNIBAR_EXPERIMENT`, letters):
     /// `f` withholds page moves outside the page, `u` makes the row answer cursor updates,
-    /// `r` keeps the row's arrow rect out of the omnibar text area. Release: none.
+    /// `r` keeps the row's arrow rect out of the omnibar text area, `c` sets the row's cursor
+    /// again after AppKit's display cycle, `d` turns off a key child window's cursor rects while
+    /// the pointer is over the row. Release: none.
     static func experiment(_ letter: Character) -> Bool {
         #if DEBUG
         experiments.contains(letter)

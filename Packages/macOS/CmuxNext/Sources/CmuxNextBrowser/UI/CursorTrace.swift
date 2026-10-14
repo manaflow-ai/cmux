@@ -67,12 +67,38 @@ enum CursorTrace {
         default: return
         }
         let window = event.window
+        if event.type == .mouseMoved { under(NSEvent.mouseLocation) }
         let responder = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "-"
         write("event \(kind) window \(window.map { String(describing: type(of: $0)) } ?? "-")#\(event.windowNumber) "
               + "key \(window?.isKeyWindow ?? false) child \(window?.parent != nil) "
               + "in-window \(hasLocation ? point(event.locationInWindow) : "-") screen \(point(NSEvent.mouseLocation)) "
               + "responder \(responder) key-window \(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "-")")
     }
+
+    /// The window under the pointer, when it is not the event's: its class, and for a panel the
+    /// views it shows (what takes the pointer there).
+    @MainActor private static func under(_ location: NSPoint) {
+        let number = NSWindow.windowNumber(at: location, belowWindowWithWindowNumber: 0)
+        guard number != lastUnder else { return }
+        lastUnder = number
+        guard let window = NSApp.window(withWindowNumber: number) else { return write("under \(point(location)): window #\(number), not this app's") }
+        var views: [String] = []
+        if window is NSPanel, let root = window.contentView {
+            var stack: [(NSView, Int)] = [(root, 0)]
+            while let item = stack.popLast(), views.count < 40 {
+                let (view, depth) = item
+                if depth > 0, !view.isHidden {
+                    let frame = view.convert(view.bounds, to: nil)
+                    views.append("\(String(repeating: ".", count: depth))\(type(of: view))\(String(format: "[%.0f,%.0f %.0fx%.0f]", frame.minX, frame.minY, frame.width, frame.height))")
+                }
+                if depth < 6 { stack.append(contentsOf: view.subviews.map { ($0, depth + 1) }) }
+            }
+        }
+        write("under \(point(location)): \(type(of: window))#\(number) frame \(point(window.frame.origin)) \(String(format: "%.0fx%.0f", window.frame.width, window.frame.height)) "
+              + "ignoresMouse \(window.ignoresMouseEvents) views \(views.joined(separator: " "))")
+    }
+
+    @MainActor private static var lastUnder = 0
 
     /// `String(format:)`, not `Int(_:)`: a point of a move may be far out (`Int` traps on a non-finite value).
     nonisolated private static func point(_ p: NSPoint) -> String { String(format: "(%.0f,%.0f)", p.x, p.y) }
