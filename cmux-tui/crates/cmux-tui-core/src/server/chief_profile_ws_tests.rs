@@ -134,6 +134,19 @@ fn the_persons_page_websocket_creates_and_edits_chiefs_but_not_their_grants() {
             ),
         ));
         assert_eq!(renamed["value"]["display_name"], "Ops Chief", "{renamed}");
+        // A 1x1 PNG as its picture.
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let pictured = ok(&send(
+            &mux,
+            &page_ws,
+            &v2(
+                "chief.profile.avatar.set",
+                &params(json!({"chief": id, "media_type": "image/png", "data": png})),
+                Some("ws-avatar-1"),
+                None,
+            ),
+        ));
+        assert_eq!(pictured["value"]["avatar"]["media_type"], "image/png", "{pictured}");
 
         // Grant fields and delete need the person's gesture: never on a WebSocket.
         for (operation, fields, key) in [
@@ -243,6 +256,9 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
     assert_eq!(forbidden_reason(&refused), "gesture_required");
     let refused = send(&mux, &relay, &v2("chief.profile.delete", &delete, Some("relay-d1"), None));
     assert_eq!(forbidden_reason(&refused), "gesture_required");
+    let wide = params(json!({"display_name": "Wide", "harnesses": ["codex"]}));
+    let refused = send(&mux, &relay, &v2("chief.profile.create", &wide, Some("relay-c1"), None));
+    assert_eq!(forbidden_reason(&refused), "gesture_required");
 
     // The host spends the person's click: a confirmation for exactly that request.
     let confirm = |operation: &str, params: &Value| {
@@ -344,14 +360,27 @@ fn a_page_write_is_recorded_as_the_page_and_no_page_field_stands_in_for_the_gest
             None,
         ),
     ];
-    for conn in [&no_page, &channels] {
-        for attempt in &attempts {
-            let mut request = attempt.clone();
-            request["gesture"] = json!(true);
-            for request in [attempt, &request] {
-                let reply = send(&mux, conn, request);
-                assert_eq!(reply["ok"], false, "{request}: {reply}");
-            }
+    // On page home-channels the gate refuses each grant write first
+    // (origin.forbidden gesture_required). With no page, a made-up parameter is
+    // no parameter of the operation (validation.invalid) and a made-up user
+    // claim is refused at the origin gate (origin.forbidden). A made-up envelope
+    // member is refused too.
+    let no_page_codes = [
+        "validation.invalid",
+        "validation.invalid",
+        "origin.forbidden",
+        "origin.forbidden",
+        "validation.invalid",
+    ];
+    for (conn, codes) in [(&no_page, no_page_codes), (&channels, ["origin.forbidden"; 5])] {
+        for (attempt, code) in attempts.iter().zip(codes) {
+            let reply = send(&mux, conn, attempt);
+            assert_eq!(reply["ok"], false, "{attempt}: {reply}");
+            assert_eq!(reply["error"]["code"], code, "{attempt}: {reply}");
+            let mut extra = attempt.clone();
+            extra["gesture"] = json!(true);
+            let reply = send(&mux, conn, &extra);
+            assert_eq!(reply["ok"], false, "{extra}: {reply}");
         }
     }
     let kept = ok(&send(
