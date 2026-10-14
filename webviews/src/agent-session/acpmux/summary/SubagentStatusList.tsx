@@ -52,14 +52,16 @@ export function waitingSubagents(calls: ReadonlySet<string>, views: Record<strin
   return waiting;
 }
 
-/// Depth-first from the chat's own subagents, each level newest first.
-function ordered(agents: readonly Subagent[]): { agent: Subagent; depth: number }[] {
+/// Depth-first from the chat's own subagents; on each level the ones waiting on the user first, then
+/// the running ones, then the ended ones, each newest first.
+function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { agent: Subagent; depth: number }[] {
+  const rank = (agent: Subagent) => ({ waiting: 0, running: 1, done: 2, failed: 2 })[subagentStatus(agent, waiting)];
   const known = new Set(agents.map((agent) => agent.id));
   const out: { agent: Subagent; depth: number }[] = [];
   const visit = (parent: string | null, depth: number) => {
     for (const agent of agents
       .filter((agent) => (agent.parent !== null && known.has(agent.parent) ? agent.parent : null) === parent)
-      .sort((a, b) => b.startedAt - a.startedAt)) {
+      .sort((a, b) => rank(a) - rank(b) || b.startedAt - a.startedAt)) {
       out.push({ agent, depth });
       visit(agent.id, depth + 1);
     }
@@ -94,7 +96,7 @@ export function SubagentStatusList({
       </h3>
       <ul className="acpmux-summary-list">
         {agents.length === 0 && <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>}
-        {ordered(agents).map(({ agent, depth }) => {
+        {ordered(agents, waiting).map(({ agent, depth }) => {
           const status = subagentStatus(agent, waiting);
           return (
             <li key={agent.id}>

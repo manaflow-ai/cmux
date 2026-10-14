@@ -390,12 +390,17 @@ try:
         # cx-1933q: a turn that starts two subagents opens two agent panes right of the chat (stacked),
         # focus stays in the chat; the summary card lists both with live status, stays after a click
         # outside it, and a click on a row focuses that subagent's pane. Shots for the crops page.
-        cua = os.path.expanduser("~/.local/bin/cua-driver")
         def shot(name):
+            # The app's own window (nx-remote's window capture), not the desktop.
             path = os.path.join(OUT, f"sp-{name}.png")
-            r = subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": path})],
+            capture = os.environ.get("NX_CAPTURE")
+            r = subprocess.run(["bash", capture, "shot", "--pid", str(app.pid), "--out", path] if capture else ["true"],
                                capture_output=True, text=True, timeout=60)
-            say("shot", name, os.path.exists(path), r.returncode)
+            say("shot", name, os.path.exists(path), r.returncode, r.stderr[-200:])
+        def trust():
+            # A new folder asks whether the harness may edit and run code there (the pane's trust ask).
+            r = pane("click", pane=PANE, text="Trust")
+            say("sp trust", json.dumps(r)[:200])
         def topo():
             snap_ = rpc("snapshot.get")
             return snap_.get("topology") or snap_
@@ -413,6 +418,7 @@ try:
         harness = os.environ.get("CMUX_LIVE_HARNESS", "claude")
         say("sp new_chat", json.dumps(pane("new_chat", pane=PANE, harness=harness)))
         time.sleep(5)
+        trust()
         if os.environ.get("CMUX_LIVE_MODEL"):
             say("sp set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
             time.sleep(2)
@@ -423,6 +429,8 @@ try:
             "Start two subagents in parallel with your Task tool (subagent_type general-purpose). The first "
             "runs `sleep 40; echo alpha` in Bash and reports the output; the second runs `sleep 40; echo beta` "
             "and reports it. Wait for both, then reply with one line combining their answers."))))
+        time.sleep(4)
+        trust()
         opened = wait(lambda: (lambda ps: ps if len(ps) >= len(before) + 2 else None)(conversation_panes()), 240, 1)
         panes_now = conversation_panes()
         say("SP panes after spawn", panes_now, "opened two:", bool(opened))

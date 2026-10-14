@@ -342,7 +342,7 @@ export default agentPaneEntry({
       },
     },
     summary: {
-      note: "The summary card at the top right: every subagent with its state and time, newest first.",
+      note: "The summary card at the top right: every subagent with its state and time: waiting, then running, then ended.",
       snapshot: MIXED,
       play: openSummary,
     },
