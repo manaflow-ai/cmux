@@ -148,10 +148,16 @@ final class PostHogAnalytics: @unchecked Sendable {
             self.startIfNeededOnWorkQueue()
             guard self.didStart else { return }
             let previous = self.userDefaults.string(forKey: self.identifiedAccountIDKey)
-            if previous == accountID, PostHogSDK.shared.getDistinctId() == accountID {
+            let distinctID = PostHogSDK.shared.getDistinctId()
+            if previous == accountID, distinctID == accountID {
                 return
             }
-            if let previous, previous != accountID {
+            // The SDK ignores `identify` while it is identified as another id,
+            // so reset first when the stored account or the SDK names someone
+            // else. An anonymous SDK keeps its id so this launch's events merge.
+            let sdkIdentifiedAsOther = distinctID != PostHogSDK.shared.getAnonymousId()
+                && distinctID != accountID
+            if (previous != nil && previous != accountID) || sdkIdentifiedAsOther {
                 self.resetPostHogIdentityOnWorkQueue()
             }
             PostHogSDK.shared.identify(accountID)

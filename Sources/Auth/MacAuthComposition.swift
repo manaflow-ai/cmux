@@ -241,8 +241,7 @@ struct MacAuthComposition {
         cloudTeamScopeObserver.start()
         teamScopeRecoveryTriggers.start()
         coordinator.start()
-        // After `coordinator.start()`: the observer awaits the restore task,
-        // which does not exist until the coordinator starts.
+        // The observer awaits launch restore before it acts on any state.
         postHogIdentityObserver.start()
     }
 

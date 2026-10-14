@@ -21,21 +21,24 @@ final class PostHogIdentityObserver {
 
     func start() {
         observationTask?.cancel()
-        observationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+        // Capture the collaborators, not `self`, so `deinit` can cancel the
+        // otherwise endless stream loop.
+        let auth = auth
+        let analytics = analytics
+        observationTask = Task { @MainActor in
             // Before restore finishes the coordinator can report a transient
             // signed-out state; acting on it would reset a valid identity.
-            await self.auth.awaitBootstrapped()
+            await auth.awaitBootstrapped()
             var previousAccountID: String??
-            for await identity in self.auth.authenticatedSessionIdentities() {
+            for await identity in auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled else { return }
                 let accountID = identity?.accountID
                 guard accountID != previousAccountID else { continue }
                 previousAccountID = .some(accountID)
                 if let accountID {
-                    self.analytics.identify(accountID: accountID)
+                    analytics.identify(accountID: accountID)
                 } else {
-                    self.analytics.resetIdentity()
+                    analytics.resetIdentity()
                 }
             }
         }
