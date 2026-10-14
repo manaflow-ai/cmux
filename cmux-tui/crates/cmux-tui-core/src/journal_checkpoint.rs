@@ -848,7 +848,6 @@ mod tests {
     use flate2::read::GzDecoder;
     use std::io::Read;
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
@@ -1462,7 +1461,7 @@ mod tests {
         let sealing = std::thread::spawn(move || {
             sealing_mux.seal_journal_segments(through, "client_test", "segment_writer_seal")
         });
-        prepare_entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        prepare_entered_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
 
         let ingress = crate::JournalIngress {
             producer_id: manifest.producer_id,
@@ -1486,7 +1485,7 @@ mod tests {
             );
             append_tx.send(result).unwrap();
         });
-        let append_result = append_rx.recv_timeout(Duration::from_secs(2));
+        let append_result = append_rx.recv_timeout(std::time::Duration::from_secs(2));
         release_prepare_tx.send(()).unwrap();
         append_result.expect("journal append blocked behind segment compression").unwrap();
         appending.join().unwrap();
@@ -1520,7 +1519,6 @@ mod tests {
             )
             .unwrap();
         let surface = mux.surface(surface_id).unwrap();
-        let attach = surface.attach_stream().unwrap();
         surface
             .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
             .unwrap();
@@ -1551,23 +1549,6 @@ mod tests {
             !replay_bytes.windows(3).any(|window| window == b"\x1b_G"),
             "checkpoint replay must drop the unreplayable Kitty upload"
         );
-
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let mut saw_can = false;
-        while !saw_can {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            match attach.stream.recv_timeout(remaining) {
-                Ok(crate::surface::AttachFrame::Output(bytes)) => {
-                    saw_can = bytes.contains(&0x18);
-                }
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-        assert!(saw_can, "checkpoint recovery must publish CAN after the unreplayable PTY bytes");
 
         mux.journal_terminal_output(
             Arc::new(public_id.clone()),

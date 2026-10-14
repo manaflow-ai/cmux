@@ -7631,6 +7631,7 @@ mod tests {
         let mux = Mux::new_for_test("checkpoint-metadata-recovery", SurfaceOptions::default());
         let surface =
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let attach = surface.attach_stream().unwrap();
         let mut oversized = b"\x1b]9;4;1;".to_vec();
         oversized.resize(1_048_577, b'x');
         surface.apply_stream_output_for_test(&oversized).unwrap();
@@ -7641,6 +7642,17 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(recovered, Some(Ok(_))));
+
+        let mut attach_output = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            if let AttachFrame::Output(bytes) = frame {
+                attach_output.extend_from_slice(&bytes);
+            }
+        }
+        assert!(
+            attach_output.contains(&0x18),
+            "recovery must publish CAN to attached byte parsers"
+        );
 
         surface.apply_stream_output_for_test(b"\x1b]9;4;2;\x07").unwrap();
         assert_eq!(surface.terminal_screen_snapshot().unwrap().osc_progress, "4;2;");
