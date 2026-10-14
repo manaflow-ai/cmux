@@ -8,7 +8,7 @@ nonisolated enum MusicActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "music.open", title: t("action.music.open", "Play Music…"),
                 keywords: ["music", "songs", "audio", "player", "play", "folder", "mp3", "now playing"], category: .window,
-                symbol: "music.note", surfaces: [.palette], arguments: [CatalogArgument.optionalPathString]
+                symbol: "music.note", surfaces: [.palette], arguments: [CatalogArgument.optionalPathString, CatalogArgument.urlString]
             ),
             ActionDescriptor(
                 id: "music.stop", title: t("action.music.stop", "Stop Music"),

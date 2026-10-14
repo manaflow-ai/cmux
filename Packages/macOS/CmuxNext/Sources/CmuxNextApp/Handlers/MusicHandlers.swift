@@ -3,9 +3,10 @@ import CmuxNextActions
 import CmuxNextNowPlaying
 import UniformTypeIdentifiers
 
-/// cmux's own music player (cx-imt2i): Play Music… picks songs or folders (or plays its `path`,
-/// a file, a folder or an http(s) stream URL) on the Now Playing card and the media keys; Stop
-/// Music ends it. A preview feature: without
+/// cmux's own music player (cx-imt2i): Play Music… picks songs or folders (or plays its `url`, an
+/// http(s) stream, else its `path`, a file or a folder) on the Now Playing card and the media keys;
+/// Stop Music ends it. Streams take `url` because the CLI resolves a relative `path` against its
+/// working directory, which turns a URL into a file path. A preview feature: without
 /// `labs.previewFeatures` both are unavailable everywhere.
 enum MusicHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -16,7 +17,7 @@ enum MusicHandlers {
         registry.bind("music.open", unavailable: preview, invoke: { [weak services, weak registry] invocation in
             guard let services, let registry else { return }
             let anchor = services.windows.active?.window
-            let given = invocation["path"]?.stringValue.flatMap(url(for:))
+            let given = (invocation["url"] ?? invocation["path"])?.stringValue.flatMap(url(for:))
             registry.track(Task { @MainActor in
                 var urls = given.map { [$0] }
                 if urls == nil { urls = await choose(anchor: anchor) }
