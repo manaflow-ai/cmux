@@ -883,7 +883,11 @@ jobs:
             fi
           else
             published_sha="$(sed -n 's/^published_sha=//p' "$RUNNER_TEMP/publication-guard")"
-            if [ -n "$published_sha" ]; then
+            # Each RC line is a new rc/vX.Y.Z branch cut from main, so the
+            # previous line's published commit is not its ancestor. RC build
+            # numbers are run-derived and only grow; the build check above
+            # already refuses an older RC, so ancestry applies to nightly only.
+            if [ -n "$published_sha" ] && [ "$CHANNEL" != rc ]; then
               git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
               git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA" || {
                 echo "source continuation is older than the published release; refusing stale replacement" >&2
