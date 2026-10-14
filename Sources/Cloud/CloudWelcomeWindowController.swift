@@ -1,4 +1,5 @@
 import AppKit
+import CmuxProductAnalytics
 import CmuxSettings
 import SwiftUI
 
@@ -46,6 +47,10 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     private let defaults: UserDefaults
     private let nextStep: @MainActor () -> CloudWelcomeNextStep
     private let performNextStep: @MainActor (CloudWelcomeNextStep, (@MainActor () -> Void)?) -> Void
+    private let analytics: ProductAnalytics
+    private let now: @MainActor () -> Date
+    /// Analytics for the card on screen, nil when none is.
+    private(set) var analyticsSession: CloudWelcomeAnalyticsSession?
 
     init(
         defaults: UserDefaults = .standard,
@@ -60,11 +65,15 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
                 )
             )
         },
-        performNextStep: @escaping @MainActor (CloudWelcomeNextStep, (@MainActor () -> Void)?) -> Void = CloudWelcomeWindowController.perform
+        performNextStep: @escaping @MainActor (CloudWelcomeNextStep, (@MainActor () -> Void)?) -> Void = CloudWelcomeWindowController.perform,
+        analytics: ProductAnalytics = .app,
+        now: @escaping @MainActor () -> Date = { Date() }
     ) {
         self.defaults = defaults
         self.nextStep = nextStep
         self.performNextStep = performNextStep
+        self.analytics = analytics
+        self.now = now
         super.init()
     }
 
@@ -122,7 +131,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             isRunningUnderXCTest: MacSentryStartupPolicy.isRunningUnderXCTest(environment: environment),
             isUITestMode: environment["CMUX_UI_TEST_MODE"] == "1"
         ) else { return }
-        show(over: parent)
+        show(over: parent, trigger: .launchAnnouncement)
     }
 
     /// Claims the release announcement synchronously before creating its window.
@@ -150,12 +159,18 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 
     /// Every normal presentation claims the same persisted marker. A direct
     /// Cloud action from a returning user continues at the card's next step.
-    func present(over parent: NSWindow?, onEnabled: (@MainActor () -> Void)? = nil) {
+    ///
+    /// - Parameter trigger: The Cloud action that asked, for analytics.
+    func present(
+        over parent: NSWindow?,
+        trigger: CloudWelcomeTrigger,
+        onEnabled: (@MainActor () -> Void)? = nil
+    ) {
         guard claimPresentation() else {
             continueToNextStep(nextStep(), onEnabled: onEnabled)
             return
         }
-        show(over: parent, onEnabled: onEnabled)
+        show(over: parent, trigger: trigger, onEnabled: onEnabled)
     }
 
     private func claimPresentation() -> Bool {
@@ -176,6 +191,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         Self.markCampaignSeen(in: defaults)
         show(
             over: parent,
+            trigger: .debugMenu,
             posterShowsTitle: posterShowsTitle,
             posterShowsIcon: posterShowsIcon,
             showsNewBadge: showsNewBadge,
@@ -192,6 +208,7 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
 
     private func show(
         over parent: NSWindow?,
+        trigger: CloudWelcomeTrigger,
         sliderShowsFeatureList: Bool = true,
         sliderListUsesDots: Bool = false,
         posterHeadline: String? = CloudWelcomeView.headline,
@@ -203,6 +220,12 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     ) {
         window?.close()
         self.onEnabled = onEnabled
+        analyticsSession = CloudWelcomeAnalyticsSession(
+            trigger: trigger,
+            step: nextStep(),
+            analytics: analytics,
+            now: now
+        )
         let window = makeWindow(
             sliderShowsFeatureList: sliderShowsFeatureList,
             sliderListUsesDots: sliderListUsesDots,
@@ -238,10 +261,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             posterShowsIcon: posterShowsIcon,
             showsNewBadge: showsNewBadge,
             footerHasNotNow: footerHasNotNow,
-            onNotNow: { [weak self] in self?.dismiss() },
-            onNext: { [weak self] step in
-                self?.continueToNextStep(step, onEnabled: self?.onEnabled)
-            }
+            onNotNow: { [weak self] in self?.handleNotNow() },
+            onNext: { [weak self] step in self?.handleNext(step) }
         )
         let hosting = NSHostingView(rootView: rootView)
         // The content clears the traffic lights with its own top padding, so it
@@ -316,6 +337,18 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.setFrameOrigin(origin)
     }
 
+    /// Not Now, the card's ×, or Escape.
+    func handleNotNow() {
+        analyticsSession?.clicked(.notNow, step: nil)
+        dismiss()
+    }
+
+    /// The card's primary button, which offered `step`.
+    func handleNext(_ step: CloudWelcomeNextStep) {
+        analyticsSession?.clicked(CloudWelcomeButton(step: CloudWelcomeAnalyticsSession.step(step)), step: step)
+        continueToNextStep(step, onEnabled: onEnabled)
+    }
+
     private func continueToNextStep(_ step: CloudWelcomeNextStep, onEnabled: (@MainActor () -> Void)?) {
         dismiss()
         performNextStep(step, onEnabled)
@@ -359,11 +392,19 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window?.close()
         window = nil
         onEnabled = nil
+        endAnalyticsSession()
     }
 
     func windowWillClose(_ notification: Notification) {
         window = nil
         onEnabled = nil
+        endAnalyticsSession()
+    }
+
+    /// A card that closes without a button records `window_closed`.
+    private func endAnalyticsSession() {
+        analyticsSession?.windowClosed()
+        analyticsSession = nil
     }
 }
 
