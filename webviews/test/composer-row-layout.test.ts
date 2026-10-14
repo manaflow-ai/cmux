@@ -1,0 +1,206 @@
+// The composer's controls row and footer (hq#1957 item 15). Leo saw a huge empty gap between
+// Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
+// "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's
+// `agent-pane.composer-row` entry at a narrow, a normal and a wide pane:
+//   - the controls are two clusters: + model ring effort permission on the left, mic and Send
+//     (or Stop) on the right; the row's free space sits only between the two;
+//   - no label is cut while the row has free space, and a short row cuts by priority: the
+//     permission labels go to icons first, then effort shortens, the model last;
+//   - the footer row sits whole inside the card, at the bar's inset.
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+type Rect = { left: number; right: number; top: number; bottom: number; width: number };
+type Row = {
+  bar: Rect;
+  box: Rect;
+  footer: Rect;
+  footerControls: Rect[];
+  /** Left cluster controls in order, with the free space after the last one. */
+  left: { name: string; rect: Rect }[];
+  right: Rect;
+  barGap: number;
+  /** Each label: cut (an ellipsis or a label pushed out of its chip) or whole. */
+  labels: Record<string, { cut: boolean; dropped: boolean; atMin: boolean; need: number } | undefined>;
+  plusInset: number;
+  footerInset: number;
+};
+
+await requireBrowserLane("composer-row-layout.test.ts", async () => {
+  /** Runs in the page: the row's geometry. */
+  function measure(): Row {
+    const rect = (element: Element): Rect => {
+      const { left, right, top, bottom, width } = element.getBoundingClientRect();
+      return { left, right, top, bottom, width };
+    };
+    const visible = (element: Element | null): element is HTMLElement =>
+      element instanceof HTMLElement && element.getBoundingClientRect().width > 0;
+    const bar = document.querySelector(".acpmux-composer-bar")!;
+    const box = document.querySelector(".acpmux-composer-box")!;
+    const footer = document.querySelector(".acpmux-composer-context")!;
+    const named: [string, string][] = [
+      ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
+      ["model", ".acpmux-model .acpmux-picker-button"],
+      ["ring", ".acpmux-context-ring"],
+      ["effort", ".acpmux-effort .acpmux-picker-button"],
+      ["access", ".acpmux-access-trigger"],
+      ["plan", ".acpmux-plan"],
+      ["status", ".acpmux-permission-status-trigger"],
+    ];
+    const left = named.flatMap(([name, selector]) => {
+      const element = bar.querySelector(selector);
+      return visible(element) ? [{ name, rect: rect(element) }] : [];
+    });
+    left.sort((a, b) => a.rect.left - b.rect.left);
+    // A label is cut when its text overflows its box, or when it is laid out outside its chip
+    // (wrapped away) or not drawn while the chip still is.
+    const label = (chip: string, text: string, item: string) => {
+      const button = bar.querySelector(chip);
+      if (!visible(button)) return undefined;
+      const span = button.querySelector(text);
+      const shown =
+        span instanceof HTMLElement &&
+        span.getClientRects().length > 0 &&
+        getComputedStyle(span).visibility === "visible";
+      const inside =
+        shown &&
+        span.getBoundingClientRect().top >= button.getBoundingClientRect().top - 0.5 &&
+        span.getBoundingClientRect().bottom <= button.getBoundingClientRect().bottom + 0.5 &&
+        span.getBoundingClientRect().width > 0;
+      const overflow = shown && span.scrollWidth > span.clientWidth + 0.5;
+      const host = bar.querySelector(item) ?? button;
+      const min = parseFloat(getComputedStyle(host).minWidth) || 0;
+      // The width the whole label would take back: an ellipsis's overflow, or a label dropped
+      // for its icon with the gap beside it.
+      const need = !shown
+        ? (span instanceof HTMLElement ? span.getBoundingClientRect().width : 0) +
+          (parseFloat(getComputedStyle(button).columnGap) || 0)
+        : overflow
+          ? span.scrollWidth - span.clientWidth
+          : 0;
+      return { cut: !inside || overflow, dropped: !shown, atMin: host.getBoundingClientRect().width <= min + 1, need };
+    };
+    const plus = bar.querySelector(".acpmux-composer-plus .acpmux-picker-button")!;
+    const firstFooter = footer.querySelector(".acpmux-location-button, .acpmux-location-readonly")!;
+    return {
+      bar: rect(bar),
+      box: rect(box),
+      footer: rect(footer),
+      footerControls: [...footer.querySelectorAll(".acpmux-location-button, .acpmux-location-readonly")].map(rect),
+      left,
+      right: rect(bar.querySelector(".acpmux-composer-actions")!),
+      barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
+      labels: {
+        model: label(".acpmux-model .acpmux-picker-button", ".acpmux-model-name", ".acpmux-model"),
+        effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
+        access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
+        status: label(
+          ".acpmux-permission-status-trigger",
+          ".acpmux-permission-status-label",
+          ".acpmux-permission-status",
+        ),
+      },
+      plusInset: plus.getBoundingClientRect().left - box.getBoundingClientRect().left,
+      footerInset: firstFooter.getBoundingClientRect().left - box.getBoundingClientRect().left,
+    };
+  }
+
+  setDefaultTimeout(180_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("composer-row-layout: skipping (run `bunx playwright install chromium`)");
+    describe.skip("composer row layout", () => test("chromium", () => {}));
+    return;
+  }
+  const webviews = path.resolve(import.meta.dir, "..");
+  const { createServer } = await import("vite");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  const stageURL = (variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}`;
+
+  beforeAll(async () => {
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+    // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
+    const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
+    await warm.goto(stageURL("claude-auto"));
+    for (;;) {
+      try {
+        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
+        break;
+      } catch (error) {
+        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
+      }
+    }
+    await warm.close();
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  const row = async (variant: string, width: number) => {
+    const page = await browser!.newPage({ viewport: { width, height: 300 } });
+    await page.goto(stageURL(variant));
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.evaluate(() => document.fonts.ready);
+    const measured = await page.evaluate(measure);
+    await page.close();
+    return measured;
+  };
+
+  for (const variant of ["claude-auto", "long-model", "granted", "queued"])
+    for (const width of [420, 720, 1100])
+      test(`${variant} at ${width} px: two clusters, cut by priority, footer whole`, async () => {
+        const measured = await row(variant, width);
+        const { left, right, labels, barGap } = measured;
+        const names = left.map((control) => control.name);
+        const problems: string[] = [];
+        // The left cluster is contiguous: no control sits apart from the one before it.
+        for (let index = 1; index < left.length; index++) {
+          const gap = left[index]!.rect.left - left[index - 1]!.rect.right;
+          if (gap > barGap + 0.5)
+            problems.push(`${Math.round(gap)} px gap between ${names[index - 1]} and ${names[index]}`);
+        }
+        // The permission mode follows effort directly, in the left cluster.
+        if (names.indexOf("access") < names.indexOf("effort"))
+          problems.push(`access is not after effort: ${names.join(", ")}`);
+        // The free space is only between the clusters; a cut label means there is none.
+        const free = right.left - left.at(-1)!.rect.right - barGap;
+        // A label dropped for its icon is a step: the row may keep less than that label's width.
+        const cut = Object.entries(labels).flatMap(([name, label]) => (label?.cut ? [name] : []));
+        for (const name of cut)
+          if (labels[name]!.dropped ? free >= labels[name]!.need - 0.5 : free > 1)
+            problems.push(`${name} cut with ${Math.round(free)} px free in the row`);
+        // Priority: the permission labels go first, then effort, the model last.
+        if (labels.effort?.cut && (labels.access?.cut === false || labels.status?.cut === false))
+          problems.push("effort is cut while a permission label shows");
+        if (labels.model?.cut && (labels.effort?.atMin === false || labels.access?.cut === false))
+          problems.push("the model is cut before effort and the permission label");
+        // At a normal and a wide pane every label of Leo's row shows whole.
+        if (width >= 720 && variant !== "long-model" && cut.length > 0)
+          problems.push(`${cut.join(", ")} cut at ${width} px`);
+        // The footer is inside the card, its controls whole and inset from the card's bottom edge.
+        if (measured.footer.bottom > measured.box.bottom + 0.5) problems.push("the footer runs past the card");
+        for (const control of measured.footerControls) {
+          if (control.top < measured.footer.top - 0.5) problems.push("a footer control rises out of its row");
+          const inset = measured.box.bottom - control.bottom;
+          if (inset < 8) problems.push(`a footer control sits ${Math.round(inset)} px from the card's bottom edge`);
+        }
+        if (Math.abs(measured.footerInset - measured.plusInset) > 1)
+          problems.push(`footer inset ${measured.footerInset} px, bar inset ${measured.plusInset} px`);
+        expect(problems).toEqual([]);
+      });
+});
