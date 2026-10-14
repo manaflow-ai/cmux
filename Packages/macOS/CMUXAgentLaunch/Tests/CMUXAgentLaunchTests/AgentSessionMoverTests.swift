@@ -361,6 +361,43 @@ struct AgentSessionMoverTests {
         #expect(second.code == .notGitCheckout(path: plain))
     }
 
+    @Test func freshMachineGetsNoOriginCredentialsAndNoNestedRepository() throws {
+        // A token in the source's origin URL never reaches the machine.
+        let f = try MoveFixture()
+        try f.makeRepositories()
+        try f.sh("rm -rf \(f.remoteHome)/proj; git -C \(f.localHome)/proj remote add origin https://someone:ghp_secret@example.invalid/proj.git")
+        try f.writeSession(cwd: f.localHome + "/proj")
+        _ = try AgentSessionMover(runner: f.runner).move(AgentMoveRequest(
+            sessionID: f.sessionID, source: .local, destination: f.remote, localHome: f.localHome, createsMissingCheckout: true
+        ))
+        #expect(try f.sh("git -C \(f.remoteHome)/proj remote get-url origin") == "https://example.invalid/proj.git")
+
+        // A missing folder inside a checkout the machine already has is left alone.
+        let nested = try MoveFixture()
+        try nested.makeRepositories()
+        try nested.sh("rm -rf \(nested.remoteHome)/proj; git init -q \(nested.remoteHome)")
+        try nested.writeSession(cwd: nested.localHome + "/proj")
+        #expect(throws: AgentMoveError.self) {
+            try AgentSessionMover(runner: nested.runner).move(AgentMoveRequest(
+                sessionID: nested.sessionID, source: .local, destination: nested.remote, localHome: nested.localHome, createsMissingCheckout: true
+            ))
+        }
+        #expect(!FileManager.default.fileExists(atPath: nested.remoteHome + "/proj"))
+
+        // A folder that already holds files (an earlier `vm push`) is never overwritten.
+        let filled = try MoveFixture()
+        try filled.makeRepositories()
+        try filled.sh("rm -rf \(filled.remoteHome)/proj; mkdir -p \(filled.remoteHome)/proj; printf 'mine\\n' > \(filled.remoteHome)/proj/a.txt")
+        try filled.writeSession(cwd: filled.localHome + "/proj")
+        #expect(throws: AgentMoveError.self) {
+            try AgentSessionMover(runner: filled.runner).move(AgentMoveRequest(
+                sessionID: filled.sessionID, source: .local, destination: filled.remote, localHome: filled.localHome, createsMissingCheckout: true
+            ))
+        }
+        #expect(filled.read(filled.remoteHome + "/proj/a.txt") == "mine\n")
+        #expect(!FileManager.default.fileExists(atPath: filled.remoteHome + "/proj/.git"))
+    }
+
     @Test func refusesNewerDestinationTranscript() throws {
         let f = try MoveFixture()
         let cwd = f.localHome + "/plain"
