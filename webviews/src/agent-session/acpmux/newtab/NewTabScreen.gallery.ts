@@ -73,6 +73,71 @@ async function waitForTabJump(ctx: PlayContext, target: "tab" | "here" | "closed
   );
 }
 
+// Sample Labs flags around the gallery clock (GALLERY_NOW, 2026-10-06): one made yesterday (New),
+// one that ends in two days (Expires soon). The page lists them in place of labs.generated.ts.
+const LABS_FIXTURE = {
+  composerLift: {
+    owner: "leo",
+    created: "2026-10-05",
+    expires: "2026-10-19",
+    cohort: "off",
+    title: "Lighter Composer",
+    intent: "The composer a step lighter than the page, from the theme.",
+  },
+  previewFeatures: {
+    owner: "leo",
+    created: "2026-10-03",
+    expires: "2026-10-27",
+    cohort: "off",
+    title: "Show Preview Features",
+    intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+  },
+  stainedGlass: {
+    owner: "art",
+    created: "2026-09-30",
+    expires: "2026-10-14",
+    cohort: "off",
+    title: "Stained Glass Panes",
+    intent: "CC0 art under the panes, with an opacity per workspace.",
+  },
+  tabSlide: {
+    owner: "tabs",
+    created: "2026-09-24",
+    expires: "2026-10-08",
+    cohort: "off",
+    title: "Tab Slide",
+    intent: "Tabs slide 2px into place when they reorder.",
+  },
+};
+
+function labsVariants() {
+  return Object.fromEntries(
+    [false, true].map((open) => [
+      open ? "labs-open" : "labs",
+      {
+        note: open
+          ? "Labs, open: each flag's name, its one-line intent, a New or Expires soon hint and a toggle; All Labs… for Settings > Labs. Team builds only."
+          : "Labs, closed: one quiet line, Labs (2 on), under the create row. Team builds only; release builds show nothing.",
+        ready: newTab(),
+        snapshot: noChat(manySessions(4)),
+        play: async (ctx: PlayContext) => {
+          const html = ctx.document.documentElement;
+          (ctx.document.defaultView as unknown as { cmuxLabsFixture?: unknown }).cmuxLabsFixture = LABS_FIXTURE;
+          html.setAttribute("data-labs", "composerLift previewFeatures");
+          html.setAttribute("data-labs-team", "1");
+          await ctx.waitFor(() => ctx.document.querySelector("[data-labs-open]") !== null);
+          if (open) {
+            await ctx.click({ selector: "[data-labs-open]" });
+            await ctx.waitFor(() => ctx.document.querySelector("[data-lab] input[type=checkbox]") !== null);
+            // The field's focus fill eases out after the click; the still waits for it.
+            await new Promise((done) => setTimeout(done, 300));
+          }
+        },
+      },
+    ]),
+  );
+}
+
 export default agentPaneEntry({
   id: "agent-pane.new-tab",
   title: "New Tab page",
@@ -117,15 +182,8 @@ export default agentPaneEntry({
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
-    labs: {
-      note: "A nightly or dev build (data-labs-team): Labs lists every flag with its one-line intent and a toggle, and All Labs… for Settings > Labs. Release builds show no Labs section.",
-      ready: newTab(),
-      snapshot: noChat(),
-      play: async (ctx) => {
-        ctx.document.documentElement.setAttribute("data-labs-team", "1");
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-labs [data-lab] input[type=checkbox]") !== null);
-      },
-    },
+    // Labs (hq#1980), a team build: four sample flags, two on, closed and open.
+    ...labsVariants(),
     // The chip's model picker opens whole: the card does not clip it to its search field
     // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
     "model-picker-open": {

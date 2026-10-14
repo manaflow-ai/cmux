@@ -27,8 +27,8 @@ New UI looks and behaviors land behind a Labs flag that the team turns on. They 
 The flag then shows up in these places without further work:
 - Settings > Experimental > Labs, as a toggle with its intent line.
 - The palette's settings scope: type `, <title>` and flip it.
-- Help > Feature Flags.
-- The New Tab page's Labs section, in nightly and dev builds only: the intent line and a toggle, with All Labs… for Settings.
+- Help > Labs… and the palette's "Labs…" command, which open Settings > Labs.
+- The New Tab page's Labs line, in nightly and dev builds only: "Labs (N on)" opens in place to each flag's name, intent, a New or Expires soon hint and a toggle, with All Labs… for Settings.
 - cmux.json and MDM, as `labs.<name>`.
 - Agents, which may set it.
 

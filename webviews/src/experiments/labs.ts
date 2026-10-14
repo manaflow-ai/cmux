@@ -9,6 +9,25 @@ import { LABS_FLAGS, type LabsFlagName } from "./labs.generated";
 
 export { LABS_FLAGS, type LabsFlagName };
 
+/** One Labs flag's registry row, as labs.generated.ts carries it. */
+export type LabsFlagInfo = {
+  owner: string;
+  created: string;
+  expires: string;
+  cohort: string;
+  title: string;
+  intent: string;
+};
+
+/**
+ * The Labs flags a page lists: the registry, or the flags a gallery stage or a test sets as
+ * `cmuxLabsFixture` (the real table has one flag, too few to show order and hints). Never set in
+ * the app.
+ */
+export function labsFlagTable(): Readonly<Record<string, LabsFlagInfo>> {
+  return (globalThis as { cmuxLabsFixture?: Record<string, LabsFlagInfo> }).cmuxLabsFixture ?? LABS_FLAGS;
+}
+
 function onFlags(root: Element): Set<string> {
   return new Set((root.getAttribute("data-labs") ?? "").split(" ").filter(Boolean));
 }
@@ -40,6 +59,15 @@ export function useLabsFlag(name: LabsFlagName): boolean {
     subscribe,
     () => labsFlag(name),
     () => false,
+  );
+}
+
+/** The names of the Labs flags on now, as `data-labs` lists them; renders again when one changes. */
+export function useLabsOn(): string {
+  return useSyncExternalStore(
+    subscribe,
+    () => document.documentElement.getAttribute("data-labs") ?? "",
+    () => "",
   );
 }
 

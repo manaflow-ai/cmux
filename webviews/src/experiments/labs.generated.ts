@@ -8,6 +8,7 @@ export const LABS_FLAGS = {
     created: "2026-10-03",
     expires: "2026-10-27",
     cohort: "off",
+    title: "Show Preview Features",
     intent: "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
   },
 } as const;
