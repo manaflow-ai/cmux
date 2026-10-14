@@ -41,6 +41,72 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
     }
 }
 
+/// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
+/// ended without an answer, e.g. `outcome_unknown`).
+pub(super) const LAST_TURN_KEYS: [&str; 7] =
+    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+
+impl Hub {
+    /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
+    /// that never got the prompt). The session shows that turn failed (`lastTurn`, its lane),
+    /// recorded before the record goes out, as every turn's end is.
+    pub(super) fn append_unknown_outcome(&self, session: &Session, result: Value) {
+        self.record_last_turn(session, &result);
+        self.append(session, "mux", "turn_result", result);
+    }
+}
+
+/// The session's lane (cx-v9k2f): what a coordinator watching many agents
+/// needs at a glance, decided here once from the summary's own fields.
+///
+/// - `working` since its turn started.
+/// - `input`: a permission or question waits for the person.
+/// - `failed` since its last turn ended, with that turn's error text (an
+///   agent dead on "Credit balance too low" must not read as idle).
+/// - `lost`: the agent process is gone without an answer.
+/// - `idle` since its last turn ended, or since it was created.
+///
+/// A session lost mid-turn (its agent or its peer gone before the turn
+/// ended) is lost since it went, and its `lastTurn` is the turn before: no
+/// error from it. Waiting reads `inputSince` (when it began waiting), so a
+/// later record or a draft save does not move it.
+///
+/// `{state, since, error}`; null for a closed session.
+pub fn lane(summary: &Value) -> Value {
+    if summary["status"] == "closed" {
+        return Value::Null;
+    }
+    let updated = summary["updatedAt"].as_u64();
+    let in_turn = !summary["turn"].is_null();
+    // A session with turns but no `lastTurn` (saved before it existed) is not idle since it was made.
+    let made = if summary["turnCount"].as_u64() > Some(0) {
+        updated
+    } else {
+        summary["createdAt"].as_u64()
+    };
+    let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
+    let (state, since) = match status_indicator(summary) {
+        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
+        Some("failed") => ("failed", ended),
+        Some("lost") if in_turn => ("lost", updated),
+        Some("lost") => ("lost", summary["lastTurn"]["endedAt"].as_u64().or(updated)),
+        _ => ("idle", ended),
+    };
+    let error = match state {
+        "failed" => summary["lastTurn"]["errorText"].clone(),
+        "lost" if !in_turn => summary["lastTurn"]["errorText"].clone(),
+        _ => Value::Null,
+    };
+    json!({"state": state, "since": since, "error": error})
+}
+
+/// Set the summary's derived fields: its status dot and its lane.
+pub fn decide(summary: &mut Value) {
+    summary["indicator"] = status_indicator(summary).map_or(Value::Null, Value::from);
+    summary["lane"] = lane(summary);
+}
+
 /// The summary's `lastMessage`, one sidebar line: the last line of words in
 /// the agent's reply, or the prompt while the turn has not answered yet.
 /// Null before the first prompt.
@@ -126,6 +192,11 @@ impl Hub {
             "turn": turn.map(|t| json!({"startedAt": t.started_at, "client": t.client, "prompt": t.prompt_preview, "turnId": t.turn_id, "promptId": t.prompt_id, "turnSeq": t.turn_seq})),
             "queue": session.queue().into_iter().map(|q| json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "prompt": q.preview, "queuedAt": q.queued_at, "held": q.held})).collect::<Vec<_>>(),
             "pendingPermissions": session.pending_permissions().len(),
+            // Since when it waits on the person (`lane`); null while it does not.
+            "inputSince": match session.input_since.load(Ordering::SeqCst) {
+                0 => Value::Null,
+                since => json!(since),
+            },
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
             "policy": m.permission_policy,
@@ -139,7 +210,7 @@ impl Hub {
             // Some attached client shows the chat (`hub/seen.rs`).
             "shown": self.shown(session),
         });
-        summary["indicator"] = status_indicator(&summary).map_or(Value::Null, Value::from);
+        decide(&mut summary);
         summary
     }
 

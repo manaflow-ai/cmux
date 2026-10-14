@@ -48,6 +48,7 @@
     "notification-mark-unread-v1",
     "notification-source-v1",
     "origin-claim-v1",
+    "page-credential-scoped-v1",
     "page-credential-v1",
     "page-router-v1",
     "page-tab-route-v1",
