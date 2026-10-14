@@ -1048,6 +1048,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
+      - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_feat_publish_order.py
+
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: |
