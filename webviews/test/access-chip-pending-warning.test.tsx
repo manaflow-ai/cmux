@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixtures.
-// A new chat that starts in a mode that skips approvals (bypassPermissions, agent-full-access: the
-// access mode the person picked last, cx-uq9xi) draws its remembered access chip in the warning
-// treatment on the first frame, as the live chip does, never neutral first. A remembered entry from
-// before the mode id was kept draws its label without it.
+// A new chat that starts in a mode that skips approvals (bypassPermissions, agent-full-access,
+// cx-uq9xi) draws its pending access chip in the warning treatment, as the live chip does, never
+// neutral first. The mode is the one acpmux answers it will start the chat in (`_acpmux/start_mode`,
+// cx-wx93i), not the one the harness's last chat showed: with no answer the chip names none.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -67,7 +67,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  setStartModeSource(undefined);
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -161,18 +163,29 @@ const access = () => {
   );
 };
 
+/// acpmux answers that it starts a new claude chat in `modeId`, named `name`.
+async function acpmuxStartsIn(modeId: string, name: string) {
+  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  setStartModeSource(async (harness) => (harness === "claude" ? { modeId, name } : undefined));
+}
+
 async function fresh() {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
   await render(undefined);
+  // The answer arrives.
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
 }
 
-test("a new chat after one that skipped approvals draws its access chip in the warning treatment at once", async () => {
-  await render(reported("earlier", "bypassPermissions"));
-  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+test("a new chat acpmux starts in full access draws its access chip in the warning treatment", async () => {
+  await acpmuxStartsIn("bypassPermissions", "Bypass permissions");
+  await render(reported("earlier", "default"));
+  expect(access()).toEqual({ label: "Ask before edits", warning: false });
 
-  // A new chat, before its session reports: the same chip, warning included.
+  // A new chat, before its session reports: acpmux's answer, warning included.
   await fresh();
   expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
@@ -182,21 +195,16 @@ test("a new chat after one that skipped approvals draws its access chip in the w
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
 });
 
-test("a remembered mode that asks draws no warning", async () => {
-  await render(reported("earlier", "default"));
+test("a new chat acpmux starts in a mode that asks draws no warning", async () => {
+  await acpmuxStartsIn("default", "Ask before edits");
+  await render(reported("earlier", "bypassPermissions"));
   await fresh();
   expect(access()).toEqual({ label: "Ask before edits", warning: false });
 });
 
-test("a remembered chip from before the mode id was kept draws its label without the warning", async () => {
+test("without acpmux's answer a new chat names no mode, whatever the last chat showed", async () => {
+  await render(reported("earlier", "bypassPermissions"));
   localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { mode: "Bypass permissions" } }));
-  await render(undefined);
-  expect(access()).toEqual({ label: "Bypass permissions", warning: false });
-  act(() => root?.unmount());
-  root = undefined;
-  host.replaceChildren();
-  // A broken value is no mode id either.
-  localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { mode: "Bypass permissions", modeId: 42 } }));
-  await render(undefined);
-  expect(access()).toEqual({ label: "Bypass permissions", warning: false });
+  await fresh();
+  expect(access()).toBeNull();
 });

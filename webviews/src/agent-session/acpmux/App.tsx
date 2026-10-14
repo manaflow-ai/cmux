@@ -64,6 +64,7 @@ import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
+import { setStartModeSource } from "./startMode";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
@@ -3545,6 +3546,7 @@ function AcpmuxPane() {
             reconnect = true;
             // A switch in flight runs again on the next client.
             harnessSwitch.disconnect(switchPort);
+            setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
@@ -3966,6 +3968,7 @@ function AcpmuxPane() {
           setConfig: (configId, value, ticket) => client.setConfig(configId, value, ticket),
           discard: (sessionId) => client.discard(sessionId),
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
+          startMode: (harness, cwd) => client.startMode(harness, cwd).then((mode) => mode?.modeId),
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
         };
@@ -3985,6 +3988,8 @@ function AcpmuxPane() {
           holdPrompt: (promptId) => void heldPrompt.hold(promptId),
         });
         harnessSwitch.connect(switchPort);
+        // A pending chat's access chip asks this client the mode acpmux starts it in.
+        setStartModeSource((harness, cwd) => client.startMode(harness, cwd));
         acpmuxPerf.markAgent("composerReady");
         client.snapshot();
         void client.warmRecentProjects();
@@ -4052,6 +4057,7 @@ function AcpmuxPane() {
       cancelled = true;
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
+      setStartModeSource(undefined);
       retryHost.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();

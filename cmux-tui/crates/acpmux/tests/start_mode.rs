@@ -254,3 +254,87 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `_acpmux/start_mode`: the mode acpmux would start a plain new chat on
+/// `harness` in, as this connection asks it.
+async fn start_mode(c: &mut Client, dir: &Path, harness: &str) -> Value {
+    let r =
+        c.call("_acpmux/start_mode", json!({"harness": harness, "cwd": dir.join("work")})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    r["result"].clone()
+}
+
+#[tokio::test]
+async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
+    let dir = home("answer", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    // Before any chat: full access, from config.json.
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(answer["name"], "Full access", "{answer}");
+    assert_eq!(answer["level"], "fullAccess", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    // A harness with no full-access mode keeps its own: no prediction.
+    assert_eq!(start_mode(&mut app, &dir, "plain").await["modeId"], Value::Null);
+
+    // The person picks Normal in a chat: the answer follows, and so does the
+    // next new chat.
+    let (claude, _) = app.chat(&dir, "claude").await;
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "default", "{answer}");
+    assert_eq!(answer["level"], "ask", "{answer}");
+    assert_eq!(answer["source"], "pick", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+
+    // Asking changes nothing.
+    assert_eq!(last_pick(&dir), json!("ask"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
+    let dir = home(
+        "answer-skip",
+        json!({"defaultPermissionMode": "fullAccess", "presets": {"p": {"harness": "claude"}}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    // A preset's chat: its pick is no start mode, and its own start is none.
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"preset": "p"}}}),
+        )
+        .await;
+    let preset = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let r = app.call("session/set_mode", json!({"sessionId": preset, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call(
+            "_acpmux/start_mode",
+            json!({"harness": "claude", "preset": "p", "cwd": dir.join("work")}),
+        )
+        .await;
+    assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
+
+    // A Web chat viewed in the app: its pick is no start mode either. (Codex: a
+    // remote chain runs Claude Code only inside the macOS sandbox.)
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": remote, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+
+    assert_eq!(last_pick(&dir), Value::Null);
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    // The Web asks for its own context: acpmux sets no start mode there.
+    assert_eq!(start_mode(&mut web, &dir, "codex").await["modeId"], Value::Null);
+    let _ = std::fs::remove_dir_all(&dir);
+}

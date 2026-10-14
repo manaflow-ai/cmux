@@ -63,6 +63,9 @@ export type SwitchPort = {
   prewarm(harness: string, cwd?: string): void;
   /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
   prewarmSupported(): boolean;
+  /// The mode acpmux would start a new chat on `harness` in (`_acpmux/start_mode`, cx-wx93i);
+  /// undefined when it sets none, cannot know, or predates the method.
+  startMode?(harness: string, cwd?: string): Promise<string | undefined>;
   /// A new chat starts only with its first send (a chat on another machine, cx-k21v): a pick
   /// before it is remembered, and the send starts the session.
   startsOnSend?(): boolean;
@@ -103,6 +106,8 @@ export type SwitchView = {
     queued: readonly QueuedSwitchPrompt[];
     config: SwitchConfig;
     cwd?: string;
+    /// The mode acpmux answered it will start the chat in; none until it answers.
+    startMode?: string;
   };
   /// A model picked in a live session, drawn until the session reports a model change.
   model?: { sessionId: string; from?: string; model: string };
@@ -130,6 +135,8 @@ type Intent = {
   error?: string;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
+  /// The mode acpmux answered it will start the chat in (`askStartMode`).
+  startMode?: string;
   /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
   tickets: Map<string, Promise<string | undefined>>;
   /// The port a run is in flight on; a reconnect runs again on the new one.
@@ -219,6 +226,7 @@ export class HarnessSwitch {
       const shown = port.shown();
       if (shown?.empty && (!shown.harness || shown.harness === intent.harness)) intent.sessionId = shown.sessionId;
     }
+    if (intent && intent.startMode === undefined) this.askStartMode(intent);
     if (intent && intent.phase !== "failed" && intent.phase !== "trust" && !intent.running) void this.run(intent);
   }
   /// The connection dropped: whatever was in flight runs again on the next client.
@@ -289,6 +297,8 @@ export class HarnessSwitch {
     }
     this.cancelHintTimer();
     this.changed();
+    // Before session/new: the answer is acpmux's rule as it stands when the chat is asked for.
+    if (!intent.reused) this.askStartMode(intent);
     void this.run(intent);
     return done.promise;
   }
@@ -622,6 +632,21 @@ export class HarnessSwitch {
     intent.done.resolve(undefined);
   }
 
+  /// Asks acpmux the mode it will start `intent`'s chat in, which the pending chat's access chip
+  /// names until the session reports its own (`applySwitch`). No answer, no prediction.
+  private askStartMode(intent: Intent): void {
+    const ask = this.port?.startMode;
+    if (!ask) return;
+    void ask(intent.harness, intent.cwd).then(
+      (mode) => {
+        if (!mode || this.intent !== intent) return;
+        intent.startMode = mode;
+        this.changed();
+      },
+      () => undefined,
+    );
+  }
+
   private changed(): void {
     const intent = this.intent;
     this.current = {
@@ -636,6 +661,7 @@ export class HarnessSwitch {
           queued: intent.queued.map(({ id, text, at }) => ({ id, text, at })),
           config: intent.config,
           cwd: intent.cwd,
+          ...(intent.startMode ? { startMode: intent.startMode } : {}),
         },
       }),
       ...(this.modelPick && { model: this.modelPick }),
@@ -714,7 +740,9 @@ export function applySwitch(
   const profile = profiles.get(intent.harness);
   const config = intent.config;
   const predicted = config.model ?? live?.model ?? defaultModel(intent.harness, catalog, profiles, intent.cwd);
-  const modes = live?.modes ?? profile?.modes;
+  // Before the session reports, the mode acpmux answered it will start the chat in
+  // (`_acpmux/start_mode`), never the mode the harness's last chat ran; none until it answers.
+  const modes = live?.modes ?? (profile?.modes && { ...profile.modes, currentModeId: intent.startMode });
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,

@@ -17,6 +17,7 @@ import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
+import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -431,14 +432,20 @@ export function ComposerPickers({
         ? t("picker.reasoning")
         : effortChoice.name
       : undefined;
-  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
-  const modeLabel = shownMode?.name;
-  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
+  // the chat in (`_acpmux/start_mode`), never the mode this harness's last chat showed; nothing
+  // until it answers, or when it sets none.
+  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && modes.length === 0);
+  const startModeName = startMode
+    ? (startMode.name ??
+      harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)?.name ??
+      startMode.modeId)
+    : undefined;
   useEffect(() => {
-    if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
+    if (!awaiting && chipHarness && summary?.sessionId && effortLabel)
+      rememberLastChips(chipHarness, { effort: effortLabel });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel]);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -507,8 +514,8 @@ export function ComposerPickers({
       )}
       {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
       <span className="acpmux-chips-spacer" aria-hidden="true" />
-      {modes.length === 0 && lastChips?.mode && (
-        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      {modes.length === 0 && startMode && startModeName && (
+        <PendingChip kind="mode" label={startModeName} modeId={startMode.modeId} />
       )}
       {modes.length > 0 && (
         <AccessMenu
@@ -602,7 +609,9 @@ function AccessMenu({
     if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
   }, [current, optimistic, sessionId]);
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
-  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
+  // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
+  // and every mode, the first included, is a pick.
+  const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
