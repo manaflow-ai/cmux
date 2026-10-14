@@ -180,9 +180,10 @@ await requireBrowserLane("agent-pane-unknown-harness.test.ts", async () => {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("Is feat-cmux-next green?");
       await page.keyboard.press("Enter");
-      await page.waitForFunction(() => document.body.textContent?.includes("Is feat-cmux-next green?"), null, {
-        timeout: 15_000,
-      });
+      // Wait for the prompt to reach the daemon (the composer's own text would satisfy a text wait at once).
+      for (let waited = 0; prompts.length === 0 && waited < 15_000; waited += 100) {
+        await page.waitForTimeout(100);
+      }
       await page.waitForTimeout(1_000);
       failedSending = await page.locator(".acpmux-pane-failed").count();
     }
