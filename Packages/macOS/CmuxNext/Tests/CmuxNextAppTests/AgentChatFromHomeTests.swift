@@ -57,7 +57,7 @@ struct AgentChatFromHomeTests {
             })
             #expect(window.state.page == nil, "the docked Home is a workspace, not a top page")
             let workspaces = Set(services.daemon.store.workspaces.map(\.id))
-            func tabCount() -> Int { home.screens.flatMap(\.panes).flatMap(\.tabs).count }
+            @MainActor func tabCount() -> Int { home.screens.flatMap(\.panes).flatMap(\.tabs).count }
             let tabs = tabCount()
             #expect(services.registry.perform("palette.newAgentChat", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ tabCount() > tabs }, report: { "\(tabCount()) tabs, was \(tabs)" })
