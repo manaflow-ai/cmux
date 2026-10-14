@@ -467,6 +467,13 @@ describe("Freestyle platform contract", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("cmux's own guest maintenance through exec can still ask for root", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execUsers).toEqual(["root"]);
+  });
+
   test("exec does not repair an absent guest CLI during a command", async () => {
     const fake = fakeFreestyle({ probeExit: 0, guestCliExit: 1 });
     const result = await providerWith(fake).exec(VM_ID, "cmux self --json");
