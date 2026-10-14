@@ -417,6 +417,44 @@ def tile_part(workspace, sid):
     pace()
 
 
+def docked_left(pane):
+    """Whether `pane` is in a shown left dock column (debug.dock)."""
+    dock = rpc("debug.dock") or {}
+    return any(pane in (d.get("panes") or []) and d.get("shown") and d.get("edge") == "left"
+               for w in dock.get("windows", []) for d in ((w.get("screen") or {}).get("dock") or []))
+
+
+def mixed_part(workspace, sid):
+    """Two row clicks at once, then Tile Subagents with one of them open as a tab (review of #20694)."""
+    caption("Click two subagents at once: both tabs in one pane right of the docked chat")
+    click_row(workspace, sid, RUNNING[0])
+    click_row(workspace, sid, RUNNING[1])
+    both = wait(lambda: len(subagent_tabs(workspace, sid)) == 2 or None, 20)
+    time.sleep(1.5)  # test harness: a wrong second column would land by now
+    chat = chat_pane(workspace, sid)
+    holders = {p for p, _ in subagent_tabs(workspace, sid)}
+    row("two row clicks back to back share one pane beside the docked chat", "2 subagent tabs in 1 pane; chat docked left; 2 panes",
+        f"panes {brief(workspace)} docked={docked_left(chat)}",
+        bool(both) and len(holders) == 1 and chat not in holders and docked_left(chat) and len(panes_of(workspace)) == 2)
+    pace()
+
+    caption("Tile Subagents with two open as tabs: every running one in a pane of its own, no tab left over")
+    print("tile:", json.dumps(rpc("action.run", {"action": "agentChat.tileSubagents", "target": f"pane:{chat}", "focus": True}))[:200], flush=True)
+
+    def tiled():
+        tabs = subagent_tabs(workspace, sid)
+        panes = [p for p, _ in tabs]
+        return len(tabs) == len(RUNNING) and len(set(panes)) == len(RUNNING) and chat_pane(workspace, sid) not in panes
+    done = wait(lambda: tiled() or None, 30)
+    tabs = subagent_tabs(workspace, sid)
+    row("Tile Subagents tiles subagents already open as tabs too", f"{len(RUNNING)} subagent tabs, each in a pane of its own, named {RUNNING}",
+        f"panes {brief(workspace)}", bool(done) and all(any(named(t, task) for _, t in tabs) for task in RUNNING))
+    time.sleep(1)  # test harness: the stack's springs settle
+    ok, heights = equal_heights([p for p, _ in tabs]) if done else (False, [])
+    row("that stack is equal in height", "heights within 3 pt", heights, ok)
+    pace()
+
+
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
@@ -432,6 +470,8 @@ def main():
     # Tiling in a workspace of its own, on another session: the tracker is per session.
     workspace, pane = new_workspace()
     tile_part(workspace, open_real_chat(workspace, pane))
+    workspace, pane = new_workspace()
+    mixed_part(workspace, open_real_chat(workspace, pane))
     caption("Done")
     time.sleep(2.5 if opts.record else 0.5)  # recording: the end frame
     if recording:
