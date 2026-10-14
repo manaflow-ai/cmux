@@ -121,6 +121,16 @@ import UniformTypeIdentifiers
         #expect(BackdropSelection.system(path: grid.path).title == "Grid")
     }
 
+    /// A hand-edited `system:` path with `..` resolves (it once walked up forever).
+    @Test func aPathWithDotDotResolves() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let wallpaper = AppleWallpaper(path: fixture.path("Solid Colors/../Sonoma.heic"), assets: .none)
+        #expect(fixture.names(wallpaper?.thumbnail, ".thumbnails/Sonoma.heic"))
+        #expect(AppleWallpaper(path: "/a/../b.madesktop", assets: .none) == nil)
+        #expect(BackdropSelection.system(path: "/x/Desktop Pictures/sub/../y.jpg").thumbnailURL?.path == "/x/Desktop Pictures/sub/../y.jpg")
+    }
+
     @Test func aDynamicPictureFollowsTheAppearance() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

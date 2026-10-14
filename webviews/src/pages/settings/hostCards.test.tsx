@@ -82,7 +82,7 @@ test("Apple Wallpapers: one not downloaded says so and opens the Wallpaper pane;
   expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
   expect(runs(page, "cmux.settings.set").length).toBe(0);
   // Its thumbnail stands in until it is downloaded, so it can be chosen now.
-  await act(async () => group.querySelector<HTMLButtonElement>('[aria-label="Grid Green"]')!.click());
+  await act(async () => group.querySelector<HTMLButtonElement>('button[aria-label="Grid Green"]')!.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
     key: "appearance.background",

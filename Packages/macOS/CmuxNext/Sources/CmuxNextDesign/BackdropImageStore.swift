@@ -37,6 +37,9 @@ public final class BackdropImageStore {
         let texture: BackdropTexture
         /// The appearance a dynamic wallpaper was decoded for; nil for every other image.
         let appearance: BackdropAppearance?
+        /// The file a macOS wallpaper was decoded from: its thumbnail until macOS downloads the
+        /// full picture, which then decodes anew. Nil for every other image.
+        let source: String?
     }
 
     /// The app's appearance now.
@@ -53,8 +56,10 @@ public final class BackdropImageStore {
     }
 
     private func key(_ selection: BackdropSelection, _ texture: BackdropTexture, _ appearance: BackdropAppearance?) -> Key {
-        Key(id: selection.id, texture: texture,
-            appearance: followsAppearance(selection) ? (appearance ?? Self.currentAppearance) : nil)
+        let appearance = followsAppearance(selection) ? (appearance ?? Self.currentAppearance) : nil
+        guard case .system = selection else { return Key(id: selection.id, texture: texture, appearance: appearance, source: nil) }
+        return Key(id: selection.id, texture: texture, appearance: appearance,
+                   source: selection.imageURL(for: appearance ?? .light)?.path)
     }
 
     /// A decoded bitmap handed from the decoding task to the main actor.
@@ -142,7 +147,7 @@ public final class BackdropImageStore {
         if let running = loads[key] {
             load = running
         } else {
-            let source = selection.resolvedImageURL(for: appearance), snapshot = snapshotURL(selection, key: key)
+            let source = self.source(selection, key: key), snapshot = snapshotURL(selection, key: key)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
                 Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, appearance: appearance)
@@ -159,11 +164,16 @@ public final class BackdropImageStore {
         return image
     }
 
+    /// The file `key` decodes: the one its key names for a macOS wallpaper (read once per key).
+    private func source(_ selection: BackdropSelection, key: Key) -> URL? {
+        key.source.map { URL(fileURLWithPath: $0) } ?? selection.resolvedImageURL(for: key.appearance ?? .light)
+    }
+
     /// The snapshot file of `selection` at this store's size and the texture and appearance of
     /// `key`. Its name carries the source file's path, size and modification date, so a replaced
     /// file (or a wallpaper downloaded since) never matches an old one.
     private func snapshotURL(_ selection: BackdropSelection, key: Key) -> URL? {
-        guard let snapshots, let source = selection.resolvedImageURL(for: key.appearance ?? .light),
+        guard let snapshots, let source = source(selection, key: key),
               let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0

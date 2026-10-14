@@ -70,12 +70,12 @@ public nonisolated struct AppleWallpaper: Equatable, Hashable, Sendable {
     }
 
     /// `.thumbnails` of the Desktop Pictures folder holding `url` (a subfolder's pictures use it too).
+    /// Read from the path's components, so a path with `..` (a hand-edited setting) ends.
     private static func thumbnailFolder(for url: URL) -> URL {
-        var folder = url.deletingLastPathComponent()
-        while folder.path != "/", folder.lastPathComponent != "Desktop Pictures" {
-            folder = folder.deletingLastPathComponent()
-        }
-        return folder.appendingPathComponent(".thumbnails", isDirectory: true)
+        let components = url.standardizedFileURL.pathComponents.dropLast()
+        let folder = components.lastIndex(of: "Desktop Pictures").map { components[...$0] } ?? components[...]
+        return URL(fileURLWithPath: NSString.path(withComponents: Array(folder)), isDirectory: true)
+            .appendingPathComponent(".thumbnails", isDirectory: true)
     }
 }
 

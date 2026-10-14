@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -22,7 +23,7 @@ extension SettingsPageProvider {
     /// Get in System Settings).
     func openWallpaperSettings() {
         guard let url = Self.wallpaperSettingsURL else { return }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
     }
 
     /// `cmux.settings.art.search` (the works matching `query`) and `cmux.settings.art.use` (download

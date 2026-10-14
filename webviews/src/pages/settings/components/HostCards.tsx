@@ -209,7 +209,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
               choice.downloaded === false ? (
                 // A macOS wallpaper macOS has not downloaded: the window shows its thumbnail until
                 // the person gets the full picture in the Wallpaper pane.
-                <div key={choice.id} className="backdrop-cell">
+                <fieldset key={choice.id} className="backdrop-cell" aria-label={choice.title}>
                   {tile(choice.id, choice.title, t("settingsWindow.backdropPicker.notDownloaded"))}
                   <button
                     type="button"
@@ -218,7 +218,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   >
                     {t("settingsWindow.backdropPicker.getInSystemSettings")}
                   </button>
-                </div>
+                </fieldset>
               ) : (
                 tile(choice.id, choice.title, choice.attribution)
               ),
