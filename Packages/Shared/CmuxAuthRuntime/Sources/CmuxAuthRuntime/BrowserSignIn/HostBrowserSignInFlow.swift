@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 import os
+import StackAuth
 
 /// macOS hosted-browser sign-in flow, including external URL callbacks and
 /// attempt/sign-out race guards.
@@ -557,7 +558,12 @@ public final class HostBrowserSignInFlow {
         while true {
             do {
                 log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries)")
-                try await coordinator.completeExternalSignIn()
+                // This loop reports its own 429s with the backoff it chooses.
+                let coordinator = self.coordinator
+                try await StackAuthRateLimitReporting.$callerReports.withValue(true) {
+                    try await coordinator.completeExternalSignIn()
+                }
+                coordinator.rateLimitTelemetry.succeeded(.signInCompletion)
                 break
             } catch {
                 log.log("auth.callback completion failed: \(error)")
@@ -574,6 +580,9 @@ public final class HostBrowserSignInFlow {
                         retryAfter: rateLimit.retryAfter,
                         retry: rateLimitRetries,
                         jitter: Double.random(in: 0.5...1.0)
+                    )
+                    coordinator.rateLimitTelemetry.rateLimited(
+                        .signInCompletion, rateLimit: rateLimit, backoff: delay, attempt: rateLimitRetries
                     )
                     log.log("auth.callback.rateLimited attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries) retryAfterMs=\(rateLimit.retryAfter.map { String(Self.milliseconds($0)) } ?? "nil") delayMs=\(Self.milliseconds(delay))")
                     lastFailure = .rateLimited
@@ -595,6 +604,12 @@ public final class HostBrowserSignInFlow {
                         return false
                     }
                     continue
+                }
+                if let rateLimit = AuthRateLimit(error: error) {
+                    // Out of retries: the 429 still counts, with no further wait.
+                    coordinator.rateLimitTelemetry.rateLimited(
+                        .signInCompletion, rateLimit: rateLimit, backoff: .zero, attempt: rateLimitRetries + 1
+                    )
                 }
                 let displaySafe: AuthError = AuthRateLimit(error: error) != nil
                     ? .rateLimited

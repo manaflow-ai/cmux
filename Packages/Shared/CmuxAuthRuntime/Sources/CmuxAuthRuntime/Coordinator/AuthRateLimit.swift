@@ -10,6 +10,10 @@ import StackAuth
 public struct AuthRateLimit: Sendable, Equatable {
     /// The server's `Retry-After`, when it sent one.
     public let retryAfter: Duration?
+    /// The answered path with ids replaced by `ID`, for telemetry.
+    public let endpoint: String
+    /// `json`, `html` or `other`: whether the API or an edge page answered.
+    public let bodyKind: String
 
     /// Recognizes a rate-limit error, or returns `nil` for any other error.
     /// - Parameter error: The error a sign-in or session call threw.
@@ -21,6 +25,8 @@ public struct AuthRateLimit: Sendable, Equatable {
         default:
             return nil
         }
+        endpoint = stackError.details?[StackAuthError.endpointKey] as? String ?? "/unknown"
+        bodyKind = stackError.details?[StackAuthError.bodyKindKey] as? String ?? "other"
         if let seconds = stackError.details?[StackAuthError.retryAfterSecondsKey] as? TimeInterval,
            seconds.isFinite, seconds >= 0 {
             // A remote header: bound it before the Int64 conversion.
