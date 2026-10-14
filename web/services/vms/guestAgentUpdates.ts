@@ -553,6 +553,9 @@ export function guestAgentInstallCommand(
  */
 export const GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS = 10 * 60;
 
+/** A wake this much later than the requested wait is a snapshot resume, not scheduling delay. */
+const GUEST_AGENT_UPDATES_RESUME_JUMP_SLACK_SECONDS = 30;
+
 /** Written by cmux-devbox-boot when it binds a resumed clone (TEMPLATE_RUN_DIR). */
 export const GUEST_CLONE_STARTED_MARKER = "/run/cmux/clone-started";
 
@@ -574,21 +577,37 @@ const GUEST_AGENT_UPDATES_PATHS: GuestAgentUpdatesPaths = {
 
 /**
  * The detached updater run: wait out the resume window, then run the updater
- * at idle CPU and I/O priority. The window is measured from the clone marker's
- * mtime and re-read after every wait, so a fork resumed mid-wait (whose boot
- * supervisor rewrites the marker) starts its own window instead of firing on
- * the clock jump. A machine with no marker (not a clone, or rebooted since)
- * or an expired window runs at once.
+ * at low priority (nice 19, plus ionice's idle class, which only BFQ honors;
+ * the window is the real protection). The window is measured from the clone
+ * marker's mtime and re-read after every wait. Two clock hazards are handled:
+ *   * A fork or checkpoint taken while this waits resumes with its clocks
+ *     jumped, so the sleep returns at once, possibly before the fork's boot
+ *     supervisor rewrites the marker. A wake far past the requested wait is
+ *     therefore read as a resume and starts a fresh window from the wake.
+ *   * A marker dated in the future (the clock stepped back after it was
+ *     written) counts as written when it was first seen, so the wait is never
+ *     longer than one window.
+ * A machine with no marker (not a clone, or rebooted since) or an expired
+ * window runs at once.
  */
 export function guestAgentUpdaterLaunchScript(paths: GuestAgentUpdatesPaths = GUEST_AGENT_UPDATES_PATHS): string {
   const marker = shellQuote(paths.cloneStartedMarker);
+  const window = paths.resumeWindowSeconds;
   return [
-    `while [ -e ${marker} ]; do`,
-    `started=$(date -r ${marker} +%s 2>/dev/null) || break`,
-    `left=$((started + ${paths.resumeWindowSeconds} - $(date +%s)))`,
+    `since=0`,
+    `while :; do`,
+    `now=$(date +%s)`,
+    `started=$since`,
+    `if [ -e ${marker} ] && seen=$(date -r ${marker} +%s 2>/dev/null); then`,
+    `if [ "$seen" -gt "$now" ]; then [ "$since" -gt 0 ] || since=$now; seen=$since; fi`,
+    `if [ "$seen" -gt "$started" ]; then started=$seen; fi`,
+    `fi`,
+    `left=$((started + ${window} - now))`,
     `[ "$left" -gt 0 ] || break`,
     `echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) update: waiting \${left}s for the resumed machine to settle"`,
     `sleep "$left"`,
+    `woke=$(date +%s)`,
+    `if [ $((woke - now)) -gt $((left + ${GUEST_AGENT_UPDATES_RESUME_JUMP_SLACK_SECONDS})) ]; then since=$woke; fi`,
     `done`,
     `io=""`,
     `if command -v ionice >/dev/null 2>&1; then io="ionice -c 3"; fi`,

@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { AGENT_PIN_ARGS, devboxAgentPins } from "../scripts/devbox-image-common";
 import { runChild } from "./helpers/run-child";
@@ -32,6 +33,7 @@ import {
   GUEST_CLONE_STARTED_MARKER,
   guestAgentInstallCommand,
   guestAgentUpdaterCommand,
+  guestAgentUpdaterLaunchScript,
   guestAgentUpdatesCommand,
   guestAgentUpdatesScript,
   type GuestAgentUpdaterOptions,
@@ -314,6 +316,55 @@ function shimmedEnv(g: Guest): NodeJS.ProcessEnv {
   return { ...g.env, PATH: `${g.env.PATH}:${shims}` };
 }
 
+/** A clone marker in `g`'s tree whose mtime is `offsetSeconds` from now. */
+function cloneMarker(g: Guest, offsetSeconds: number): string {
+  const marker = path.join(g.root, "clone-started");
+  writeFileSync(marker, "");
+  const at = Date.now() / 1000 + offsetSeconds;
+  utimesSync(marker, at, at);
+  return marker;
+}
+
+/**
+ * Stand-ins for `date +%s` and `sleep`, first on PATH: a sleep advances the
+ * fake clock instead of waiting (plus `jumpOnFirstSleep`, a snapshot resume)
+ * and records how many GitHub calls had been made before it.
+ */
+function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
+  const dir = path.join(g.root, "clock");
+  mkdirSync(dir);
+  writeFileSync(path.join(dir, "offset"), "0\n");
+  if (opts.jumpOnFirstSleep) writeFileSync(path.join(dir, "jump"), `${opts.jumpOnFirstSleep}\n`);
+  const calls = path.join(g.github, "calls.log");
+  const realDate = existsSync("/bin/date") ? "/bin/date" : "/usr/bin/date";
+  writeFileSync(path.join(dir, "date"), [
+    "#!/bin/sh",
+    `if [ "$#" = 1 ] && [ "$1" = "+%s" ]; then echo $(( $(${realDate} +%s) + $(cat '${dir}/offset') )); else exec ${realDate} "$@"; fi`,
+    "",
+  ].join("\n"));
+  writeFileSync(path.join(dir, "sleep"), [
+    "#!/bin/sh",
+    `fetched=0; [ -f '${calls}' ] && fetched=$(grep -c . '${calls}')`,
+    `echo "$1 $fetched" >> '${dir}/sleeps'`,
+    `jump=0; [ -f '${dir}/jump' ] && jump=$(cat '${dir}/jump') && rm -f '${dir}/jump'`,
+    `echo $(( $(cat '${dir}/offset') + $1 + jump )) > '${dir}/offset'`,
+    "",
+  ].join("\n"));
+  chmodSync(path.join(dir, "date"), 0o755);
+  chmodSync(path.join(dir, "sleep"), 0o755);
+  return {
+    env: { ...g.env, PATH: `${dir}:${g.env.PATH}` },
+    sleeps(): { seconds: number; fetchedBefore: number }[] {
+      const file = path.join(dir, "sleeps");
+      if (!existsSync(file)) return [];
+      return readFileSync(file, "utf8").trim().split("\n").map((line) => {
+        const [seconds, fetchedBefore] = line.split(" ").map(Number);
+        return { seconds: seconds!, fetchedBefore: fetchedBefore! };
+      });
+    },
+  };
+}
+
 /** What `binary` on PATH runs now: its --version output, through the real links. */
 async function runs(g: Guest, binary: string): Promise<string> {
   const entry = binary === "opencode" ? path.join(g.options.libexecDir, "cmux-opencode-real") : path.join(g.options.binDir, binary);
@@ -379,7 +430,7 @@ describe("guest agent updates", () => {
   });
 
   test("the resume window equals the boot supervisor's housekeeping delay", () => {
-    const boot = readFileSync(path.join(import.meta.dir, "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
+    const boot = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/cmux-devbox-boot"), "utf8");
     const delay = /^HOUSEKEEPING_DELAY=(\d+)min$/m.exec(boot);
     expect(delay).not.toBeNull();
     expect(Number(delay![1]) * 60).toBe(GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS);
@@ -387,40 +438,58 @@ describe("guest agent updates", () => {
     expect(GUEST_CLONE_STARTED_MARKER).toBe("/run/cmux/clone-started");
   });
 
-  test("a just-resumed clone defers the updater until its resume window ends", async () => {
-    const g = await guest(null);
+  test("a just-resumed clone waits out its resume window before fetching anything", async () => {
+    const g = await guest();
     publish(g, "codex", "2.0.0");
-    const log = path.join(g.root, "updates.log");
-    const marker = path.join(g.root, "clone-started");
-    writeFileSync(marker, "");
-    const paths = { ...launchPaths(g, log), cloneStartedMarker: marker, resumeWindowSeconds: 2 };
-    const launched = await runChild("sh", ["-c", guestAgentUpdatesScript("latest", paths)], { env: shimmedEnv(g) });
-    expect(launched.status).toBe(0);
-    const statePath = path.join(g.configDir, "agent-updates.state");
-    // Inside the window nothing is fetched.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(existsSync(statePath)).toBe(false);
-    expect(calls(g)).toEqual([]);
-    expect(readFileSync(log, "utf8")).toMatch(/update: waiting [12]s for the resumed machine to settle/);
-    for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const clock = fakeClock(g);
+    const marker = cloneMarker(g, 0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/update: waiting (59\d|600)s for the resumed machine to settle/);
+    const sleeps = clock.sleeps();
+    expect(sleeps).toHaveLength(1);
+    expect(sleeps[0]!.seconds).toBeGreaterThanOrEqual(590);
+    expect(sleeps[0]!.fetchedBefore).toBe(0);
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
   });
 
-  test("a clone resumed longer ago than the window updates at once", async () => {
-    const g = await guest(null);
+  test("a resume during the wait (the clocks jump) starts a fresh window", async () => {
+    const g = await guest();
     publish(g, "codex", "2.0.0");
-    const log = path.join(g.root, "updates.log");
-    const marker = path.join(g.root, "clone-started");
-    writeFileSync(marker, "");
-    const old = Date.now() / 1000 - 3600;
-    utimesSync(marker, old, old);
-    const paths = { ...launchPaths(g, log), cloneStartedMarker: marker };
-    const launched = await runChild("sh", ["-c", guestAgentUpdatesScript("latest", paths)], { env: shimmedEnv(g) });
-    expect(launched.status).toBe(0);
-    const statePath = path.join(g.configDir, "agent-updates.state");
-    for (let i = 0; i < 200 && !existsSync(statePath); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    const clock = fakeClock(g, { jumpOnFirstSleep: 3600 });
+    const marker = cloneMarker(g, 0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    const sleeps = clock.sleeps();
+    expect(sleeps).toHaveLength(2);
+    expect(sleeps[1]).toEqual({ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 });
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
-    expect(readFileSync(log, "utf8")).not.toContain("waiting");
+  });
+
+  test("a marker dated in the future waits one window, not until the clock catches up", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g);
+    const marker = cloneMarker(g, 6 * 3600);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a clone resumed longer ago than the window, or no clone at all, updates at once", async () => {
+    for (const age of [-3600, null]) {
+      const g = await guest();
+      publish(g, "codex", "2.0.0");
+      const clock = fakeClock(g);
+      const paths = launchPaths(g, "");
+      const marker = age === null ? paths.cloneStartedMarker : cloneMarker(g, age);
+      const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...paths, cloneStartedMarker: marker })], { env: clock.env });
+      expect(result.status).toBe(0);
+      expect(result.stdout).not.toContain("waiting");
+      expect(clock.sleeps()).toEqual([]);
+      expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+    }
   });
 
   test("installs only the agents behind the channel, verified, and keeps the bake's links", async () => {
