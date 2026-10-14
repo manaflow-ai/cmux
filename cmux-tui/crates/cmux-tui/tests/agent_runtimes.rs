@@ -110,21 +110,40 @@ fn runtime_with_pid(inventory: &Value, pid: u64) -> Option<Value> {
     inventory["runtimes"].as_array()?.iter().find(|runtime| runtime["pid"] == pid).cloned()
 }
 
+/// Set in a stand-in agent's environment: [`stand_in_agent`] then waits.
+const STAND_IN: &str = "CMUX_RUNTIMES_STAND_IN";
+const STAND_IN_ARGS: &str = "stand_in_agent --exact";
+
+/// The body of a stand-in agent process; a no-op in a normal test run.
+#[test]
+fn stand_in_agent() {
+    if std::env::var_os(STAND_IN).is_some() {
+        std::thread::sleep(Duration::from_secs(60));
+    }
+}
+
 #[test]
 fn cmux_next_agent_runtimes_attribute_a_terminal_agent_and_not_an_outside_one() {
     let daemon = Daemon::start();
-    // A stand-in agent: `sleep` under the name the Codex adapter knows.
+    // A stand-in agent: this test binary under the name the Codex adapter
+    // knows, running only `stand_in_agent`. A copied `/bin/sleep` is a
+    // platform binary that newer macOS kills when it runs from /tmp.
     let codex = daemon.dir.join("codex");
-    fs::copy("/bin/sleep", &codex).unwrap();
+    fs::copy(std::env::current_exe().unwrap(), &codex).unwrap();
 
     let created = daemon.raw(json!({
         "cmd": "run",
-        "argv": ["/bin/sh", "-c", format!("{} 60; :", codex.display())],
+        "argv": ["/bin/sh", "-c", format!("{STAND_IN}=1 {} {STAND_IN_ARGS}; :", codex.display())],
         "new_workspace": true,
         "name": "runtimes",
     }));
     assert!(created["surface"].is_u64(), "{created}");
-    let mut outside = Command::new(&codex).arg("60").spawn().unwrap();
+    let mut outside = Command::new(&codex)
+        .args(STAND_IN_ARGS.split(' '))
+        .env(STAND_IN, "1")
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
     // macOS reports /tmp as /private/tmp, so match the unique directory.
     let own = format!("{}/codex", daemon.dir.file_name().unwrap().to_string_lossy());
 
@@ -152,7 +171,7 @@ fn cmux_next_agent_runtimes_attribute_a_terminal_agent_and_not_an_outside_one() 
     assert_eq!(inside["attribution"]["source"], "terminal_process_tree", "{inside}");
     let terminal = inside["attribution"]["terminal_id"].as_str().unwrap_or_default();
     assert!(terminal.starts_with("term_"), "{inside}");
-    assert_eq!(inside["args"], json!(["codex", "<redacted>"]), "{inside}");
+    assert_eq!(inside["args"], json!(["codex", "<redacted>", "--exact"]), "{inside}");
     assert_eq!(inside["can_stop_safely"], false);
     assert!(
         inside["id"]
