@@ -13,7 +13,7 @@ struct AgentPaneOpenPageRelayTests {
         #"{"jsonrpc":"2.0","id":\#(id),"method":"\#(method)","params":\#(params)}"#
     }
 
-    @Test func aChatsOpeningAndOlderPagesReachAcpmuxWithTheirByteCap() async throws {
+    @Test(.timeLimit(.minutes(1))) func aChatsOpeningAndOlderPagesReachAcpmuxWithTheirByteCap() async throws {
         let server = AcpmuxStandInServer()
         try await server.start()
         defer { server.stop() }
