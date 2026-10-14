@@ -84,6 +84,10 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         drain_native_payload()?;
         return Ok(());
     }
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        drain_native_payload()?;
+        return Ok(());
+    }
     let (socket, terminal) = match session_route() {
         Some(route) => route,
         None => {
@@ -108,6 +112,26 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
     }
+}
+
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+pub(crate) const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
 }
 
 /// The session socket and terminal that receive this event: the terminal's

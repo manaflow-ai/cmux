@@ -105,12 +105,26 @@ daemon's authorization for direct `cmux notify` calls.
 cmux-tui journal. Native cmux mirrors now subscribe to that transport for
 agent badges; the cmux-tui wrapper itself does not provide those badges.
 
-## Shell startup files can bypass the shim
+## Shell startup files and the shim
 
-The shim only works while its directory stays ahead of the real `claude` on
-`PATH`. A login or interactive shell startup file that prepends a directory
-holding `claude` (commonly `export PATH="$HOME/.local/bin:$PATH"` in
-`~/.zshrc`, `~/.bashrc`, or `~/.profile`) moves the real binary in front, and
-that terminal starts Claude without the session's hooks. Append that directory
-instead, or run `cmux agent hook install claude` so hooks load from Claude's
-own config.
+The shim only works while its directory stays ahead of the real `claude` and
+`codex` on `PATH`. Startup files often prepend a directory that holds them
+(commonly `export PATH="$HOME/.local/bin:$PATH"` in `~/.zshrc`, `~/.bashrc`,
+or `config.fish`). The server therefore exports the shim directory as
+`CMUX_TUI_AGENT_SHIMS`, and the shell integration moves it back to the front
+of `PATH`: zsh and fish before each command line runs, bash once after its
+startup files and again at each prompt. Only that directory moves; the rest
+of `PATH` keeps its order. Shells started without the integration
+(`CMUX_TUI_SHELL_INTEGRATION=none`, Apple's `/bin/bash`, or a nested shell
+typed at the prompt) keep the old behavior. For Claude, `cmux agent hook
+install claude` covers those shells too.
+
+Codex needs the shim. Codex 0.162 runs hooks in a shared app-server daemon
+that keeps the environment of whichever shell started it, so an installed
+hook there cannot tell which terminal the session belongs to. The installed
+cmux hook posts nothing when it runs under that daemon (an
+`app-server --managed-daemon` ancestor), rather than posting every Codex
+session's events to the terminal that started the daemon. The wrapper's hooks
+carry their own route and are unaffected. Codex itself runs a launch with
+`-c` overrides in embedded mode, without the shared daemon, and the startup
+notice says so.
