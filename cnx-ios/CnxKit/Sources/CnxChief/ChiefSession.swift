@@ -136,6 +136,7 @@ public final class ChiefSession {
     /// outbox, which goes out when it connects (never dropped silently).
     public func send(_ message: ConversationComposeMessage) {
         guard !message.isEmpty else { return }
+        ChiefAlerts.shared.requestPermissionIfUndetermined()
         if store.meID != nil, store.connection == .connected {
             store.sendWhenConnected(message)
             return

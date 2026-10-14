@@ -100,12 +100,18 @@ impl Refusal {
 /// hostd refuses this service with `unknown_service`) and say so.
 pub const LINK_PROTOCOL: u32 = 2;
 
+/// The `version` service's `capabilities` (PROTOCOL.md "Services").
+pub const CAPABILITIES: [&str; 1] = ["removal-v1"];
+
 async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
     let reply = serde_json::json!({
         "hostd": env!("CARGO_PKG_VERSION"),
         // 2: control frames ahead of data, any frame counts as life, the
         // reader never stalls on one full channel, the `version` service.
         "link": LINK_PROTOCOL,
+        // What this host does that a phone may rely on. `removal-v1`: once its owner
+        // removes this Mac (4002 `removed`) it stays off until allowed again on the Mac.
+        "capabilities": CAPABILITIES,
     });
     let _ = sender.send(Bytes::from(reply.to_string())).await;
     Ok(())
