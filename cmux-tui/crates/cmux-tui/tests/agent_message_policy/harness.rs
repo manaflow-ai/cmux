@@ -1,0 +1,394 @@
+//! A real headless daemon for the agent message policy tests: its own socket
+//! and state folder, a fake acpmux that names sessions' workspaces the way
+//! acpmux's `_acpmux/info` does (`sessionEnv.CMUX_WORKSPACE_ID`, unix socket
+//! only), and a clock file the daemon's debug build adds to its agent message
+//! clock, so a test moves time instead of waiting.
+
+use std::collections::HashMap;
+use std::fs;
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use serde_json::{Value, json};
+
+static NEXT: AtomicU64 = AtomicU64::new(1);
+
+fn unique(prefix: &str) -> String {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
+    format!("{prefix}-{}-{stamp}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Session id -> the `CMUX_WORKSPACE_ID` the fake acpmux reports for it.
+type Sessions = Arc<Mutex<HashMap<String, String>>>;
+
+pub struct Daemon {
+    child: Option<Child>,
+    pub socket: PathBuf,
+    pub state: PathBuf,
+    pub dir: PathBuf,
+    clock: PathBuf,
+    env: Vec<(String, String)>,
+    sessions: Sessions,
+}
+
+impl Daemon {
+    /// A daemon with a fake acpmux and `env` (for example the
+    /// cross-workspace setting).
+    pub fn start(name: &str, env: &[(&str, &str)]) -> Self {
+        Self::start_with(name, env, true)
+    }
+
+    /// A daemon whose acpmux socket has nobody listening.
+    pub fn start_without_acpmux(name: &str, env: &[(&str, &str)]) -> Self {
+        Self::start_with(name, env, false)
+    }
+
+    fn start_with(name: &str, env: &[(&str, &str)], acpmux: bool) -> Self {
+        let dir = PathBuf::from("/tmp").join(unique(&format!("cmux-amp-{name}")));
+        fs::create_dir_all(&dir).unwrap();
+        let clock = dir.join("clock");
+        fs::write(&clock, "0").unwrap();
+        let sessions: Sessions = Arc::default();
+        if acpmux {
+            serve_fake_acpmux(&dir.join("acpmux.sock"), sessions.clone());
+        }
+        let mut daemon = Self {
+            child: None,
+            socket: dir.join("mux.sock"),
+            state: dir.join("state"),
+            clock,
+            env: env.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect(),
+            sessions,
+            dir,
+        };
+        daemon.spawn();
+        daemon
+    }
+
+    fn spawn(&mut self) {
+        let _ = fs::remove_file(&self.socket);
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["--headless", "--socket"])
+            .arg(&self.socket)
+            .arg("--state")
+            .arg(&self.state)
+            .env("HOME", &self.dir)
+            .env("CMUX_TUI_CONFIG", self.dir.join("config.json"))
+            .env("ACPMUX_SOCKET", self.dir.join("acpmux.sock"))
+            .env("CMUX_TUI_TEST_AGENT_MESSAGE_CLOCK_FILE", &self.clock)
+            .env_remove("CMUX_AGENT_MESSAGE_CROSS_WORKSPACE")
+            .env_remove("CMUX_LAUNCH_CREDENTIAL")
+            .env_remove("SSH_CONNECTION")
+            .env_remove("SSH_CLIENT")
+            .env_remove("SSH_TTY")
+            .envs(self.env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        self.child = Some(command.spawn().unwrap());
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while UnixStream::connect(&self.socket).is_err() {
+            assert!(
+                Instant::now() < deadline,
+                "the daemon made no socket {}",
+                self.socket.display()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Stops the daemon (SIGKILL: no shutdown path runs) and starts a new
+    /// one on the same state, clock and fake acpmux.
+    pub fn restart(&mut self) {
+        self.stop();
+        self.spawn();
+    }
+
+    /// Ends the daemon process this test started.
+    pub fn stop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Moves the daemon's agent message clock `ms` milliseconds ahead of now.
+    pub fn set_clock_offset(&self, ms: i64) {
+        fs::write(&self.clock, ms.to_string()).unwrap();
+    }
+
+    /// The fake acpmux reports `session` as running in `workspace_key`.
+    pub fn place_session(&self, session: &str, workspace_key: &str) {
+        self.sessions.lock().unwrap().insert(session.to_owned(), uuid_form(workspace_key));
+    }
+
+    /// One `cmux.protocol/2` request on a new connection; `extra` adds
+    /// envelope members (a credential, an idempotency key).
+    pub fn v2(&self, operation: &str, params: Value, extra: Value) -> Value {
+        let id = format!("r{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let mut params = params;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = json!({
+            "protocol": "cmux.protocol/2",
+            "type": "request",
+            "id": id,
+            "operation": operation,
+            "params": params,
+        });
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            request[key] = value.clone();
+        }
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "closed before {id}");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value["id"] == id {
+                return value;
+            }
+        }
+    }
+
+    /// A mutation with a fresh idempotency key, as `credential`'s holder
+    /// (the person without one).
+    pub fn mutate(&self, operation: &str, params: Value, credential: Option<&str>) -> Value {
+        let mut extra = json!({"idempotency_key": unique("key")});
+        if let Some(credential) = credential {
+            extra["credential"] = json!(credential);
+        }
+        self.v2(operation, params, extra)
+    }
+
+    /// `agent.message.send`.
+    pub fn send(&self, credential: Option<&str>, fields: Value) -> Value {
+        self.mutate("agent.message.send", fields, credential)
+    }
+
+    /// The stored message a send answered with.
+    pub fn sent(&self, credential: Option<&str>, fields: Value) -> Value {
+        let reply = self.send(credential, fields);
+        assert_eq!(reply["ok"], true, "the send was refused: {reply}");
+        reply["result"]["value"].clone()
+    }
+
+    /// `agent.message.list` with `filter`.
+    pub fn list(&self, filter: Value) -> Vec<Value> {
+        let reply = self.v2("agent.message.list", filter, json!({}));
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["result"].as_array().unwrap().clone()
+    }
+
+    /// A launch credential for the ACP session `session` (owner only).
+    pub fn acp_credential(&self, session: &str) -> String {
+        let minted = self.v2("credential.mint", json!({"acp_session": session}), json!({}));
+        assert_eq!(minted["ok"], true, "{minted}");
+        minted["result"]["credential"].as_str().unwrap().to_owned()
+    }
+
+    /// `cmux --json <args>` against this daemon.
+    pub fn cli(&self, args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--json")
+            .arg("--socket")
+            .arg(&self.socket)
+            .args(args)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_LAUNCH_CREDENTIAL")
+            .env_remove("ACPMUX_SESSION_ID")
+            .output()
+            .unwrap()
+    }
+
+    /// `cmux --json <args>` that must succeed; its JSON output.
+    pub fn cli_ok(&self, args: &[&str]) -> Value {
+        let output = self.cli(args);
+        assert!(
+            output.status.success(),
+            "cmux {args:?} failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).unwrap()
+    }
+
+    /// A new workspace: its public id and its key.
+    pub fn workspace(&self, name: &str) -> (String, String) {
+        let created = self.cli_ok(&["workspace", "create", "--name", name]);
+        let id = created["value"]["workspace_id"].as_str().unwrap().to_owned();
+        let listed = self.legacy(json!({"id": 1, "cmd": "list-workspaces"})).unwrap();
+        let key = listed["data"]["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["resource_id"] == id.as_str())
+            .and_then(|workspace| workspace["key"].as_str())
+            .unwrap_or_else(|| panic!("no key for {id}: {listed}"))
+            .to_owned();
+        (id, key)
+    }
+
+    /// A terminal in `workspace` that runs `script` (with `sh -c`) and
+    /// stays open.
+    pub fn terminal(&self, workspace: &str, script: &str) -> String {
+        let run = self.cli_ok(&[
+            "workspace",
+            workspace,
+            "run",
+            "--on-exit",
+            "keep",
+            "--",
+            "/bin/sh",
+            "-c",
+            script,
+        ]);
+        run["value"]["terminal_id"].as_str().unwrap().to_owned()
+    }
+
+    /// A terminal in `workspace` whose child writes its launch credential to
+    /// a file and then runs `then` (a shell command); its id and credential.
+    pub fn agent_terminal(&self, workspace: &str, then: &str) -> (String, String) {
+        let out = self.dir.join(unique("credential"));
+        let script = format!(
+            "printf %s \"$CMUX_LAUNCH_CREDENTIAL\" > '{0}.tmp' && mv '{0}.tmp' '{0}'; {then}; \
+             exec sleep 600",
+            out.display()
+        );
+        let terminal = self.terminal(workspace, &script);
+        let credential = wait_for_file(&out);
+        assert!(credential.starts_with("cmuxlc1."), "the terminal child got no launch credential");
+        (terminal, credential)
+    }
+
+    /// The session registry, for a test that edits it while the daemon is down.
+    pub fn registry(&self) -> PathBuf {
+        let mut pending = vec![self.state.clone()];
+        while let Some(dir) = pending.pop() {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                if path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3") {
+                    return path;
+                }
+                if path.is_dir() {
+                    pending.push(path);
+                }
+            }
+        }
+        panic!("no workspace registry under {}", self.state.display());
+    }
+
+    /// One legacy request on a new connection.
+    fn legacy(&self, request: Value) -> Option<Value> {
+        let stream = UnixStream::connect(&self.socket).ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(30))).ok()?;
+        let mut reader = BufReader::new(stream);
+        writeln!(reader.get_mut(), "{request}").ok()?;
+        let mut line = String::new();
+        reader.read_line(&mut line).ok()?;
+        serde_json::from_str(&line).ok()
+    }
+
+    /// Closes every workspace and ends its terminals (terminal hosts
+    /// outlive the daemon).
+    fn close_workspaces(&self) {
+        let tree = self.legacy(json!({"id": 1, "cmd": "list-workspaces"}));
+        for workspace in
+            tree.iter().flat_map(|tree| tree["data"]["workspaces"].as_array()).flatten()
+        {
+            let _ = self.legacy(
+                json!({"id": 2, "cmd": "close-workspace", "key": workspace["key"], "end_terminals": true}),
+            );
+        }
+    }
+}
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        self.close_workspaces();
+        self.stop();
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+pub fn wait_for_file(path: &Path) -> String {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Ok(text) = fs::read_to_string(path) {
+            return text;
+        }
+        assert!(Instant::now() < deadline, "{} never appeared", path.display());
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The uppercase 8-4-4-4-12 form the app hands sessions (`uuidForm`).
+fn uuid_form(key: &str) -> String {
+    let hex: String = key.chars().filter(|ch| *ch != '-').collect::<String>().to_uppercase();
+    if hex.len() != 32 || !hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        return key.to_owned();
+    }
+    [&hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]].join("-")
+}
+
+/// A unix socket that answers `_acpmux/info` for the sessions in
+/// `sessions` and an error for anything else.
+fn serve_fake_acpmux(socket: &Path, sessions: Sessions) {
+    let listener = UnixListener::bind(socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let sessions = sessions.clone();
+            std::thread::spawn(move || answer(stream, &sessions));
+        }
+    });
+}
+
+fn answer(stream: UnixStream, sessions: &Sessions) {
+    let Ok(mut writer) = stream.try_clone() else { return };
+    let reader = BufReader::new(stream);
+    for line in reader.lines() {
+        let Ok(line) = line else { return };
+        let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
+        let Some(id) = request.get("id").cloned() else { continue };
+        let session = request["params"]["sessionId"].as_str().unwrap_or_default();
+        let workspace = sessions.lock().unwrap().get(session).cloned();
+        let reply = match (request["method"].as_str(), workspace) {
+            (Some("_acpmux/info"), Some(workspace)) => json!({"jsonrpc": "2.0", "id": id,
+                "result": {"sessionId": session, "sessionEnv": {"CMUX_WORKSPACE_ID": workspace}}}),
+            _ => json!({"jsonrpc": "2.0", "id": id,
+                "error": {"code": -32601, "message": "not served by this fake"}}),
+        };
+        if writeln!(writer, "{reply}").is_err() {
+            return;
+        }
+    }
+}
+
+/// The delivery of `recipient` in a message snapshot.
+pub fn delivery<'a>(message: &'a Value, recipient: &str) -> &'a Value {
+    message["deliveries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|delivery| delivery["recipient"] == recipient)
+        .unwrap_or_else(|| panic!("no delivery to {recipient}: {message}"))
+}
+
+/// The `(code, details.reason)` of a refused reply.
+pub fn refusal(reply: &Value) -> (String, String) {
+    assert_eq!(reply["ok"], false, "expected a refusal: {reply}");
+    (
+        reply["error"]["code"].as_str().unwrap_or_default().to_owned(),
+        reply["error"]["details"]["reason"].as_str().unwrap_or_default().to_owned(),
+    )
+}
