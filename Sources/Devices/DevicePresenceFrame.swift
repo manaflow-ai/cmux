@@ -188,8 +188,13 @@ enum DevicePresenceFrame: Equatable, Sendable {
                 }
                 return .syncDelta(records: records)
             case vmsCollection:
-                let records = rawRecords.enumerated().compactMap { Self.vmSyncRecord($0.element, index: $0.offset) }
                 if type == "sync.snapshot" {
+                    // A snapshot can replace the whole fleet: every record must
+                    // decode, or none of it is applied.
+                    guard let snapshotRecords = object["records"] as? [Any] else { return .vmsMalformed }
+                    let decoded = snapshotRecords.enumerated().map { Self.vmSyncRecord($0.element, index: $0.offset) }
+                    guard !decoded.contains(where: { $0 == nil }) else { return .vmsMalformed }
+                    let records = decoded.compactMap { $0 }
                     return .vmsSnapshot(
                         records: records,
                         complete: (object["complete"] as? Bool) ?? false,
@@ -198,6 +203,9 @@ enum DevicePresenceFrame: Equatable, Sendable {
                         epoch: Self.revision(object["epoch"])
                     )
                 }
+                // A delta only adds, updates or tombstones by id; a record that
+                // fails to decode is skipped and the next list read repairs it.
+                let records = rawRecords.enumerated().compactMap { Self.vmSyncRecord($0.element, index: $0.offset) }
                 return .vmsDelta(records: records, rev: Self.revision(object["rev"]))
             default:
                 return .ignored

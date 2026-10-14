@@ -143,7 +143,7 @@ final class CloudVMSyncSubscriber {
                             failures = 0
                             owner.streamDidConnect()
                         }
-                        owner.apply(frame)
+                        try owner.apply(frame)
                     }
                     // A clean close is the server's token deadline: resubscribe at once.
                     failures = 0
@@ -207,9 +207,13 @@ final class CloudVMSyncSubscriber {
         if wasConnected { onEvent(.disconnected) }
     }
 
+    /// A `vms` snapshot failed validation; the receive loop resubscribes.
+    struct MalformedSnapshot: Error {}
+
     /// Reduce one frame: buffer snapshot pages until `complete`, advance the
-    /// cursor only for frames the owner receives, ignore everything else.
-    func apply(_ frame: DevicePresenceFrame) {
+    /// cursor only for frames the owner receives, end the session on a
+    /// malformed snapshot, ignore everything else.
+    func apply(_ frame: DevicePresenceFrame) throws {
         switch frame {
         case .vmsSnapshot(let records, let complete, let backfilled, let snapshotRev, let epoch):
             pendingSnapshot.append(contentsOf: records)
@@ -222,7 +226,12 @@ final class CloudVMSyncSubscriber {
         case .vmsDelta(let records, let rev):
             cursor = max(cursor, rev)
             onEvent(.delta(records: records))
-        case .snapshot, .online, .offline, .seen, .routes, .syncSnapshot, .syncDelta, .vmsMalformed, .ignored:
+        case .vmsMalformed:
+            // Drop the partial snapshot and keep the cursor: the stream
+            // resubscribes and the REST list stays the authority meanwhile.
+            pendingSnapshot = []
+            throw MalformedSnapshot()
+        case .snapshot, .online, .offline, .seen, .routes, .syncSnapshot, .syncDelta, .ignored:
             return
         }
     }
