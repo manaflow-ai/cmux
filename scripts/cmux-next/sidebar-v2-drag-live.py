@@ -217,6 +217,7 @@ try:
         record("workspace into Pinned at index 1", False, f"rows={list(rows())} pinned={pinned}")
 
     # 2. A group into Pinned.
+    group_id = None
     print(cli("workspace", "group", "create", "--name", "Grp"), flush=True)
     print(cli("workspace", "group", "Grp", "add", "--workspace", "Delta"), flush=True)
     time.sleep(1.0)  # test harness: let the group show
@@ -242,9 +243,10 @@ try:
         header = wait(pinned_group, 5)
         record("group into Pinned lists header and members under the tiles", bool(header),
                f"rows={[(r.get('key'), r.get('title'), r.get('group')) for r in window().get('rows', [])]}")
-        alpha = by_title("Alpha")
+        # A loose list row is the selection, so the collapsed group keeps no member row (a collapsed group lists its
+        # active member). Not Alpha: step 1's undo toast redoes, so Alpha stays a Pinned tile.
+        alpha = by_title("Foxtrot")
         if header and alpha:
-            # Alpha is the selection, so the collapsed group keeps no member row (a collapsed group lists its active member).
             rpc("debug.mouse", {"x": center(alpha["window_frame"])[0], "y": center(alpha["window_frame"])[1], "action": "click"})
             time.sleep(0.5)  # test harness: let the selection land
             rpc("debug.mouse", {"x": center(header["window_frame"])[0], "y": center(header["window_frame"])[1], "action": "click"})
@@ -255,7 +257,7 @@ try:
             opened = wait(lambda: by_title("Delta") is not None, 5)
             record("group in Pinned collapses and opens", bool(collapsed) and bool(opened), f"collapsed={bool(collapsed)} opened={bool(opened)}")
         else:
-            record("group in Pinned collapses and opens", False, f"header={bool(header)} alpha={bool(alpha)}")
+            record("group in Pinned collapses and opens", False, f"header={bool(header)} selection row={bool(alpha)}")
         undo("group into Pinned", lambda: not pinned_group())
     else:
         record("group into Pinned", False, f"no group row or no Pinned tile: group={group} pinned={pinned}")
@@ -267,7 +269,8 @@ try:
     time.sleep(1.0)  # test harness: let the section and group show
     work = next((i for i in items() if i.get("section_title") == "Work"), None)
     header = next((s for s in window().get("sections", []) if s.get("title") == "Work"), None) if not work else None
-    group2 = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group") and r.get("title") == "Grp2"), None)
+    # Group header rows carry no title: Grp2 is the group row that is not step 2's group.
+    group2 = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group") and r.get("group") != group_id), None)
     target = (work or header or {}).get("window_frame")
     if group2 and target:
         group2_id = group2.get("group")
@@ -286,20 +289,24 @@ try:
     else:
         record("group into a custom section", False, f"no Work section frame in debug.sidebar_rows or no Grp2 row: group2={group2}")
 
-    # 4. A pinned tile back into the list at the drop index (between Echo and Foxtrot).
+    # 4. A pinned tile back into the list at the drop index: between two adjacent loose rows (new workspaces list
+    # newest first, so the pair is read off the screen, not assumed).
     pinned = section_items("sec_pinned")
-    echo, fox = by_title("Echo"), by_title("Foxtrot")
-    if pinned and echo and fox:
+    loose = sorted((r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and not r.get("group")),
+                   key=lambda r: r["window_frame"]["y"])
+    upper, lower = (loose[0], loose[1]) if len(loose) >= 2 else (None, None)
+    if pinned and upper and lower:
         tile = pinned[0]
-        gap_y = (echo["window_frame"]["y"] + echo["window_frame"]["height"] + fox["window_frame"]["y"]) / 2
-        drag(center(tile["window_frame"]), (fox["window_frame"]["x"] + 40, gap_y), "v2-4-tile-into-list", indicator="gap")
+        gap_y = (upper["window_frame"]["y"] + upper["window_frame"]["height"] + lower["window_frame"]["y"]) / 2
+        drag(center(tile["window_frame"]), (lower["window_frame"]["x"] + 40, gap_y), "v2-4-tile-into-list", indicator="gap")
         titles = list_titles()
         moved = "Beta"  # the first tile: pinned first, and steps 1-3 keep it first
-        ok = moved in titles and titles.index(moved) == titles.index("Foxtrot") - 1 if moved in titles and "Foxtrot" in titles else False
-        record("pinned tile into the list at the drop index", ok, f"moved={moved} list={titles}")
+        ok = moved in titles and lower["title"] in titles and titles.index(moved) == titles.index(lower["title"]) - 1 \
+            and titles.index(upper["title"]) == titles.index(moved) - 1
+        record("pinned tile into the list at the drop index", ok, f"moved={moved} between {upper['title']} and {lower['title']} list={titles}")
         undo("pinned tile into the list", lambda: moved not in list_titles())
     else:
-        record("pinned tile into the list at the drop index", False, f"pinned={pinned} echo={bool(echo)} fox={bool(fox)}")
+        record("pinned tile into the list at the drop index", False, f"pinned={pinned} loose={[r.get('title') for r in loose]}")
 
     # 5. A link item into the main list.
     print(toast(perform="sidebar.item.add", arguments={"item": "https://example.com", "section": "Pinned"}), flush=True)
@@ -327,18 +334,20 @@ try:
     else:
         record("cross-machine drop refused", False, "one machine on this host (no SSH or Cloud machine); refusal not driven", skip=True)
 
-    # Reorder while filtering: filter "o" shows Echo and Foxtrot; Foxtrot goes above Echo.
+    # Reorder while filtering: filter "o" shows Echo and Foxtrot; the lower one goes above the upper one, and
+    # Cmd-Z puts back the order they had.
     rpc("debug.sidebar_filter", {"text": "o"})
     time.sleep(0.8)  # test harness: let the filtered list lay out
     echo, fox = by_title("Echo"), by_title("Foxtrot")
     if echo and fox:
-        drag(center(fox["window_frame"]), (echo["window_frame"]["x"] + 40, echo["window_frame"]["y"] + 2), "v2-6-reorder-filtered", indicator="gap")
+        upper, lower = sorted((echo, fox), key=lambda r: r["window_frame"]["y"])
+        drag(center(lower["window_frame"]), (upper["window_frame"]["x"] + 40, upper["window_frame"]["y"] + 2), "v2-6-reorder-filtered", indicator="gap")
         rpc("debug.sidebar_filter", {"text": ""})
         time.sleep(0.8)  # test harness: let the full list lay out
         titles = list_titles()
-        ok = "Echo" in titles and "Foxtrot" in titles and titles.index("Foxtrot") < titles.index("Echo")
-        record("reorder while filtering", ok, f"list={titles}")
-        undo("reorder while filtering", lambda: list_titles().index("Echo") < list_titles().index("Foxtrot"))
+        ok = "Echo" in titles and "Foxtrot" in titles and titles.index(lower["title"]) < titles.index(upper["title"])
+        record("reorder while filtering", ok, f"{lower['title']} above {upper['title']}: list={titles}")
+        undo("reorder while filtering", lambda: list_titles().index(upper["title"]) < list_titles().index(lower["title"]))
     else:
         rpc("debug.sidebar_filter", {"text": ""})
         record("reorder while filtering", False, f"filtered rows={list(rows())}")
