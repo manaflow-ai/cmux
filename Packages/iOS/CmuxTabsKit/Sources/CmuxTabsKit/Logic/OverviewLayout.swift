@@ -17,7 +17,9 @@ struct OverviewLayout: Equatable, Sendable {
     static let titleRow: CGFloat = 23
     static let rowGap: CGFloat = 16
     static let cardAspect: CGFloat = 249.3 / 177.0
-    static let baseCardRadius: CGFloat = 18
+    /// 15.2 pt at 196 pt wide on an iPhone 17 Pro Max device screenshot
+    /// (continuous corner fitted to the edge profile); scaled with the card.
+    static let baseCardRadius: CGFloat = 13.7
     static let control: CGFloat = 48
 
     /// 177 pt on a 402 pt screen, 196 pt on 440.

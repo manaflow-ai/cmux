@@ -29,8 +29,9 @@ public struct TabsKitTheme: Sendable {
         public var overviewBottom = Colors.pair(0xD2D3DB, 0x0B0B0D)
         /// Card close circle: #F2F2F7 over a white card, white 8 % over a
         /// dark one; the cross is mid gray.
-        public var cardCloseFill = Colors.pair(0xF2F2F7, 0xFFFFFF, lightAlpha: 0.94, darkAlpha: 0.08)
-        public var cardCloseGlyph = Colors.pair(0x7E7E83, 0x9A9A9F)
+        /// Dark values from a device screenshot (opaque #3E3E3F, cross #A7A7A9).
+        public var cardCloseFill = Colors.pair(0xF2F2F7, 0x3E3E3F, lightAlpha: 0.94, darkAlpha: 1)
+        public var cardCloseGlyph = Colors.pair(0x7E7E83, 0xA7A7A9)
         public var separator = Colors.pair(0x3C3C43, 0x545458, lightAlpha: 0.18, darkAlpha: 0.5)
         /// The one hue: progress line and the Done button (Safari's #0088FF;
         /// cmux uses its highlight blue).
