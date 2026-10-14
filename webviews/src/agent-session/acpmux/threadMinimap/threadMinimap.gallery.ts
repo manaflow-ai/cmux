@@ -29,7 +29,7 @@ const turns: Array<[string, string]> = [
   ],
   [
     "Let me mark turns I want to revisit",
-    "Each preview has a bookmark button. Marks use the stable turn key and persist in the pane's local storage, so a reload keeps the overview useful.",
+    "Each preview has a bookmark button. Marks are saved with the chat in acpmux, so a reload, a restart or another pane keeps the overview useful.",
   ],
   [
     "Check the long-chat recording against the implementation",
