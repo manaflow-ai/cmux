@@ -33,6 +33,12 @@ pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
 /// set (a headless brain's chief token).
 /// (cx-hnmbt, ARCHITECTURE.md section 14.)
 pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
+/// A Cloud Chief's runs through the daemon: `cloud-conversation-runs`,
+/// `cloud-conversation-run` (the Chief brain's run reads) and the
+/// `cloud-conversation-run-changed` event of a subscribed conversation, for a
+/// connection that echoes `conversation-runs-v1` (advertised with
+/// `cloud-conversations-v1`).
+pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -131,6 +137,29 @@ pub(super) struct ThreadParams {
     after_seq: Option<u64>,
     #[serde(default)]
     limit: Option<u32>,
+}
+
+/// `cloud-conversation-runs`: a Chief's runs in a conversation, newest first.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RunsParams {
+    conversation: String,
+    agent: String,
+    #[serde(default)]
+    before_started_at: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+/// `cloud-conversation-run`: one run of a Chief and its steps after `after_seq`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RunParams {
+    conversation: String,
+    agent: String,
+    run: String,
+    #[serde(default)]
+    after_seq: Option<u64>,
 }
 
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
@@ -287,6 +316,16 @@ pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Re
     Ok(lease_user(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
 }
 
+pub(super) fn runs(mux: &Mux, client: u64, params: RunsParams) -> anyhow::Result<Value> {
+    let RunsParams { conversation, agent, before_started_at, limit } = params;
+    Ok(lease_user(mux, client)?.chief_runs(&agent, &conversation, before_started_at, limit)?)
+}
+
+pub(super) fn run(mux: &Mux, client: u64, params: RunParams) -> anyhow::Result<Value> {
+    let RunParams { conversation, agent, run, after_seq } = params;
+    Ok(lease_user(mux, client)?.chief_run(&agent, &conversation, &run, after_seq)?)
+}
+
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
     let service = lease_user(mux, client)?;
     check_origin(mux, client, params.origin.as_deref())?;
@@ -352,6 +391,8 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
+            | Command::CloudConversationRuns(_)
+            | Command::CloudConversationRun(_)
             | Command::CloudConversationOp(_)
             | Command::CloudMuxAck(_)
     )
