@@ -73,7 +73,9 @@ struct PinCommands {
 /// One undo step shared by the toast and the window's undo stack: it runs
 /// its inverse once, whichever path comes first.
 @MainActor
-final class PinUndoStep {
+final class PinUndoStep: NSObject {
+    /// Steps on an undo stack (an undo manager does not retain its target); a step leaves when it runs or is abandoned.
+    private static var held: Set<PinUndoStep> = []
     /// The step registered last (a newer one is the top of its stack, not this).
     static weak var newest: PinUndoStep?
     /// The step an undo or redo of the stack put for the inverse running now (set only while it runs).
@@ -90,11 +92,15 @@ final class PinUndoStep {
 
     /// Puts the step on its stack (on the redo side while the stack undoes).
     func register() {
-        // The handler holds the step (an undo manager may not retain its target), so it outlives the toast.
-        undoManager?.registerUndo(withTarget: self) { [self] _ in
-            MainActor.assumeIsolated { self.run(fromToast: false) }
-        }
-        undoManager?.setActionName(title)
+        guard let undoManager else { return }
+        Self.held.insert(self) // it outlives the toast
+        undoManager.registerUndo(withTarget: self, selector: #selector(performUndo(_:)), object: nil)
+        undoManager.setActionName(title)
+    }
+
+    /// The undo stack's action (on the main thread, as every undo).
+    @objc private func performUndo(_ sender: Any?) {
+        run(fromToast: false)
     }
 
     /// A step put for an inverse that has not come yet.
@@ -111,6 +117,7 @@ final class PinUndoStep {
         guard isEmpty else { return }
         abandoned = true
         undoManager?.removeAllActions(withTarget: self)
+        Self.held.remove(self)
     }
 
     /// Still to run, registered last, and the top of `manager` (its action name).
@@ -121,6 +128,7 @@ final class PinUndoStep {
 
     func run(fromToast: Bool) {
         guard let inverse else { return }
+        defer { if self.inverse == nil { Self.held.remove(self) } }
         if fromToast {
             if isTop(of: undoManager), let undoManager {
                 undoManager.undo() // the same path as Cmd-Z after the toast: the inverse becomes the redo
