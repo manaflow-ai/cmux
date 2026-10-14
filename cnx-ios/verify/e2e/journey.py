@@ -814,6 +814,40 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         check("SUBMIT-OK" in text, f"Send did not arrive as a paste followed by a separate Return: {text[-80:]!r}; reads {reads}")
         return f"one bracketed paste, then Return in its own read ({len(reads)} reads: {reads[-1]})"
 
+    def s_tab_switch_last_row(self):
+        """Codex QA F8: after switching to another tab and back, the row an inline
+        TUI keeps below its cursor (Codex's status row, updated every second)
+        rests above the composer on the first frames, not half under it."""
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        tag = f"ST{random.randint(100, 999)}"
+        self.mac_write(term, "clear; seq 1 50; printf '> '; i=0; while true; do printf '\\0337\\n\\033[2K" + tag +
+                       "-%04d\\0338' $i; i=$((i+1)); sleep 1; done\n")
+        self.mac_wait_text(term, f"{tag}-0002", timeout=12)
+        notes = [self.check_last_row(tag, "before the switch")]
+        try:
+            # To a new tab (the QA pass used a browser tab; this Mac build offers
+            # a terminal), then back.
+            self.dismiss_system(); self.hide_keyboard()
+            self.sim.tap_q(label="Tabs", kind="Button"); time.sleep(1.2)
+            plus = [e for e in self.sim.find(kind="Button") if not e.label and e.frame[1] > 700 and e.frame[0] < 120]
+            check(plus, "no + in the tab grid")
+            self.sim.tap_el(plus[0]); time.sleep(1.0)
+            new = self.sim.find(contains="Browser") or self.sim.find(label="New Terminal", kind="Button")
+            check(new, "no New Browser Tab / New Terminal in the + menu")
+            self.sim.tap_el(new[0]); time.sleep(2.5)
+            self.tab_grid_pick("e2e-t1"); time.sleep(0.8)
+            notes.append(self.check_last_row(tag, "0.8 s after switching back"))
+        finally:
+            try:
+                self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+                self.keybar("Control C"); time.sleep(0.5)
+                self.hide_keyboard()
+            except Exception:
+                pass
+        return "; ".join(notes)
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1397,6 +1431,7 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("scrollback_history", "Terminal: the phone reaches the Mac's first line of history", "termlive", self.s_scrollback_history),
             ("composer_bottom_pin", "Terminal: the last row rests above the composer", "termlive", self.s_composer_bottom_pin),
             ("composer_submit", "Terminal: Send submits (paste, then Return)", "termlive", self.s_composer_submit),
+            ("tab_switch_last_row", "Terminal: the last row after a tab switch", "termlive", self.s_tab_switch_last_row),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),
