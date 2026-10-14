@@ -435,6 +435,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
+        tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
         tv.view.onPasteImage = { _ in }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self, let demo = self.demo, let store = self.store else { return }
