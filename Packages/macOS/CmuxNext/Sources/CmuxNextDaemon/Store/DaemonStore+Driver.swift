@@ -53,8 +53,8 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState:
-            // Session state: not in the snapshot the collapse refetches.
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .agentChanged, .agentPresenceChanged:
+            // Session and agent state: not in the snapshot the collapse refetches (cx-ag5.6.8).
             state.events.append(envelope)
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
