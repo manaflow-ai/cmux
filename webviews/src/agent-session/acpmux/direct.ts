@@ -8,6 +8,7 @@ import type {
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  QueuedPrompt,
   StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -155,6 +156,26 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       kind: typeof option.kind === "string" ? option.kind : undefined,
     })),
   };
+}
+
+function queuedEntry(id: string, prompt: string, next: boolean): QueuedPrompt {
+  return next ? { id, prompt, next } : { id, prompt };
+}
+
+const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
+
+/// acpmux's queue (a session's `queue`, in order) over the one the pane has. acpmux lists each
+/// prompt's preview (its first 200 characters on one line), so a prompt the pane read whole from
+/// its `queued` record keeps its whole text, and one sent now stays next.
+export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly any[]): QueuedPrompt[] {
+  const known = new Map(current.map((entry) => [entry.id, entry]));
+  return listed.map((entry) => {
+    const id = String(entry?.promptId ?? "");
+    const preview = String(entry?.prompt ?? entry?.preview ?? "");
+    const had = known.get(id);
+    const whole = had !== undefined && oneLine(had.prompt).startsWith(preview.replace(/…$/, ""));
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true);
+  });
 }
 
 export function settleOptimisticPrompt(
@@ -504,7 +525,7 @@ export class AcpmuxDirectClient {
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
-  private queue: { id: string; prompt: string }[] = [];
+  private queue: QueuedPrompt[] = [];
   private pendingPermission?: AcpmuxPermission;
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
@@ -521,6 +542,12 @@ export class AcpmuxDirectClient {
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
   private queuedSends = new Set<string>();
+  /// The steer the agent has not read yet: its row, and the reply that was streaming when it went
+  /// (that reply's rest still streams above it; a later message means the agent read the steer).
+  private waitingSteer?: { rowId: string; promptId?: string };
+  /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
+  /// turn and runs next, so its row reads as sent now.
+  private sentNow = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -821,6 +848,8 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
     this.queuedSends.clear();
+    this.waitingSteer = undefined;
+    this.sentNow.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -1198,12 +1227,11 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
-    this.queue = (detail.queue ?? []).map((entry: any) => ({
-      id: String(entry.promptId),
-      prompt: String(entry.prompt ?? ""),
-    }));
+    this.queue = [];
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
+    // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
+    this.queue = mergeQueue(this.queue, detail.queue ?? []);
     this.attachedGeneration = generation;
     this.permissions.select(sessionId);
     await this.permissions.refresh().catch(() => {});
@@ -1264,11 +1292,7 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue)
-        this.queue = session.queue.map((entry: any) => ({
-          id: String(entry.promptId),
-          prompt: String(entry.prompt ?? entry.preview ?? ""),
-        }));
+      if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -1366,13 +1390,21 @@ export class AcpmuxDirectClient {
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place.
       const id = String(msg.promptId ?? "");
-      this.queue = this.queue.map((entry) => (entry.id === id ? { id, prompt: String(msg.text ?? "") } : entry));
+      this.queue = this.queue.map((entry) =>
+        entry.id === id ? queuedEntry(id, String(msg.text ?? ""), entry.next === true) : entry,
+      );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
-      this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
+      // A prompt sent now goes first and stops the turn: only the last one sent now is next.
+      const next = msg.next === true ? String(msg.promptId ?? "") : undefined;
+      if (next) this.sentNow.add(next);
+      this.queue = [...this.queue]
+        .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
+        .map((entry) => (next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next)));
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
-      if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
+      if (id)
+        this.queue = [...this.queue.filter((entry) => entry.id !== id), queuedEntry(id, String(msg.text ?? ""), false)];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
       if (id && this.optimisticPromptRows.has(id)) {
@@ -1457,12 +1489,17 @@ export class AcpmuxDirectClient {
         // message's text starts below (cx-f51kv). Without message ids that end cannot be told.
         if (msg.steer !== true || !this.streamingAssistantMessageId) this.endAssistantSegment();
         this.streamingActivity = undefined;
+        // A newer prompt means any steer before it was read.
+        this.landSteer();
+        const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
+        if (steer === "waiting") this.waitingSteer = { rowId: `user-${event.seq}`, promptId };
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(steer ? { steer } : {}),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -1487,6 +1524,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.landSteer();
         this.pendingPermission = undefined;
         this.groupedPermissions.clear();
         this.openQuestions.clear();
@@ -1544,6 +1582,8 @@ export class AcpmuxDirectClient {
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
+      // A message after the reply that was streaming when the steer went: the agent read it.
+      if (!sameMessage) this.landSteer();
       const existing = this.rows.get(id);
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
@@ -1563,6 +1603,7 @@ export class AcpmuxDirectClient {
       }
       this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
+      this.landSteer();
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
@@ -1683,6 +1724,15 @@ export class AcpmuxDirectClient {
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
+  /// The waiting steer was read: its row says so.
+  private landSteer(promptId?: string): void {
+    const waiting = this.waitingSteer;
+    if (!waiting || (promptId !== undefined && waiting.promptId !== promptId)) return;
+    this.waitingSteer = undefined;
+    const row = this.rows.get(waiting.rowId);
+    if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+  }
+
   private endAssistantSegment(): void {
     if (!this.streamingAssistant) return;
     const row = this.rows.get(this.streamingAssistant);
@@ -1862,6 +1912,11 @@ export class AcpmuxDirectClient {
         },
       });
       accept();
+      // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
+      if (steer && this.selectedSessionId === sessionId && this.waitingSteer?.promptId === promptId) {
+        this.landSteer(promptId);
+        this.emit();
+      }
       // Ran or withdrawn: what it held for its bubble is done with.
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
