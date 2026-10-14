@@ -26,7 +26,7 @@ extension HistoryService {
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry() }.map(markReachable)
+            all = rows.compactMap { $0.historyEntry() }.map { entry in entry.reachable { self.services.locationTrail.isAvailable($0) } }
         }
         if wantsCommands {
             await commands.refresh()
@@ -35,14 +35,6 @@ extension HistoryService {
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
         return all
-    }
-
-    /// A location row is greyed while its tab is not reachable (the daemon cannot know).
-    func markReachable(_ entry: HistoryEntry) -> HistoryEntry {
-        guard case .location(let location, _) = entry.payload else { return entry }
-        var entry = entry
-        entry.isAvailable = services.locationTrail.isAvailable(location)
-        return entry
     }
 
     /// One entry by id: commands from every machine's rows, everything else from the daemon's newest
@@ -54,7 +46,7 @@ extension HistoryService {
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }?.historyEntry().map(markReachable)
+        return rows.first { $0.id == id }?.historyEntry().map { entry in entry.reachable { self.services.locationTrail.isAvailable($0) } }
     }
 
     /// Runs a daemon mutation off the caller, then tells open pages (they also hear history-changed).

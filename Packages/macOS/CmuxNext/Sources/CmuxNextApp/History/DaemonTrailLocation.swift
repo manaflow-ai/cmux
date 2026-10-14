@@ -2,77 +2,15 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
 
-/// A place of the daemon's location trail (`HistoryTrailLocation`, cx-hnmbt.12): the wire form of a
-/// ``HistoryLocation`` in `history.trail.record` and in the location rows of `history.entries.list`.
-/// The daemon owns the trail; the app reports each step and rebuilds its Back/Forward steps from
-/// the rows. An incognito location never goes on the wire.
-nonisolated struct DaemonTrailLocation: Codable, Sendable, Equatable {
-    var machine: String
-    var tab: String
-    var title: String
-    var page: String?
-    var workspace: String?
-    var workspaceTitle: String?
-    var pane: String?
-    var screen: String?
-    var room: String?
-    var content: String?
-    var machineName: String?
-    var url: String?
-    var cwd: String?
-
-    enum CodingKeys: String, CodingKey {
-        case machine, tab, title, page, workspace, pane, screen, room, content, url, cwd
-        case workspaceTitle = "workspace_title"
-        case machineName = "machine_name"
-    }
-
-    init(_ location: HistoryLocation) {
-        machine = location.key.machine
-        tab = location.key.tab
-        title = location.title
-        page = location.page
-        workspace = location.workspace
-        workspaceTitle = location.workspaceTitle
-        pane = location.pane
-        screen = location.screen
-        room = location.room
-        content = location.content.rawValue
-        machineName = location.machineName
-        url = location.url
-        cwd = location.cwd
-    }
-
-    /// The app's location, shown in `window`.
-    func historyLocation(window: String) -> HistoryLocation {
-        HistoryLocation(key: .init(machine: machine, tab: tab), window: window, workspace: workspace ?? "",
-                        pane: pane ?? "", screen: screen, room: room,
-                        content: content.flatMap(HistoryLocation.Content.init(rawValue:)) ?? .other,
-                        title: title, workspaceTitle: workspaceTitle, machineName: machineName, url: url, cwd: cwd,
-                        page: page)
-    }
-
-    /// The JSON object of `history.trail.record`'s `location` field (absent fields left out).
-    var wire: JSONValue {
-        var object: [String: JSONValue] = ["machine": .string(machine), "tab": .string(tab), "title": .string(title)]
-        let optional: [(String, String?)] = [
-            ("page", page), ("workspace", workspace), ("workspace_title", workspaceTitle), ("pane", pane),
-            ("screen", screen), ("room", room), ("content", content), ("machine_name", machineName), ("url", url),
-            ("cwd", cwd),
-        ]
-        for (key, value) in optional { if let value { object[key] = .string(value) } }
-        return .object(object)
-    }
-}
-
+/// The daemon's location trail (cx-hnmbt.12): the app reports each step and reads the rows back.
 extension DaemonHistoryClient {
     /// Records one step of the location trail (`history.trail.record`, origin user). The daemon runs
     /// the app's step rules (`steps`, quick passes, `jump`) on its own trail, at the app's `time`.
     func recordTrail(window: String, location: HistoryLocation, at time: Date, steps: HistoryStepScope,
                      jump: Bool) async throws {
+        let place = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(HistoryTrailLocation(location)))
         var params: [String: JSONValue] = [
-            "window": .string(window), "location": DaemonTrailLocation(location).wire, "at_ms": Self.decimal(time),
-            "steps": .string(steps.rawValue),
+            "window": .string(window), "location": place, "at_ms": Self.decimal(time), "steps": .string(steps.rawValue),
         ]
         if jump { params["jump"] = .bool(true) }
         _ = try await relay.send(operation: "history.trail.record", params: params, idempotencyKey: Self.key())
@@ -90,17 +28,5 @@ extension DaemonHistoryEntry {
     var trailLocation: HistoryLocation? {
         guard kind == .location, let location else { return nil }
         return location.historyLocation(window: window ?? "")
-    }
-}
-
-/// A trail step as the daemon lists it: its place and time (the app's clock, in ms). The app knows
-/// its own steps in the daemon's rows by it.
-nonisolated struct TrailStepID: Hashable, Sendable {
-    var key: HistoryLocation.Key
-    var ms: Int64
-
-    init(_ key: HistoryLocation.Key, _ time: Date) {
-        self.key = key
-        ms = Int64((time.timeIntervalSince1970 * 1_000).rounded())
     }
 }
