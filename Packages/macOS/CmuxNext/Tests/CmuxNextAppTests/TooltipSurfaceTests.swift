@@ -60,6 +60,9 @@ import Testing
 
     // MARK: The panel
 
+    /// Fleet hosts with no display drop layer animations (a window with no screen).
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
     private static func toolbar(clock: ManualClock) throws -> (NSWindow, [ChromeIconButton], TooltipPresenter, ThemeScope) {
         _ = NSApplication.shared
         let scope = ThemeScope(level: .room)
@@ -130,7 +133,8 @@ import Testing
         return bezier((low + high) / 2, Double(c1.y), Double(c2.y))
     }
 
-    @Test func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func theFirstTooltipFadesInRisingAndAWarmNeighborsIsThereAtOnce() async throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let clock = ManualClock()
@@ -139,6 +143,7 @@ import Testing
             presenter.dismiss()
             window.orderOut(nil)
         }
+        try #require(window.screen != nil, "the window has no screen")
         try #require(Motion.duration(.fadeIn) > 0, "fades are off on this host")
         try await Self.rest(on: buttons[0], presenter, clock)
         let layer = try #require(presenter.panel.surface.layer)
@@ -180,7 +185,8 @@ import Testing
         #expect(!presenter.panel.isFadingOut)
     }
 
-    @Test func underReduceMotionTheTooltipFadesWithNoRise() async throws {
+    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    func underReduceMotionTheTooltipFadesWithNoRise() async throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let clock = ManualClock()
@@ -189,6 +195,7 @@ import Testing
             presenter.dismiss()
             window.orderOut(nil)
         }
+        try #require(window.screen != nil, "the window has no screen")
         try await Self.rest(on: buttons[0], presenter, clock)
         let layer = try #require(presenter.panel.surface.layer)
         let fade = try #require(layer.animation(forKey: "opacity") as? CABasicAnimation, "no fade under Reduce Motion")
