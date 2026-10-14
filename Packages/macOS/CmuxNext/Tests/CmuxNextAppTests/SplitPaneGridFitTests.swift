@@ -13,7 +13,7 @@ import Testing
 /// The same layout here, made the way a script makes it, on the real daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitPaneGridFitTests {
-    @Test func splitPanesAndASecondTabRenderTheGridTheirViewsFit() async throws {
+    @Test func splitPanesShownAgainRenderTheGridTheirViewsFit() async throws {
         try await Self.withApp { services in
             let controller = try #require(services.windows.active)
             // The journey's window width, so A | B has room (a pane is at least ~200 points wide).
@@ -25,14 +25,33 @@ struct SplitPaneGridFitTests {
             // rj-split's first split, A | B, made by a script (no person's split rules). Its
             // nested down splits need more height than a CI Mac's short display gives a window.
             _ = try await Self.split(a, "splitRight", services, controller, workspace: id)
-            // A second tab in A (its strip appears), A's first tab still selected.
+            // Every terminal on screen ends up rendering what its view fits.
+            try await Self.settled(controller)
+
+            // While another workspace is shown (the journey seeds the next one), A gets a second
+            // tab (its strip appears; its first tab stays selected) and the window gets shorter.
+            // Shown again, the split workspace's terminals follow both.
+            let other = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
+            try await Self.until({ Self.shown(controller, workspace: other).count == 1 && Self.allLive(controller) },
+                                 report: { Self.describe(controller) })
             let tabs = a.orderedIDs.count
             #expect(services.registry.perform("newSurface", invocation: Self.at(a)))
             try await Self.until({ a.orderedIDs.count == tabs + 1 }, report: { Self.describe(controller) })
-            // Every terminal on screen ends up rendering what its view fits.
-            try await Self.until({ Self.allLive(controller) && Self.mismatched(controller).isEmpty },
-                                 report: { "grid != fit: \(Self.mismatched(controller))\n\(Self.describe(controller))" })
+            let window = try #require(controller.window)
+            let tall = window.frame
+            window.setFrame(NSRect(x: tall.minX, y: tall.minY + 60, width: tall.width, height: tall.height - 60), display: true)
+            try await Task.sleep(for: .milliseconds(500))
+            services.windows.show(workspaceID: id, in: controller.state)
+            try await Self.until({ Self.shown(controller, workspace: id).count == 2 && Self.allLive(controller) },
+                                 report: { Self.describe(controller) })
+            try await Self.settled(controller)
         }
+    }
+
+    /// Every terminal on screen ends up rendering what its view fits.
+    private static func settled(_ controller: WindowController, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        try await until({ allLive(controller) && mismatched(controller).isEmpty },
+                        report: { "grid != fit: \(mismatched(controller))\n\(describe(controller))" }, sourceLocation: sourceLocation)
     }
 
     private static func at(_ pane: PaneController) -> ActionInvocation {
