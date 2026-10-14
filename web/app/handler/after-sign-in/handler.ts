@@ -512,6 +512,7 @@ function nativeReturnFlow(
   stackCookies: CookieStore,
   nativeReturnTo: string,
   refreshToken: string,
+  accessToken: string,
   accessCookie: string,
   localizedMessages: LocalizedAfterSignInMessages,
 ): NextResponse {
@@ -521,7 +522,7 @@ function nativeReturnFlow(
     isAllowedNativeReturnTo(nativeReturnTo, request)
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
-    if (href) {
+    if (href && accessToken) {
       if (verifiedNativeHandoff(request, stackCookies, nativeReturnTo)) {
         return nativeRedirectResponse(request, href);
       }
@@ -559,8 +560,16 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
     }
 
     const nativeReturnTo = request.nextUrl.searchParams.get("native_app_return_to");
-    if (refreshToken && accessCookie && nativeReturnTo !== null) {
-      return nativeReturnFlow(request, stackCookies, nativeReturnTo, refreshToken, accessCookie, localizedMessages);
+    if (refreshToken && accessToken && accessCookie && nativeReturnTo !== null) {
+      return nativeReturnFlow(
+        request,
+        stackCookies,
+        nativeReturnTo,
+        refreshToken,
+        accessToken,
+        accessCookie,
+        localizedMessages,
+      );
     }
 
     const afterAuth = request.nextUrl.searchParams.get("after_auth_return_to");
@@ -568,7 +577,7 @@ export function makeAfterSignInHandler(dependencies: AfterSignInHandlerDependenc
       return NextResponse.redirect(new URL(afterAuth, requestOrigin(request)));
     }
 
-    if (refreshToken && accessCookie) {
+    if (refreshToken && accessToken && accessCookie) {
       const fallback = buildNativeHref(null, refreshToken, accessCookie);
       if (fallback) return nativeReturnResponse(fallback, localizedMessages, switchAccountHref(request));
     }

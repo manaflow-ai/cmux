@@ -291,7 +291,7 @@ private extension AccountSignInModel.LoadingStage {
     }
 }
 
-private extension AccountSignInModel.Failure {
+extension AccountSignInModel.Failure {
     var title: String {
         switch self {
         case .cancelled:
