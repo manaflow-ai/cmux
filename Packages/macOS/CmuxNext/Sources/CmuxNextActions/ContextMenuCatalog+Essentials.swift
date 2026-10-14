@@ -36,7 +36,9 @@ nonisolated enum ContextMenuEssentials {
         let keep = { (entry: ContextMenuEntry) in ContextMenuCatalog.referencedIDs([entry]).allSatisfy(placed.contains) }
         let top = rows.top.filter(keep), group = rows.group.filter(keep)
         let close = rows.close.filter(placed.contains)
-        let trailers = (top + group).flatMap { if case .choices(let id) = $0, let trailer = choiceTrailers[id] { [trailer] } else { [] } }
+        let trailers: [ActionID] = (top + group).compactMap { entry -> ActionID? in
+            if case .choices(let id) = entry { choiceTrailers[id] } else { nil }
+        }
         let rest = ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close + trailers), from: entries)
         let more: [ContextMenuEntry] = rest.contains { if case .separator = $0 { false } else { true } } ? [.folder(.more, rest)] : []
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
