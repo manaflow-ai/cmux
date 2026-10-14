@@ -12,8 +12,6 @@ use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 mod workspace_mutations;
-#[cfg(test)]
-mod workspace_name_tests;
 mod workspace_order;
 use workspace_mutations::{move_workspace, rename_workspace};
 use workspace_order::list_workspaces;

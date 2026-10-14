@@ -48,3 +48,6 @@ pub(super) fn move_workspace(
         .map_err(resource_operation_error)?;
     snapshot_mutation_result(mux, commit, "workspace.move", "workspace")
 }
+
+#[cfg(test)]
+mod workspace_name_tests;

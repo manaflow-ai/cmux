@@ -20,6 +20,7 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
@@ -2194,35 +2195,7 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    // `--release-to-auto` hands the current workspace name back to the
-    // automatic namer, so it takes no name (hq#1957).
-    let release =
-        operation == ResourceOperation::WorkspaceRename && flags.boolean("release-to-auto");
-    if release {
-        if flags.values.contains_key("name") {
-            return Err(UsageError::new("--release-to-auto keeps the current name; drop --name"));
-        }
-        params.insert("source".into(), Value::String("auto".into()));
-        params.insert("release".into(), Value::Bool(true));
-    } else {
-        params.insert("name".into(), Value::String(flags.required("name")?));
-    }
-    // Tabs and workspaces share name provenance (hq#1957).
-    if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
-        if let Some(source) = flags.take("source") {
-            validate_one_of("--source", &source, &["user", "auto"])?;
-            if release && source != "auto" {
-                return Err(UsageError::new("--release-to-auto hands the name to --source auto"));
-            }
-            params.insert("source".into(), Value::String(source));
-        }
-        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        if let Some(revision) = flags.take("expected-name-revision") {
-            validate_decimal("--expected-name-revision", &revision)?;
-            params.insert("expected_name_revision".into(), Value::String(revision));
-        }
-    }
+    let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
 }
 
@@ -3447,75 +3420,42 @@ mod tests {
     #[test]
     fn cloud_rename_authority_validates_name_source_and_revision() {
         const TAB: &str = "tab_00000000000000000000000000000007";
-        const WORKSPACE: &str = "ws_00000000000000000000000000000007";
-        // Workspaces take the tab flags exactly (hq#1957).
-        for (resource, id, expected) in
-            [("tab", TAB, "tab.rename"), ("workspace", WORKSPACE, "workspace.rename")]
-        {
-            for source in ["user", "auto"] {
-                for revision in ["0", "18446744073709551615"] {
-                    let plan = protocol(&[
-                        resource,
-                        id,
-                        "rename",
-                        "--name",
-                        "logs",
-                        "--source",
-                        source,
-                        "--expected-generation",
-                        "daemon",
-                        "--expected-name-revision",
-                        revision,
-                    ]);
-                    assert_eq!(operation(&plan), expected);
-                    assert_eq!(plan.params["source"], source);
-                    assert_eq!(plan.params["expected_generation"], "daemon");
-                    assert_eq!(plan.params["expected_name_revision"], revision);
-                }
-            }
-
-            for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
-                let args =
-                    [resource, id, "rename", "--name", "logs", "--expected-name-revision", invalid];
-                assert!(
-                    parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
-                    "accepted invalid {resource} revision {invalid:?}"
-                );
-            }
-
-            for invalid in ["", "process", "USER"] {
-                let args = [resource, id, "rename", "--name", "logs", "--source", invalid];
-                assert!(
-                    parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
-                    "accepted invalid {resource} source {invalid:?}"
-                );
+        for source in ["user", "auto"] {
+            for revision in ["0", "18446744073709551615"] {
+                let plan = protocol(&[
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    source,
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    revision,
+                ]);
+                assert_eq!(operation(&plan), "tab.rename");
+                assert_eq!(plan.params["source"], source);
+                assert_eq!(plan.params["expected_generation"], "daemon");
+                assert_eq!(plan.params["expected_name_revision"], revision);
             }
         }
-    }
 
-    /// `workspace rename --release-to-auto` hands a pinned name back to the
-    /// automatic namer: no name and no expected revision (hq#1957).
-    #[test]
-    fn workspace_rename_release_to_auto_needs_no_name() {
-        const WORKSPACE: &str = "ws_00000000000000000000000000000007";
-        let plan = protocol(&["workspace", WORKSPACE, "rename", "--release-to-auto"]);
-        assert_eq!(operation(&plan), "workspace.rename");
-        assert_eq!(plan.params["source"], "auto");
-        assert_eq!(plan.params["release"], true);
-        assert!(plan.params.get("name").is_none(), "{:?}", plan.params);
-
-        let current = protocol(&["workspace", "rename", "--release-to-auto"]);
-        assert_eq!(current.params["release"], true);
-
-        for invalid in [
-            vec!["workspace", WORKSPACE, "rename", "--release-to-auto", "--source", "user"],
-            vec!["workspace", WORKSPACE, "rename", "--release-to-auto", "--name", "Billing"],
-            vec!["tab", "tab_00000000000000000000000000000007", "rename", "--release-to-auto"],
-            vec!["workspace", WORKSPACE, "rename"],
-        ] {
+        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
             assert!(
-                parse(&strings(&invalid), super::super::Surface::CmuxTui).is_err(),
-                "accepted {invalid:?}"
+                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                "accepted invalid revision {invalid:?}"
+            );
+        }
+
+        for invalid in ["", "process", "USER"] {
+            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
+            assert!(
+                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                "accepted invalid source {invalid:?}"
             );
         }
     }
@@ -4353,6 +4293,7 @@ mod tests {
         }
     }
 
+    mod name_source_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(
