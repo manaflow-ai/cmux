@@ -798,6 +798,9 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
         pan.maximumNumberOfTouches = 1
         pan.delegate = self
+        // Horizontal drags select text / scroll here; the drawer must not
+        // take a right swipe that starts on the terminal.
+        pan.cnClaimHorizontalPans()
         scrollPan = pan
         let press = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
         press.minimumPressDuration = 0.35

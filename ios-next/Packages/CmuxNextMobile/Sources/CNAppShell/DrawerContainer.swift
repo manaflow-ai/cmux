@@ -258,7 +258,8 @@ final class DrawerContainerController: UIViewController, UIGestureRecognizerDele
 
     /// True when something under the finger should own a rightward swipe: a
     /// horizontal scroller that can scroll back, a slider/switch, or a
-    /// navigation stack that can pop (its back swipe wins).
+    /// navigation stack that can pop (its back swipe wins), or a view whose
+    /// recognizer is marked `cnClaimHorizontalPans()` (terminals).
     static func contentClaimsRightSwipe(from hit: UIView, in root: UIView) -> Bool {
         var responder: UIResponder? = hit
         while let current = responder, current !== root {
@@ -267,6 +268,9 @@ final class DrawerContainerController: UIViewController, UIGestureRecognizerDele
                 return true
             }
             if current is UISlider || current is UISwitch { return true }
+            // Surfaces that pan horizontally themselves (terminals) mark
+            // their recognizer; a right swipe there is theirs.
+            if let view = current as? UIView, view.gestureRecognizers?.contains(where: \.cnClaimsHorizontalPans) == true { return true }
             if let nav = current as? UINavigationController, nav.viewControllers.count > 1 { return true }
             responder = current.next
         }

@@ -120,4 +120,16 @@ extension View {
         transformPreference(CNStatusBarStylePreferenceKey.self) { if suppressed { $0 = nil } }
     }
 }
+extension UIGestureRecognizer {
+    /// Name that marks a recognizer as owning horizontal pans on its view
+    /// (a terminal's scroll/selection pan, a scrubber). The drawer shell does
+    /// not open its sidebar from a swipe that starts on such a view.
+    public static let cnClaimsHorizontalPanName = "cn.claimsHorizontalPan"
+
+    /// Marks this recognizer with `cnClaimsHorizontalPanName`.
+    public func cnClaimHorizontalPans() { name = Self.cnClaimsHorizontalPanName }
+
+    /// Whether this enabled recognizer claims horizontal pans.
+    public var cnClaimsHorizontalPans: Bool { isEnabled && name == Self.cnClaimsHorizontalPanName }
+}
 #endif
