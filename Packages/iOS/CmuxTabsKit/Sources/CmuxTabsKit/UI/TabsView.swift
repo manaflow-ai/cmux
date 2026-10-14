@@ -214,6 +214,14 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 source.resumeLiveContent(id)
             }
         }
+        // A tab that becomes active on the settled grid (the active one was
+        // closed) is offered as a static card too, so it rides the reflow
+        // with the other cards instead of appearing as the live page.
+        .onChange(of: activeID) { old, new in
+            guard zoomState.phase == .overview, let new, new != staticCardID else { return }
+            if let old, old == staticCardID { source.resumeLiveContent(old) }
+            staticCardID = source.showStaticCard(for: new) ? new : nil
+        }
         .onAppear {
             zoomDriver.onSettle = { phase in
                 if phase == .page {
