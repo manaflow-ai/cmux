@@ -267,7 +267,7 @@ See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-co
 
 ### GitHub Copilot CLI
 
-Copilot CLI supports [hooks](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference) that run shell commands at key lifecycle events. It loads every `*.json` file in `~/.copilot/hooks/` (or `$COPILOT_HOME/hooks/`); it does not read hooks from `~/.copilot/config.json`. `cmux hooks setup copilot` writes `~/.copilot/hooks/cmux.json` for you. To add your own, create `~/.copilot/hooks/notify.json`:
+Copilot CLI supports [hooks](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-hooks-reference) that run shell commands at key lifecycle events. It loads every `*.json` file in `~/.copilot/hooks/`, or `$COPILOT_HOME/hooks/` when `COPILOT_HOME` is set; it does not read hooks from `~/.copilot/config.json`. `cmux hooks setup copilot` writes `cmux.json` into that directory for you. To add your own, create `notify.json` next to it:
 
 ```json
 {

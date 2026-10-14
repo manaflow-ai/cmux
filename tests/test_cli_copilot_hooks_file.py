@@ -169,9 +169,10 @@ class CopilotHooksFileTests(unittest.TestCase):
             {"hooks": [{"type": "command", "command": "echo mine", "timeout": 1000}]}]}}, migrated)
 
     def test_uninstall_removes_the_file_and_legacy_entries_only(self):
+        self.setup()
+        # Written after setup, so it is uninstall's own pruning under test.
         config = self.copilot_dir / 'config.json'
         config.write_text(json.dumps(legacy_config()))
-        self.setup()
         theirs = self.copilot_dir / 'hooks' / 'theirs.json'
         theirs.write_text('{"version": 1, "hooks": {}}')
         self.uninstall()
