@@ -296,7 +296,7 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     // An agent never adds a step.
     let refused = owner.agent().v2(
         "history.trail.record",
-        json!({"window": "w1", "location": location("tab_a", "Alpha")}),
+        json!({"window": "w1", "location": location("tab_a", "Alpha", "ws-1")}),
         json!({"idempotency_key": "agent-1"}),
     );
     assert_eq!(refused["ok"], false, "{refused}");
