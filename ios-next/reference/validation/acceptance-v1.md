@@ -86,6 +86,13 @@ folder.
 
 ---
 
+
+## User decisions (2026-10-13/14)
+
+- **Row swipe vs drawer (2.4 vs 3.5):** deferred by Aziz ("ignore for now"). Neither outcome fails V1; record the observed behavior only.
+- **Launch appearance (1.1):** accepted as designed. The system launch screen follows the iOS appearance; only the app's own frames must match the app setting and hand off without a flash.
+- **Performance gates:** dropped for V1 (hitch traces can't be recorded on the simulator and device runs are ruled out). T-* traces are informational, not pass/fail, until a later version.
+
 ## 1. Launch, onboarding, sign-in
 
 References:
