@@ -51,3 +51,43 @@ async fn text_chunks_carry_their_message_id() {
         vec![(json!("The Sun also rises."), json!("msg_1")), (json!("DONE"), json!("msg_2"))]
     );
 }
+
+/// A slash command Claude Code runs itself (`/permissions`, `/config`,
+/// `/clear`) answers in one synthetic line and a result with no turn and no
+/// API time, which is also what a resumed process's startup noise looks like.
+/// That result ends the prompt; before, the chat stayed running with Stop doing
+/// nothing (cosmic-gray, 2026-10-14). Lines as Claude Code 2.1.299 prints them.
+#[tokio::test]
+async fn a_local_command_result_ends_the_prompt() {
+    let local_result = |text: &str| json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "result": text});
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let prompt = |id: i64, text: &str| {
+        Message::request(
+            id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": text}]}),
+        )
+    };
+    let answered = |msgs: &[Message], want: i64| {
+        msgs.iter().any(|m| {
+            matches!(m, Message::Response { id, result: Some(r), .. } if *id == want && r["stopReason"] == "end_turn")
+        })
+    };
+
+    let Outbound::Lines(_) = t.outbound(&prompt(1, "/permissions")).await else { panic!() };
+    let said = "/permissions isn't available in this environment.";
+    t.inbound(&json!({"type": "assistant", "local_command_outcome": {"kind": "unavailable_headless"}, "message": {"id": "s1", "model": "<synthetic>", "role": "assistant", "content": [{"type": "text", "text": said}]}})).await;
+    let msgs = t.inbound(&local_result(said)).await;
+    assert!(answered(&msgs, 1), "/permissions left its prompt open: {msgs:?}");
+
+    // /clear says nothing: its reset line comes before the empty result.
+    let Outbound::Lines(_) = t.outbound(&prompt(2, "/clear")).await else { panic!() };
+    t.inbound(&json!({"type": "system", "subtype": "conversation_reset"})).await;
+    let msgs = t.inbound(&local_result("")).await;
+    assert!(answered(&msgs, 2), "/clear left its prompt open: {msgs:?}");
+
+    // A resumed process's empty result before anything of the turn is still noise.
+    let Outbound::Lines(_) = t.outbound(&prompt(3, "hi")).await else { panic!() };
+    let msgs = t.inbound(&local_result("")).await;
+    assert!(!answered(&msgs, 3), "startup noise ended the prompt: {msgs:?}");
+}
