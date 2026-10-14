@@ -128,6 +128,12 @@ pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
     matches!(connection_actor(mux, client), Actor::Frontend { .. })
 }
 
+/// Whether `client` derives origin `user` (the verified cmux app). On every
+/// platform; a client with no record, or one with no proof, is not.
+pub(super) fn is_user(mux: &Mux, client: u64) -> bool {
+    derived_origin(mux, client) == RequestOrigin::User
+}
+
 /// The origin `client` derives; a client with no record is an agent.
 fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -91,7 +91,7 @@ export default componentEntry<Props>({
           host: "This Mac",
           hostKind: "local",
         },
-        onMove: () => undefined,
+        onNewChat: () => undefined,
       },
       play: filterKeepsSide,
     },

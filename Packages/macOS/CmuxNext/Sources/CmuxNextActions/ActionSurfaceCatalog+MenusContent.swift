@@ -80,6 +80,7 @@ nonisolated extension ActionSurfaceCatalog {
         "splitBrowserDown": [p(.pane, .create, 6, folder: .new)],
         "palette.browserOpenDefault": [p(.browserPage, .inspect, 101, folder: .tools)],
         "browserScreenshotPage": [p(.browserPage, .inspect, 102, folder: .tools)],
+        "browserDevice": [p(.browserPage, .inspect, 104, folder: .tools)],
         "browserPrint": [p(.browserPage, .inspect, 99)],
         "browserScreenshotSection": [p(.browserPage, .inspect, 103, folder: .tools)],
         "browserTheme": [p(.browserPage, .identity, 0, .choices, folder: .appearance)],
