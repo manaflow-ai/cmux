@@ -764,6 +764,12 @@ impl Supervisor {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+        if let Err(error) = &spawned {
+            eprintln!(
+                "cmux-tui: acpmux shutdown for {} did not start: {error}",
+                mux_home.display()
+            );
+        }
         if let Ok(mut child) = spawned {
             let _ = std::thread::Builder::new().name("chief-acpmux-end".into()).spawn(move || {
                 let _ = child.wait();

@@ -116,7 +116,7 @@ fn say(home: &mut Conn, conversation: &str, key: &str, text: &str) {
 fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     use std::os::unix::fs::PermissionsExt;
 
-    let files = unique_temp_dir("chief-brains-files");
+    let files = unique_temp_dir("cb");
     fs::create_dir_all(&files).unwrap();
     let stub = files.join("brain.sh");
     fs::write(&stub, STUB).unwrap();
@@ -127,7 +127,8 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
     fs::write(&acpmux, format!("#!/bin/sh\necho \"$* $ACPMUX_HOME\" >> '{}'\n", calls.display()))
         .unwrap();
     fs::set_permissions(&acpmux, fs::Permissions::from_mode(0o755)).unwrap();
-    let chief_home = files.join("chief-home");
+    // Short: the brains' sockets live under it (103-byte limit).
+    let chief_home = files.join("h");
     fs::create_dir_all(&chief_home).unwrap();
     let brains = json!({
         "executable": stub,
