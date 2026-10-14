@@ -2,7 +2,6 @@ import React, { useId, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
-import "./offerChip.css";
 
 /// An agent's offer of a parallel chat (cx-807da), where the agent made it in the chat: its title,
 /// Start and Dismiss. Start starts the chat beside this one, which goes on; acpmux's record of the
