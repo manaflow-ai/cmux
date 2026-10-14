@@ -76,8 +76,16 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     ensureUserTables(ctx.storage.sql)
     // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+    // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
     // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
     if (!ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_push)`).toArray().some((c) => c.name === "period_end")) ctx.storage.sql.exec(`ALTER TABLE usage_push ADD COLUMN period_end INTEGER NOT NULL DEFAULT 0`)
+  }
+
+  /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s). */
+  async markBillable(entity: string, subscription: string, periodEnd: number): Promise<void> {
+    this.bind(entity)
+    this.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at) VALUES (?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at`, subscription, periodEnd, Date.now())
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
@@ -104,10 +112,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
-  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number): Promise<UserReserve> {
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number, includedMicros?: number): Promise<UserReserve> {
     this.bind(entity)
     const now = Date.now()
-    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now)
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now, includedMicros)
     if (r.ok) this.scheduleAlarm()
     return r
   }
