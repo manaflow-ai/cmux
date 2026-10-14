@@ -34,6 +34,7 @@ pub mod deliver;
 pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
+pub mod harness_limits;
 pub mod hub;
 pub mod live_models;
 pub mod local_stream;

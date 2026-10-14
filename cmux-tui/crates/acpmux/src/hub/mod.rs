@@ -188,7 +188,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`.
+/// `turn_result`; and the shells it runs in the background (`idle.rs`).
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -203,6 +203,7 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {
@@ -270,8 +271,7 @@ pub struct Hub {
     pub(super) web_modes: StdMutex<web_control::WebModeCache>,
     /// Where the folder-trust gate reads (`server/trust_gate.rs`); None: no gate.
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
-    /// The `sandbox-exec` remote chains run Claude Code under
-    /// (`remote_sandbox.rs`).
+    /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
