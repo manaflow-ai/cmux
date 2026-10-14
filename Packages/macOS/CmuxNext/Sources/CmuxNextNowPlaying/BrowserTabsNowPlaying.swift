@@ -19,6 +19,8 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     /// The shown tab's artwork, small PNG data once loaded (nil while loading or without art).
     private var artwork: (url: URL, data: Data?)?
     private static let artworkSide: CGFloat = 96
+    /// How long after a failed artwork fetch a read asks the tab again (tests shorten it).
+    @ObservationIgnored var artworkRetry: TimeInterval = 10
 
     public init() {}
 
