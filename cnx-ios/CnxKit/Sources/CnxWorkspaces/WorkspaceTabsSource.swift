@@ -179,8 +179,38 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Closes the tab on the Mac, then here. TabsKit keeps the card hidden
     /// meanwhile; a refusal returns false, so the card comes back, with a
     /// notice.
+    /// A close waiting for the person to confirm it (a program is running in
+    /// the tab, Codex QA F9). The screen shows the dialog.
+    public private(set) var pendingClose: PendingClose?
+
+    public struct PendingClose: Identifiable {
+        public let id = UUID()
+        public let title: String
+        public let message: String
+        fileprivate let resume: CheckedContinuation<Bool, Never>
+    }
+
+    /// The person answered the close dialog.
+    public func resolvePendingClose(_ close: Bool) {
+        guard let pending = pendingClose else { return }
+        pendingClose = nil
+        pending.resume.resume(returning: close)
+    }
+
     public func close(_ id: TabsKitTab.ID) async -> Bool {
         guard let workspace, let tab = workspace.tabs.first(where: { $0.id == id }) else { return true }
+        // A program running in the tab (Codex working): one small tap would
+        // detach it with no way back from the phone. Ask first, like closing a
+        // terminal with a running process on the Mac (Codex QA F9).
+        if let program = TabCloseGuard().runningProgram(tab) {
+            resolvePendingClose(false)
+            let confirmed = await withCheckedContinuation { continuation in
+                pendingClose = PendingClose(title: "Close \(tab.title)?",
+                                            message: "\(program) is still running on \(macName). Closing the tab stops it there.",
+                                            resume: continuation)
+            }
+            guard confirmed else { return false }
+        }
         guard let creator else {
             show("Connect to \(macName) first.")
             CnxTheme.standard.haptics.error()

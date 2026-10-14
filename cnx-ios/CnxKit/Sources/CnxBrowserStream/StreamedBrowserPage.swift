@@ -94,7 +94,9 @@ struct StreamedBrowserOverlay: View {
         #if DEBUG
         true
         #else
-        UserDefaults.standard.bool(forKey: "cnx-browser-meter")
+        // Release (Production, TestFlight): only for a measurement launch with
+        // the explicit argument, never from a stored setting (Codex QA F13).
+        ProcessInfo.processInfo.arguments.contains("-cnx-browser-meter")
         #endif
     }
 

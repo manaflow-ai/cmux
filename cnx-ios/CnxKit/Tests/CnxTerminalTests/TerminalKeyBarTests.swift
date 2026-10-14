@@ -162,3 +162,28 @@ import Testing
         #expect(metrics.verticalTextInset(lineHeight: 40) == 4)
     }
 }
+
+/// Codex QA F5: the joystick repeats like a held key.
+@Suite struct JoystickRepeatTests {
+    let rule = JoystickRepeat()
+
+    @Test func aFlickSendsExactlyOneArrow() {
+        #expect(rule.arrows(holding: 0.15, at: 40) == 1)
+        #expect(rule.arrows(holding: 0.39, at: 48) == 1)
+        #expect(rule.arrows(holding: 0.3, at: 4) == 0)
+    }
+
+    @Test func aHoldRepeatsAfter400msAtAboutTenASecond() {
+        #expect(rule.rate(distance: 20) == 10)
+        // 1.2 s at 30 pt: 1 + 0.8 s x 11.5 = 10 arrows, not ~40.
+        #expect(rule.arrows(holding: 1.2, at: 30) <= 10)
+        #expect(rule.interval(distance: 20) == .milliseconds(100))
+    }
+
+    @Test func theRateRisesGentlyWithDistanceAndIsCapped() {
+        #expect(rule.rate(distance: 36) > rule.rate(distance: 24))
+        #expect(rule.rate(distance: 48) == JoystickRepeat.fastestRate)
+        #expect(rule.rate(distance: 200) == JoystickRepeat.fastestRate)
+        #expect(JoystickRepeat.fastestRate <= 20)
+    }
+}

@@ -164,3 +164,40 @@ public struct ComposerMetrics: Sendable {
         max(4, ((Self.circle - lineHeight) / 2).rounded(.down))
     }
 }
+
+/// The joystick's key repeat (Codex QA F5), like a held key on iOS: one
+/// arrow when the drag leaves the dead zone (a flick sends exactly one),
+/// then, still held, repeats after 400 ms at 10 per second, rising gently
+/// with distance to a cap of 18 per second. The old gears reached 33 per
+/// second past 24 pt, so a 1.2 s hold in Codex's 8-row menu landed on an
+/// arbitrary row.
+public struct JoystickRepeat: Sendable {
+    public static let deadZone: CGFloat = 8
+    public static let initialDelay: Duration = .milliseconds(400)
+    public static let slowestRate = 10.0
+    public static let fastestRate = 18.0
+    /// Where the fastest rate is reached (the thumb's travel cap).
+    public static let fastestAt: CGFloat = JoystickGeometry.travel
+
+    public init() {}
+
+    /// Arrows per second while held at `distance` from the center.
+    public func rate(distance: CGFloat) -> Double {
+        guard distance > Self.deadZone else { return 0 }
+        let t = min(1, max(0, Double((distance - 24) / (Self.fastestAt - 24))))
+        return Self.slowestRate + (Self.fastestRate - Self.slowestRate) * t
+    }
+
+    public func interval(distance: CGFloat) -> Duration {
+        let rate = max(Self.slowestRate, rate(distance: distance))
+        return .milliseconds(Int((1000 / rate).rounded()))
+    }
+
+    /// Arrows sent by a hold of `seconds` at `distance` (first one included).
+    public func arrows(holding seconds: Double, at distance: CGFloat) -> Int {
+        guard distance > Self.deadZone else { return 0 }
+        let repeating = seconds - 0.4
+        guard repeating >= 0 else { return 1 }
+        return 1 + Int((repeating * rate(distance: distance)).rounded(.down))
+    }
+}

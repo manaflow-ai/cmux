@@ -70,6 +70,16 @@ public struct WorkspaceScreen: View {
             .onChange(of: director.serial) { run(director.command) }
             #endif
             .accessibilityIdentifier("workspace.\(source.workspaceID)")
+            // Closing a tab with a running program asks first (Codex QA F9).
+            .alert(source.pendingClose?.title ?? "", isPresented: Binding(
+                get: { source.pendingClose != nil },
+                set: { shown in if !shown { source.resolvePendingClose(false) } }
+            )) {
+                Button("Close Tab", role: .destructive) { source.resolvePendingClose(true) }
+                Button("Cancel", role: .cancel) { source.resolvePendingClose(false) }
+            } message: {
+                Text(source.pendingClose?.message ?? "")
+            }
     }
 
     /// The grid's top row: back to the workspace list, and which workspace

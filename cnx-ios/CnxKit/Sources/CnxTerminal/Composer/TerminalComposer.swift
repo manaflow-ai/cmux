@@ -16,6 +16,23 @@ struct TerminalComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if model.isScrolledUp {
+                // In the card, not over the rows: a floating button hid the
+                // end of the lines under it (Codex QA F3).
+                Button {
+                    model.scrollToBottom()
+                } label: {
+                    Label("Jump to bottom", systemImage: "arrow.down")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(Color.primary.opacity(0.08), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .accessibilityLabel("Scroll to bottom")
+                .transition(.opacity)
+            }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -41,6 +58,7 @@ struct TerminalComposer: View {
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 8)
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        .animation(.smooth(duration: 0.2), value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
