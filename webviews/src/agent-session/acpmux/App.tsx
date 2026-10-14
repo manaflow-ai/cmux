@@ -2044,6 +2044,8 @@ function DefaultComposerChips({
 }) {
   const inFolder = startsChat ? { ...(cwd ? { cwd } : {}), deferred: true } : {};
   const addAgent = useHarnessesPage();
+  // acpmux has answered with its harnesses: only then can the chip say none is installed.
+  const harnessesListed = useHarnessesListed();
   // `chat.new` for the same agent and folder is the switch already running, so a second pick
   // never restarts it.
   const start = () => {
@@ -2087,8 +2089,10 @@ function DefaultComposerChips({
       {...(cwd ? { folder: cwd } : {})}
       // Sent from the pick's own handler: the host's Enable confirmation needs the gesture.
       onHarnessEnable={(folder, id) => void callNative("chat.harness.enable", { folder, id }).catch(() => undefined)}
-      // The rail's + (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add, from this click's gesture.
+      // Add harness… (the picker's last row; the chip itself with no harness): the Harnesses page,
+      // in place, from this click's gesture.
       {...(addAgent ? { onAddAgent: addAgent } : {})}
+      harnessesListed={harnessesListed}
       showPlan={false}
       onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       pickerCatalog={picker.catalog}
@@ -2695,9 +2699,7 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
-  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
-  const harnessesListed = useHarnessesListed();
-  // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
+  // Add harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
@@ -5062,9 +5064,7 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
-              harnessesListed={harnessesListed}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
-              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(

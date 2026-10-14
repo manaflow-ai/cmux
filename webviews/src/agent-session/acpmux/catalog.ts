@@ -155,7 +155,7 @@ export function useHarnessCatalog(
 
 /// True once a harness fetch of this pane landed (acpmux answered). A cached catalog from an earlier
 /// launch, or no answer yet, is not a listing: an empty catalog then says nothing about what is
-/// installed (Integrate a harness on the New Tab page waits for this).
+/// installed (the composer's Add harness chip waits for this).
 export function useHarnessesListed(): boolean {
   const client = useQueryClient();
   return useSyncExternalStore(
