@@ -404,15 +404,19 @@ fn the_default_chiefs_host_starts_the_chief_homes_acpmux_without_its_credential(
 /// Chief `b` (`h/c/<id>`), whose turn is running.
 fn default_and_b(h: &Path, b: &Path) -> serde_json::Value {
     let (ih, ib) = (home_id(h), home_id(b));
+    let mut running = session(
+        "s-b-turn",
+        &format!("optchat-{ib}-turn"),
+        json!({"cmux.chief": ib, "cmux.chief.role": "turn"}),
+    );
+    running["status"] = json!("running");
     json!([
-        session("s-default-turn", &format!("optchat-{ih}-turn"),
-                json!({"cmux.chief": ih, "cmux.chief.role": "turn"})),
-        {
-            let mut running = session("s-b-turn", &format!("optchat-{ib}-turn"),
-                                      json!({"cmux.chief": ib, "cmux.chief.role": "turn"}));
-            running["status"] = json!("running");
-            running
-        },
+        session(
+            "s-default-turn",
+            &format!("optchat-{ih}-turn"),
+            json!({"cmux.chief": ih, "cmux.chief.role": "turn"})
+        ),
+        running,
     ])
 }
 
