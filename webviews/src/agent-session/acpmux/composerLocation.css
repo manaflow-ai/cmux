@@ -502,3 +502,5 @@
 .acpmux-location-suffix,
 .acpmux-location-suffix-dot { color: var(--agent-muted); }
 .acpmux-location-empty { padding: 6px 8px; color: var(--agent-muted); }
+/* The mode's shield wrapper only names its kind (data-shield); the icon lays out as before. */
+.acpmux-mode-shield { display: contents; }
