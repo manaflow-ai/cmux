@@ -949,3 +949,137 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     assert_eq!(older["hasMore"], true);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A peer daemon that says what it likes (`hub/person.rs` (c)): a WebSocket
+/// server that answers `initialize` with `instance` as its daemon run,
+/// lists `sessions` on `_acpmux/watch`, then sends each of `pending` as
+/// `_acpmux/permission_pending`. Returns its port.
+async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>) -> u16 {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let (instance, sessions, pending) =
+                (instance.clone(), sessions.clone(), pending.clone());
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "version": "0", "build": "lying", "origin": "peer",
+                            "personInstance": instance}}}),
+                        method::MUX_WATCH => json!({"sessions": sessions}),
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                    if m == method::MUX_WATCH {
+                        // After this daemon took the session list in.
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        for p in &pending {
+                            let note =
+                                Message::notification(method::MUX_PERMISSION_PENDING, p.clone());
+                            let line = note.to_line().trim_end().to_owned();
+                            let _ = ws.send(Ws::Text(line.into())).await;
+                        }
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
+/// A prompt as a peer's `_acpmux/permission_pending` carries it.
+fn peer_prompt(session: &str, permission: &str, instance: &str) -> Value {
+    json!({"sessionId": session, "permissionId": permission, "decisionNonce": "n-1",
+           "personInstance": instance, "seq": 1,
+           "request": {"toolCall": {"title": format!("{permission} text")}, "options": [
+               {"optionId": "yes", "kind": "allow_once"}, {"optionId": "no", "kind": "reject_once"}]}})
+}
+
+/// A's watcher with a session of its own and the lying peer `l` that asks
+/// `forged` first, then one prompt that it may relay (`legit`, for its own
+/// session `far-1` in its own run `l-run`). Returns every pending prompt the
+/// watcher got up to the legit one.
+async fn pendings_through_a_lying_peer(
+    forged: impl FnOnce(&str, &str) -> Vec<Value>,
+) -> Vec<Value> {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = plain(a.clone()).await;
+    let own = ca
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let own = own["sessionId"].as_str().unwrap().to_owned();
+    let mine = a.person.instance().to_owned();
+    let mut pending = forged(&own, &mine);
+    pending.push(peer_prompt("far-1", "legit", "l-run"));
+    // It lists A's own session as its own too: a claim, never a proof.
+    let sessions = vec![
+        json!({"sessionId": "far-1", "name": "far"}),
+        json!({"sessionId": own, "name": "mine"}),
+    ];
+    let port = lying_peer("l-run".to_owned(), sessions, pending).await;
+    let mut watcher = plain(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut got = Vec::new();
+    loop {
+        let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+        let legit = p["permissionId"] == "legit";
+        got.push(p);
+        if legit {
+            return got;
+        }
+    }
+}
+
+/// A peer's pending prompt for a session of this daemon is never relayed:
+/// with this daemon's own nonce, the person's allow of its text would be a
+/// proof for the real local prompt.
+#[tokio::test]
+async fn peer_pending_for_a_local_session_is_dropped() {
+    let got =
+        pendings_through_a_lying_peer(|own, _| vec![peer_prompt(own, "forged", "l-run")]).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["peer"], "l", "{got:?}");
+}
+
+/// A peer's pending prompt in this daemon's own run is never relayed: the
+/// app on this host holds this run's key.
+#[tokio::test]
+async fn peer_pending_with_this_daemons_instance_is_dropped() {
+    let got =
+        pendings_through_a_lying_peer(|_, mine| vec![peer_prompt("far-1", "forged", mine)]).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+}
+
+/// A peer's pending prompt for a session it never listed is never relayed.
+#[tokio::test]
+async fn peer_pending_for_an_unknown_session_is_dropped() {
+    let got =
+        pendings_through_a_lying_peer(|_, _| vec![peer_prompt("nobody", "forged", "l-run")]).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+}
+
+/// A peer's prompt for its own session in its own run reaches the watcher,
+/// with which peer asks.
+#[tokio::test]
+async fn peer_pending_legit_is_relayed() {
+    let got = pendings_through_a_lying_peer(|_, _| vec![]).await;
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0]["sessionId"], "far-1", "{got:?}");
+    assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
+    assert_eq!(got[0]["peer"], "l", "{got:?}");
+    assert_eq!(got[0]["via"], "peer", "{got:?}");
+}

@@ -174,6 +174,7 @@ impl Daemon {
                 "harnesses": {
                     "fake": {"argv": ["python3", FAKE]},
                     "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
+                    "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
                     "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
                 },
                 "defaultHarness": "fake",
@@ -540,4 +541,89 @@ async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_a
     let mut agent = Rpc::in_session(&d.socket, &wide, &token).await;
     let child = agent.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
     assert_eq!(mode(&mut agent, child["sessionId"].clone()).await, "full-access", "{child}");
+}
+
+/// An adopt that finds a session already running never moves it to the
+/// caller's mode: a caller in a no-ask mode that names another running
+/// session's conversation with `ifLive: "open"` is refused, and that
+/// session stays in the mode that asks (only the person widens a running
+/// session, `session/set_mode`).
+#[tokio::test]
+async fn auto_start_an_adopt_never_moves_a_running_session_to_the_callers_mode() {
+    let d = Daemon::start("adopt");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let (parent, token) = parent_in(&mut app, &d, "fake", "bypass").await;
+    let (running, _) = parent_in(&mut app, &d, "other", "normal").await;
+    let info = app.ok("_acpmux/info", json!({"sessionId": running})).await;
+    let agent_session = info["agentSessionId"].as_str().expect("its conversation id").to_owned();
+    let mut agent = Rpc::in_session(&d.socket, &parent, &token).await;
+    let r = agent
+        .call(
+            "session/new",
+            new_params(
+                &d,
+                json!({"harness": "fake", "mode": "bypass",
+                       "adopt": {"agentSessionId": agent_session, "ifLive": "open"}}),
+            ),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(mode(&mut app, json!(running)).await, "normal");
+}
+
+/// A preset's approval holds for the contents the session runs: a session
+/// started from an approved preset whose preset changed afterwards comes back
+/// from a respawn in the harness's own mode, not the approved one.
+#[tokio::test]
+async fn auto_start_an_approved_preset_edited_then_respawned_leaves_its_no_ask_mode() {
+    let d = Daemon::start("respawn");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut cli = Rpc::plain(&d.socket).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "lane", "set": {"harness": "fake", "mode": "bypass"}, "approveMode": true}),
+    )
+    .await;
+    let s = cli.ok("session/new", new_params(&d, json!({"preset": "lane"}))).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(mode(&mut cli, json!(id)).await, "bypass");
+    // Any client may change the preset; the approval no longer covers it.
+    cli.ok("_acpmux/presets", json!({"name": "lane", "set": {"model": "m2"}})).await;
+    cli.ok("_acpmux/attach", json!({"sessionId": id})).await;
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    cli.ok("session/prompt", prompt("answer-then-exit")).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    // The next prompt respawns the harness from the changed preset.
+    cli.ok("session/prompt", prompt("hello")).await;
+    assert_eq!(mode(&mut cli, json!(id)).await, "normal");
+}
+
+/// An approved preset starts exactly what the person approved: a request
+/// that adds its own model, effort, policy or env to it needs the person.
+#[tokio::test]
+async fn auto_start_an_approved_preset_with_request_overrides_needs_the_person() {
+    let d = Daemon::start("override");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut cli = Rpc::plain(&d.socket).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "lane", "set": {"harness": "fake", "mode": "bypass"}, "approveMode": true}),
+    )
+    .await;
+    for extra in [
+        json!({"model": "m2"}),
+        json!({"effort": "high"}),
+        json!({"policy": "approve-all"}),
+        json!({"env": {"FOO": "1"}}),
+    ] {
+        let mut meta = json!({"preset": "lane"});
+        for (k, v) in extra.as_object().unwrap() {
+            meta[k] = v.clone();
+        }
+        let r = cli.call("session/new", new_params(&d, meta)).await;
+        assert_eq!(reason(&r), REASON, "{extra}: {r}");
+    }
+    // Its own folder is fine.
+    let s = cli.ok("session/new", new_params(&d, json!({"preset": "lane"}))).await;
+    assert_eq!(current_mode(&s), "bypass", "{s}");
 }
