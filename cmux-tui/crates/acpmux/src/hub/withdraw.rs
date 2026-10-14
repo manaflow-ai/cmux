@@ -7,30 +7,36 @@
 //! - `unsent`: it still waited (queued or held): it leaves the queue with a `queue_removed`
 //!   record (`reason: "withdrawn"`) and never runs. A new daemon rebuilds the queue from the log
 //!   (`queue.rs` `restore_queue`), which drops a removed prompt, so a restart never runs it.
-//! - `retracted`: its turn runs. A `prompt_retracted` record {promptId, msgId, turnId, via,
-//!   noticePromptId} is written, and a notice that the message was withdrawn goes to the agent:
+//! - `retracted`: its turn runs. A notice that the message was withdrawn goes to the agent:
 //!   steered into the running turn when the agent steers (`via: "steer"`), else queued at the
-//!   head of the queue (`via: "queued"`).
+//!   head of the queue (`via: "queued"`). Once the notice is recorded, a `prompt_retracted`
+//!   record {promptId, msgId, turnId, via, noticePromptId} is written; a notice that is not
+//!   recorded within `NOTICE_WAIT` (refused, or the chat began a move) writes nothing and answers
+//!   `withdraw.notice_failed`, so the sender may withdraw again.
 //! - `too_late`: its turn ended (`turn_result`, `turn_end`, `turn_error` or `prompt_refused`);
-//!   nothing changes.
+//!   nothing changes. The prompt is followed by its `promptId`: a send-now steers it into the
+//!   running turn, and a steer that found no turn runs it as the next one, each under that turn.
 //!
 //! A second withdraw answers the first one's outcome again with `already: true` (an unsent
-//! message stays unsent, a retracted one gets no second notice). An id the session's log does
-//! not hold is `withdraw.not_found`. Only the unix socket withdraws (`remote_guard.rs`,
+//! message stays unsent, a retracted one gets no second notice). Refused: an id the session's
+//! log does not hold (`withdraw.not_found`); a prompt without a provenance, the person's own
+//! (`withdraw.not_a_message`); a queued message the person edited, which made it theirs
+//! (`withdraw.edited`). Only the unix socket withdraws (`remote_guard.rs`,
 //! `withdraw.origin_refused`), and a peer's session is never forwarded one.
 
 use super::super::*;
+use std::sync::OnceLock;
 use std::time::Duration;
 
-/// One withdraw decides (and records its outcome) at a time: two at once send one notice.
-static DECIDING: StdMutex<()> = StdMutex::new(());
+/// One withdraw at a time, from the decision until its outcome is recorded: two at once send
+/// one notice.
+static DECIDING: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// How long the answer waits for the notice to be recorded (queued or steered).
 const NOTICE_WAIT: Duration = Duration::from_secs(5);
 
-fn not_found(key: &str) -> RpcError {
-    let message = format!("withdraw.not_found: this session holds no prompt {key}");
-    RpcError::new(-32002, message).with_data(json!({"reason": "withdraw.not_found"}))
+fn refusal(code: i64, reason: &str, message: &str) -> RpcError {
+    RpcError::new(code, format!("{reason}: {message}")).with_data(json!({"reason": reason}))
 }
 
 /// What the session's log says about the withdrawn prompt.
@@ -43,6 +49,8 @@ struct Found {
     started: bool,
     ended: bool,
     removed: bool,
+    /// The person edited it while it waited (`queue_updated`).
+    edited: bool,
     retracted: Option<Value>,
 }
 
@@ -51,11 +59,44 @@ impl Found {
         let id = self.provenance.as_ref().and_then(|p| p.get("msgId")).and_then(Value::as_str);
         id.unwrap_or(&self.prompt_id).to_owned()
     }
+
+    /// Follows one later record of the session's log.
+    fn follow(&mut self, e: &EventRecord) {
+        let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or_default();
+        // A send-now steer, or a steer run as the next turn: the prompt moved to that turn.
+        if matches!(e.kind.as_str(), "user_message" | "turn_started")
+            && field("promptId") == self.prompt_id
+            && !field("turnId").is_empty()
+            && field("turnId") != self.turn_id
+        {
+            self.turn_id = field("turnId").to_owned();
+            self.ended = false;
+        }
+        let same_turn = !self.turn_id.is_empty() && field("turnId") == self.turn_id;
+        match e.kind.as_str() {
+            "user_message" | "dequeued" | "turn_started" if same_turn => self.started = true,
+            "queue_removed" if same_turn => self.removed = true,
+            "queue_updated" if same_turn => self.edited = true,
+            "turn_result" | "turn_end" | "turn_error" | "prompt_refused" if same_turn => {
+                self.ended = true;
+            }
+            "prompt_retracted" if field("promptId") == self.prompt_id => {
+                self.retracted = Some(e.msg.clone());
+            }
+            _ => {}
+        }
+    }
 }
 
 /// The reply of a withdraw.
 fn outcome(session: &Session, found: &Found, outcome: &str) -> Value {
     json!({"sessionId": session.id, "outcome": outcome, "promptId": found.prompt_id, "msgId": found.msg_id()})
+}
+
+/// What a withdraw does once it read the log.
+enum Decision {
+    Reply(Value),
+    Retract(Found),
 }
 
 impl Hub {
@@ -74,32 +115,70 @@ impl Hub {
         if session.moving().is_some() {
             return Err(super::super::queue::moving_error());
         }
-        let notice = {
-            let _deciding = DECIDING.lock().unwrap_or_else(|e| e.into_inner());
-            let found = self.find_withdrawn(session, by_msg, id).ok_or_else(|| not_found(id))?;
-            let waiting = session.queue().iter().any(|q| q.prompt_id == found.prompt_id);
-            if waiting && self.remove_queued_because(session, &found.prompt_id, Some("withdrawn")) {
-                return Ok(outcome(session, &found, "unsent"));
-            }
-            if found.removed || found.retracted.is_some() {
-                let was = if found.removed { "unsent" } else { "retracted" };
-                let mut reply = outcome(session, &found, was);
-                reply["already"] = json!(true);
-                if let Some(via) = found.retracted.as_ref().and_then(|r| r.get("via")) {
-                    reply["via"] = via.clone();
-                }
-                return Ok(reply);
-            }
-            if found.ended || !found.started {
-                return Ok(outcome(session, &found, "too_late"));
-            }
-            self.record_retraction(session, found)
+        let _deciding = DECIDING.get_or_init(|| Mutex::new(())).lock().await;
+        let found = match self.decide(session, by_msg, id)? {
+            Decision::Reply(reply) => return Ok(reply),
+            Decision::Retract(found) => found,
         };
-        let (found, via, notice_id, text) = notice;
-        self.send_notice(session, &found, via, notice_id, text).await;
+        let steer = session.steering.load(Ordering::SeqCst)
+            && session.turn().is_some_and(|t| t.turn_id == found.turn_id);
+        let via = if steer { "steer" } else { "queued" };
+        // One id per attempt: a notice that failed leaves its id in the prompt ledger.
+        let notice_id = format!("{}.withdrawn.{}", found.prompt_id, uuid::Uuid::now_v7());
+        if !self.send_notice(session, &found, steer, &notice_id).await {
+            let message = "the retraction notice did not reach the agent; withdraw again";
+            return Err(refusal(-32000, "withdraw.notice_failed", message));
+        }
+        self.append(
+            session,
+            "mux",
+            "prompt_retracted",
+            json!({"promptId": found.prompt_id, "msgId": found.msg_id(), "turnId": found.turn_id, "via": via, "noticePromptId": notice_id}),
+        );
         let mut reply = outcome(session, &found, "retracted");
         reply["via"] = json!(via);
         Ok(reply)
+    }
+
+    /// Unsends a waiting message, or answers what became of it, or says to retract it.
+    fn decide(&self, session: &Arc<Session>, by_msg: bool, id: &str) -> Result<Decision, RpcError> {
+        let lookup = || {
+            let missing = format!("this session holds no prompt {id}");
+            self.find_withdrawn(session, by_msg, id)
+                .ok_or_else(|| refusal(-32002, "withdraw.not_found", &missing))
+        };
+        let mut found = lookup()?;
+        if found.provenance.is_none() {
+            let message = "the prompt is the person's own, not an agent message";
+            return Err(refusal(-32602, "withdraw.not_a_message", message));
+        }
+        if found.edited {
+            let message = "the person edited this message, so it is no longer the sender's";
+            return Err(refusal(-32602, "withdraw.edited", message));
+        }
+        if session.queue().iter().any(|q| q.prompt_id == found.prompt_id) {
+            if self.remove_queued_because(session, &found.prompt_id, Some("withdrawn")) {
+                return Ok(Decision::Reply(outcome(session, &found, "unsent")));
+            }
+            // It left the queue between the scan and the removal: its turn took it (or another
+            // client removed it). Read the log again; a turn that took it but has not logged
+            // it yet counts as started.
+            found = lookup()?;
+            found.started |= !found.removed;
+        }
+        if found.removed || found.retracted.is_some() {
+            let was = if found.removed { "unsent" } else { "retracted" };
+            let mut reply = outcome(session, &found, was);
+            reply["already"] = json!(true);
+            if let Some(via) = found.retracted.as_ref().and_then(|r| r.get("via")) {
+                reply["via"] = via.clone();
+            }
+            return Ok(Decision::Reply(reply));
+        }
+        if found.ended || !found.started {
+            return Ok(Decision::Reply(outcome(session, &found, "too_late")));
+        }
+        Ok(Decision::Retract(found))
     }
 
     /// The first prompt the log holds under `id` (its provenance `msgId` when `by_msg`, else its
@@ -107,95 +186,65 @@ impl Hub {
     fn find_withdrawn(&self, session: &Session, by_msg: bool, id: &str) -> Option<Found> {
         let mut found: Option<Found> = None;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or_default();
-            if found.is_none() {
-                let hit = if by_msg {
-                    e.msg.pointer("/_meta/provenance/msgId").and_then(Value::as_str) == Some(id)
-                } else {
-                    field("promptId") == id
-                };
-                if hit && matches!(e.kind.as_str(), "queued" | "user_message") {
-                    found = Some(Found {
-                        prompt_id: field("promptId").to_owned(),
-                        turn_id: field("turnId").to_owned(),
-                        provenance: e.msg.pointer("/_meta/provenance").cloned(),
-                        started: e.kind == "user_message",
-                        ..Found::default()
-                    });
-                }
+            if let Some(f) = found.as_mut() {
+                f.follow(&e);
                 return true;
             }
-            let Some(f) = found.as_mut() else { return true };
-            let same_turn = !f.turn_id.is_empty() && field("turnId") == f.turn_id;
-            match e.kind.as_str() {
-                "user_message" | "dequeued" | "turn_started" if same_turn => f.started = true,
-                "queue_removed" if same_turn => f.removed = true,
-                "turn_result" | "turn_end" | "turn_error" | "prompt_refused" if same_turn => {
-                    f.ended = true;
-                }
-                "prompt_retracted" if field("promptId") == f.prompt_id => {
-                    f.retracted = Some(e.msg.clone());
-                }
-                _ => {}
+            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or_default();
+            let hit = if by_msg {
+                e.msg.pointer("/_meta/provenance/msgId").and_then(Value::as_str) == Some(id)
+            } else {
+                field("promptId") == id
+            };
+            if hit && matches!(e.kind.as_str(), "queued" | "user_message") {
+                found = Some(Found {
+                    prompt_id: field("promptId").to_owned(),
+                    turn_id: field("turnId").to_owned(),
+                    provenance: e.msg.pointer("/_meta/provenance").cloned(),
+                    started: e.kind == "user_message",
+                    ..Found::default()
+                });
             }
             true
         });
         found
     }
 
-    /// Records that a running message is retracted, and how its notice goes: steered into its
-    /// turn when the agent steers and that turn runs now, else queued next.
-    fn record_retraction(
-        &self,
-        session: &Session,
-        found: Found,
-    ) -> (Found, &'static str, String, String) {
-        let steer = session.steering.load(Ordering::SeqCst)
-            && session.turn().is_some_and(|t| t.turn_id == found.turn_id);
-        let via = if steer { "steer" } else { "queued" };
+    /// Sends the retraction notice (as the sender's message): steered into the running turn, or
+    /// queued and moved to the head of the queue. True once it is recorded (a resend of a notice
+    /// counts when the log holds it); false when it is refused or not recorded in time.
+    async fn send_notice(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        found: &Found,
+        steer: bool,
+        notice_id: &str,
+    ) -> bool {
         let msg_id = found.msg_id();
         let from = found.provenance.as_ref().and_then(|p| p.get("from")).and_then(Value::as_str);
         let text = format!(
             "The message {msg_id} from {} was withdrawn by its sender; disregard it.",
             from.unwrap_or("its sender")
         );
-        let notice_id = format!("{}.withdrawn", found.prompt_id);
-        self.append(
-            session,
-            "mux",
-            "prompt_retracted",
-            json!({"promptId": found.prompt_id, "msgId": msg_id, "turnId": found.turn_id, "via": via, "noticePromptId": notice_id}),
-        );
-        (found, via, notice_id, text)
-    }
-
-    /// Sends the retraction notice (as the sender's message) and waits until it is recorded:
-    /// steered in, or queued and moved to the head of the queue.
-    async fn send_notice(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        found: &Found,
-        via: &'static str,
-        notice_id: String,
-        text: String,
-    ) {
         let provenance = found.provenance.clone().map(|mut p| {
-            p["replyTo"] = json!(found.msg_id());
-            p["msgId"] = json!(format!("{}.withdrawn", found.msg_id()));
+            p["replyTo"] = json!(msg_id);
+            p["msgId"] = json!(format!("{msg_id}.withdrawn"));
             p
         });
-        let (tx, rx) = oneshot::channel::<()>();
+        let (tx, rx) = oneshot::channel::<bool>();
         let (hub, queued_in) = (self.clone(), session.clone());
         let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |accepted: Value| {
-            if accepted.get("queued") == Some(&json!(true))
+            let duplicate = accepted.get("duplicate") == Some(&json!(true));
+            if !duplicate
+                && accepted.get("queued") == Some(&json!(true))
                 && let Some(id) = accepted.get("promptId").and_then(Value::as_str)
             {
                 hub.move_queued(&queued_in, id, 0);
             }
-            let _ = tx.send(());
+            let _ = tx.send(!duplicate);
         });
         let opts = PromptOptions {
-            prompt_id: Some(notice_id),
+            prompt_id: Some(notice_id.to_owned()),
             on_accepted: Some(on_accepted),
             provenance,
             ..PromptOptions::default()
@@ -203,12 +252,19 @@ impl Hub {
         let (hub, chat) = (self.clone(), session.clone());
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": text})];
-            if let Err(e) = hub.prompt_with(&chat, blocks, "acpmux", via == "steer", opts).await {
+            if let Err(e) = hub.prompt_with(&chat, blocks, "acpmux", steer, opts).await {
                 tracing::warn!(session = %chat.id, "withdraw notice: {}", e.message);
             }
         });
-        if tokio::time::timeout(NOTICE_WAIT, rx).await.is_err() {
-            tracing::warn!(session = %session.id, "withdraw notice not recorded yet");
+        match tokio::time::timeout(NOTICE_WAIT, rx).await {
+            Ok(Ok(true)) => true,
+            // A resend of the notice's id: it counts only if it was recorded the first time.
+            Ok(Ok(false)) => self.find_withdrawn(session, false, notice_id).is_some(),
+            // Refused before it was recorded (the sender dropped), or not recorded in time.
+            Ok(Err(_)) | Err(_) => {
+                tracing::warn!(session = %session.id, "withdraw notice not recorded");
+                false
+            }
         }
     }
 }
