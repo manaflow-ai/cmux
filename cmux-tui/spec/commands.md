@@ -6801,12 +6801,29 @@ off the request loop.
   upload of a hash wins its derived image). No byte of a cloud upload is kept
   after the commit.
 - `cloud-attachment-read` reads through a signed URL the owner mints
-  (`POST /v1/home/attachments/url`), kept for 8 minutes and minted again when
-  it stops answering; `hash` in the result is the part's hash.
+  (`POST /v1/home/attachments/url`) for the lease's person, kept for 8
+  minutes and minted again once when it stops answering (`401`/`403`; a
+  second failure is `attachment.forbidden`, a `404` is `attachment.not_found`,
+  neither retryable). The result differs from the local read in four points:
+  `hash` is the part's hash also for a poster or preview, `mime_type` is the
+  type the owner serves (text types as `text/plain`), `length` 0 reads one
+  byte, and an `offset` at or past the end is refused with `attachment.range`.
 - `cloud-attachment-link` has the owner sign a URL first (its access check),
   then answers a local `/attachments/<token>` path like
   `conversation-attachment-link`; the listener reads the signed URL with the
-  app's lease for each request (`404` when the app holds no lease).
+  app's lease for each request (`404` when the app holds no lease, or a lease
+  of another person than the link's). A type off the allow list is served as
+  `application/octet-stream`.
+
+Upload slot URLs must be on the lease's API origin; only a presigned object
+URL (above 32 MB) may be elsewhere, and then only `https` and not loopback.
+Only `content-type`, `content-length`, `if-none-match` and `x-amz-*` headers of
+the owner's plan are sent, no request follows a redirect, and the bearer goes
+only to the intent, commit and URL calls. A begin that would pass the
+daemon's 32 open uploads is refused before the owner is asked for a slot.
+`chunk` and `cancel` run in the connection's request loop; `begin` and
+`commit` call the cloud. A commit whose cloud send fails drops the bytes; the
+page uploads again.
 
 Cloud refusals keep their `cloud_*` error codes and `reason`.
 

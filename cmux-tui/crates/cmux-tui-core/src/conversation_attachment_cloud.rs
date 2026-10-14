@@ -11,8 +11,8 @@ use std::io::Read;
 use std::time::{Duration, Instant};
 
 use super::{
-    Attachments, MAX_UPLOADS, Piece, Sink, StoredAttachment, UploadDeclaration, declared_record,
-    hex_digest, refused,
+    Attachments, MAX_UPLOADS, PendingPiece, Piece, Sink, StoredAttachment, UploadDeclaration,
+    declared_record, hex_digest, refused,
 };
 use crate::conversation_store::ConversationStore;
 
@@ -21,28 +21,43 @@ const URL_REUSE: Duration = Duration::from_secs(8 * 60);
 /// Signed URLs kept at once.
 const MAX_URLS: usize = 1_024;
 
-/// A cloud upload whose bytes are complete and match their hashes.
+/// A cloud upload whose bytes are complete and match their hashes, taken
+/// out of the store (its partial files are read with [`CloudUpload::bytes`]
+/// after the store lock is released).
 pub(crate) struct CloudUpload {
     pub conversation: String,
     /// The owner's upload plan (its intent answer).
     pub plan: serde_json::Value,
     pub record: StoredAttachment,
-    pub pieces: Vec<(Piece, Vec<u8>)>,
+    pieces: Vec<PendingPiece>,
 }
 
-impl Attachments {
-    fn read_piece(sink: Sink) -> anyhow::Result<Vec<u8>> {
-        match sink {
-            Sink::Memory(bytes) => Ok(bytes),
-            Sink::File { path, file } => {
-                file.sync_all()?;
-                drop(file);
-                let mut bytes = Vec::new();
-                let read = fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
-                let _ = fs::remove_file(&path);
-                read?;
-                Ok(bytes)
+impl CloudUpload {
+    /// The verified bytes of each piece. Every partial file is removed, also
+    /// when a read fails.
+    pub(crate) fn bytes(self) -> anyhow::Result<Vec<(Piece, Vec<u8>)>> {
+        let mut out = Vec::with_capacity(self.pieces.len());
+        let mut failure = None;
+        for piece in self.pieces {
+            let kind = piece.piece;
+            match piece.sink {
+                Sink::Memory(bytes) => out.push((kind, bytes)),
+                Sink::File { path, file } => {
+                    drop(file);
+                    let mut bytes = Vec::new();
+                    let read = fs::File::open(&path).and_then(|mut file| file.read_to_end(&mut bytes));
+                    let _ = fs::remove_file(&path);
+                    match read {
+                        Ok(_) if failure.is_none() => out.push((kind, bytes)),
+                        Ok(_) => {}
+                        Err(error) => failure = failure.or(Some(error)),
+                    }
+                }
             }
+        }
+        match failure {
+            Some(error) => Err(error.into()),
+            None => Ok(out),
         }
     }
 }
@@ -50,6 +65,16 @@ impl Attachments {
 impl ConversationStore {
     /// `begin` of a cloud upload, after the owner answered its intent with a
     /// slot (`plan`). Returns the upload id and the pieces it needs.
+    /// Whether one more upload fits (asked before the owner is asked for a
+    /// slot, so a refused begin never takes the owner's quota).
+    pub(crate) fn cloud_upload_room(&mut self) -> anyhow::Result<()> {
+        self.attachments.expire_uploads(Instant::now());
+        if self.attachments.uploads.len() >= MAX_UPLOADS {
+            return Err(refused("too_many_uploads"));
+        }
+        Ok(())
+    }
+
     pub(crate) fn cloud_upload_begin(
         &mut self,
         client: u64,
@@ -91,16 +116,11 @@ impl ConversationStore {
             Attachments::drop_upload(found);
             return Err(refused(reason));
         }
-        let mut pieces = Vec::with_capacity(found.pieces.len());
-        for piece in found.pieces {
-            let kind = piece.piece;
-            pieces.push((kind, Attachments::read_piece(piece.sink)?));
-        }
         Ok(CloudUpload {
             conversation: found.conversation,
             plan: found.cloud.unwrap_or_default(),
             record: found.record,
-            pieces,
+            pieces: found.pieces,
         })
     }
 

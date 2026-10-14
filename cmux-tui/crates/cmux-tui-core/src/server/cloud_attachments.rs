@@ -39,8 +39,18 @@ fn variant_name(piece: Piece) -> Option<&'static str> {
     }
 }
 
-fn url_key(conversation: &str, hash: &str, piece: Piece) -> String {
-    format!("{conversation}:{hash}:{}", variant_name(piece).unwrap_or("original"))
+/// The lease person (`<audience>:<account>`) cloud reads act for: signed URLs
+/// and links of one person never serve another (a sign-out and sign-in on the
+/// same daemon).
+pub(super) fn lease_identity(service: &CloudConversations) -> anyhow::Result<String> {
+    service
+        .lease_person()
+        .map(|(account, audience)| format!("{audience}:{account}"))
+        .ok_or_else(|| CloudError::SignedOut.into())
+}
+
+fn url_key(lease: &str, conversation: &str, hash: &str, piece: Piece) -> String {
+    format!("{lease}|{conversation}:{hash}:{}", variant_name(piece).unwrap_or("original"))
 }
 
 /// A signed download URL of `piece` of `hash`: the kept one, or a new one
@@ -53,7 +63,7 @@ pub(super) fn signed_url(
     piece: Piece,
     fresh: bool,
 ) -> anyhow::Result<String> {
-    let key = url_key(conversation, hash, piece);
+    let key = url_key(&lease_identity(service)?, conversation, hash, piece);
     if fresh {
         mux.with_conversations(|store| {
             store.forget_cloud_url(&key);
@@ -83,9 +93,16 @@ pub(super) fn cloud_range(
 ) -> anyhow::Result<crate::cloud_conversations::RangeReply> {
     let url = signed_url(mux, service, conversation, hash, piece, false)?;
     match service.attachment_range(&url, offset, length) {
+        // A signed URL that stopped answering (expired, re-keyed): one new one.
         Err(CloudError::Rejected { code, .. }) if code == "attachment.url_expired" => {
             let url = signed_url(mux, service, conversation, hash, piece, true)?;
-            Ok(service.attachment_range(&url, offset, length)?)
+            match service.attachment_range(&url, offset, length) {
+                Err(CloudError::Rejected { code, message, .. }) if code == "attachment.url_expired" => {
+                    Err(CloudError::Rejected { code: "attachment.forbidden".into(), message, retryable: false }
+                        .into())
+                }
+                other => Ok(other?),
+            }
         }
         other => Ok(other?),
     }
@@ -108,8 +125,10 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
                 poster: derived(params.poster, "poster")?,
                 preview: derived(params.preview, "preview")?,
             };
-            // The same rules as the local owner before any network call.
+            // The same rules as the local owner, and room for one more upload,
+            // before the owner is asked for a slot (a slot takes its quota).
             crate::conversation_store::attachments::declared_record(&declaration)?;
+            mux.with_conversations(|store| store.cloud_upload_room())?;
             let mut intent = json!({
                 "sha256": declaration.sha256,
                 "byte_count": declaration.byte_count,
@@ -163,6 +182,7 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
         "commit" => {
             let upload = required(params.upload, "upload")?;
             let taken = mux.with_conversations(|store| store.cloud_upload_take(client, &upload))?;
+            // The files are read after the store lock is released.
             Ok(json!({"stored": send_upload(service, taken)?}))
         }
         "cancel" => {
@@ -176,13 +196,20 @@ pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Resul
     }
 }
 
-/// The plan's `headers` object as header pairs (strings only).
+/// The plan's `headers` object as header pairs: only the ones an upload
+/// slot or a presigned object PUT needs (strings only).
 fn plan_headers(value: &Value) -> Vec<(String, String)> {
+    let allowed = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        matches!(name.as_str(), "content-type" | "content-length" | "if-none-match")
+            || name.starts_with("x-amz-")
+    };
     value
         .as_object()
         .map(|headers| {
             headers
                 .iter()
+                .filter(|(name, _)| allowed(name))
                 .filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_string())))
                 .collect()
         })
@@ -193,7 +220,10 @@ fn plan_headers(value: &Value) -> Vec<(String, String)> {
 /// owner refuses the file until it has it), then the file. Answers the
 /// owner's record of the hash.
 fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Result<Value> {
-    let CloudUpload { conversation, plan, record, pieces } = upload;
+    let conversation = upload.conversation.clone();
+    let plan = upload.plan.clone();
+    let record = upload.record.clone();
+    let pieces = upload.bytes()?;
     let mut original = None;
     for (piece, bytes) in pieces {
         match variant_name(piece) {
@@ -203,7 +233,7 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
                 let url = slot["upload_url"]
                     .as_str()
                     .ok_or_else(|| CloudError::Unavailable(format!("no {variant} upload slot")))?;
-                service.attachment_put(url, &plan_headers(&slot["headers"]), bytes)?;
+                service.attachment_put(url, &plan_headers(&slot["headers"]), bytes, true)?;
             }
         }
     }
@@ -211,8 +241,10 @@ fn send_upload(service: &CloudConversations, upload: CloudUpload) -> anyhow::Res
     let url = plan["upload_url"]
         .as_str()
         .ok_or_else(|| CloudError::Unavailable("no upload slot".into()))?;
-    let answer = service.attachment_put(url, &plan_headers(&plan["headers"]), bytes)?;
-    let committed = if plan["mode"] == "presigned" {
+    let presigned = plan["mode"] == "presigned";
+    // A Worker slot is on the lease's origin; only a presigned object URL may be elsewhere.
+    let answer = service.attachment_put(url, &plan_headers(&plan["headers"]), bytes, !presigned)?;
+    let committed = if presigned {
         let slot = plan["slot"]
             .as_str()
             .ok_or_else(|| CloudError::Unavailable("a presigned slot without its id".into()))?;
@@ -256,8 +288,9 @@ pub(super) fn link(mux: &Mux, client: u64, params: LinkParams) -> anyhow::Result
     let name = checked_name(name)?;
     signed_url(mux, service, &conversation, &hash, piece, false)?;
     let actor = mux.conversation_principal(client);
+    let lease = lease_identity(service)?;
     let token = mux.with_conversations(|store| {
-        store.attachment_cloud_link(&actor, &conversation, &hash, piece, name)
+        store.attachment_cloud_link(&actor, &conversation, &hash, piece, name, lease)
     })?;
     Ok(link_reply(&token))
 }

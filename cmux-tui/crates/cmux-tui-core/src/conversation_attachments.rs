@@ -942,6 +942,8 @@ impl ConversationStore {
             .attachments
             .uploads
             .values()
+            // A cloud upload's bytes leave at its commit; they never take local room.
+            .filter(|upload| upload.cloud.is_none())
             .flat_map(|upload| upload.pieces.iter().map(|piece| piece.byte_count))
             .sum();
         Ok(u64::try_from(stored).unwrap_or(0) + in_flight)

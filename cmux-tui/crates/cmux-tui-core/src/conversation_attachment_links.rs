@@ -32,6 +32,9 @@ pub(crate) struct Link {
     /// A cloud conversation's attachment: read through the cloud owner's
     /// signed URL with the lease, never from this store.
     pub cloud: bool,
+    /// The cloud lease person the link was made for (`<audience>:<account>`);
+    /// a link of another person's lease reads nothing.
+    pub lease: String,
     expires: Instant,
 }
 
@@ -66,7 +69,7 @@ impl ConversationStore {
     ) -> anyhow::Result<String> {
         // A zero-length read runs every check (participant, record, variant).
         self.attachment_read(actor, conversation, hash, piece, 0, 0)?;
-        self.insert_link(actor, conversation, hash, piece, name, false)
+        self.insert_link(actor, conversation, hash, piece, name, String::new())
     }
 
     /// A link to a cloud conversation's attachment; the caller already had the
@@ -78,8 +81,9 @@ impl ConversationStore {
         hash: &str,
         piece: Piece,
         name: Option<String>,
+        lease: String,
     ) -> anyhow::Result<String> {
-        self.insert_link(actor, conversation, hash, piece, name, true)
+        self.insert_link(actor, conversation, hash, piece, name, lease)
     }
 
     fn insert_link(
@@ -89,8 +93,9 @@ impl ConversationStore {
         hash: &str,
         piece: Piece,
         name: Option<String>,
-        cloud: bool,
+        lease: String,
     ) -> anyhow::Result<String> {
+        let cloud = !lease.is_empty();
         let now = Instant::now();
         if self.attachments.links.len() >= MAX_LINKS {
             self.attachments.drop_expired_links(now);
@@ -111,6 +116,7 @@ impl ConversationStore {
                 piece,
                 name,
                 cloud,
+                lease,
                 expires: now + LINK_TTL,
             },
         );

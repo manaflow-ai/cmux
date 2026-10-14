@@ -423,6 +423,11 @@ pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
 
 /// Whether `cmd` calls the cloud and should leave the request loop.
 pub(super) fn is_network(cmd: &Command) -> bool {
+    // An upload's chunks and cancel stay local (the store only); begin and
+    // commit call the cloud.
+    if let Command::CloudAttachmentUpload(params) = cmd {
+        return params.op == "begin" || params.op == "commit";
+    }
     matches!(
         cmd,
         Command::CloudInboxList(_)
@@ -434,7 +439,6 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationOp(_)
             | Command::CloudInboxOp(_)
             | Command::CloudMuxAck(_)
-            | Command::CloudAttachmentUpload(_)
             | Command::CloudAttachmentRead(_)
             | Command::CloudAttachmentLink(_)
     )

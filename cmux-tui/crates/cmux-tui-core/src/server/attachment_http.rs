@@ -130,8 +130,11 @@ fn respond_cloud(
     mux: &Mux,
     link: &Link,
 ) -> std::io::Result<()> {
-    let Some(service) = mux.cloud_conversations().filter(|service| service.app_holds_lease())
-    else {
+    // The app's lease, of the same person the link was made for.
+    let Some(service) = mux.cloud_conversations().filter(|service| {
+        service.app_holds_lease()
+            && super::cloud_attachments::lease_identity(service).is_ok_and(|lease| lease == link.lease)
+    }) else {
         return stream.write_all(&plain(404, "Not Found"));
     };
     let read = |offset: u64, length: u64| {
@@ -149,7 +152,12 @@ fn respond_cloud(
     let Ok(probe) = read(0, 1) else { return stream.write_all(&plain(404, "Not Found")) };
     let Some(total) = probe.total else { return stream.write_all(&plain(502, "Bad Gateway")) };
     let content_type = probe.content_type.unwrap_or_else(|| "application/octet-stream".into());
-    let mime = content_type.split(';').next().unwrap_or("").trim().to_string();
+    let mut mime = content_type.split(';').next().unwrap_or("").trim().to_string();
+    // Only a type on the allow list keeps its name (text types come back as
+    // text/plain); anything else downloads as bytes.
+    if cmux_conversation::attachment_class(&mime).is_none() && mime != "text/plain" {
+        mime = "application/octet-stream".into();
+    }
     let range = match head.values("range").first() {
         None => None,
         Some(value) => match parse_range(value, total) {

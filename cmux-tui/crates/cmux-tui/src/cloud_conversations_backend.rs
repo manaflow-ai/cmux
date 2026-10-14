@@ -49,6 +49,9 @@ enum WireAuth {
 pub(crate) struct RemoteCloudBackend {
     runtime: tokio::runtime::Runtime,
     http: reqwest::Client,
+    /// Attachment slot and signed URLs: never follows a redirect (the URL
+    /// the daemon checked is the one it talks to).
+    files: reqwest::Client,
 }
 
 impl RemoteCloudBackend {
@@ -66,7 +69,12 @@ impl RemoteCloudBackend {
             .connect_timeout(CONNECT_TIMEOUT)
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http })
+        let files = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        Ok(Self { runtime, http, files })
     }
 }
 
@@ -135,7 +143,7 @@ impl CloudBackend for RemoteCloudBackend {
         headers: &[(String, String)],
         body: Vec<u8>,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self.http.put(url).timeout(UPLOAD_TIMEOUT).body(body);
+        let mut request = self.files.put(url).timeout(UPLOAD_TIMEOUT).body(body);
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
@@ -156,7 +164,7 @@ impl CloudBackend for RemoteCloudBackend {
     fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
         let last = offset + length.max(1) - 1;
         let request = self
-            .http
+            .files
             .get(url)
             .timeout(RANGE_TIMEOUT)
             .header(reqwest::header::RANGE, format!("bytes={offset}-{last}"));
@@ -177,17 +185,22 @@ impl CloudBackend for RemoteCloudBackend {
                 None if status == 200 => response.content_length(),
                 None => None,
             };
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
-            // A 200 (no range support) carries everything: keep only the asked slice.
-            let body = if status == 200 {
-                let start = usize::try_from(offset).unwrap_or(usize::MAX).min(bytes.len());
-                let end = start
-                    .saturating_add(usize::try_from(length).unwrap_or(usize::MAX))
-                    .min(bytes.len());
-                bytes[start..end].to_vec()
-            } else {
-                bytes.to_vec()
-            };
+            // A server that ignores the range answers 200 with everything: only
+            // a read from the start can use it, and only its first `length` bytes.
+            if status == 200 && offset > 0 {
+                return Err(TransportError("the attachment server ignored the byte range".into()));
+            }
+            let limit = usize::try_from(length).unwrap_or(usize::MAX);
+            let mut response = response;
+            let mut body = Vec::with_capacity(limit.min(1 << 20));
+            while body.len() < limit {
+                match response.chunk().await.map_err(|error| transport(&error))? {
+                    Some(chunk) => {
+                        body.extend_from_slice(&chunk[..chunk.len().min(limit - body.len())]);
+                    }
+                    None => break,
+                }
+            }
             Ok(RangeReply { status, content_type, total, body })
         })
     }
