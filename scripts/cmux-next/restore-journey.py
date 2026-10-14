@@ -1215,7 +1215,7 @@ def seeded(before):
                 # window-level click does not reach a WebKit page there; WebKit's Back keeps
                 # script-added entries, so its seed falls back to the script click.
                 *([("both link clicks were posted mouse clicks", len(HIST.get("clicks", [])) == 2 and "script" not in HIST["clicks"])]
-                  if (rpc("settings.get", {"path": "browser.defaultEngine"}) or {}).get("value") == "chromium" else []),
+                  if engine() == "chromium" else []),
                 ("history page has three entries", before.get("page[hist].history_length") == 3),
                 ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
@@ -1366,15 +1366,18 @@ def load_rows(variant, launched):
     if opts.hist_file:
         # Only a report the reopened page sent counts (a pre-quit one would pass falsely).
         fresh = REPORTS.get("hist") if (REPORTS.get("hist") or {}).get("at", 0) > launched else {}
-        # Against the page loaded fresh, as for reads: WebKit's file pages see their own folder
-        # only (0), Chromium's show other local images by default (1); a reopen must not widen that.
+        # Against the page loaded fresh: Chromium's file pages show other local images by default
+        # (1); WebKit's see their own folder only, so on WebKit the ceiling stays 0 whatever the
+        # fresh load showed. A reopen must not widen either.
         ext = fresh.get("ext")
+        ceiling = 0 if engine() != "chromium" else max(LIVE_READ.get("hist_ext") or 0, 0)
         RESULTS.append((f"{variant}: page[hist] shows no more outside its folder than a fresh load",
-                        ext is not None and 0 <= ext <= max(LIVE_READ.get("hist_ext") or 0, 0),
-                        f"probe {ext} after the reopen, {LIVE_READ.get('hist_ext')} on the page loaded fresh (1 shown, 0 refused, -1 no probe)", "browser"))
+                        ext is not None and 0 <= ext <= ceiling,
+                        f"probe {ext} after the reopen, {LIVE_READ.get('hist_ext')} on the page loaded fresh, at most {ceiling} (1 shown, 0 refused, -1 no probe)", "browser"))
+        # Reading a file outside the page's folder stays refused on both engines, fresh or reopened.
         read = fresh.get("read")
-        RESULTS.append((f"{variant}: page[hist] reads no more outside its folder than a fresh load",
-                        read is not None and 0 <= read <= max(LIVE_READ.get("hist") or 0, 0),
+        RESULTS.append((f"{variant}: page[hist] reads nothing outside its folder",
+                        read == 0,
                         f"read {read} after the reopen, {LIVE_READ.get('hist')} on the page loaded fresh (1 read, 0 refused, -1 no probe)", "browser"))
 
 
@@ -1396,6 +1399,8 @@ def journey(base):
             # The seeded page, loaded fresh by link clicks: what a fresh load may read.
             LIVE_READ["hist"] = REPORTS["hist"].get("read")
             LIVE_READ["hist_ext"] = REPORTS["hist"].get("ext")
+            RESULTS.append(("seed web: the file page loaded fresh reads nothing outside its folder", LIVE_READ["hist"] == 0,
+                            f"read {LIVE_READ['hist']} (1 read, 0 refused, -1 no probe)", "seed"))
         started = SINCE = time.time()
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
@@ -1429,6 +1434,11 @@ def journey(base):
         compare(variant, before, snapshot(f"{variant}-after"))
         load_rows(variant, launched)
         back_walk(f"{variant} after the reopen")
+
+
+def engine():
+    """The app's browser engine for new pages (`webkit` or `chromium`)."""
+    return (rpc("settings.get", {"path": "browser.defaultEngine"}) or {}).get("value")
 
 
 ENGINE_CONFIG = {}  # the slot settings file --engine changed: {"path", "text"} to put back
