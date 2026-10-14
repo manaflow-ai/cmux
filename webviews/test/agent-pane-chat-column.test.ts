@@ -219,11 +219,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
   const REST_SLACK = 4;
   /// How far the last line of text sits above the view's bottom once the thread has stopped
-  /// gliding: a row placed by its drawn height late slides there over 180 ms, and a loaded runner
-  /// can still be in that slide when the frames stop.
+  /// gliding (looping animations, a streaming mark, never end): a row placed by its drawn height
+  /// late slides there over 180 ms, and a loaded runner can still be in that slide when the frames
+  /// stop.
   const restingLastLine = async (page: Page): Promise<number> => {
     await page.waitForFunction(
-      () => document.querySelector(".acpmux-scroll")!.getAnimations({ subtree: true }).length === 0,
+      () =>
+        document
+          .querySelector(".acpmux-scroll")!
+          .getAnimations({ subtree: true })
+          .every((animation) => animation.effect?.getTiming().iterations === Infinity),
       null,
       { timeout: 5_000 },
     );
