@@ -93,10 +93,11 @@ public final class AgentTurnStateFeed {
     nonisolated enum Message: Sendable {
         /// The watch result: every session's state, last message and the muted sessions.
         case page(AgentTurnStates, lastMessages: [String: String], muted: Set<String>, titles: [String: String],
-                  lanes: [String: AgentActivityLane])
+                  details: [String: AgentChatDetail], lanes: [String: AgentActivityLane])
         /// One `_acpmux/session_changed`: the session's new state (nil: none, or purged), last
         /// message and mute.
-        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?, lane: AgentActivityLane?)
+        case change(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
+                    detail: AgentChatDetail?, lane: AgentActivityLane?)
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
@@ -104,12 +105,14 @@ public final class AgentTurnStateFeed {
                 var states = AgentTurnStates()
                 states.reset(result)
                 self = .page(states, lastMessages: AgentTurnStates.lastMessages(result), muted: AgentTurnStates.muted(result: result),
-                             titles: AgentTurnStates.titles(result), lanes: Self.lanes(result))
+                             titles: AgentTurnStates.titles(result), details: AgentChatDetail.details(result), lanes: Self.lanes(result))
             } else if message["method"] as? String == "_acpmux/session_changed", let params = message["params"] as? [String: Any],
                       let change = AgentTurnStates.change(params) {
                 let summary = params["kind"] as? String == "purged" ? nil : params["session"] as? [String: Any]
                 self = .change(session: change.session, state: change.state, lastMessage: change.lastMessage, muted: change.muted,
-                               title: change.title, lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session, title: change.title) })
+                               title: change.title,
+                               detail: (params["session"] as? [String: Any]).flatMap(AgentChatDetail.of(summary:)),
+                               lane: summary.flatMap { AgentActivityLane.of(summary: $0, id: change.session, title: change.title) })
             } else {
                 return nil
             }
@@ -127,15 +130,16 @@ public final class AgentTurnStateFeed {
 
     private func handle(_ message: Message) {
         switch message {
-        case .page(let states, let lastMessages, let muted, let titles, let lanes):
+        case .page(let states, let lastMessages, let muted, let titles, let details, let lanes):
             backoff.reset()
             if !turns.watching { turns.watching = true }
             if turns.states != states { turns.states = states }
             if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
             if turns.muted != muted { turns.muted = muted }
             if turns.titles != titles { turns.titles = titles }
+            if turns.details != details { turns.details = details }
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
-        case .change(let session, let state, let lastMessage, let muted, let title, let lane):
+        case .change(let session, let state, let lastMessage, let muted, let title, let detail, let lane):
             // Most session records leave the indicator as it was: write (and so redraw the
             // tabs and rows that observe the store) only when the state differs.
             if turns.states[session] != state { turns.states.set(session, state) }
@@ -144,6 +148,7 @@ public final class AgentTurnStateFeed {
                 if muted { turns.muted.insert(session) } else { turns.muted.remove(session) }
             }
             if turns.titles[session] != title { turns.titles[session] = title }
+            if turns.details[session] != detail { turns.details[session] = detail }
             if lanes.lanes[session] != lane { lanes.lanes[session] = lane }
         }
     }
@@ -155,6 +160,7 @@ public final class AgentTurnStateFeed {
         turns.watching = false
         turns.states.clear()
         turns.lastMessages = [:]
+        turns.details = [:]
         turns.muted = []
         lanes.lanes = [:]
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.

@@ -1581,18 +1581,21 @@ object{
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
   agent?:string|null,
-  updated_at_ms:uint64
+  updated_at_ms:uint64,
+  since_ms?:uint64
 }
 ```
 
 Meaning: The current agent state for a surface changed. `agent` is the
-adapter identity when the producer knows it. Hook authority and source
+adapter identity when the producer knows it. `since_ms` is when the agent
+entered `state` (a report that keeps the state keeps it; after a daemon restart it is the
+last report's time; senders before it omit it, so use `updated_at_ms`). Hook authority and source
 precedence follow `commands.md`.
 
 Example:
 
 ```json
-{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000}
+{"event":"agent-changed","surface":1,"state":"blocked","source":"hook","session":"abc","agent":"claude","updated_at_ms":1710000000000,"since_ms":1709999940000}
 ```
 
 The earlier draft name `agent-state-changed` is not emitted. Clients must

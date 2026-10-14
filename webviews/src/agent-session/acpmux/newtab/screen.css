@@ -137,6 +137,11 @@
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }
 .nt-cards[data-variant="list"] .nt-card-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+/* Capped only to leave a preview its room: a title alone runs to the time column (Leo 2026-10-13). */
+.nt-cards[data-variant="list"] .nt-card-title:not(:last-child) {
   flex: none;
   max-width: 45%;
 }
