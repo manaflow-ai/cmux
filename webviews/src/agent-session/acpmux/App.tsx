@@ -763,6 +763,8 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 function RowFrame({
   row,
   kind,
+  joinsPrevious,
+  joinsNext,
   index,
   setSize,
   top,
@@ -783,6 +785,10 @@ function RowFrame({
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
+  joinsPrevious: boolean;
+  /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
+  joinsNext: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -828,14 +834,14 @@ function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -875,6 +881,9 @@ function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
+/// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
+const isStepRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1833,6 +1842,8 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
+                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
+                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}

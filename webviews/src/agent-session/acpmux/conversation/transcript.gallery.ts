@@ -531,7 +531,7 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      note: "Play: a thought shows in full on its row, wrapped after a muted Thought label, with nothing to open and no tooltip (Leo 2026-10-13).",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -550,18 +550,15 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
-        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
-        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
-        if (ctx.document.body.textContent?.includes("jittered backoff"))
-          throw new Error("a closed thought shows only its first line");
-        await ctx.click({ selector: "button.cv-thought" });
-        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
-        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+        const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
+          throw new Error("a thought is a row of text, not a toggle");
+        if (row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
     "thought-find": {
-      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      note: "Play: Find in Chat for a word in a thought marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
         longFrameFailMs: {
           value: 80,
@@ -570,7 +567,7 @@ export default agentPaneEntry({
         },
         layoutShiftMax: {
           value: 0.01,
-          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+          reason: "Find opens the fold that holds the match, which moves the rows below on purpose.",
         },
       },
       snapshot: chat([
@@ -604,7 +601,7 @@ export default agentPaneEntry({
         };
         await ctx.waitFor(() => active() !== undefined);
         const at = active()!.startContainer.parentElement;
-        if (!at?.closest(".cv-thought__body"))
+        if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
     },
