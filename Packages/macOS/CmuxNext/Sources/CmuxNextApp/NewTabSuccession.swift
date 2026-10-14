@@ -135,15 +135,30 @@ struct NewTabSuccession {
         return snapshot
     }
 
+    /// By pane model: a provisional tab whose daemon tab took its cell (`swappingProvisional`),
+    /// kept off the strip until the store stops listing it.
+    private static var replaced: [ObjectIdentifier: StripTabID] = [:]
+
     /// `snapshot` without a provisional tab its own daemon tab already replaced. A resync snapshot
     /// adds the daemon's tab with no transaction, and until the create's reply names it the store
     /// shows the provisional tab again at the pane's end (`IntentOverlay.restore`): both listed,
     /// the daemon tab right before it. Shown as listed, that was a second tab growing in beside
     /// the provisional one shrinking away (cx-codh2 insertion traces, 3, 10 and 20 tabs). One new
     /// tab of the provisional one's kind and page directly before it is that swap: the strip
-    /// shows it now, and `order` hands the new tab the provisional tab's cell.
-    private static func swappingProvisional(_ snapshot: PaneController.Snapshot, shown: Set<StripTabID>,
+    /// shows it now (`order` hands it the provisional tab's cell), selects it if the provisional
+    /// tab was selected, and leaves the provisional tab out on every apply until the store drops it.
+    private static func swappingProvisional(_ reported: PaneController.Snapshot, shown: Set<StripTabID>,
                                             in pane: PaneController) -> PaneController.Snapshot {
+        let key = ObjectIdentifier(pane.pane)
+        var snapshot = reported
+        if let gone = replaced[key] {
+            guard snapshot.items.contains(where: { $0.id == gone }) else {
+                replaced[key] = nil
+                return snapshot
+            }
+            snapshot.items.removeAll { $0.id == gone }
+            return snapshot
+        }
         let items = snapshot.items
         guard let last = items.last, shown.contains(last.id), ProvisionalTab.isProvisional(last.id.rawValue), items.count > 1 else { return snapshot }
         let fresh = items.filter { !shown.contains($0.id) }
@@ -151,7 +166,12 @@ struct NewTabSuccession {
               let provisional = pane.pane.tabs.first(where: { $0.id == last.id.rawValue }),
               let tab = pane.pane.tabs.first(where: { $0.id == fresh[0].id.rawValue }),
               !ProvisionalTab.isProvisional(tab.id), tab.kind == provisional.kind, tab.page == provisional.page else { return snapshot }
-        var snapshot = snapshot
+        replaced[key] = last.id
+        // Selection follows the swap: resolved without the provisional tab, it would fall back to
+        // the neighbor, and the create's reply only selects the new tab while the provisional one is.
+        if pane.state?.selection.selection(in: pane.paneKey) == last.id.rawValue {
+            pane.state?.selection.select(tab.id, in: pane.paneKey)
+        }
         snapshot.items.removeLast()
         return snapshot
     }
