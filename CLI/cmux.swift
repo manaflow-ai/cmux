@@ -36753,11 +36753,16 @@ export const CMUXSessionRestore = async (ctx) => {
   return createCMUXSessionRestore(ctx);
 };
 
+// Released OpenCode calls `server(ctx)` inside each TUI process with the
+// project server context. Old V2 snapshots called it from a shared service
+// without that context, so only subscribe when it is present.
+function isTUIProcessServerContext(ctx) {
+  return Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
+}
+
 export default {
   id: "cmux.server",
-  // Keep the legacy server entry inert in V2. Session hooks run from the
-  // per-TUI ./tui entrypoint so a shared service never reuses one TUI's IDs.
-  server() { return {}; },
+  server(ctx) { return isTUIProcessServerContext(ctx) ? CMUXSessionRestore(ctx) : {}; },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };
