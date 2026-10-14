@@ -7,7 +7,8 @@ import CmuxNextWakeups
 /// and the Mac can afford it, and holds its frame otherwise:
 ///
 /// - the window is visible (not occluded, minimized or hidden with the app), the screens are
-///   awake and the session is the active one;
+///   awake and the session is the active one, and other windows hide less than nearly all of it
+///   (``BackdropCoverage``: AppKit calls a window visible while any pixel of it shows);
 /// - not in Low Power Mode, and the thermal state is below serious;
 /// - looping motion is allowed (`Motion.animatesLoops`: Reduce Motion or animation speed "off"
 ///   holds the frame it is on; before the first frame the art view below shows the poster).
@@ -25,11 +26,15 @@ public final class BackdropVideoView: NSView {
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
+    /// Tests: the windows above this one, in place of the screen's.
+    public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     private let players: BackdropVideoPlayers
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
+    private var coverage = BackdropCoverage()
+    private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
         self.players = players
@@ -79,6 +84,7 @@ public final class BackdropVideoView: NSView {
 
     private func detach() {
         readyObservation = nil
+        stopCoverage()
         guard let url, playerLayer.player != nil else { return }
         players.detach(url, viewer: ObjectIdentifier(self))
         playerLayer.player = nil
@@ -89,7 +95,10 @@ public final class BackdropVideoView: NSView {
     public var isPlaying: Bool { (playerLayer.player?.rate ?? 0) > 0 }
 
     /// Whether this view asks its player to run: shown, seen, and allowed to move.
-    public var wantsPlayback: Bool {
+    public var wantsPlayback: Bool { seen && !coverage.resting }
+
+    /// Everything ``wantsPlayback`` asks but coverage, which is sampled only while this holds.
+    private var seen: Bool {
         guard url != nil, !isHidden, let window else { return false }
         let visible = visibleOverride ?? (window.occlusionState.contains(.visible) && !window.isMiniaturized && !NSApp.isHidden)
         let lowPower = lowPowerOverride ?? ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -119,17 +128,74 @@ public final class BackdropVideoView: NSView {
     }
 
     private func update() {
-        guard let url, playerLayer.player != nil else { return }
+        guard let url, playerLayer.player != nil else { return stopCoverage() }
+        if seen {
+            startCoverage()
+        } else {
+            stopCoverage()
+        }
         players.setPlaying(wantsPlayback, url, viewer: ObjectIdentifier(self))
+    }
+
+    /// Samples how much of the window other windows hide, and rests or resumes the video on it.
+    public func sampleCoverage() {
+        guard let window else { return }
+        let above = windowsAboveOverride?() ?? BackdropCoverage.windows(above: window.windowNumber)
+        let resting = coverage.resting
+        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
+        if coverage.resting != resting { update() }
+    }
+
+    /// The numbers of a window's child windows, theirs, and so on: its overlay panel and page windows.
+    static func descendants(of window: NSWindow) -> Set<Int> {
+        var numbers: Set<Int> = []
+        var pending = window.childWindows ?? []
+        while let child = pending.popLast() {
+            // A child never put on screen has no number yet; 0 would hide every unnumbered window.
+            if child.windowNumber > 0 { numbers.insert(child.windowNumber) }
+            pending += child.childWindows ?? []
+        }
+        return numbers
+    }
+
+    /// A window frame in CGWindowList's space: origin at the top left of the main display.
+    static func screenFrame(_ frame: NSRect) -> CGRect {
+        let top = NSScreen.screens.first?.frame.maxY ?? frame.maxY
+        return CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
+    }
+
+    private func startCoverage() {
+        guard !coverageTimer.isScheduled else { return }
+        scheduleCoverage()
+    }
+
+    private func scheduleCoverage() {
+        coverageTimer.schedule(after: .seconds(BackdropCoverage.interval)) { @MainActor [weak self] in
+            self?.coverageFired()
+        }
+    }
+
+    /// One sample a deadline, then the next deadline while the video is still seen.
+    private func coverageFired() {
+        sampleCoverage()
+        if seen, url != nil, playerLayer.player != nil { scheduleCoverage() }
+    }
+
+    /// Stops sampling; coverage seen before the window was hidden or closed is stale.
+    private func stopCoverage() {
+        coverageTimer.cancel()
+        coverage.reset()
     }
 
     private func observe() {
         let app = NotificationCenter.default, workspace = NSWorkspace.shared.notificationCenter
         var names: [(NotificationCenter, Notification.Name, AnyObject?)] = [
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
-            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSApplication.didHideNotification, nil),
+            (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
+            (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
             (app, NSApplication.didUnhideNotification, nil), (app, Notification.Name.NSProcessInfoPowerStateDidChange, nil),
             (app, ProcessInfo.thermalStateDidChangeNotification, nil), (app, Motion.reduceMotionDidChange, nil),
+            (app, Motion.speedDidChange, nil),
             (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
         ]
         names.append((app, NSWindow.willCloseNotification, window))
@@ -148,6 +214,8 @@ public final class BackdropVideoView: NSView {
         switch name {
         // A closed window keeps its views: hand the shared player back now, not when the view goes.
         case NSWindow.willCloseNotification: return detach()
+        // A window brought to the front shows: play now; the next samples rest it again if needed.
+        case NSWindow.didBecomeMainNotification, NSWindow.didBecomeKeyNotification: coverage.reset()
         case NSWorkspace.screensDidSleepNotification: screensAsleep = true
         case NSWorkspace.screensDidWakeNotification: screensAsleep = false
         case NSWorkspace.sessionDidResignActiveNotification: sessionInactive = true

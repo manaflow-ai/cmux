@@ -315,7 +315,7 @@ body {
   background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
   -webkit-backdrop-filter: blur(30px);
   backdrop-filter: blur(30px);
-  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  box-shadow: var(--elevation-2);
   color: var(--agent-text);
 }
 .proto-row-settings h2 {
@@ -396,7 +396,7 @@ body {
   background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
   -webkit-backdrop-filter: blur(30px);
   backdrop-filter: blur(30px);
-  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  box-shadow: var(--elevation-2);
   overflow: hidden;
 }
 .proto-history header {
@@ -692,7 +692,7 @@ body {
   background: color-mix(in srgb, var(--agent-surface, var(--agent-page-bg)) 94%, transparent);
   -webkit-backdrop-filter: blur(40px) saturate(1.2);
   backdrop-filter: blur(40px) saturate(1.2);
-  box-shadow: 0 24px 64px rgb(0 0 0 / 50%);
+  box-shadow: var(--elevation-2);
   overflow: hidden;
   animation: proto-mini-in 0.2s ease-out;
 }
