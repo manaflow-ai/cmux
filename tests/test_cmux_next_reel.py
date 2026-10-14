@@ -184,7 +184,8 @@ class PublishTests(unittest.TestCase):
                 self.assertEqual(body["branch"], "pr-media")
                 self.assertEqual(base64.b64decode(body["content"]), (out / name).read_bytes())
                 self.assertIn(f"{RAW}nightly-next/100/{name}", done.stdout)
-            self.assertEqual(len(puts), 3)
+            # The page goes up last, so it never links a reel that failed to upload.
+            self.assertEqual([put["route"].rsplit("/", 1)[1] for put in puts], ["reel.mp4", "reel.json", "index.html"])
 
     def test_publish_is_refused_with_a_dry_run(self):
         done = reel("--build", "100", "--out", "/nonexistent", "--dry-run", "--publish")
