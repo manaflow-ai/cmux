@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentQuestion
 import CnxArtifacts
+import CmuxAgentBrands
 import CnxDesign
 import CnxDiff
 import CnxMarkdown
@@ -139,8 +140,9 @@ public final class AgentChatSurface {
         switch command {
         case .chatSend(let prompt):
             Task {
-                composerFocused = true
-                try? await Task.sleep(for: .milliseconds(500))
+                // Text goes into the composer without focusing it: a raised keyboard on a
+                // fresh simulator shows the system's swipe-typing tip over the composer.
+                // The composer expands because it has content.
                 for character in prompt {
                     text.append(character)
                     try? await Task.sleep(for: .milliseconds(28))
@@ -148,7 +150,6 @@ public final class AgentChatSurface {
                 try? await Task.sleep(for: .milliseconds(400))
                 store.send(prompt: text)
                 text = ""
-                composerFocused = false
             }
         case .chatScroll(let toTop):
             following = !toTop
@@ -265,6 +266,7 @@ public struct AgentChatScreen: View {
                 .foregroundStyle(.primary)
                 .frame(maxWidth: 240)
             }
+            .menuOrder(.fixed)
             .accessibilityLabel(Text("\(store.displayTitle), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
@@ -275,6 +277,8 @@ public struct AgentChatScreen: View {
                     .disabled(!store.isRunning)
             } label: {
                 Image(systemName: "ellipsis")
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
             .accessibilityLabel("More")
         }
@@ -400,8 +404,8 @@ struct AgentChatEmptyState: View {
     var body: some View {
         if store.turns.isEmpty {
             VStack(spacing: 12) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 22))
+                // The agent's own mark (the Claude or Codex logo), not a generic glyph.
+                AgentBrandMark(agent: store.summary.harness, size: 24, style: .brand)
                     .frame(width: 48, height: 48)
                     .background(Color.cnxSurfaceRaised, in: .circle)
                 Text("What should \(store.summary.agentName) do?").font(.title3.weight(.semibold))
@@ -436,7 +440,9 @@ struct AgentChatJumpButton: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .background(Color.cnxBackground.opacity(0.72), in: .circle)
+                // A tinted glass disc, so transcript text under it never reads through the arrow.
+                .glassEffect(.regular.tint(Color.cnxBackground.opacity(0.35)).interactive(), in: .circle)
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
@@ -848,7 +854,7 @@ struct AnswerActionRow: View {
     @State private var copied = false
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             IconAction(copied ? "checkmark" : "doc.on.doc", label: "Copy") {
                 UIPasteboard.general.string = turn.answerMarkdown
                 withAnimation(.cnxSnap) { copied = true }
@@ -880,8 +886,10 @@ struct AnswerActionRow: View {
                     .lineLimit(1).fixedSize()
             }
         }
+        // 44 pt targets on a 32 pt visual row: the extra height overlaps the row's margins.
+        .padding(.vertical, -6)
         .padding(.top, 2)
-        .padding(.leading, -8)
+        .padding(.leading, -14)
     }
 }
 #endif

@@ -132,7 +132,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// for wrapping text.)
     private static func measuring(_ view: AnyView, alignment: Alignment, report: @escaping (CGFloat) -> Void) -> AnyView {
         AnyView(
-            view
+            ProposedWidthLayout {
+                view
+            }
                 .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { report($0) }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
@@ -297,7 +299,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             jump.isUserInteractionEnabled = surface.showJump
             NSLayoutConstraint.activate([
                 jump.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-                jump.bottomAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -4),
+                jump.bottomAnchor.constraint(equalTo: dockGuide.topAnchor, constant: -8),
                 jump.widthAnchor.constraint(equalToConstant: Self.jumpHostSize),
                 jump.heightAnchor.constraint(equalToConstant: Self.jumpHostSize),
             ])
@@ -766,6 +768,25 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         _ = (surface.stackHeight, surface.stackMaxY, surface.composerFocused, surface.showJump)
         controller.isEmpty = isEmpty
         controller.update(identity: identity, content: content, empty: empty, dock: dock, jump: jump)
+    }
+}
+
+/// Takes exactly the proposed width, whatever its content asks for. At accessibility
+/// sizes a row that cannot shrink (a long unbreakable word, a fixed-size label) made
+/// the transcript column 466 pt wide on a 402 pt screen, so every row was laid out
+/// 32 pt off both edges. A wide row now overflows on its own instead of widening
+/// every row.
+struct ProposedWidthLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let width = proposal.width ?? first.sizeThatFits(.unspecified).width
+        let size = first.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+        return CGSize(width: width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

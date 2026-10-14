@@ -346,7 +346,9 @@ struct FeedCell: View {
                     .labelStyle(FooterLabelStyle())
             }
         }
-        .frame(height: 32)
+        // 44 pt targets; the row keeps its 32 pt rhythm.
+        .frame(height: 44)
+        .padding(.vertical, -6)
         .padding(.trailing, 8)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
@@ -389,7 +391,7 @@ struct FooterLabelStyle: LabelStyle {
             configuration.title.font(.footnote)
         }
         .foregroundStyle(.secondary)
-        .frame(minHeight: 32)
+        .frame(minWidth: 44, minHeight: 44)
         .contentShape(.rect)
     }
 }

@@ -68,6 +68,18 @@ public struct SetupFlow: View {
         // On every setup page, loading and failure included: who is signed
         // in, and a way back to Welcome to start over.
         .safeAreaInset(edge: .bottom, spacing: 0) { accountFooter }
+        #if DEBUG
+        // A screen demo (`-CnxDemo chat-feed`, …) on a fresh install skips setup in
+        // Personal, so its driver never waits here. The onboarding demo drives setup itself.
+        .task {
+            guard let demo = Self.launchDemoName, demo != "onboarding" else { return }
+            if steps.contains(.team) {
+                store.selectPersonalSpace()
+                personalPicked()
+            }
+            finish()
+        }
+        #endif
         .confirmationDialog("Sign out and start over?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
             Button("Sign Out", role: .destructive) {
                 theme.haptics.warning()
@@ -77,6 +89,14 @@ public struct SetupFlow: View {
             Text("You can sign in again with this or another account.")
         }
     }
+
+    #if DEBUG
+    private static var launchDemoName: String? {
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "-CnxDemo"), arguments.indices.contains(index + 1) { return arguments[index + 1] }
+        return DeveloperOptions.launchDemo
+    }
+    #endif
 
     private var accountFooter: some View {
         HStack(spacing: 6) {

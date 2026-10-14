@@ -11,6 +11,7 @@ public struct DiffFileScreen: View {
     @State private var expanded: [String: [ClosedRange<Int>]] = [:]
     @ScaledMetric(relativeTo: .footnote) private var codeSize: CGFloat = 13
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var viewportWidth: CGFloat = 400
     @State private var horizontalOffset: CGFloat = 0
 
@@ -244,25 +245,61 @@ public struct DiffFileScreen: View {
         withAnimation(.cnxSnap) { fileID = files[next].id }
     }
 
+    /// The file header: badge, path (the folder truncates, never the file name), counts,
+    /// Mark viewed and File actions (44 pt each). At accessibility sizes the counts and
+    /// buttons move to a second line so the file name keeps the width.
     private func stickyHeader(isViewed: Bool) -> some View {
-        HStack(spacing: 10) {
-            StatusBadge(status: file.status)
-            Text(file.path)
-                .font(.footnote.monospaced())
-                .lineLimit(1)
-                .truncationMode(.head)
-            Spacer(minLength: 4)
+        let path = HStack(spacing: 0) {
+            if !file.directory.isEmpty {
+                Text(file.directory + "/")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .layoutPriority(0)
+            }
+            Text(file.fileName)
+                // At accessibility sizes a long name wraps to a second line instead of losing its middle.
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                .truncationMode(.middle)
+                .layoutPriority(1)
+        }
+        .font(.footnote.monospaced())
+        .accessibilityElement(children: .combine)
+        let controls = HStack(spacing: 0) {
             DiffCounts(additions: file.additions, deletions: file.deletions)
+                .padding(.trailing, 4)
             ViewedToggle(isViewed: isViewed) { withAnimation(.cnxSmooth) { state.toggleViewed(file) } }
             Menu {
                 Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
             } label: {
-                Image(systemName: "ellipsis").frame(width: 32, height: 32)
+                Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(.rect)
             }
             .accessibilityLabel("File actions")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        StatusBadge(status: file.status)
+                        path
+                    }
+                    .padding(.top, 6)
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        controls
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    StatusBadge(status: file.status)
+                    path
+                    Spacer(minLength: 4)
+                    controls
+                }
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }

@@ -62,6 +62,7 @@ let package = Package(
         // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
         .target(name: "CnxAgentChat", dependencies: [
             "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff", "CnxArtifacts", "CnxTransport",
+            .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
         .target(name: "CnxFeed", dependencies: [

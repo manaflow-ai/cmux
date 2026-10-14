@@ -21,6 +21,7 @@ public enum ArtifactFilter: String, CaseIterable, Identifiable, Sendable {
 }
 
 #if os(iOS)
+import CnxDesign
 import SwiftUI
 
 /// Navigation and view state of one artifacts browser (the demo driver sets it too).
@@ -68,7 +69,6 @@ public struct ArtifactsBrowser: View {
             Group {
                 if state.grid {
                     ScrollView {
-                        chips.padding(.horizontal, 20)
                         LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                             ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactTile(artifact: artifact, source: source) }
@@ -80,8 +80,7 @@ public struct ArtifactsBrowser: View {
                     }
                 } else {
                     List {
-                        Section {
-                            ForEach(shown) { artifact in
+                        ForEach(shown) { artifact in
                                 NavigationLink(value: artifact) { ArtifactRow(artifact: artifact) }
                                     .contextMenu {
                                         Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
@@ -91,12 +90,13 @@ public struct ArtifactsBrowser: View {
                                             .tint(Color(uiColor: .systemGray))
                                     }
                             }
-                        } header: {
-                            chips
-                        }
                     }
                     .listStyle(.plain)
                 }
+            }
+            // One chip row above both layouts, so it sits at the same y in list and grid.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                chips.padding(.horizontal, 20).background(.bar)
             }
             .overlay {
                 if shown.isEmpty {
@@ -146,6 +146,7 @@ public struct ArtifactsBrowser: View {
             .padding(.vertical, 6)
         }
         .scrollIndicators(.hidden)
+        .trailingOverflowFade(width: 24)
         .textCase(nil)
         .foregroundStyle(.primary)
         .sensoryFeedback(.selection, trigger: state.filter)

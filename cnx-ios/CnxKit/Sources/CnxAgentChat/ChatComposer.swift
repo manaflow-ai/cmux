@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
 /// controls row (`+` menu, model pill, mic, send/stop), attachment previews,
-/// queue rows, slash-command suggestions, and the collapsed "Follow up" capsule.
+/// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
     @Binding var text: String
@@ -138,7 +138,9 @@ struct ChatComposer: View {
             HStack(spacing: 8) {
                 plusMenu
                 if collapsed {
-                    Text("Follow up")
+                    // One placeholder: the collapsed capsule reads the same as the field it opens.
+                    Text(placeholder)
+                        .lineLimit(1)
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
@@ -288,6 +290,9 @@ struct ChatComposer: View {
             .frame(minHeight: 34)
             .background(Color.cnxFill, in: .capsule)
         }
+        // Source order (Model, Mode, Effort; modes in the agent's order), the same as the
+        // title menu, not the reversed order of a menu opened near the bottom of the screen.
+        .menuOrder(.fixed)
         .accessibilityLabel(store.currentModelName == nil ? "Mode" : "Model")
         .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
             effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
