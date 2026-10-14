@@ -99,6 +99,18 @@ struct AgentMoveScripts {
         "git --git-dir=\(q.quote(gitDirectory)) rev-parse >/dev/null 2>&1"
     }
 
+    /// Prints the checkout's `origin` URL, or nothing.
+    func originURL(checkout: String) -> String {
+        "git -C \(q.quote(checkout)) remote get-url origin 2>/dev/null || true"
+    }
+
+    /// Creates an empty repository at `path` (a fresh machine), with `origin`
+    /// pointing where the source's does so the branch can be pushed from there.
+    func initCheckout(path: String, origin: String?) -> String {
+        let remote = origin.map { " && git -C \(q.quote(path)) remote add origin \(q.quote($0))" } ?? ""
+        return "mkdir -p \(q.quote(path)) && git init -q \(q.quote(path))" + remote + " 2>&1"
+    }
+
     /// Adds a detached worktree at `path`.
     func addWorktree(gitDirectory: String, path: String) -> String {
         "git --git-dir=\(q.quote(gitDirectory)) worktree add --detach \(q.quote(path)) 2>&1"
