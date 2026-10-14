@@ -319,17 +319,24 @@ function shimmedEnv(g: Guest): NodeJS.ProcessEnv {
 /**
  * Stand-ins for `date +%s` and `sleep`, first on PATH. `date +%s` reads a
  * fixed epoch plus the fake clock's offset, never the real clock; a sleep
- * advances the offset instead of waiting (plus `jumpOnFirstSleep`, a snapshot
- * resume) and records how many GitHub calls had been made before it.
+ * advances the offset instead of waiting (plus the next of `jumps`, a snapshot
+ * resume; the first one also applies `rewriteMarkerAt`, a fork binding mid-wait)
+ * and records how many GitHub calls had been made before it.
  */
-function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
+function fakeClock(g: Guest, opts: { jumps?: number[]; rewriteMarkerAt?: number } = {}) {
   const dir = path.join(g.root, "clock");
   mkdirSync(dir);
   writeFileSync(path.join(dir, "offset"), "0\n");
-  if (opts.jumpOnFirstSleep) writeFileSync(path.join(dir, "jump"), `${opts.jumpOnFirstSleep}\n`);
+  if (opts.jumps) writeFileSync(path.join(dir, "jumps"), opts.jumps.map((jump) => `${jump}\n`).join(""));
   const calls = path.join(g.github, "calls.log");
+  const marker = path.join(g.root, "clone-started");
+  const rewrite = path.join(dir, "rewrite");
   const realDate = existsSync("/bin/date") ? "/bin/date" : "/usr/bin/date";
   const epoch = 1_800_000_000;
+  if (opts.rewriteMarkerAt !== undefined) {
+    writeFileSync(rewrite, "");
+    utimesSync(rewrite, epoch + opts.rewriteMarkerAt, epoch + opts.rewriteMarkerAt);
+  }
   writeFileSync(path.join(dir, "date"), [
     "#!/bin/sh",
     `if [ "$#" = 1 ] && [ "$1" = "+%s" ]; then echo $(( ${epoch} + $(cat '${dir}/offset') )); else exec ${realDate} "$@"; fi`,
@@ -339,8 +346,9 @@ function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
     "#!/bin/sh",
     `fetched=0; [ -f '${calls}' ] && fetched=$(grep -c . '${calls}')`,
     `echo "$1 $fetched" >> '${dir}/sleeps'`,
-    `jump=0; [ -f '${dir}/jump' ] && jump=$(cat '${dir}/jump') && rm -f '${dir}/jump'`,
+    `jump=0; if [ -s '${dir}/jumps' ]; then jump=$(head -n 1 '${dir}/jumps'); tail -n +2 '${dir}/jumps' > '${dir}/jumps.next'; mv '${dir}/jumps.next' '${dir}/jumps'; fi`,
     `echo $(( $(cat '${dir}/offset') + $1 + jump )) > '${dir}/offset'`,
+    `if [ -f '${rewrite}' ]; then touch -r '${rewrite}' '${marker}'; rm -f '${rewrite}'; fi`,
     "",
   ].join("\n"));
   chmodSync(path.join(dir, "date"), 0o755);
@@ -349,7 +357,6 @@ function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
     env: { ...g.env, PATH: `${dir}:${g.env.PATH}` },
     /** A clone marker in `g`'s tree written `offsetSeconds` from the fake clock's start. */
     marker(offsetSeconds: number): string {
-      const marker = path.join(g.root, "clone-started");
       writeFileSync(marker, "");
       utimesSync(marker, epoch + offsetSeconds, epoch + offsetSeconds);
       return marker;
@@ -454,13 +461,15 @@ describe("guest agent updates", () => {
   test("a resume during the wait (the clocks jump) starts a fresh window", async () => {
     const g = await guest();
     publish(g, "codex", "2.0.0");
-    const clock = fakeClock(g, { jumpOnFirstSleep: 3600 });
+    const clock = fakeClock(g, { jumps: [3600] });
     const marker = clock.marker(0);
     const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
     expect(result.status).toBe(0);
     const sleeps = clock.sleeps();
-    expect(sleeps).toHaveLength(2);
-    expect(sleeps[1]).toEqual({ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 });
+    expect(sleeps).toEqual([
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+    ]);
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
   });
 
@@ -472,6 +481,45 @@ describe("guest agent updates", () => {
     const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
     expect(result.status).toBe(0);
     expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a marker less than a window in the future still waits only one window", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    const clock = fakeClock(g);
+    const marker = clock.marker(300);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("the clock stepping back after a resume does not stretch the wait", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    // A resume jumps the clock an hour mid-wait, then it steps back an hour.
+    const clock = fakeClock(g, { jumps: [3600, -3600] });
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    const window = { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 };
+    expect(clock.sleeps()).toEqual([window, window, window]);
+    expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
+  });
+
+  test("a marker rewritten during the wait (a fork bound) starts its window over", async () => {
+    const g = await guest();
+    publish(g, "codex", "2.0.0");
+    // Halfway through the first wait a fork's boot supervisor rewrites the marker.
+    const clock = fakeClock(g, { rewriteMarkerAt: 300 });
+    const marker = clock.marker(0);
+    const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
+    expect(result.status).toBe(0);
+    expect(clock.sleeps()).toEqual([
+      { seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 },
+      { seconds: 300, fetchedBefore: 0 },
+    ]);
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
   });
 

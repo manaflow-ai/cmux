@@ -586,8 +586,10 @@ const GUEST_AGENT_UPDATES_PATHS: GuestAgentUpdatesPaths = {
  *     supervisor rewrites the marker. A wake far past the requested wait is
  *     therefore read as a resume and starts a fresh window from the wake.
  *   * A marker dated in the future (the clock stepped back after it was
- *     written) counts as written when it was first seen, so the wait is never
- *     longer than one window.
+ *     written) counts as written when it was first seen, and keeps counting
+ *     that way after the clock passes its date, so the wait is never longer
+ *     than one window. A window start later than now (the clock stepped back
+ *     during the wait) is pulled back to now for the same reason.
  * A machine with no marker (not a clone, or rebooted since) or an expired
  * window runs at once.
  */
@@ -596,11 +598,13 @@ export function guestAgentUpdaterLaunchScript(paths: GuestAgentUpdatesPaths = GU
   const window = paths.resumeWindowSeconds;
   return [
     `since=0`,
+    `ahead=""`,
     `while :; do`,
     `now=$(date +%s)`,
+    `[ "$since" -le "$now" ] || since=$now`,
     `started=$since`,
     `if [ -e ${marker} ] && seen=$(date -r ${marker} +%s 2>/dev/null); then`,
-    `if [ "$seen" -gt "$now" ]; then [ "$since" -gt 0 ] || since=$now; seen=$since; fi`,
+    `if [ "$seen" -gt "$now" ] || [ "$seen" = "$ahead" ]; then ahead=$seen; [ "$since" -gt 0 ] || since=$now; seen=$since; fi`,
     `if [ "$seen" -gt "$started" ]; then started=$seen; fi`,
     `fi`,
     `left=$((started + ${window} - now))`,
