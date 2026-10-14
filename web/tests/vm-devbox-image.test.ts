@@ -121,6 +121,7 @@ describe("devbox image template", () => {
       "cmux-claude",
       "cmux-codex",
       "cmux-devbox-boot",
+      "cmux-ghost.bash",
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt-sync",
@@ -144,6 +145,7 @@ describe("devbox image template", () => {
       "cmux-claude",
       "cmux-codex",
       "cmux-devbox-boot",
+      "cmux-ghost.bash",
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt.bash",
@@ -194,7 +196,7 @@ describe("devbox image template", () => {
   });
 
   test("every shell file parses", async () => {
-    for (const name of ["cmux-bashrc", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
+    for (const name of ["cmux-bashrc", "cmux-ghost.bash", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
       const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
@@ -255,11 +257,6 @@ describe("devbox image template", () => {
     expect(readFileSync(path.join(import.meta.dirname, "../../CLI/cmux.swift"), "utf8")).toContain(
       "x cloud\\\\033[0m",
     );
-    // Seeds are readable by the work user (the seed pass runs as root and
-    // ble.sh creates its cache dir 0700), and Ghostty's TERM is seeded too.
-    expect(dockerfile).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");
-    expect(readScript("build-devbox-freestyle.ts")).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");
-    expect(readScript("build-devbox-freestyle.ts")).toContain("linux xterm-ghostty; do");
     // Fast and offline: only baked files and cheap local commands.
     for (const forbidden of ["curl", "wget", "npm ", "claude --version", "apt"]) {
       expect({ forbidden, present: motd.includes(forbidden) }).toEqual({ forbidden, present: false });
@@ -293,13 +290,12 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain('ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}');
     // The pins are proven from a clean login shell AS the work user during the
     // bake itself (probing as root with the work user's HOME leaves root-owned
-    // state dirs that break ble.sh for every later login).
+    // state dirs behind in the work user's home).
     expect(freestyleScript).toContain("sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'");
-    // Home hygiene: single devshell source, ble.sh state dir, legal notice
-    // silenced, home owned by the work user, two silent real logins.
+    // Home hygiene: single devshell source, legal notice silenced, home
+    // owned by the work user, two silent real logins.
     // Per-user rc files only: after Ubuntu's own PS1, and loaded once.
     expect(freestyleScript).toContain('const rcFiles = ["/etc/skel/.bashrc", "/root/.bashrc", `${WORK_HOME}/.bashrc`]');
-    expect(freestyleScript).toContain("chmod a+rwxt /usr/local/share/blesh/state.d");
     expect(freestyleScript).toContain("motd.legal-displayed");
     expect(freestyleScript).toContain("chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}");
     // The interactive probe is a real pty (tmux) as the work user and requires the cmux prompt.
@@ -316,57 +312,57 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
-  test("ble.sh runtime files do not follow a transient XDG runtime directory", async () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
-    const blesh = path.join(directory, "blesh");
-    const transientRuntime = path.join(directory, "transient-runtime");
-    const bootRuntime = path.join(directory, "boot-runtime");
-    mkdirSync(blesh);
-    mkdirSync(transientRuntime);
-    writeFileSync(path.join(blesh, "ble.sh"), [
-      "BLE_VERSION=fixture",
-      "BLE_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\"",
-      "bleopt() { mkdir -p \"$BLE_RUNTIME_DIR/blesh\"; printf ok > \"$BLE_RUNTIME_DIR/blesh/live\"; }",
-      "ble-face() { :; }",
-      "ble-bind() { :; }",
-      "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
-    ].join("\n"));
-    writeFileSync(path.join(directory, "terminfo.sh"), "");
-    writeFileSync(path.join(directory, "prompt.bash"), "PROMPT_COMMAND=()");
-    const rc = path.join(directory, "bashrc");
-    writeFileSync(
-      rc,
-      bashrc
-        .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
-        .replaceAll("/etc/cmux", directory)
-        .replaceAll("/tmp/cmux-blesh-runtime-${UID}", bootRuntime)
-        .replaceAll("/usr/local/share/blesh", blesh),
-    );
+  test("history ghost text: gray suggestion, accepted on Right, never executed on Enter", async () => {
+    // Drives a real interactive Bash through a PTY. Bash 5 is the guest shell;
+    // an older host Bash (macOS /bin/bash) loads no ghost text at all.
+    const version = await runChild("bash", ["-c", "echo ${BASH_VERSINFO[0]}"]);
+    const python = await runChild("bash", ["-c", "command -v python3"]);
+    if (Number(version.stdout.trim()) < 5 || python.status !== 0) return;
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-ghost-"));
     try {
-      const result = await runChild("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
-        env: {
-          NODE_ENV: "test",
-          PATH: process.env.PATH!,
-          HOME: directory,
-          USER: "cmux",
-          TERM: "dumb",
-          XDG_RUNTIME_DIR: transientRuntime,
-        },
-      });
-      expect(result.status).toBe(0);
-      expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
-        bootRuntime,
-      );
-      expect(result.stdout).toBe(transientRuntime);
+      writeFileSync(path.join(directory, "history"), "echo older-entry\necho accepted-ghost\nclaude --dangerously-skip-permissions\n");
+      // PS1 is set after ghost.bash loads, as a user's ~/.bashrc does after
+      // /etc/cmux/bashrc: the suggestion must follow the prompt in effect.
+      writeFileSync(path.join(directory, "rc"), `HISTFILE='${directory}/history'\n. '${path.join(templateDir, "cmux-ghost.bash")}'\nPS1='$ '\n`);
+      const driver = String.raw`
+import os, pty, re, select, sys, time
+directory = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ.update(TERM="xterm-256color", HOME=directory, COLUMNS="100", LINES="30")
+    os.execvp("bash", ["bash", "--noprofile", "--rcfile", directory + "/rc", "-i"])
+gray = rb"\x1b\[38;5;245m"
+def expect(pattern, timeout=10):
+    out, deadline = b"", time.monotonic() + timeout
+    while not re.search(pattern, out):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not select.select([fd], [], [], remaining)[0]:
+            sys.exit("timed out waiting for %r; got %r" % (pattern, out[-300:]))
+        out += os.read(fd, 65536)
+    return out
+expect(rb"\$ $")
+os.write(fd, b"c"); expect(gray + rb"laude --dangerously-skip-permissions")
+os.write(fd, b"l"); expect(gray + rb"aude --dangerously-skip-permissions")
+os.write(fd, b"\r"); expect(rb"cl: command not found[\s\S]*\$ $")
+os.write(fd, b"echo acc"); expect(gray + rb"epted-ghost")
+os.write(fd, b"\x1b[C\r"); expect(rb"[\r\n]accepted-ghost\r\n[\s\S]*\$ $")
+os.write(fd, b"echo o"); expect(gray + rb"lder-entry")
+os.write(fd, b"\x7f"); expect(gray + rb"accepted-ghost")
+os.write(fd, b"\x03"); expect(rb"\x1b\[A\x1b\[\d+G\x1b\[K[\s\S]*\$ $")
+os.write(fd, b"12"); out = expect(rb"12")
+if b"\x1b[38;5;245m" in out: sys.exit("numeric input must not be read as a history number")
+print("ghost-ok")
+`;
+      const result = await runChild("python3", ["-c", driver, directory], { timeout: 30_000 });
+      expect({ status: result.status, stdout: result.stdout.trim(), stderr: result.stderr }).toEqual({ status: 0, stdout: "ghost-ok", stderr: "" });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   });
 
   test("dotted python -m completion lists one package's submodules without importing others", async () => {
-    // ble.sh ghost text runs programmable completion after every keystroke.
     // Ubuntu's stock helper walks (imports) every installed package once the
-    // word has a dot, which stalled typing `python -m http.` for ~5 s.
+    // word has a dot, which stalled Tab on `python -m http.` for ~5 s.
     const python = (await runChild("bash", ["-c", "command -v python3"])).stdout.trim();
     expect(python).not.toBe("");
     const directory = mkdtempSync(path.join(tmpdir(), "cmux-python-completion-"));
@@ -502,38 +498,19 @@ describe("devbox image template", () => {
     expect(`${result.stderr}`).toContain("not ready");
   });
 
-  test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
-    // User feedback 2026-08-31: any token highlighting (colored backgrounds
-    // under mistyped commands included) reads as noise. The bashrc turns the
-    // highlight layers off entirely and keeps only gray history ghost text.
-    expect(bashrc).toContain("bleopt highlight_syntax= highlight_filename= highlight_variable=");
-    const faceLines = bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"));
-    expect(faceLines).toEqual(["  ble-face auto_complete=fg=245"]);
-    for (const line of faceLines) {
-      expect(line).not.toContain("bg=");
+  test("ble.sh is gone; the bashrc loads the history ghost text instead", () => {
+    // ble.sh, a line editor written in shell, cost 15-30 ms per keystroke and
+    // stalled for seconds with a large history. Readline stays the editor.
+    for (const source of [bashrc, dockerfile, readScript("build-devbox-freestyle.ts"), readScript("verify-devbox-image.ts")]) {
+      expect(source).not.toMatch(/\bble\.sh\b|\bblesh\b|bleopt|ble-face|ble-bind|ble-nightly/);
     }
-  });
-
-  test("keeps Alt+Backspace word delete working in ble.sh", () => {
-    // Once ble.sh identifies the terminal from its DA2 reply it enables xterm
-    // modifyOtherKeys, and then Alt+Backspace does nothing: the legacy ESC DEL
-    // binding is gone and CSI 27;3;127~ does not decode back to M-C-?. Cloud
-    // panes send the legacy form, so the bashrc pins the legacy encoding and
-    // binds both backspace spellings.
-    expect(bashrc).toContain(
-      "bleopt term_modifyOtherKeys_internal=0 term_modifyOtherKeys_external=0",
-    );
-    expect(bashrc).toContain("ble-bind -f 'M-C-?' kill-backward-cword");
-    expect(bashrc).toContain("ble-bind -f 'M-C-h' kill-backward-cword");
-  });
-
-  test("bakes ble.sh cache seeds for every shared devbox provider", () => {
-    // The shared bashrc guard is useful only when each bake creates the seed.
-    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
-      expect(dockerfile).toContain(`test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`);
-    }
-    expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
-    expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
+    expect(bashrc).toContain("[ -r /etc/cmux/ghost.bash ] && . /etc/cmux/ghost.bash");
+    expect(dockerfile).toContain("COPY cmux-ghost.bash /etc/cmux/ghost.bash");
+    expect(readScript("build-devbox-freestyle.ts")).toContain('await put("cmux-ghost.bash", "/etc/cmux/ghost.bash")');
+    // Gray foreground only: no token highlighting, no background colors.
+    const ghost = read("cmux-ghost.bash");
+    expect(ghost).toContain("$'\\e[38;5;245m'");
+    expect(ghost).not.toMatch(/\[4\d;|48;5;/);
   });
 
   test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
@@ -687,24 +664,6 @@ test "$daemon_pid" = fixture
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
     expect(freestyleScript).toContain("Restart=always");
-  });
-
-  test("the Freestyle replay carries the ble.sh cache bake", () => {
-    // The replay embeds its own copy of the Dockerfile bake; pin the guards
-    // and both cache targets so the provider-specific path cannot silently
-    // drift while the Dockerfile path stays correct.
-    const freestyleScript = readScript("build-devbox-freestyle.ts");
-    expect(freestyleScript).toContain("mkdir -p /etc/cmux/blesh-cache-seed");
-    for (const term of ["xterm-256color", "screen-256color", "tmux-256color", "linux"]) {
-      expect(freestyleScript).toContain(
-        `test -s /etc/cmux/blesh-cache-seed/blesh/*/term.${term}`,
-      );
-    }
-    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/0/");
-    expect(freestyleScript).toContain("/usr/local/share/blesh/cache.d/1000/");
-    expect(freestyleScript).toContain(
-      "chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000",
-    );
   });
 
   test("agent and CUA driver pins are exact and reach the build scripts", () => {
@@ -1335,16 +1294,14 @@ describe("devbox terminfo overlay", () => {
     }
   });
 
-  test("the bake installs it before seeding ble.sh's per-TERM tput caches", () => {
-    // Both recipes: ble.sh caches tput output per TERM, so a seed taken
-    // against stock terminfo would replay stock SGR 90 forever.
+  test("the bake installs it before the devshell", () => {
     const bake = readScript("build-devbox-freestyle.ts");
     expect(bake.indexOf('await step("terminfo"')).toBeGreaterThan(0);
     expect(bake.indexOf('await step("terminfo"')).toBeLessThan(bake.indexOf('await step(\n    "devshell"'));
     expect(bake).toContain('await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh")');
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeGreaterThan(0);
-    expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
-    expect(dockerfile).toContain("xterm-ghostty; do");
+    expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("RUN bash -n /etc/cmux/bashrc"));
+    expect(dockerfile).toContain("for t in xterm-ghostty xterm-256color; do");
     expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO_DIRS=/etc/terminfo:");
   });
 });
