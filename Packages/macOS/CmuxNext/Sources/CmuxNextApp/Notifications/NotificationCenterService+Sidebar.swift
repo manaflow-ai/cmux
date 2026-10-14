@@ -5,9 +5,10 @@ import CmuxNextDesign
 
 /// What a notification does to the sidebar, as classic did (hq#1870 P1 #11):
 /// its workspace moves to the top of the unpinned rows
-/// (`notifications.attention.moveToTop`), and its row shows the text while it
-/// is unread (`sidebar.workspaceRow.notification`; the text comes from the
-/// daemon store, seeded here with the notifications posted before launch).
+/// (`notifications.attention.moveToTop`), and its hover card shows the text
+/// while it is unread (its row too with `sidebar.workspaceRow.notification`
+/// on; the text comes from the daemon store, seeded here with the
+/// notifications posted before launch).
 extension NotificationCenterService {
     /// Moves a notified workspace first in its group, else first among the
     /// loose rows, as Move Workspace to Top does. A pinned workspace, a muted
