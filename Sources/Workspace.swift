@@ -2390,7 +2390,13 @@ extension Workspace {
             panelTitles[panelId] = title
         }
 
-        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
+        setPanelCustomTitle(
+            panelId: panelId,
+            title: snapshot.customTitle,
+            source: snapshot.effectiveCustomTitleSource ?? .user,
+            propagateToCloud: false,
+            publishesRenameEvent: false
+        )
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
