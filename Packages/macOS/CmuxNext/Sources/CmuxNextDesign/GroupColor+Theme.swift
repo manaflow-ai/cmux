@@ -50,9 +50,6 @@ extension GroupColor {
     /// The color as a palette ball in the active theme scope (the app theme outside one).
     public var ballRGB: ThemeRGB { swatchRGB(Self.activeTokens) }
 
-    /// Text and glyphs on `chipFill`: black or white, whichever reads better.
-    public var headerInk: NSColor { Self.ink(on: fillRGB(Self.activeTokens)).nsColor }
-
     /// The order the app gives new workspace groups, spaces and browser
     /// profiles their colors: the palette in its own order, without grey and
     /// blue (the no-blue rule covers what the app picks by itself).

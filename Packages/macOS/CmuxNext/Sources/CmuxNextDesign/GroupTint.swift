@@ -68,14 +68,6 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         }
     }
 
-    /// Black or white text and glyphs on `headerFill`.
-    @MainActor public var headerInk: NSColor {
-        switch self {
-        case let .palette(token): token.headerInk
-        case let .custom(rgb): GroupColor.ink(on: Self.readable(rgb)).nsColor
-        }
-    }
-
     /// The custom color as the person picked it (the color panel starts there).
     public var picked: NSColor? {
         if case let .custom(rgb) = self { rgb.nsColor } else { nil }
