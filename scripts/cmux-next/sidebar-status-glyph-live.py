@@ -11,7 +11,7 @@ sidebar's status glyphs (`debug.sidebar_rows` "status_glyphs"). For each state:
 
   1. the mark's mask is crisp at 1x and 2x (drawn at its pixel size, not resampled);
   2. the glyph box is as tall as the unread badge, and the drawn mark fills most of it;
-  3. the drawn mark is centered on the title's cap height (0.25 pt at 2x, 0.5 pt at 1x).
+  3. the drawn mark is centered on the title's cap height (half a device pixel).
 
 Exits 1 when a check fails.
 """
@@ -23,12 +23,13 @@ opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 CLI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-debug-cli.sh")
 TOLERANCE = 0.5
-# The mark's center against the title's capitals: one pixel at 2x (Leo saw 0.4 pt low as low);
-# at 1x the pixel snap alone can move it half a point.
+# The drawn mark's center against the title's capitals: half a device pixel (Leo saw base's
+# 0.38 pt low at 10 pt as low); at 1x the pixel snap alone can move it half a point.
 CENTER = {2: 0.25, 1: 0.5}
-# Partly covered pixels per fully covered one. A 16 pt SF Symbol mark drawn at its pixel size
-# measures about 0.56 at 1x and 0.24 at 2x; rendered at 2x and resampled, 3.0 and 0.53.
-SOFT_1X, SOFT_2X = 1.0, 0.4
+# Partly covered pixels per fully covered one. Drawn at its pixel size, a 10 pt mark measures about
+# 1.1 at 1x and 0.4 at 2x (a 14 pt one 0.75 and 0.29); rendered at 2x and resampled, a 10 pt mark
+# measured 7 to 12 at 1x and 1.3 to 1.5 at 2x.
+SOFT_1X, SOFT_2X = 1.5, 0.6
 # The drawn mark against the badge height: SF Symbols leave a small margin inside their box.
 FILL = 0.75
 failures = []
