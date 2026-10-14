@@ -73,9 +73,33 @@ fn scratch(tag: &str) -> PathBuf {
     std::fs::canonicalize(&dir).unwrap()
 }
 
+/// The daemon this test started, stopped by its own PID when dropped, so a
+/// failed assertion leaves no daemon behind.
+struct Daemon(std::process::Child);
+
+impl Drop for Daemon {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(None)) {
+            return;
+        }
+        unsafe {
+            libc::kill(self.0.id() as i32, libc::SIGTERM);
+        }
+        let started = Instant::now();
+        while matches!(self.0.try_wait(), Ok(None)) {
+            if started.elapsed() > Duration::from_secs(8) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
 /// The daemon as the app starts it: the bare GUI PATH, the login shell read
 /// at startup. Returns once it reports ready.
-async fn start(dir: &Path) -> std::process::Child {
+async fn start(dir: &Path) -> Daemon {
     let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
         .env("HOME", dir)
@@ -92,6 +116,7 @@ async fn start(dir: &Path) -> std::process::Child {
         .spawn()
         .unwrap();
     let stdout = child.stdout.take().unwrap();
+    let child = Daemon(child);
     let ready = tokio::task::spawn_blocking(move || {
         for line in BufReader::new(stdout).lines() {
             if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
@@ -104,27 +129,17 @@ async fn start(dir: &Path) -> std::process::Child {
     child
 }
 
-fn stop(mut child: std::process::Child) {
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
-    }
-    let started = Instant::now();
-    while child.try_wait().unwrap().is_none() {
-        assert!(started.elapsed() < Duration::from_secs(8), "daemon still running after SIGTERM");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
 #[tokio::test]
 async fn a_harness_on_the_login_path_reaches_clients_that_asked_during_startup() {
     let dir = scratch("hstart");
     std::fs::write(dir.join("config.json"), "{}").unwrap();
-    // `grok` is on the login PATH only; the login shell takes 1 s.
+    // `grok` is on the login PATH only; the login shell takes 2 s (under the
+    // 3 s limit), time for a client to connect and watch first.
     write_executable(dir.join("bin").join("grok"), "#!/bin/sh\nexit 0\n");
     write_executable(
         dir.join("loginsh"),
         format!(
-            "#!/bin/sh\nsleep 1\nPATH={}:/usr/bin:/bin\nexport PATH\nexec /bin/sh -c \"$4\"\n",
+            "#!/bin/sh\nsleep 2\nPATH={}:/usr/bin:/bin\nexport PATH\nexec /bin/sh -c \"$4\"\n",
             dir.join("bin").display()
         ),
     );
@@ -134,7 +149,7 @@ async fn a_harness_on_the_login_path_reaches_clients_that_asked_during_startup()
     let child = start(&dir).await;
     let mut client = Client::connect(&dir.join("s.sock")).await;
     let reply = client.call("_acpmux/harnesses", json!({})).await;
-    stop(child);
+    drop(child);
     assert!(
         reply["harnesses"].get("grok").is_some(),
         "asked during startup, the catalog missed the login PATH's harness: {}",
@@ -154,7 +169,7 @@ async fn a_harness_on_the_login_path_reaches_clients_that_asked_during_startup()
     client.call("_acpmux/watch", json!({"enabled": true})).await;
     client.call("_acpmux/harnesses", json!({})).await;
     let changed = client.change_naming("grok", Duration::from_secs(15)).await;
-    stop(child);
+    drop(child);
     assert!(changed.is_some(), "the background login shell's catalog never reached the watcher");
     let _ = std::fs::remove_dir_all(&dir);
 }
