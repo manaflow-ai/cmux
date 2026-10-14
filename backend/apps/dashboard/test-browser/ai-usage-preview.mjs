@@ -20,9 +20,9 @@ for (const scheme of ["light", "dark"]) {
 const page = await browser.newPage({ viewport: { width: 900, height: 900 } })
 const errors = []
 page.on("pageerror", (e) => errors.push(String(e)))
-for (const variant of ["meter", "ledger"]) {
-  await page.goto(`${base}/preview/ai-usage?state=billed-team&variant=${variant}`, { waitUntil: "networkidle" })
-  const row = variant === "meter" ? page.locator(".aiu-member").nth(2) : page.locator(".aiu-table tbody tr").nth(2)
+for (const variant of ["meter"]) {
+  await page.goto(`${base}/preview/ai-usage?state=billed-team`, { waitUntil: "networkidle" })
+  const row = page.locator(".aiu-member").nth(2)
   const action = row.locator(".aiu-actions button").first()
   check(`${variant}: actions hidden at rest`, !(await action.isVisible()))
   await row.hover()

@@ -450,3 +450,29 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
   = 0.17, total 400.17 USD, correct to the cent (check pass).
 - Cleanup: subscription canceled, clock deleted by exact id, VM secrets shredded, Freestyle VM
   vm-7c87fc445b814419a9da82fee5b66e41 deleted by exact id. Real provider spend about 1.2 USD.
+
+## 16. Lawrence's decisions 2026-10-14 (S5 follow-up), built
+
+- Console design: `meter`. The ledger design and the `?ai_view` switch are removed; the preview route
+  stays as the view's gallery of sample states (https://console-staging.cmux.dev/preview/ai-usage).
+- Team included mode: chosen per team by an operator. `POST /v1/internal/billing/team-mode`
+  (`backend/apps/api/src/billing-team-mode.ts`, Bearer BILLING_LEVELS_KEY, `actor` required, `reason`
+  optional): without `mode` it reads the setting, with `mode` (`per_team` | `per_seat`) it records a
+  change. Every call logs `billing.team_mode.*` (team, before, after, actor); every change is kept in the
+  team's UsageMeterDO (`usage_mode_setting`). Team admins never see or set it. New teams are per team.
+- A change applies from the next period start: a period's mode is the last setting made at or before
+  its start (`teamModeAt`), and a period already pushed keeps the mode it was pushed in. The usage item
+  moves to the other mode's price only at the first sync run of a new period. This closes the S5 review
+  P2 "mode change moves the usage item mid-period" for mode changes (a price-set change, e2e to v1, can
+  still move it mid-period; only the development Worker uses e2e).
+- The sync reads the mode for the Team plan (Go, Pro and Max are per team). The included-amount stop
+  reads it too: a per-seat team that is not billable gets the amount x its last billable seats (the
+  mode in force at the UTC month's start); the console line shows the same amount.
+- Seat count per seat: the most seats seen in the period (as built). The S5 review P2 "a short seat
+  churn keeps the included amount of the added seats for the whole period" is accepted (Lawrence
+  2026-10-14).
+- e2e set: Pro 0.5 USD (per team) and Team 0.5 USD (per team or per seat), so one run can cross both
+  included amounts with a little real usage. The e2e uses the agent's personal team (Pro, per team) and
+  its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
+  team_d68c2131970b3ebbd449, cmuxPlan=team on the development sign-in project only; on the development
+  INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.

@@ -36,7 +36,42 @@ export const ensureBillingTables = (sql: SqlStorage) => {
   // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
   addColumns(sql, "usage_push", [["period_end", "INTEGER NOT NULL DEFAULT 0"], ["mode", "TEXT"], ["seats", "INTEGER NOT NULL DEFAULT 1"], ["included_usd", "REAL"], ["sent_micros", "INTEGER"]])
   addColumns(sql, "usage_billable", [["period_start", "INTEGER"], ["mode", "TEXT"], ["seats", "INTEGER"], ["included_usd", "REAL"]])
+  // The operator's included-mode setting for a Team customer (cx-y79zh.1, Lawrence 2026-10-14), every change kept.
+  sql.exec(`CREATE TABLE IF NOT EXISTS usage_mode_setting (seq INTEGER PRIMARY KEY AUTOINCREMENT, mode TEXT NOT NULL, set_at INTEGER NOT NULL, actor TEXT NOT NULL, reason TEXT)`)
 }
+
+/**
+ * The team's included mode for a period that starts at `periodStartMs`: the last setting made at or
+ * before that start, so a change applies from the next period start, never inside a running period.
+ * New teams (no setting) are per team.
+ */
+export const teamModeAt = (sql: SqlStorage, periodStartMs: number): IncludedMode =>
+  modeOf(sql.exec<{ mode: string }>(`SELECT mode FROM usage_mode_setting WHERE set_at <= ? ORDER BY set_at DESC, seq DESC LIMIT 1`, periodStartMs).toArray()[0]?.mode)
+
+export interface ModeChange {
+  readonly mode: IncludedMode
+  readonly set_at: number
+  readonly actor: string
+  readonly reason: string | null
+}
+
+/** The setting history, newest first, and the mode the latest setting asks for. */
+export const teamModeHistory = (sql: SqlStorage, limit = 20): { readonly requested: IncludedMode; readonly changes: ReadonlyArray<ModeChange> } => {
+  const changes = sql.exec<{ mode: string; set_at: number; actor: string; reason: string | null }>(`SELECT mode, set_at, actor, reason FROM usage_mode_setting ORDER BY set_at DESC, seq DESC LIMIT ?`, limit).toArray().map((r) => ({ mode: modeOf(r.mode), set_at: Number(r.set_at), actor: r.actor, reason: r.reason }))
+  return { requested: changes[0]?.mode ?? "per_team", changes }
+}
+
+/** Records an operator's setting (a no-op when the latest setting already asks for `mode`). */
+export const setTeamMode = (sql: SqlStorage, mode: IncludedMode, actor: string, reason: string | null, now: number): { readonly before: IncludedMode; readonly changed: boolean } => {
+  const before = teamModeHistory(sql, 1).requested
+  const hasAny = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_mode_setting`).one().n > 0
+  if (before === mode && hasAny) return { before, changed: false }
+  sql.exec(`INSERT INTO usage_mode_setting (mode, set_at, actor, reason) VALUES (?, ?, ?, ?)`, mode, now, actor, reason)
+  return { before, changed: true }
+}
+
+/** The seats of the team's latest billable subscription (any age), for the stop of a per-seat team; 1 when none. */
+export const lastSeenSeats = (sql: SqlStorage): number => Math.max(1, Number(sql.exec<{ seats: number | null }>(`SELECT seats FROM usage_billable ORDER BY seen_at DESC LIMIT 1`).toArray()[0]?.seats ?? 1))
 
 const modeOf = (v: unknown): IncludedMode => (v === "per_seat" ? "per_seat" : "per_team")
 

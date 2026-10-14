@@ -1,6 +1,6 @@
 import type { Env } from "./env.ts"
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "./domains/user.ts"
-import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, usageIncludedMode, usageIncludedUsd, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
+import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_SET_NAMES, USAGE_PRODUCT_ID, USAGE_TEAM_MODE_PLANS, usageIncludedUsd, usageModesOf, usageMeterEvent, usageMeterValueMicros, usagePriceLookupKey, type IncludedMode, type UsagePlan, type UsagePriceSet } from "./billing-catalog.ts"
 
 /**
  * The usage sync (cx-y79zh S4, plans/cmux-next/usage-billing.md section 3, placement option a): the
@@ -19,7 +19,9 @@ import { INCLUDED_MODES, isIncludedMode, isUsagePlan, USAGE_PLANS, USAGE_PRICE_S
  *    (period, micros, fact count, last fact time, and per seat the seats): the same state is the same
  *    event; any new fact, correction or seat change is a new event. Unchanged levels are not sent again.
  * 4. The included mode (billing-catalog.ts): per team, the whole level goes to the graduated price's
- *    meter; per seat, the level above included x seats goes to the flat price's meter. Seats are the
+ *    meter; per seat, the level above included x seats goes to the flat price's meter. A Team
+ *    customer's mode is the operator's setting in force at the period start; the usage item moves to
+ *    the other mode's price only at the first run of a new period. Seats are the
  *    plan item's quantity, the most seen at any run in the period (a seat removed late in the period
  *    does not take its included amount back), and a closed period's final push reuses them.
  *
@@ -124,7 +126,8 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   // Every usage price of every set and mode is a usage item (never a plan item); the set in force picks the target.
   const asked = [...new Set(USAGE_PRICE_SET_NAMES.flatMap((s) => USAGE_PLANS.flatMap((p) => INCLUDED_MODES.map((m) => usagePriceLookupKey(p, s, m)))))]
   const askedSet = new Set(asked)
-  const priceOf = new Map<UsagePlan, string>()
+  /** The usage price in force per plan and mode (`<plan>:<mode>`). */
+  const priceOf = new Map<string, string>()
   const usagePrices = new Set<string>()
   // At most 10 lookup keys per request (Stripe).
   for (let i = 0; i < asked.length; i += 10) {
@@ -132,7 +135,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
     for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
       if (!askedSet.has(p.lookup_key)) continue
       usagePrices.add(p.id)
-      for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan, set)) priceOf.set(plan, p.id)
+      for (const plan of USAGE_PLANS) for (const m of usageModesOf(plan)) if (p.lookup_key === usagePriceLookupKey(plan, set, m)) priceOf.set(`${plan}:${m}`, p.id)
     }
   }
   const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
@@ -182,17 +185,28 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
       continue
     }
     const team = teamOfSubscription(env, sub, plan)
-    const want = priceOf.get(plan)
-    const why = !team ? "no_team" : !want ? "no_usage_price" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null
-    if (why) {
+    const skip = (why: string) => {
       report.skipped++
       console.warn(JSON.stringify({ msg: "billing.usage_sync.skipped", subscription: sub.id, why }))
+    }
+    const why = !team ? "no_team" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null
+    if (why) {
+      skip(why)
       continue
     }
     try {
+      const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
+      // The period's mode: a Team customer's operator setting in force at the period start (a change applies from
+      // the next period; a period already pushed keeps its mode); every other plan is per team.
+      const periodStart = planItem!.current_period_start
+      const mode: IncludedMode = USAGE_TEAM_MODE_PLANS.has(plan) && periodStart ? await meter.periodMode(team!, sub.id, periodStart) : "per_team"
+      const want = priceOf.get(`${plan}:${mode}`)
+      if (!want) {
+        skip("no_usage_price")
+        continue
+      }
       // The usage item only: an item on a usage price or the usage product. The plan item is never written.
       let item = sub.items.data.find(isUsageItem)
-      const periodStart = planItem!.current_period_start
       if (!item) {
         item = (await stripeFetch(key, "POST", "/v1/subscription_items", { subscription: sub.id, price: want!, proration_behavior: "none" }, `usage-item:${sub.id}:${want}`)) as StripeItem
         report.items_added++
@@ -206,9 +220,7 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
         report.skipped++
         continue
       }
-      const mode = usageIncludedMode(plan, set)
       const includedUsd = usageIncludedUsd(plan, set)
-      const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
       // The period's seats: the plan item's quantity, or more when the period already saw more (the bill and the console agree, review P3).
       const quantity = Math.max(1, Math.floor(Number(planItem!.quantity ?? 1)) || 1)
       const seen = mode === "per_seat" ? await meter.pushState(team!, sub.id, start) : null
