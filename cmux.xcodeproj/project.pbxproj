@@ -2878,6 +2878,7 @@
 		A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 		B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */; };
 		72ED5F6AB93363EDB369E867 /* PostHogContextCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */; };
+		A7C0FF1D0000000000000001 /* PostHogIdentityObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0FF1D0000000000000002 /* PostHogIdentityObserver.swift */; };
 		6D7155E52FFDD7E47CF2E759 /* PostHogProductAnalyticsSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BF00B6EA5F80726C036DA53 /* PostHogProductAnalyticsSink.swift */; };
 		B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F100060000000000000002 /* PreparedNotificationSound.swift */; };
 		D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */; };
@@ -7440,6 +7441,7 @@
 		A5001520 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
 		B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalyticsPropertiesTests.swift; sourceTree = "<group>"; };
 		34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogContextCalls.swift; sourceTree = "<group>"; };
+		A7C0FF1D0000000000000002 /* PostHogIdentityObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PostHogIdentityObserver.swift; sourceTree = "<group>"; };
 		7BF00B6EA5F80726C036DA53 /* PostHogProductAnalyticsSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogProductAnalyticsSink.swift; sourceTree = "<group>"; };
 		B7F100060000000000000002 /* PreparedNotificationSound.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreparedNotificationSound.swift; sourceTree = "<group>"; };
 		D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceHeartbeatClient.swift; sourceTree = "<group>"; };
@@ -9513,6 +9515,7 @@
 				B5A5E5570000000000000002 /* BrowserAppSessionWeakReference.swift */,
 				DEBDADADADADADADAD000002 /* DebugDogfoodCredentialResolver.swift */,
 				53750023A0B1C2D3E4F50023 /* MacAuthComposition.swift */,
+				A7C0FF1D0000000000000002 /* PostHogIdentityObserver.swift */,
 				CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */,
 				13019B000000000000000001 /* HostAccountFlow+TeamSelection.swift */,
 				A5C017000000000000000006 /* StackAccountAvatarView.swift */,
@@ -16224,6 +16227,7 @@
 				9262420B51295D47DC7065BD /* PortTerminalDeviceLookup.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				72ED5F6AB93363EDB369E867 /* PostHogContextCalls.swift in Sources */,
+				A7C0FF1D0000000000000001 /* PostHogIdentityObserver.swift in Sources */,
 				6D7155E52FFDD7E47CF2E759 /* PostHogProductAnalyticsSink.swift in Sources */,
 				B7F100060000000000000001 /* PreparedNotificationSound.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
