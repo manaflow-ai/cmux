@@ -4,7 +4,7 @@ Status: IN PROGRESS (checklist; results are filled in as each item is checked).
 
 - [x] Setup: merge (f054dfb9), xcframework identical, xcodegen, Debug + Production built
 - [x] N1 PASS (turn card 04/07, Review 2 of 3 06, Agent edits 3 of 4 then 4 of 4 10, relaunch kept marks) — viewed state shared: transcript diff / Changes / Review / Agent edits, relaunch, later edit starts unviewed
-- [ ] N2 image viewer zoom / pan / dismiss / AX (`-cnx-image-zoom-demo`)
+- [x] N2 PASS (11-14): zoom 2.5x (frame 1005x670), pan to x -293, swipe down while zoomed ignored, swipe down at fit dismisses, Close/Share/Image in AX; Close and Share hit areas reach the 44 pt visual (edge taps) — N2 image viewer zoom / pan / dismiss / AX (`-cnx-image-zoom-demo`)
 - [ ] N3 + F11 44 pt targets (AX tree + edge taps on system top bar)
 - [ ] N4 diff header path — double slash gone; NEW: ConnectionSettings folder squeezed to a 4 pt glyph fragment (05)
 - [ ] N5 AX5 turn card names
