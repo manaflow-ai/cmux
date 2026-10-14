@@ -21,6 +21,8 @@ import {
   type HomePart,
   type HomeReaction,
   type HomeResolvedLink,
+  type HomeRun,
+  type HomeRunStep,
   type HomeThreadObject,
   type HomeThreadStats,
 } from "./types";
@@ -40,6 +42,10 @@ const TAPBACK_EMOJI: Record<string, string> = {
   question: "❓",
 };
 const MAX_PAGE = 200;
+/** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
+const RUNS_CAPABILITY = "conversation-runs-v1";
+/** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
+const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -129,6 +135,105 @@ export function message(raw: Json): HomeMessage {
   // A message from before threads marked its thread as a reply to the root (HomeCoreMapping).
   const root = (raw.thread_root as string | undefined) ?? replyTo?.message_id;
   if (root) result.threadRoot = root;
+  return result;
+}
+
+const opt = <T>(value: T | undefined | null): T | undefined => (value === null ? undefined : value);
+const optNum = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
+const optStr = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** A run as the owner sends it (`conversation-runs-v1`, snake_case), in the page's shape. */
+export function run(raw: Json): HomeRun {
+  const status = ["running", "done", "failed", "cancelled"].includes(String(raw.status)) ? raw.status : "running";
+  const usage = raw.usage as Json | undefined;
+  const session = raw.session as Json | undefined;
+  const result: HomeRun = {
+    id: String(raw.id),
+    conversation: String(raw.conversation),
+    author: String(raw.author),
+    status: status as HomeRun["status"],
+    startedAt: num(raw.started_at),
+    // 0 when the owner does not say (a Cloud brain's runs): never read as stalled.
+    updatedAt: num(raw.updated_at),
+    rev: num(raw.rev),
+    stepCount: num(raw.step_count),
+    answers: ((raw.answers as unknown[] | undefined) ?? []).map(String),
+  };
+  if (typeof raw.ended_at === "number") result.endedAt = raw.ended_at;
+  for (const [from, to] of [
+    ["turn", "turn"],
+    ["thread_root", "threadRoot"],
+    ["title", "title"],
+    ["model", "model"],
+    ["harness", "harness"],
+    ["error", "error"],
+    ["workspace", "workspace"],
+  ] as const) {
+    const value = optStr(raw[from]);
+    if (value !== undefined) result[to] = value;
+  }
+  if (typeof raw.cost_usd === "number") result.costUsd = raw.cost_usd;
+  if (usage && typeof usage === "object")
+    result.usage = {
+      input: optNum(usage.input),
+      output: optNum(usage.output),
+      cacheRead: optNum(usage.cache_read),
+      cacheWrite: optNum(usage.cache_write),
+    };
+  if (session && typeof session === "object")
+    result.session = { kind: String(session.kind), id: String(session.id), host: opt(optStr(session.host)) };
+  return result;
+}
+
+/** A run step as the owner sends it, in the page's shape. */
+export function runStep(raw: Json): HomeRunStep {
+  const kind = ["talk", "thought", "tool", "note"].includes(String(raw.kind)) ? raw.kind : "note";
+  const status = ["running", "done", "failed"].includes(String(raw.status)) ? raw.status : undefined;
+  const tool = raw.tool as Json | undefined;
+  const result: HomeRunStep = {
+    id: String(raw.id),
+    seq: num(raw.seq),
+    at: num(raw.at),
+    rev: num(raw.rev),
+    kind: kind as HomeRunStep["kind"],
+    attachments: ((raw.attachments as Json[] | undefined) ?? []).map((item) => ({
+      hash: String(item.hash ?? ""),
+      name: String(item.name ?? ""),
+      mimeType: String(item.mime_type ?? ""),
+      byteCount: num(item.byte_count),
+      width: optNum(item.width),
+      height: optNum(item.height),
+      durationMs: optNum(item.duration_ms),
+    })),
+    links: ((raw.links as Json[] | undefined) ?? []).map((link) => ({
+      label: String(link.label ?? ""),
+      url: String(link.url ?? ""),
+    })),
+  };
+  if (status) result.status = status as HomeRunStep["status"];
+  if (typeof raw.text === "string") result.text = raw.text;
+  if (raw.truncated === true) result.truncated = true;
+  if (tool && typeof tool === "object") {
+    result.tool = {
+      name: String(tool.name ?? "tool"),
+      kind: optStr(tool.kind),
+      title: optStr(tool.title),
+      input: tool.input,
+      output: optStr(tool.output),
+      outputTruncated: tool.output_truncated === true || undefined,
+      exitCode: optNum(tool.exit_code),
+      startedAt: optNum(tool.started_at),
+      endedAt: optNum(tool.ended_at),
+      files: ((tool.files as Json[] | undefined) ?? []).map((file) => ({
+        path: String(file.path ?? ""),
+        oldText: optStr(file.old_text),
+        newText: optStr(file.new_text),
+        added: optNum(file.added),
+        removed: optNum(file.removed),
+        line: optNum(file.line),
+      })),
+    };
+  }
   return result;
 }
 
@@ -232,7 +337,7 @@ export class DaemonHomeClient implements PageClient {
       started = (async () => {
         await socket.request("set-client-info", {
           name: "cmux page: home-channels",
-          capabilities: ["conversation-draft-events-v1"],
+          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY],
         });
         await socket.request("subscribe");
       })().catch((error) => {
@@ -455,11 +560,71 @@ export class DaemonHomeClient implements PageClient {
           throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
         return this.submit(str(params, "conversation"), this.key(params, options), update);
       }
+      case HomeOps.runs: {
+        const id = str(params, "conversation");
+        if (this.cloud.owns(id)) return this.cloudRuns(id, params);
+        if (!(await this.capable(RUNS_CAPABILITY))) return { runs: [], hasMore: false };
+        const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
+          (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
+        );
+        const request: Json = { conversation: id };
+        if (turns.length > 0) request.turns = turns.slice(0, 200);
+        else request.limit = Math.min(bounded(params.limit, 50), 200);
+        const found = await this.read("conversation-runs", id, request);
+        return {
+          runs: ((found.runs as Json[] | undefined) ?? []).map(run),
+          hasMore: found.has_more === true,
+        };
+      }
+      case HomeOps.run: {
+        const id = str(params, "conversation");
+        // A Cloud Chief's run is read from its brain by agent, steps after a seq (no revisions).
+        const page = this.cloud.owns(id)
+          ? await this.cloud.read("cloud-conversation-run", {
+              conversation: id,
+              agent: str(params, "agent", 128),
+              run: str(params, "run", 128),
+              after_seq: Math.max(0, num(params.afterSeq)),
+            })
+          : await this.read("conversation-run", id, {
+              conversation: id,
+              run: str(params, "run", 128),
+              after_rev: Math.max(0, num(params.afterRev)),
+            });
+        return {
+          run: run(page.run as Json),
+          steps: ((page.steps as Json[] | undefined) ?? []).map(runStep),
+          hasMore: page.has_more === true,
+        };
+      }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
+  }
+
+  /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
+   * agent), merged newest first. A daemon without the proxy answers nothing. */
+  private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
+    // The brain lists newest first only: a read by reply keys has nothing more to find.
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY, this.daemon)) || Array.isArray(params.turns))
+      return { runs: [], hasMore: false };
+    const agents = (this.cloud.summary(id)?.participants ?? [])
+      .filter((participant) => participant.kind === "agent")
+      .map((participant) => participant.id)
+      .slice(0, 8);
+    const limit = Math.min(bounded(params.limit, 20), 100);
+    const lists = await Promise.all(
+      agents.map((agent) =>
+        this.cloud
+          .read("cloud-conversation-runs", { conversation: id, agent, limit })
+          .then((found) => ((found.runs as Json[] | undefined) ?? []).map(run))
+          .catch(() => [] as HomeRun[]),
+      ),
+    );
+    const runs = lists.flat().sort((a, b) => b.startedAt - a.startedAt);
+    return { runs, hasMore: false };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);
@@ -530,6 +695,12 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.run) {
+            const changed = run(cloud.run.run);
+            // A Cloud brain's run carries no update time: this event is its newest change.
+            if (!changed.updatedAt) changed.updatedAt = Date.now();
+            (batch.runs ??= []).push({ run: changed, steps: cloud.run.steps.map(runStep) });
+          }
         });
       } else if (!fromLocal && event.event !== "overflow") {
         // The build daemon's own local conversations are not shown while another owner serves them.
@@ -567,6 +738,13 @@ export class DaemonHomeClient implements PageClient {
             text: String(item.text ?? ""),
             fresh: item.fresh === true,
             done: item.done === true,
+          }),
+        );
+      } else if (event.event === "conversation-run-changed" && event.run) {
+        deliver((batch) =>
+          (batch.runs ??= []).push({
+            run: run(event.run as Json),
+            steps: ((event.steps as Json[] | undefined) ?? []).map(runStep),
           }),
         );
       } else if (event.event === "overflow") {

@@ -6,6 +6,11 @@ import CmuxNextDesign
 /// never sent to the daemon. AppKit first responder, Ghostty surface focus,
 /// WebKit/CEF page focus, `LayoutModel.focusedPane` and the registry
 /// context are outputs of it (`FocusEffectApplier`).
+///
+/// A value mirror of `cmux-focus-core`'s state (cmux-tui/crates/cmux-focus-core):
+/// the rules, including what the state resolves to (`derived`), run there,
+/// through `FocusReducer` over the app FFI. Its synthesized `Codable` shape
+/// is the wire shape.
 nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// What inside (or outside) the focused pane has the keyboard.
     enum Target: Hashable, Sendable, Codable {
@@ -88,7 +93,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     }
 
     /// The one keyboard target the state implies.
-    enum Resolved: Hashable, Sendable {
+    enum Resolved: Hashable, Sendable, Codable {
         case terminal(pane: String, tab: String)
         case browserPage(pane: String, tab: String)
         case addressBar(pane: String, tab: String)
@@ -169,6 +174,19 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var agent = false
     }
 
+    /// What the state resolves to, computed by the Rust reducer on every
+    /// reduction (`cmux-focus-core` `Derived`).
+    struct Derived: Hashable, Sendable, Codable {
+        /// The keyboard target, the top overlay first.
+        var resolved: Resolved = .none
+        /// The target below any overlay.
+        var underlying: Resolved = .none
+        var context = Context()
+        var browserFocusModeActive = false
+        /// The shown workspace's focus history, newest first.
+        var recentPanes: [String] = []
+    }
+
     var windowKey = false
     var appActive = false
     var topology = FocusTopology()
@@ -183,12 +201,6 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// (focus.md section 4a). Closed panes are dropped when the workspace's
     /// topology arrives; in memory only.
     var history: [String: [String]] = [:]
-    static let historyLimit = 64
-
-    /// The shown workspace's focus history, newest first.
-    var recentPanes: [String] {
-        topology.workspace.flatMap { history[$0] } ?? []
-    }
     var expectation: Expectation?
     var drag: DragRestore?
     /// Browser tabs in browser focus mode (all keys but tier 0 go to the page).
@@ -200,55 +212,22 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// `layout.closeFocus`: the successor rule when the focused pane closes
     /// (close-focus.md). The coordinator copies the setting in.
     var closeFocus: CloseFocusPolicy = .previousNeighbor
+    /// Filled by the reducer; the rest of the state never changes outside it.
+    private(set) var derived = Derived()
 
-    var resolved: Resolved {
-        if let top = overlays.last { return .overlay(top) }
-        return underlying
-    }
+    /// The shown workspace's focus history, newest first.
+    var recentPanes: [String] { derived.recentPanes }
+
+    var resolved: Resolved { derived.resolved }
 
     /// The target below any overlay (what closing the overlays restores,
     /// and what the palette's commands act on).
-    var underlying: Resolved {
-        switch target {
-        case .sidebar: return .sidebar
-        case .sidebarField: return .sidebarField
-        case .textField: return .textField
-        case .none: return .none
-        case .content, .addressBar, .findBar, .devTools:
-            guard let pane, let model = topology.pane(pane) else { return .none }
-            guard let tab = model.selectedTab else { return .emptyPane(pane: pane) }
-            switch (tab.kind, target) {
-            case (.browser, .addressBar): return .addressBar(pane: pane, tab: tab.id)
-            case (.browser, .findBar): return .findBar(pane: pane, tab: tab.id)
-            case (.browser, .devTools): return .devTools(pane: pane, tab: tab.id)
-            case (.browser, _): return .browserPage(pane: pane, tab: tab.id)
-            case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
-            case (.agent, _): return .agentPage(pane: pane, tab: tab.id)
-            case (.page, _): return .page(pane: pane, tab: tab.id)
-            case (.conversation, _): return .conversation(pane: pane, tab: tab.id)
-            case (.other, _): return .emptyPane(pane: pane)
-            }
-        }
-    }
+    var underlying: Resolved { derived.underlying }
 
-    /// The sidebar, other text fields, sheets and rename prompts clear both
-    /// bits, so content-scoped actions (Copy, Paste) cannot run while the
-    /// user types there. Address bar and find bar keep `browserFocused`.
-    /// The palette keeps the bits of what is below it: its commands act on
-    /// the window's focused content.
-    var context: Context {
-        if let top = overlays.last, top != .palette { return Context() }
-        switch underlying {
-        case .terminal: return Context(terminal: true)
-        case .browserPage, .addressBar, .findBar, .devTools: return Context(browser: true)
-        case .agentPage: return Context(agent: true)
-        default: return Context()
-        }
-    }
+    /// The registry context bits: the sidebar, other text fields, sheets and
+    /// rename prompts clear them; the palette keeps the bits of what is below.
+    var context: Context { derived.context }
 
     /// The focused page is in browser focus mode.
-    var isBrowserFocusModeActive: Bool {
-        guard case .browserPage(_, let tab) = resolved else { return false }
-        return browserFocusMode.contains(tab)
-    }
+    var isBrowserFocusModeActive: Bool { derived.browserFocusModeActive }
 }

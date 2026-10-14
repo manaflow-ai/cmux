@@ -21,6 +21,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -38,6 +39,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -144,6 +146,7 @@ pub(super) fn advertised_capabilities(
         TAB_DRAG_CAPABILITY,
         TAB_WORKSPACE_NAME_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
@@ -170,6 +173,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
+        conversation_runs::CONVERSATION_RUNS_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
         conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,

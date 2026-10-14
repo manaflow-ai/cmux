@@ -15,6 +15,7 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import "./paneStrings";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";

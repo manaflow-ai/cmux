@@ -114,7 +114,9 @@ const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
 mod install_key;
+mod replace;
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
+pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
