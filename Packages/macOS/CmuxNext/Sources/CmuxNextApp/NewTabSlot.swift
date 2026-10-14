@@ -52,12 +52,16 @@ enum NewTabSlot {
 
     /// `then` for the terminal or browser a New Tab page turns into: it takes
     /// the page's slot, so a page opened after the current tab stays there.
-    /// The page's left neighbour is read now, as the page closes meanwhile.
+    /// The page's left neighbour is read now, as the page closes meanwhile,
+    /// from the order the strip shows: a page opened after the current tab
+    /// shows in its slot before the model moves it there (`expectInsertion`),
+    /// and a submit in that window keeps that slot, not the model's end.
     static func placing(replacing page: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }),
-              index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
-        let before = index > 0 ? pane.tabs[index - 1] : nil
+        guard let located = services.locateTab(page), case let (tab, pane) = located else { return then }
+        let shown = services.paneController(for: pane)?.view.stripView.displayedOrder ?? pane.tabs.map { StripTabID($0.id) }
+        guard let index = shown.firstIndex(of: StripTabID(tab.id)), index + 1 < shown.count else { return then } // shown last: it appends
+        let before = index > 0 ? pane.tabs.first { StripTabID($0.id) == shown[index - 1] } : nil
         return { surface in
             then?(surface)
             place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { others in
