@@ -98,10 +98,20 @@ def rows_report():
     return rpc("debug.home.drive", {"action": "rows"}) or {}
 
 
+def geometry():
+    return (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
+
+
 def scale_state(name, want):
-    """One display frame after a scale change: the view renders at the window's scale and shows no old-scale bitmap."""
+    """One display frame after a scale change: the view renders at the window's scale and shows no old-scale bitmap.
+    When an old-scale bitmap still shows, how long until none does (up to 2 s) is printed for the failure's cause."""
+    t0 = time.time()
     time.sleep(1 / 60)  # test harness: one display frame after the change
-    g = (rpc("debug.home.drive", {"action": "geometry"}) or {}).get("geometry") or {}
+    g = geometry()
+    if g.get("rowBitmapsOffScale"):
+        cleared = poll(lambda: (x := geometry()).get("rowBitmapsOffScale") == 0 and x, timeout=2)
+        print(f"     {name}: old-scale bitmaps {g.get('rowBitmapsOffScale')} after one frame; "
+              + (f"none after {time.time() - t0:.3f} s" if cleared else "still some after 2 s"), flush=True)
     print(f"     {name}: " + json.dumps({k: g.get(k) for k in ("windowScale", "renderScale", "rowBitmaps", "rowBitmapsOffScale",
                                                              "cellsOffScale", "composeScale", "headerScale")}), flush=True)
     check(f"{name}: the window, the transcript view, its cells, compose bar and header are at {want:g}x",
@@ -223,6 +233,14 @@ try:
         time.sleep(0.3)  # test harness: display frames after the move
         rb = rows_report()
         rows_on_grid("2x right after the scale change back (no other move)", rb, 2)
+        # The transcript sits 0.5 pt off whole points: rows still on the 1x snap sit on whole points (whole pixels at
+        # 2x too, so the grid check above cannot tell); rows on the 2x snap keep the half point.
+        wh = rb.get("windowHeight", 0)
+        tops = [(wh - r["y"] - r["height"]) for r in rb.get("rows") or [] if r["kind"] == "text" and r["y"] >= 64
+                and r["y"] + r["height"] <= wh - 90]
+        half = [t for t in tops if abs((t % 1) - 0.5) < 0.01]
+        check("2x right after the return: rows follow the 2x snap (some text rows on half points, not the 1x snap)",
+              bool(half), {"tops": [round(t, 3) for t in tops]})
         snapshot_checks("2x right after the return", "scale-back.png", rb, full=True)
         # The transcript sits 0.5 pt off (one device pixel at 2x): 0.25 pt more is half a device pixel at 2x.
         rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})

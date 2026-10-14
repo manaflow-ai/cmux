@@ -4,7 +4,7 @@ import AppKit
 extension MessagesLabHomeView {
     /// The pane's render scale and the scale of what its visible rows show, for `debugGeometry`:
     /// `renderScale` (MessagesWindowView.renderScale), `windowScale` (its window's backing scale), `rowBitmaps` (visible
-    /// rows that show a bitmap), `rowBitmapsOffScale` (those whose image is not drawn at the view's scale: its pixel
+    /// text rows that show a bitmap), `rowBitmapsOffScale` (those whose image is not drawn at the view's scale: its pixel
     /// width is not the layer's point width times `renderScale`, or the layer's contentsScale differs: an old-scale
     /// bitmap), `cellsOffScale` (visible cells whose own renderScale differs), `composeScale` and `headerScale`.
     func debugScaleGeometry() -> [String: Double] {
@@ -13,8 +13,12 @@ extension MessagesLabHomeView {
         var bitmaps = 0, offScale = 0, cellsOff = 0
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             if cell.renderScale != s { cellsOff += 1 }
+            // Text rows only (a media row's placeholder thumbnail is fitted to its bubble, not drawn at the layer's
+            // size), and a shown, unstretched bitmap (long text hides it under its tiles).
+            guard case let .part(p)? = cell.spec?.kind, case .text = p.part else { continue }
             let layer = cell.bitmap
-            guard let raw = layer.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID, layer.bounds.width >= 4 else { continue }
+            guard !layer.isHidden, layer.contentsCenter == CGRect(x: 0, y: 0, width: 1, height: 1),
+                  let raw = layer.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID, layer.bounds.width >= 4 else { continue }
             let image = unsafeDowncast(raw as AnyObject, to: CGImage.self)  // type checked above (ComposeAttachments' pattern)
             bitmaps += 1
             // The image is drawn for the layer's size at its scale (ceil to whole pixels); an image from another
