@@ -1035,19 +1035,9 @@ def shadows_cli_lane_import(path: str) -> bool:
         if not name.endswith(".py"):
             return False
         name = name[: -len(".py")]
-    if _STDLIB_MODULE_NAMES is not None:
-        return name in _STDLIB_MODULE_NAMES
-    # Python 3.9 has no ``sys.stdlib_module_names``. Inspect its configured
-    # stdlib directory instead of treating every CI helper as a CLI input.
-    try:
-        import sysconfig
-
-        stdlib = Path(sysconfig.get_paths()["stdlib"])
-        return (stdlib / f"{name}.py").is_file() or (stdlib / name).is_dir()
-    except (KeyError, OSError, TypeError):
-        # If the interpreter cannot expose its stdlib layout, keep the
-        # conservative routing used by older callers.
+    if _STDLIB_MODULE_NAMES is None:
         return True
+    return name in _STDLIB_MODULE_NAMES
 
 
 @dataclass(frozen=True)
@@ -1248,7 +1238,7 @@ def _package_manifest(root: Path, directory: str) -> Optional[str]:
     try:
         return manifest.read_text(encoding="utf-8")
     except OSError:
-        if directory.startswith("vendor/") or _gitlink(root, directory):
+        if _gitlink(root, directory):
             # Gitlinks are external package inputs. The routing checkout does not
             # initialize them, and a Packages/iOS change cannot modify their tree.
             return None

@@ -73,7 +73,7 @@ public struct CloudTuiClientPaths: Sendable {
     }
 
     public func saveDeviceFingerprint(_ fingerprint: String, for machineID: String) {
-        saveAttachState(deviceFingerprint: fingerprint, route: route(for: machineID), for: machineID)
+        deviceStore.saveAttachState(deviceFingerprint: fingerprint, for: machineID)
     }
 
     /// Persists the device identity and attach route together. The route is

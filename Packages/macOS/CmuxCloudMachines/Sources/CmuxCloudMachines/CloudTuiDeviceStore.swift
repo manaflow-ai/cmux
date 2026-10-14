@@ -1,10 +1,12 @@
+import Darwin
 import Foundation
 
 /// The device records and attach routes shared by the Cloud app and CLI.
 ///
 /// This adapter keeps the existing synchronous file contract for both processes;
 /// it holds no mutable in-memory cache. Callers supply their home and tests use
-/// a temporary directory. Writes preserve the other machines in the same file.
+/// a temporary directory. A cross-process lock serializes writes so concurrent
+/// updates preserve the other machines and any omitted fields in the same file.
 ///
 /// ```swift
 /// let store = CloudTuiDeviceStore(home: temporaryHome)
@@ -82,6 +84,17 @@ public struct CloudTuiDeviceStore: Sendable {
     ///   - route: New server route, or nil to preserve the existing route.
     ///   - machineID: The machine whose record is updated.
     public func saveAttachState(deviceFingerprint: String? = nil, route: String? = nil, for machineID: String) {
+        let directory = devicesStoreURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lockURL = devicesStoreURL.appendingPathExtension("lock")
+        let lockFD = open(lockURL.path, O_CREAT | O_RDWR | O_CLOEXEC, mode_t(0o600))
+        guard lockFD >= 0 else { return }
+        defer { _ = close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else { return }
+        defer { _ = flock(lockFD, LOCK_UN) }
+
+        // Lock a stable sibling file: atomic JSON replacement changes the
+        // store's inode, which cannot safely serve as the shared lock.
         var store = loadDevices()
         let previous = store[machineID]
         let fingerprint = deviceFingerprint ?? previous?.deviceFingerprint
@@ -92,7 +105,6 @@ public struct CloudTuiDeviceStore: Sendable {
             route: route ?? previous?.route
         )
         guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(at: devicesStoreURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: devicesStoreURL, options: [.atomic])
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: devicesStoreURL.path)
     }

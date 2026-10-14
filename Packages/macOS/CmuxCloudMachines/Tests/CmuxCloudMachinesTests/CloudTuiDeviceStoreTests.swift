@@ -3,6 +3,31 @@ import Foundation
 import Testing
 
 struct CloudTuiDeviceStoreTests {
+    @Test func concurrentClientsPreserveEveryMachine() async throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let machineCount = 64
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<machineCount {
+                group.addTask {
+                    let client = CloudTuiDeviceStore(home: home)
+                    client.saveAttachState(
+                        deviceFingerprint: "key-\(index)",
+                        route: "ws://10.0.0.7:8123/machine-\(index)",
+                        for: "machine-\(index)"
+                    )
+                }
+            }
+        }
+        let restored = CloudTuiDeviceStore(home: home).loadDevices()
+        #expect(restored.count == machineCount)
+        for index in 0..<machineCount {
+            let record = try #require(restored["machine-\(index)"])
+            #expect(record.deviceFingerprint == "key-\(index)")
+            #expect(record.route == "ws://10.0.0.7:8123/machine-\(index)")
+        }
+    }
+
     @Test func separateClientsShareIdentityAndAdvertisedRoute() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: home) }
