@@ -27225,6 +27225,18 @@
                 "value" : "Vesper"
               },
               {
+                "title" : "Fogline",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Fogline"
+              },
+              {
+                "title" : "Kiln",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Kiln"
+              },
+              {
                 "title" : "Rose Pine Dawn",
                 "title_key" : null,
                 "title_table" : null,
@@ -27241,6 +27253,18 @@
                 "title_key" : null,
                 "title_table" : null,
                 "value" : "GitHub Light Default"
+              },
+              {
+                "title" : "Fogline Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Fogline Light"
+              },
+              {
+                "title" : "Kiln Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Kiln Light"
               }
             ]
           },
@@ -30319,6 +30343,18 @@
                     "value" : "Vesper"
                   },
                   {
+                    "title" : "Fogline",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Fogline"
+                  },
+                  {
+                    "title" : "Kiln",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Kiln"
+                  },
+                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
@@ -30335,6 +30371,18 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "GitHub Light Default"
+                  },
+                  {
+                    "title" : "Fogline Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Fogline Light"
+                  },
+                  {
+                    "title" : "Kiln Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Kiln Light"
                   }
                 ]
               },
@@ -32682,6 +32730,18 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Fogline",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Fogline"
+                      },
+                      {
+                        "title" : "Kiln",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Kiln"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -32698,6 +32758,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Fogline Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Fogline Light"
+                      },
+                      {
+                        "title" : "Kiln Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Kiln Light"
                       }
                     ]
                   },
@@ -34883,6 +34955,18 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Fogline",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Fogline"
+                      },
+                      {
+                        "title" : "Kiln",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Kiln"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -34899,6 +34983,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Fogline Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Fogline Light"
+                      },
+                      {
+                        "title" : "Kiln Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Kiln Light"
                       }
                     ]
                   },
