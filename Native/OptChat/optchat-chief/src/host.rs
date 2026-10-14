@@ -481,6 +481,52 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     }
 }
 
+/// This Chief's record from the local owner's Chief registry, read once on
+/// its own bound connection. No registry (the cloud source, an older
+/// daemon) or no record for this participant (a Chief started before it had
+/// one, such as hq-ec's instruction-file VM Chiefs): every tool, no profile,
+/// as before records. Any other failure (the daemon away, a refused bind) is
+/// fatal for a Chief that is not the default one, so its grant never opens
+/// up because the daemon was briefly away (its supervisor starts it again);
+/// the default Chief starts as before.
+fn load_chief_tools(
+    source: &Source,
+    daemon_socket: &str,
+    membership: &crate::membership::Membership,
+) -> Result<crate::chief_profile::ChiefTools, String> {
+    use crate::chief_profile::{ChiefTools, LoadError, ProfileClient};
+    let Source::Local { token_file } = source else {
+        return Ok(ChiefTools::none());
+    };
+    let client = ProfileClient::new(
+        daemon_socket.into(),
+        token_file.clone(),
+        membership.participant.clone(),
+    );
+    match ChiefTools::load(Some(client)) {
+        Ok(tools) => {
+            if let Some(p) = &tools.profile {
+                log(format!(
+                    "chief record: {} {:?} rev {}, tools {:?}, harnesses {:?}, self_edit {:?}",
+                    p.id, p.display_name, p.rev, tools.grant.tools, p.harnesses, p.self_edit
+                ));
+            }
+            Ok(tools)
+        }
+        Err(e @ (LoadError::NoRecord(_) | LoadError::NoRegistry(_))) => {
+            log(format!("chief record: {e}; every tool, no profile"));
+            Ok(ChiefTools::none())
+        }
+        Err(e) if membership.is_default() => {
+            log(format!(
+                "chief record: not read ({e}); every tool, no profile"
+            ));
+            Ok(ChiefTools::none())
+        }
+        Err(e) => Err(format!("reading this Chief's record: {e}")),
+    }
+}
+
 fn start(
     paths: &Paths,
     home: &std::path::Path,
@@ -550,6 +596,13 @@ fn start(
         (Some(base), Some(channels)) => Some(format!("{base}\n\n{channels}")),
         (base, channels) => base.or(channels),
     };
+    // This Chief's record (multi-Chief S5): its profile goes into the turns'
+    // (and compactions') system text after everything above; subagents keep
+    // the text without it (they are not this Chief). Its grant limits the
+    // turn's tools (chief_profile.rs).
+    let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
+    let sub_instructions = instructions.clone();
+    let instructions = chief_tools.instructions(instructions);
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -708,7 +761,7 @@ fn start(
     } else {
         crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
     };
-    let sub_text = crate::prompt::subagent_system_text(instructions.as_deref(), &sub_tools);
+    let sub_text = crate::prompt::subagent_system_text(sub_instructions.as_deref(), &sub_tools);
     let sub_setup = SessionSetup {
         tools: sub_tools,
         ..setup.clone()
@@ -831,7 +884,7 @@ fn start(
                 crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
             };
             let other_text =
-                crate::prompt::subagent_system_text(instructions.as_deref(), &other_tools);
+                crate::prompt::subagent_system_text(sub_instructions.as_deref(), &other_tools);
             if sub_other == Family::Codex
                 && let Err(e) = session_dir::write_subagent_agents_md(paths, &other_text)
             {
@@ -1101,6 +1154,7 @@ fn start(
         )
         .with_trace(trace.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_harness_grant(chief_tools.grant.harnesses.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone());
         let spawner = Arc::new(spawner);
@@ -1131,6 +1185,7 @@ fn start(
             orchestrator,
             control: Some(control),
             inspector: start_inspector(paths, &chat, &claude_text),
+            chief: Some(chief_tools.clone()),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
