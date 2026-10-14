@@ -1330,6 +1330,74 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
         texts = [str(e.label) for e in self.sim.tree() if e.label and 0 <= e.frame[0] < 402 and 100 < e.frame[1] < 780][:6]
         raise Blocked(f"Feed events come from agent asks; no credit-free harness (see agent_chat). Feed opened: {texts[:4]}")
 
+    def codex_ready(self, term, timeout=60):
+        """Waits for Codex's prompt in `term`, accepting the folder trust question."""
+        deadline = time.time() + timeout
+        text = ""
+        while time.time() < deadline:
+            text = self.mac_screen(term).get("text", "")
+            if "trust" in text.lower() and "1." in text:
+                self.mac_write(term, "\r"); time.sleep(2); continue
+            if "›" in text and "trust" not in text.lower():
+                return text
+            time.sleep(1)
+        raise Fail(f"Codex never showed its prompt; screen tail: {text[-300:]!r}")
+
+    def codex_prompt(self, term, text):
+        # The text, then Return on its own: a Return inside Codex's paste burst is a newline.
+        self.mac_write(term, text); time.sleep(1.5)
+        self.mac_write(term, "\r")
+
+    def s_feed_terminal(self):
+        """Terminal agents in the Feed with the real Codex CLI (model calls: only with
+        CNX_E2E_REAL_CODEX=1). Codex runs in a Mac terminal tab, as the person runs it,
+        and reports through its hooks to the daemon's notification ledger. A finished
+        turn and an approval it waits on reach the phone's Feed live; the approval is a
+        "Needs input" item, and Answer in Terminal opens that terminal tab."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex CLI makes model calls)")
+        term = self.seed["term2"]
+        proj = os.path.expanduser("~/cnx-ios-e2e/feedterm-proj")
+        os.makedirs(proj, exist_ok=True)
+        probe = os.path.join(proj, "feedterm-probe.txt")
+        if os.path.exists(probe):
+            os.remove(probe)
+        self.back_to_list()
+        self.tab("Feed")
+        video = os.path.join(self.out, f"feed-terminal-{self.run_id}.mp4")
+        self.sim.record_start(video)
+        notes = []
+        try:
+            # `untrusted`: Codex asks before running a command, as a person's setup may.
+            self.mac_write(term, f"clear; cd {proj} && codex --ask-for-approval untrusted\n")
+            self.codex_ready(term)
+            t = time.time()
+            self.codex_prompt(term, "Reply with exactly one word: ready")
+            done = self.sim.wait(label="Codex", timeout=150)
+            check(done, "no Codex item in the Feed 150 s after Codex's turn")
+            notes.append(f"finished turn in the Feed after {time.time()-t:.1f} s")
+            self.sim.shot(f"feed-terminal-finished-{self.run_id}")
+            t = time.time()
+            self.codex_prompt(term, "Run this exact shell command now: touch feedterm-probe.txt")
+            ask = self.sim.wait(label="Needs input", timeout=150)
+            screen = self.mac_screen(term).get("text", "")
+            check(ask, f"no Needs input item 150 s after asking Codex to run a command; Mac screen tail: {screen[-300:]!r}")
+            notes.append(f"approval as Needs input after {time.time()-t:.1f} s")
+            self.sim.shot(f"feed-terminal-needs-input-{self.run_id}")
+            time.sleep(2)
+            self.sim.tap_q(ident="feed.terminal.open")
+            opened = self.sim.wait(ident="terminal.composer.field", timeout=20)
+            check(opened, "Answer in Terminal did not open the terminal tab")
+            time.sleep(3)
+            self.sim.shot(f"feed-terminal-opened-{self.run_id}")
+            notes.append("Answer in Terminal opened the terminal tab")
+        finally:
+            self.sim.record_stop()
+            # Decline the approval and leave Codex.
+            self.mac_write(term, "\x1b"); time.sleep(1)
+            self.mac_write(term, "\x03"); time.sleep(0.5); self.mac_write(term, "\x03")
+        return {"notes": "; ".join(notes) + f"; video {os.path.relpath(video, self.out)}"}
+
     def s_chief(self):
         self.back_to_list()
         self.tab("Home")
@@ -1605,6 +1673,7 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("image_upload", "Terminal: image upload", "termlive", self.s_image_upload),
             ("agent_chat", "Agent chat (stream, tools, approvals, question, attachments, diff, artifacts)", "approvals", self.s_agent_chat),
             ("feed", "Feed events and inline answer", "approvals", self.s_feed),
+            ("feed_terminal", "Feed: a terminal agent's events (real Codex), Needs input opens the tab", "feedterm", self.s_feed_terminal),
             ("chief", "Chief: real Mac conversation, send/receive, model", "chieflive", self.s_chief),
             ("transport", "Transport WebRTC <-> WireGuard", "fastconn", self.s_transport),
             ("relay_only", "Relay only", "fastconn", self.s_relay_only),
