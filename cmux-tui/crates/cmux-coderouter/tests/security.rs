@@ -14,3 +14,14 @@ fn panic_payload_is_discarded() {
     assert!(!stderr.contains("test-secret-canary"));
     assert!(stderr.contains("security.rs:"));
 }
+
+/// The relay's tests keep the install secret out of the Keychain only in a
+/// debug build: a release build (what the app ships) ignores the switch.
+#[test]
+fn a_release_build_ignores_the_ephemeral_install_secret_switch() {
+    use std::ffi::OsStr;
+    assert!(!cmux_coderouter::ephemeral_install_secret(false, Some(OsStr::new("1"))));
+    assert!(cmux_coderouter::ephemeral_install_secret(true, Some(OsStr::new("1"))));
+    assert!(!cmux_coderouter::ephemeral_install_secret(true, None));
+    assert!(!cmux_coderouter::ephemeral_install_secret(true, Some(OsStr::new("0"))));
+}
