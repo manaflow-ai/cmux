@@ -61,12 +61,13 @@ run_with_timeout() {
 }
 
 # file_limit FILE DEFAULT: the seconds FILE may run. A file whose own tests need more than the
-# default names its limit on a header line, `// cmux-web-test-timeout: SECONDS` (editor-page:
-# 24 browser tests in two engines, about 115 s on the CI runner, were killed at 120 s mid-WebKit).
+# default names its limit on a header line (first 20 lines), `// cmux-web-test-timeout: SECONDS`
+# (editor-page: 24 browser tests in two engines, about 115 s on the CI runner, were killed at
+# 120 s mid-WebKit). The longer of the two wins, so a declared limit never shortens the default.
 file_limit() {
   local declared
   declared="$(head -n 20 "$1" 2> /dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
-  echo "${declared:-$2}"
+  if [ -n "$declared" ] && [ "$declared" -gt "$2" ]; then echo "$declared"; else echo "$2"; fi
 }
 
 if [ "${1:-}" = --one-cached ]; then
