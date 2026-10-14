@@ -30,7 +30,74 @@ export const HomeOps = {
   runs: "cmux.home.runs",
   run: "cmux.home.run",
   events: "cmux.home.events",
+  /** What this host and its owners let the page do beyond messages (HomeCapabilities). */
+  capabilities: "cmux.home.capabilities",
+  /** Everyone the page may add to a local conversation: people met so far and the Chiefs. */
+  directory: "cmux.home.directory",
+  /** Opens my direct message with one participant, or makes a new conversation; `{conversation}`. */
+  startConversation: "cmux.home.startConversation",
+  /** Adds participants to a local conversation (`participants.add`). */
+  invite: "cmux.home.invite",
+  /** The Chief records (`chief.profile.list`). */
+  chiefs: "cmux.home.chiefs",
+  /** A Chief's name and role (the rest needs the person's gesture in the app: the host). */
+  chiefUpdate: "cmux.home.chiefUpdate",
+  chiefAvatarSet: "cmux.home.chiefAvatarSet",
+  /** A Chief's picture, base64 (`{mediaType, data}`), or null. */
+  chiefAvatar: "cmux.home.chiefAvatar",
 } as const;
+
+/** `cmux.home.capabilities`: each entry is hidden when its capability is missing (no dead ends). */
+export interface HomeCapabilities {
+  /** New message and channel (`conversation-create` on the local owner). */
+  start: boolean;
+  /** Add people or Chiefs to a local conversation (`participants.add`). */
+  invite: boolean;
+  /** Create Chiefs and edit their profile and picture (`chief-profile-ws-v1`). */
+  chiefs: boolean;
+}
+
+/** The tools a Chief may be granted (the daemon's closed catalog). */
+export const CHIEF_TOOLS = ["spawn", "tell", "workspaces", "browser", "cloud_vms", "chiefs", "memory_import"] as const;
+/** A new Chief's tools when the person names none (the daemon's default). */
+export const DEFAULT_CHIEF_TOOLS = ["spawn", "tell", "workspaces"] as const;
+/** The agent harnesses a Chief's subagents may use (none checked: every harness). */
+export const CHIEF_HARNESSES = ["claude", "codex", "opencode", "pi"] as const;
+
+/** A Chief record (`chief.profile.*`). */
+export interface HomeChief {
+  id: string;
+  name: string;
+  role: string;
+  personality: string;
+  instructions: string;
+  tools: string[];
+  harnesses: string[];
+  selfEdit: string[];
+  isDefault: boolean;
+  rev: number;
+  /** When the owner made the record (two owners' records differ by it). */
+  createdAt: string;
+  /** The picture's hash (the page reads its bytes once per hash). */
+  avatar?: string;
+}
+
+/** A Chief's profile text as the sheet edits it. */
+export interface HomeChiefProfile {
+  name: string;
+  role: string;
+  personality: string;
+  instructions: string;
+}
+
+/** What a page changes without the person's gesture (`cmux.home.chiefUpdate`). */
+export type HomeChiefNames = Pick<HomeChiefProfile, "name" | "role">;
+
+/** A Chief's grant (tools, harnesses): the person changes it only with a click in the cmux app. */
+export interface HomeChiefGrant {
+  tools: string[];
+  harnesses: string[];
+}
 
 export type ParticipantKind = "human" | "agent";
 
