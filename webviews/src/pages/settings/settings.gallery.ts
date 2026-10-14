@@ -121,6 +121,23 @@ const longProfiles = longRows.map((r, i) => ({
   is_default: i === 0,
   source: "Imported sample browser profile",
 }));
+variants["appearance-interface-scale-90"] = variant("appearance", {
+  options: { values: { "appearance.interfaceScale": 0.9 } },
+  note: "Labs Interface size at 90%: chrome tokens tighten together.",
+});
+variants["appearance-interface-scale-100"] = variant("appearance", {
+  options: { values: { "appearance.interfaceScale": 1 } },
+  note: "Labs Interface size at 100%: the familiar default chrome.",
+});
+variants["appearance-interface-scale-110"] = variant("appearance", {
+  options: { values: { "appearance.interfaceScale": 1.1 } },
+  note: "Labs Interface size at 110%: chrome type, spacing and controls scale together.",
+});
+variants["appearance-interface-scale-125"] = variant("appearance", {
+  options: { values: { "appearance.interfaceScale": 1.25 } },
+  note: "Labs Interface size at 125%: the largest supported chrome step.",
+});
+
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
     note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text.",
