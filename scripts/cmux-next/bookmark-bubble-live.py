@@ -122,8 +122,15 @@ try:
         check(len(shown) == 1, f"{what}: one bookmark bubble shows ({len(shown)})")
         return shown[0] if shown else None
 
+    def saved():
+        rows = (rpc("bookmark.list", {"text": "example.com"}) or {}).get("bookmarks") or []
+        return [(r.get("title"), r.get("url")) for r in rows]
+
     # 1. Opens under the star as a child panel of the browser window.
     bubble = open_bubble("bookmark.addPage")
+    first = saved()
+    print("bookmarks after the add", first, flush=True)
+    check(len(first) == 1, f"the star bookmarked the page once: {first}")
     if bubble and main:
         check(bubble.get("parent") == main.get("id"), f"the bubble is a child of the browser window: {bubble.get('parent')} vs {main.get('id')}")
         check("Popover" not in (bubble.get("class") or ""), f"the bubble is not an NSPopover window: {bubble.get('class')}")
@@ -154,11 +161,13 @@ try:
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     check(bool(quiet_wait(lambda: not bubbles(), 5)), "bookmark.addPage again closes the bubble")
     check(((omnibar().get("pointer") or {}).get("frames") or {}).get("star") is not None, "the star still shows (the page stays bookmarked)")
+    check(saved() == first, f"closing the bubble keeps the bookmark and its name: {saved()} (was {first})")
     # 3. A click on the page outside closes it.
     bubble = open_bubble("reopen")
     if bubble and main:
         rpc("debug.mouse", {"window": WINDOW, "action": "click", "x": 60, "y": main["frame"]["height"] - 60})
         check(bool(quiet_wait(lambda: not bubbles(), 5)), "a click outside the bubble closes it")
+        check(saved() == first, f"a click outside keeps the bookmark and its name: {saved()}")
     # 4. Shown without the keys (the app is never active here) it still shows.
     bubble = open_bubble("reopen without the keys")
     if bubble:

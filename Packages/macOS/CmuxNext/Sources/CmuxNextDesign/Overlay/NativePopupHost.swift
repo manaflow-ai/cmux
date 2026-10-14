@@ -39,10 +39,11 @@ public final class NativePopupHost {
                 // control closes the popup itself, so that key loss is not a dismiss.
                 let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
                 if let press, press.window !== keyed, keepsOpen(press) { return }
-                // Its own window took the keys without a press (Cmd-Tab into the app, a focus
-                // request): the popup takes them over, as a popup shown with the app active has
-                // them; it never takes them while the app is inactive (ActiveAppKeyPanel).
-                if elsewhere, press == nil, isShown, let parent = keyed.parent, NSApp.keyWindow === parent {
+                // Shown without the keys, a window of the app took them without a press (Cmd-Tab
+                // into the app, a focus request): the popup takes them over, as a popup shown with
+                // the app active has them; it never takes them while the app is inactive
+                // (ActiveAppKeyPanel). A press elsewhere closes it through the click monitor.
+                if elsewhere, press == nil, isShown {
                     keyed.makeKey()
                     return
                 }
