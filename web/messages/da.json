@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Maskinen svarer ikke",
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
-      "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
+      "action": "Kontakt support med sporings-id'et, før du opretter en ny maskine."
     },
     "inProgress": {
       "title": "Stadig i gang",

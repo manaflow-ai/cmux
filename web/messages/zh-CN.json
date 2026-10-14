@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "机器无响应",
       "message": "这台机器未能及时响应，因此请求无法完成。",
-      "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
+      "action": "创建新机器前，请携带跟踪 ID 联系支持团队。"
     },
     "inProgress": {
       "title": "仍在进行中",
