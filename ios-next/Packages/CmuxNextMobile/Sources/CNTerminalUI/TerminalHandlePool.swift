@@ -119,9 +119,10 @@ public final class TerminalHandlePool {
     /// Keeps the most recent `maxLiveRenderers` renderers (never the one on
     /// screen is released).
     private func enforceRendererCap() {
-        let alive = recent.filter { handles[$0]?.hasRenderer ?? false }
-        let keep = Set(alive.suffix(maxLiveRenderers))
-        for id in alive where !keep.contains(id) {
+        let alive = Set(handles.filter { $0.value.hasRenderer }.map(\.key))
+        let onScreen = Set(handles.filter { $0.value.isOnScreen || $0.value.isInWindow }.map(\.key))
+        let evict = TerminalRendererCap(max: maxLiveRenderers).evictions(recent: recent, alive: alive, protected: onScreen)
+        for id in evict {
             if handles[id]?.releaseRenderer() ?? true { recent.removeAll { $0 == id } }
         }
     }

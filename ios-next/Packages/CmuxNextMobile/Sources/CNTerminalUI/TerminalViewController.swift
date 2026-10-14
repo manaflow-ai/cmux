@@ -149,6 +149,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         terminalView.onFocusChange = { [weak self] _ in self?.inputFocusChanged() }
         terminalView.onDraw = { [weak self] in
             guard let self else { return }
+            if self.receivedOutput, !self.model.hasContent { self.model.hasContent = true }
             if self.mirrored {
                 if !self.terminalView.pinching && !self.mirrorZoomed { self.fitMirrorFont() }
                 self.view.setNeedsLayout()
@@ -400,11 +401,15 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
         }
     }
 
+    /// Output arrived on a stream (the next draw shows content).
+    private var receivedOutput = false
+
     private func startStream(client: HostClient, streamId: UInt32) {
         let frames = client.openStream(id: streamId)
         streamTask = Task { [weak self] in
             for await bytes in frames {
                 guard let self else { return }
+                self.receivedOutput = true
                 self.terminalView.feed(bytes)
             }
             // The link closed: the next generation re-attaches.

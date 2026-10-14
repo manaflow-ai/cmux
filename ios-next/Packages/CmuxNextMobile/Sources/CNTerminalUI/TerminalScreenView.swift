@@ -33,6 +33,9 @@ final class TerminalScreenModel {
     var terminal: Terminal?
     var status: Status = .attaching
     var grid = ""
+    /// The renderer has drawn the host's output at least once (hosts keep
+    /// the card image over it until then, so it never shows blank).
+    var hasContent = false
     var fontSize = TerminalFontSize.stored
     var keyboardShift: CGFloat = 0
     /// The composer row is shown (else typing goes straight to the terminal).
@@ -124,13 +127,25 @@ public final class TerminalHandle {
         self.controller = nil
         if model.controller === controller { model.controller = nil }
         if model.status != .ended { model.status = .attaching }
+        model.hasContent = false
         return true
     }
 
     /// True while this terminal has a live renderer.
     public var hasRenderer: Bool { controller != nil }
+    /// True once the renderer has drawn the terminal's output (or shows its
+    /// ended/failed state); hosts cover it with the card image until then.
+    public var isLive: Bool {
+        guard controller != nil else { return false }
+        switch model.status {
+        case .attaching, .live, .reconnecting: return model.hasContent
+        case .exited, .ended, .failed: return true
+        }
+    }
     /// True while its content is on screen.
     public var isOnScreen: Bool { controller?.isOnScreen ?? false }
+    /// True while its view is in a window (on screen, zooming, or covered).
+    var isInWindow: Bool { controller?.view.window != nil }
 
     /// The pool's hook: on screen (true) or off (false).
     @ObservationIgnored var onVisibilityChange: ((TerminalHandle, Bool) -> Void)?
