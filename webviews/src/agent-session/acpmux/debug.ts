@@ -7,6 +7,7 @@ import { syntheticRows } from "./synthetic";
 import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { linksTurnRows } from "./linksTurn";
+import { subagentsTurnRows } from "./subagentsTurn";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
@@ -21,7 +22,8 @@ export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
 export type AcpmuxDebug = {
   /// Replaces the transcript with `count` synthetic rows, or with the worked turn of
-  /// workedTurn.ts when `fixture` is "worked-turn", linksTurn.ts when it is "links".
+  /// workedTurn.ts when `fixture` is "worked-turn", linksTurn.ts when it is "links", subagentsTurn.ts
+  /// when it is "subagents".
   seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -127,7 +129,9 @@ export function createAcpmuxDebug(
           ? workedTurnRows(Date.now() - 60_000)
           : fixture === "links"
             ? linksTurnRows(Date.now() - 60_000)
-            : syntheticRows(Math.max(3, Math.floor(count)));
+            : fixture === "subagents"
+              ? subagentsTurnRows(Date.now() - 60_000)
+              : syntheticRows(Math.max(3, Math.floor(count)));
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);

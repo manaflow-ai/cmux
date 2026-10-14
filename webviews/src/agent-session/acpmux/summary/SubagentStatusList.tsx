@@ -1,6 +1,7 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
-// done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one.
+// done, failed) and its time. A row shows that subagent (`onOpen`): a tab beside the chat when the
+// app opens one. Tile (`onTile`) opens every running one in a pane of its own, stacked right of the chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
@@ -81,6 +82,7 @@ export function SubagentStatusList({
   waiting,
   current,
   onOpen,
+  onTile,
   autoOpen,
 }: {
   agents: readonly Subagent[];
@@ -88,7 +90,9 @@ export function SubagentStatusList({
   /// The subagent this pane shows, if any.
   current?: string;
   onOpen?: (id: string) => void;
-  /// The switch for opening new subagents in panes of their own (subagents/subagentPanes.ts).
+  /// Tile subagents (subagents/subagentPanes.ts), offered while one runs.
+  onTile?: () => void;
+  /// The switch for tiling new subagents automatically (subagents/subagentPanes.ts).
   autoOpen?: { on: boolean; set: (on: boolean) => void };
 }) {
   const t = useT();
@@ -99,6 +103,16 @@ export function SubagentStatusList({
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">
         {live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title}
+        {onTile && live > 0 && (
+          <button
+            type="button"
+            className="acpmux-summary-tile"
+            title={t("summary.subagents.tileHint")}
+            onClick={onTile}
+          >
+            {t("summary.subagents.tile")}
+          </button>
+        )}
       </h3>
       <ul className="acpmux-summary-list">
         {agents.length === 0 && <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>}

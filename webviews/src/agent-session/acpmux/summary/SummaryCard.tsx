@@ -41,7 +41,9 @@ export function SummaryCard({
     /// The tool calls the chat's open asks are about (SubagentStatusList.tsx `pendingToolCalls`).
     asks: ReadonlySet<string>;
     onOpen: (id: string) => void;
-    /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
+    /// Tile subagents: each running one in a pane of its own; none where no pane opens.
+    onTile?: () => void;
+    /// Whether new subagents tile in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
 }) {
@@ -105,6 +107,7 @@ export function SummaryCard({
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
+                onTile={subagents.onTile}
                 autoOpen={subagents.autoOpen}
               />
             )}

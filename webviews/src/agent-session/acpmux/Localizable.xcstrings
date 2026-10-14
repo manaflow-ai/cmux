@@ -3295,6 +3295,270 @@
         }
       }
     },
+    "summary.subagents.tile": {
+      "comment": "Agent pane: the summary card's Subagents title button that tiles running subagents (summary/SubagentStatusList.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تجانب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poslaži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fliselæg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anordnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mosaico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mosaïque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affianca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイル表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រៀបជាក្រឡា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "바둑판식 배열"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flislegg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ułóż"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado a lado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плиткой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เรียงต่อกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Döşe"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Плиткою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xếp ô"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平铺"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "並排"
+          }
+        }
+      }
+    },
+    "summary.subagents.tileHint": {
+      "comment": "Agent pane: the Tile button's tooltip (summary/SubagentStatusList.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح كل وكيل فرعي قيد التشغيل في جزء خاص به، مكدسًا يمين الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori svaki aktivni podagent u vlastitom oknu, složeno desno od chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn hver kørende underagent i sin egen rude, stablet til højre for chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden laufenden Subagenten in einem eigenen Bereich öffnen, rechts neben dem Chat gestapelt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open each running subagent in its own pane, stacked right of the chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir cada subagente en ejecución en su propio panel, apilados a la derecha del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir chaque sous-agent en cours dans sa propre sous-fenêtre, empilés à droite de la discussion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri ogni subagente in esecuzione in un riquadro proprio, impilati a destra della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の各サブエージェントを専用のペインで開き、チャットの右に積み重ねます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកភ្នាក់ងាររងដែលកំពុងដំណើរការនីមួយៗក្នុងផ្ទាំងផ្ទាល់ខ្លួន ដាក់ជាជង់នៅខាងស្តាំការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 중인 각 하위 에이전트를 전용 창에서 열어 채팅 오른쪽에 쌓기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne hver kjørende underagent i sin egen rute, stablet til høyre for chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz każdy działający podagent we własnym panelu, ułożone na prawo od czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir cada subagente em execução em um painel próprio, empilhados à direita do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть каждого работающего субагента в отдельной панели справа от чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดเอเจนต์ย่อยที่กำลังทำงานแต่ละตัวในบานหน้าต่างของตัวเอง ซ้อนไว้ทางขวาของแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışan her alt ajanı kendi bölmesinde, sohbetin sağında yığılmış olarak aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити кожного запущеного субагента в окремій панелі праворуч від чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở từng tác tử phụ đang chạy trong khung riêng, xếp chồng bên phải cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在各自的窗格中打开每个运行中的子代理，堆叠在聊天右侧"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在各自的窗格中開啟每個執行中的子代理，堆疊在聊天右側"
+          }
+        }
+      }
+    },
     "worktree.creating": {
       "comment": "Agent pane: New Worktree while the host makes the worktree (cx-bopcl)",
       "extractionState": "manual",
@@ -148142,127 +148406,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "فتح الوكلاء الفرعيين الجدد في أجزاء"
+            "value" : "تجانب الوكلاء الفرعيين تلقائيًا"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Otvori nove podagente u oknima"
+            "value" : "Automatski poslaži podagente"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Åbn nye underagenter i ruder"
+            "value" : "Fliselæg underagenter automatisk"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Neue Subagenten in Bereichen öffnen"
+            "value" : "Subagenten automatisch nebeneinander anordnen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open new subagents in panes"
+            "value" : "Tile subagents automatically"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Abrir subagentes nuevos en paneles"
+            "value" : "Organizar subagentes en mosaico automáticamente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ouvrir les nouveaux sous-agents dans des sous-fenêtres"
+            "value" : "Disposer les sous-agents en mosaïque automatiquement"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Apri i nuovi subagenti in riquadri"
+            "value" : "Affianca automaticamente i subagenti"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "新しいサブエージェントをペインで開く"
+            "state" : "translated",
+            "value" : "サブエージェントを自動でタイル表示"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បើកភ្នាក់ងាររងថ្មីក្នុងផ្ទាំង"
+            "value" : "រៀបភ្នាក់ងាររងជាក្រឡាដោយស្វ័យប្រវត្តិ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "새 하위 에이전트를 창에서 열기"
+            "value" : "하위 에이전트 자동으로 바둑판식 배열"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Åpne nye underagenter i ruter"
+            "value" : "Flislegg underagenter automatisk"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Otwieraj nowe podagenty w panelach"
+            "value" : "Automatycznie układaj podagenty sąsiadująco"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Abrir novos subagentes em painéis"
+            "value" : "Organizar subagentes lado a lado automaticamente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Открывать новых субагентов в панелях"
+            "value" : "Автоматически размещать субагентов плиткой"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เปิดเอเจนต์ย่อยใหม่ในบานหน้าต่าง"
+            "value" : "จัดเรียงเอเจนต์ย่อยแบบเรียงต่อกันโดยอัตโนมัติ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yeni alt ajanları bölmelerde aç"
+            "value" : "Alt ajanları otomatik olarak döşe"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Відкривати нових субагентів у панелях"
+            "value" : "Автоматично розміщувати субагентів плиткою"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mở tác tử phụ mới trong khung"
+            "value" : "Tự động xếp ô các tác tử phụ"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在窗格中打开新的子代理"
+            "value" : "自动平铺子代理"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在窗格中開啟新的子代理"
+            "value" : "自動並排子代理"
           }
         }
       }

@@ -226,6 +226,7 @@
     "setting.agentPane.links.outsideRoots": "open",
     "setting.agentPane.showContextUsage": true,
     "setting.agentPane.showDictation": true,
+    "setting.agentPane.tileSubagentsAutomatically": false,
     "setting.agentPane.zoom": 1,
     "setting.agents.chats.discovery": true,
     "setting.agents.chats.enabled": true,

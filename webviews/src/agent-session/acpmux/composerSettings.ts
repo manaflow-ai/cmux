@@ -4,17 +4,36 @@
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
+// `agentPane.tileSubagentsAutomatically` rides along: the Subagents card's switch
+// (subagents/subagentPanes.ts), also a Settings row, written by `pane.tileSubagentsAutomatically`.
 import { useSyncExternalStore } from "react";
 
-export type ComposerSettings = { showContextUsage: boolean; showDictation: boolean };
+export type ComposerSettings = {
+  showContextUsage: boolean;
+  showDictation: boolean;
+  tileSubagentsAutomatically: boolean;
+};
 
-export const DEFAULT_COMPOSER: ComposerSettings = { showContextUsage: true, showDictation: true };
+export const DEFAULT_COMPOSER: ComposerSettings = {
+  showContextUsage: true,
+  showDictation: true,
+  tileSubagentsAutomatically: false,
+};
+
+const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
+
+/// The host method that writes each setting.
+const WRITE: Record<keyof ComposerSettings, ComposerMethod> = {
+  showContextUsage: "pane.showContextUsage",
+  showDictation: "pane.showDictation",
+  tileSubagentsAutomatically: "pane.tileSubagentsAutomatically",
+};
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: keyof ComposerSettings) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
-  return { showContextUsage: flag("showContextUsage"), showDictation: flag("showDictation") };
+  return Object.fromEntries(KEYS.map((key) => [key, flag(key)])) as ComposerSettings;
 }
 
 let current = DEFAULT_COMPOSER;
@@ -23,7 +42,7 @@ const listeners = new Set<() => void>();
 /// The host's whole value, or a page change to some settings (the rest stay as they are).
 export function setComposerSettings(value: unknown) {
   const next = readComposerSettings({ ...current, ...(value && typeof value === "object" ? value : {}) });
-  if (next.showContextUsage === current.showContextUsage && next.showDictation === current.showDictation) return;
+  if (KEYS.every((key) => next[key] === current[key])) return;
   current = next;
   for (const listener of listeners) listener();
 }
@@ -46,8 +65,9 @@ declare global {
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
 
-/// The host's write of a composer setting: `pane.showContextUsage` or `pane.showDictation` with `show`.
-type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation", show: boolean) => void;
+type ComposerMethod = "pane.showContextUsage" | "pane.showDictation" | "pane.tileSubagentsAutomatically";
+/// The host's write of a setting: its `WRITE` method with `show`.
+type ComposerHost = (method: ComposerMethod, show: boolean) => void;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
@@ -55,8 +75,8 @@ export function registerComposerHost(write: ComposerHost | undefined) {
   composerHost = write;
 }
 
-/// Shows or hides a composer control in every composer, and asks the host to persist it.
+/// Turns a setting on or off in every page at once, and asks the host to persist it.
 export function showComposerControl(key: keyof ComposerSettings, show: boolean) {
   setComposerSettings({ [key]: show });
-  composerHost?.(key === "showDictation" ? "pane.showDictation" : "pane.showContextUsage", show);
+  composerHost?.(WRITE[key], show);
 }

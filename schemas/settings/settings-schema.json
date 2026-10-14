@@ -472,6 +472,7 @@
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
               "agentPane.showDictation",
+              "agentPane.tileSubagentsAutomatically",
               "agentPane.zoom",
               "app.warnBeforeClosingAgentSession"
             ],
@@ -22706,6 +22707,51 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.tileSubagentsAutomatically",
+      "keywords" : [
+        "subagents",
+        "tile",
+        "panes",
+        "split",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "tileSubagentsAutomatically"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.tileSubagentsAutomatically",
+        "text" : "Tile Subagents Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         0.5,
         2,
         1.25
@@ -23552,7 +23598,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
+  "schema_hash" : "4a967f9376737943057e4f7ae356269348de18fc30fa8fea2d9e22e856146aa6",
   "sections" : [
     {
       "id" : "general",

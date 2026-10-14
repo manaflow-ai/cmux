@@ -21,6 +21,10 @@
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-summary-agent__state{min-width:52px;text-align:right}
+/* Tile (SubagentStatusList.tsx): the Subagents title's one action, a text button at its end. */
+.acpmux-summary-tile{float:right;height:16px;margin:0;padding:0 6px;border:0;border-radius:5px;background:none;color:var(--agent-muted);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-tile:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-summary-tile:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-autoopen{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-summary-autoopen>input{flex:none;margin:0;accent-color:var(--agent-text)}
 .acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-warning)}

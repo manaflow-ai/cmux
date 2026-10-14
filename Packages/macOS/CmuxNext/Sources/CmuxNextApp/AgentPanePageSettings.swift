@@ -65,9 +65,9 @@ final class AgentPanePageSettings {
         }
     }
 
-    /// The composer's Hide or Show Context Usage and Hide dictation button: writes the flag at
-    /// `path` (`agentPane.showContextUsage`, `agentPane.showDictation`), which the observation
-    /// above then pushes to every page.
+    /// The composer's Hide or Show Context Usage, Hide dictation button and the Subagents card's
+    /// switch: writes the flag at `path` (`agentPane.showContextUsage`, `agentPane.showDictation`,
+    /// `agentPane.tileSubagentsAutomatically`), which the observation above then pushes to every page.
     func setComposer(_ path: [String], _ show: Bool) async throws {
         try await settings?.set(.bool(show), at: path)
 

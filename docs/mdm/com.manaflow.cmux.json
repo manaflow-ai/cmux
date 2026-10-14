@@ -64,6 +64,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.tileSubagentsAutomatically" : {
+      "default" : false,
+      "description" : "agentPane.tileSubagentsAutomatically",
+      "title" : "Tile Subagents Automatically",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",

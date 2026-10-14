@@ -70,9 +70,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage", "pane.showDictation":
+        case "pane.showContextUsage", "pane.showDictation", "pane.tileSubagentsAutomatically":
             if let show = params?["show"] as? Bool {
-                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                let path = switch method {
+                case "pane.showDictation": AgentPaneComposerSetting.showDictationPath
+                case "pane.tileSubagentsAutomatically": AgentPaneComposerSetting.tileSubagentsAutomaticallyPath
+                default: AgentPaneComposerSetting.showContextUsagePath
+                }
                 self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
@@ -202,7 +206,7 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
+                self = .subagentPane(id, AgentSubagentPanes.Open(params))
             } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }

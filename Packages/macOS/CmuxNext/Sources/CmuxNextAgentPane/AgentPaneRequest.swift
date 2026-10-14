@@ -103,9 +103,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sideChat(String)
     /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
     case chatTab(String)
-    /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
-    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool)
+    /// `chat.subagentPane {subagent, focus, tile, title}`: this chat's subagent beside the chat
+    /// (``AgentSubagentPanes``): a tab in the pane right of it, or with `tile` a pane of its own.
+    case subagentPane(String, AgentSubagentPanes.Open)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
@@ -192,9 +192,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
-    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
-    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    /// `pane.showContextUsage`, `pane.showDictation` or `pane.tileSubagentsAutomatically` with `{show}`:
+    /// the composer's Hide or Show Context Usage, the mic's Hide dictation button, or the Subagents
+    /// card's switch, which the host writes to cmux.json at `path` (`agentPane.showContextUsage`,
+    /// `agentPane.showDictation`, `agentPane.tileSubagentsAutomatically`).
     case composerSetting(path: [String], show: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.

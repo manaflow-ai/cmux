@@ -104,8 +104,11 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { pendingToolCalls } from "./summary/SubagentStatusList";
 import { useSummaryCard } from "./summary/cardState";
 import {
+  SUBAGENTS_TILE,
   openSubagentPane,
   revealedSubagent,
+  subagentTitleOf,
+  tileSubagents,
   useAutoOpenSubagents,
   useOpenNewSubagents,
 } from "./subagents/subagentPanes";
@@ -2352,7 +2355,12 @@ function AcpmuxPane() {
   /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
+  /// Tile subagents (the card's button, Tile Subagents' `subagents:tile` reveal) and a subagent's
+  /// tab title, from the rows shown; set each render.
+  const tileRef = useRef(() => {});
+  const subagentTitleRef = useRef((_id: string): string | undefined => undefined);
   const reveal = (value: string) => {
+    if (value === SUBAGENTS_TILE) return tileRef.current();
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
     subagentPane.current = true;
@@ -2997,11 +3005,11 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
+  /// Shows subagent `id`: in a tab beside the chat, or tiled in a pane of its own (`tile`), or in
   /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
+  const showSubagent = useCallback((id: string, focus = true, tile = false) => {
     if (subagentPane.current) return setSubagentView(id);
-    void openSubagentPane(callNative, id, focus).then((opened) => {
+    void openSubagentPane(callNative, id, { focus, tile, title: subagentTitleRef.current(id) }).then((opened) => {
       if (!opened && focus) setSubagentView(id);
     });
   }, []);
@@ -3011,9 +3019,13 @@ function AcpmuxPane() {
     snapshot.rows,
     snapshot.subagentViews,
     autoOpenSubagents,
-    (id) => showSubagent(id, false),
+    (id) => showSubagent(id, false, true),
     snapshot.clockOffsetMs ?? 0,
   );
+  subagentTitleRef.current = (id) => subagentTitleOf(id, snapshot.rows, snapshot.subagentViews);
+  tileRef.current = () => {
+    if (!quick && !subagentPane.current) tileSubagents(callNative, snapshot.rows, snapshot.subagentViews);
+  };
   /// The summary card's subagents: the shown one, and a row's click shows its view.
   const cardSubagents = useMemo(
     () => ({
@@ -3021,6 +3033,7 @@ function AcpmuxPane() {
       current: childRows ? subagentView : undefined,
       asks: askedToolCalls,
       onOpen: showSubagent,
+      onTile: quick ? undefined : () => tileRef.current(),
       autoOpen: quick ? undefined : { on: autoOpenSubagents, set: setAutoOpenSubagents },
     }),
     [

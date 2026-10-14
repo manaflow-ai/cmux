@@ -32,11 +32,27 @@ enum AgentBesidePlacement {
     @MainActor static func placed(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
                                   services: AppServices,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
+        placement(invocation, pane: anchor, controller: controller, services: services, then: then).place
+    }
+
+    /// A placement's two ends: `place` with the new tab's surface, or `cancel` when its open failed
+    /// (the run's work ends at once instead of waiting `openLimit`).
+    struct Placement {
+        let place: @MainActor (SurfaceID) -> Void
+        let cancel: @MainActor () -> Void
+    }
+
+    /// ``placed(_:pane:controller:services:then:)`` with a ``Placement``; `done` gets whether the
+    /// tab is in place once the work ends (the chat docked, or the tab in its new column).
+    @MainActor static func placement(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
+                                     services: AppServices, then: (@MainActor (SurfaceID) -> Void)?,
+                                     done: (@MainActor (Bool) -> Void)? = nil) -> Placement {
         guard invocation.newColumnBeside else {
-            return { [weak controller] surface in
+            return Placement(place: { [weak controller] surface in
                 then?(surface)
                 controller?.selectWhenReportedKeepingFocus(surface: surface)
-            }
+                done?(true)
+            }, cancel: { done?(false) })
         }
         // A lone chat docks left with the agent chat role and the new tab stays in its
         // pane (ChatColumnPlacement.dockChat, the rule a person's new tab follows), so
@@ -45,7 +61,7 @@ enum AgentBesidePlacement {
         let chat = lone?.pane.tabs.first { ChatColumnPlacement.isChat($0, services: services) }
         let chatHadFocus = lone.map { $0.workspace?.focusedPane === $0 } ?? false
         let (surfaces, sink) = AsyncStream<SurfaceID>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        services.registry.track(Task { @MainActor in
+        let work = Task { @MainActor () -> ActionWorkFailure? in
             // The tab's surface, then the store listing it; a bounded wait, so a tab
             // that never opens cannot hold the run.
             let listed = Task { @MainActor () -> SurfaceID? in
@@ -110,12 +126,17 @@ enum AgentBesidePlacement {
             guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
             await revealMoved(tab.id, from: anchor, services: services)
             return nil
-        })
-        return { surface in
+        }
+        services.registry.track(work)
+        if let done {
+            // task-owner: tells the caller when the placement's work ends, as the run's answer waits for it
+            Task { @MainActor in done(await work.value == nil) }
+        }
+        return Placement(place: { surface in
             then?(surface)
             sink.yield(surface)
             sink.finish()
-        }
+        }, cancel: { sink.finish() })
     }
 }
 
