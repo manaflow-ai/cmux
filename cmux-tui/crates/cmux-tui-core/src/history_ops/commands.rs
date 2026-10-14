@@ -33,9 +33,9 @@ pub(super) fn ids(ids: &[&str]) -> Vec<u64> {
     ids.iter().filter_map(|id| row_id(id)).collect()
 }
 
-/// The newest `limit` unexpired rows as entries.
-pub(super) fn entries(mux: &Mux, limit: Option<usize>) -> anyhow::Result<Vec<HistoryEntry>> {
-    let limit = limit.unwrap_or(MAX_COMMAND_LIST_LIMIT).clamp(1, MAX_COMMAND_LIST_LIMIT);
+/// The newest unexpired rows (at most the store's page) as entries.
+pub(super) fn entries(mux: &Mux) -> anyhow::Result<Vec<HistoryEntry>> {
+    let limit = MAX_COMMAND_LIST_LIMIT;
     let now = unix_epoch_ms()?;
     let page = mux
         .workspace_registry

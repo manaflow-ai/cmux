@@ -226,9 +226,15 @@ fn with_gesture(
     relay.v2(operation, params, extra)
 }
 
-fn location(tab: &str, title: &str) -> Value {
-    json!({"machine": "local", "tab": tab, "title": title, "workspace": "ws-1",
-           "workspace_title": "Alpha workspace", "content": "terminal", "cwd": "/tmp"})
+/// A terminal tab's place in workspace `workspace`.
+fn location(tab: &str, title: &str, workspace: &str) -> Value {
+    json!({"machine": "local", "tab": tab, "title": title, "workspace": workspace,
+           "workspace_title": format!("{workspace} name"), "content": "terminal", "cwd": "/tmp"})
+}
+
+/// One step at `at_ms` (the app's clock) in window `window`.
+fn step(window: &str, location: Value, at_ms: u64) -> Value {
+    json!({"window": window, "location": location, "at_ms": at_ms.to_string()})
 }
 
 fn record(app: &mut Client, key: &str, params: Value) -> Value {
@@ -297,41 +303,48 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
     assert_eq!(refused["error"]["details"]["required"], "user", "{refused}");
 
-    // The app records steps: a refresh keeps the entry, replace puts the
-    // place in the newest entry, an incognito step is never stored.
-    let first =
-        record(&mut app, "r1", json!({"window": "w1", "location": location("tab_a", "Alpha")}));
+    // The app records steps; the daemon runs the app's step rules: a
+    // refresh keeps the entry, another tab of the newest entry's workspace
+    // replaces its place, a quick pass (under 750 ms) is dropped, an
+    // incognito step is never stored.
+    let at = 1_800_000_000_000_u64;
+    let first = record(&mut app, "r1", step("w1", location("tab_a", "Alpha", "ws-1"), at));
     assert_eq!(first, json!({"id": "location:1", "recorded": true}));
-    record(&mut app, "r2", json!({"window": "w1", "location": location("tab_b", "Beta")}));
+    record(&mut app, "r2", step("w1", location("tab_b", "Beta", "ws-2"), at + 10_000));
     let refreshed =
-        record(&mut app, "r3", json!({"window": "w1", "location": location("tab_b", "Beta 2")}));
+        record(&mut app, "r3", step("w1", location("tab_b", "Beta 2", "ws-2"), at + 20_000));
     assert_eq!(refreshed, json!({"id": "location:2", "recorded": true}));
-    let replaced = record(
-        &mut app,
-        "r4",
-        json!({"window": "w2", "location": location("tab_c", "Gamma"), "replace": true}),
-    );
-    assert_eq!(replaced, json!({"id": "location:2", "recorded": true}));
-    let third =
-        record(&mut app, "r5", json!({"window": "w2", "location": location("tab_d", "Delta")}));
-    assert_eq!(third, json!({"id": "location:3", "recorded": true}));
-    let hidden = record(
-        &mut app,
-        "r6",
-        json!({"window": "w3", "location": location("tab_e", "Secret"), "incognito": true}),
-    );
-    assert_eq!(hidden, json!({"recorded": false}));
+    let same_workspace =
+        record(&mut app, "r4", step("w2", location("tab_c", "Gamma", "ws-2"), at + 30_000));
+    assert_eq!(same_workspace, json!({"id": "location:2", "recorded": true}));
+    let passed =
+        record(&mut app, "r5", step("w2", location("tab_d", "Delta", "ws-3"), at + 40_000));
+    assert_eq!(passed, json!({"id": "location:3", "recorded": true}));
+    let quick = record(&mut app, "r6", step("w2", location("tab_e", "Echo", "ws-4"), at + 40_100));
+    assert_eq!(quick, json!({"id": "location:4", "recorded": true}));
+    let mut every = step("w2", location("tab_f", "Fox", "ws-4"), at + 50_000);
+    every["steps"] = json!("everything");
+    let fox = record(&mut app, "r7", every);
+    assert_eq!(fox, json!({"id": "location:5", "recorded": true}));
+    let mut secret = step("w3", location("tab_s", "Secret", "ws-9"), at + 60_000);
+    secret["incognito"] = json!(true);
+    assert_eq!(record(&mut app, "r8", secret), json!({"recorded": false}));
 
     // The History page lists them, newest first, with window and place.
     let (mut relay, relay_id) = owner.relay();
     let locations = rows(&mut relay, &["location"]);
-    assert_eq!(field(&locations, "id"), ["location:3", "location:2", "location:1"]);
-    assert_eq!(field(&locations, "title"), ["Delta", "Gamma", "Alpha"]);
-    assert_eq!(field(&locations, "detail"), ["Alpha workspace"; 3]);
+    assert_eq!(
+        field(&locations, "id"),
+        ["location:5", "location:4", "location:2", "location:1"],
+        "{locations:?}"
+    );
+    assert_eq!(field(&locations, "title"), ["Fox", "Echo", "Gamma", "Alpha"]);
+    assert_eq!(field(&locations, "detail"), ["ws-4 name", "ws-4 name", "ws-2 name", "ws-1 name"]);
     assert_eq!(locations[0]["current"], true, "{locations:?}");
     assert_eq!(locations[1]["current"], false, "{locations:?}");
-    assert_eq!(locations[1]["window"], "w2", "{locations:?}");
-    assert_eq!(locations[1]["location"]["tab"], "tab_c", "{locations:?}");
+    assert_eq!(locations[2]["window"], "w2", "{locations:?}");
+    assert_eq!(locations[2]["location"]["tab"], "tab_c", "{locations:?}");
+    assert_eq!(locations[2]["at_ms"], (at + 10_000).to_string(), "{locations:?}");
 
     // The same rows over the daemon WebSocket (a page in a plain browser).
     let (addr, token) = owner.listener();
@@ -369,7 +382,8 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     let removed =
         with_gesture(&mut app, &mut relay, &relay_id, "history.entries.remove", remove, "x2");
     assert_eq!(ok(&removed)["value"]["removed"], 2, "{removed}");
-    assert_eq!(field(&rows(&mut relay, &["location"]), "id"), ["location:3", "location:1"]);
+    let left = rows(&mut relay, &["location"]);
+    assert_eq!(field(&left, "id"), ["location:5", "location:4", "location:1"], "{left:?}");
     let left = app.rpc(json!({"cmd": "list-terminal-commands"}));
     let left_ids: Vec<&str> = left["data"]["commands"]
         .as_array()
@@ -385,7 +399,7 @@ fn the_history_page_lists_removes_and_clears_trail_and_command_rows() {
     let refused = relay.v2("history.clear", clear.clone(), json!({"idempotency_key": "c1"}));
     assert_eq!(refusal(&refused), "gesture_required");
     let cleared = with_gesture(&mut app, &mut relay, &relay_id, "history.clear", clear, "c2");
-    assert_eq!(ok(&cleared)["value"]["removed"], 3, "{cleared}");
+    assert_eq!(ok(&cleared)["value"]["removed"], 4, "{cleared}");
     assert_eq!(rows(&mut relay, &["location", "command"]), Vec::<Value>::new());
 }
 
@@ -415,8 +429,11 @@ fn the_first_write_adopts_the_apps_older_trail_without_incognito_steps() {
     assert_eq!(field(&listed, "title"), ["New", "Old"], "{listed:?}");
     // 2001-01-01 + 800,000,000 s, in Unix milliseconds.
     assert_eq!(listed[1]["at_ms"], "1778307200000", "{listed:?}");
-    let next =
-        record(&mut app, "a1", json!({"window": "w9", "location": location("tab_x", "Next")}));
+    let next = record(
+        &mut app,
+        "a1",
+        json!({"window": "w9", "location": location("tab_x", "Next", "ws-x")}),
+    );
     assert_eq!(next, json!({"id": "location:3", "recorded": true}));
     let listed = rows(&mut relay, &["location"]);
     assert_eq!(field(&listed, "title"), ["Next", "New", "Old"], "{listed:?}");

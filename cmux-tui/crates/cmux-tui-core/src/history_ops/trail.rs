@@ -6,13 +6,24 @@
 //! Back/Forward cursor over these steps as view state; it no longer owns a
 //! trail document.
 //!
-//! Step rules (what makes the app's trail and this store agree): a location
-//! with the same place (machine and tab) as the newest entry refreshes that
-//! entry; `replace` puts the location in the newest entry (the app counted it
-//! as the same step: the same sidebar item, or a quick pass through the
-//! entry before); else a new entry is appended. Two newest entries never
-//! name the same place. At most [`CAPACITY`] entries are kept (the oldest
-//! go). An incognito location is never stored.
+//! Step rules, ported from the Swift `LocationTrail.record` and
+//! `record(_:at:scope:)` at the end of the trail, so every host that records
+//! steps gets the same trail (an app runs the same rules for its own
+//! Back/Forward cursor):
+//! - the same place (machine and tab) as the newest entry refreshes it;
+//! - with `steps: workspaces` (the default, `navigation.history.steps`), a
+//!   location in the newest entry's sidebar item (the same top page, or the
+//!   same workspace on the same machine) replaces that entry's place;
+//! - a quick pass: when the newest entry was entered less than
+//!   [`COALESCE_MS`] before this step (and the step is no `jump`), the newest
+//!   entry is dropped; when the entry before it is this place, that entry is
+//!   refreshed instead of a new one;
+//! - else a new entry is appended. At most [`CAPACITY`] entries are kept
+//!   (the oldest go). An incognito location is never stored. A remove or
+//!   clear joins two neighbours of the same place into one.
+//!
+//! Entry times come from the step's `at_ms` (the app's clock), so an app
+//! knows each of its steps in the rows by place and time.
 //!
 //! The first write adopts the app's older `history.trail` document (schema
 //! 1, Swift `LocationTrail`), without its incognito entries, so an upgrade
@@ -37,6 +48,9 @@ const ORIGIN: &str = "cmux-history";
 const MAX_ATTEMPTS: usize = 4;
 /// Entries kept, as the Swift `LocationTrail.defaultCapacity`.
 pub(super) const CAPACITY: usize = 200;
+/// A step sooner than this after the newest entry was entered replaces it
+/// (Swift `LocationTrail.defaultCoalesceInterval`, 0.75 s).
+pub(super) const COALESCE_MS: i64 = 750;
 /// Seconds between the Unix epoch and the Swift reference date 2001-01-01.
 const SWIFT_REFERENCE_UNIX_S: f64 = 978_307_200.0;
 /// The location fields the store keeps (strings; `machine`, `tab` and
@@ -84,41 +98,65 @@ fn place(location: &Map<String, Value>) -> (&str, &str) {
     (text("machine"), text("tab"))
 }
 
+/// The same sidebar item: the same top page, or the same workspace on the
+/// same machine (Swift `HistoryLocation.isSameSidebarItem`).
+fn same_sidebar_item(a: &Map<String, Value>, b: &Map<String, Value>) -> bool {
+    let text = |location: &Map<String, Value>, key| {
+        location.get(key).and_then(Value::as_str).unwrap_or_default().to_owned()
+    };
+    let (a_page, b_page) = (location_page(a), location_page(b));
+    if a_page.is_some() || b_page.is_some() {
+        return a_page == b_page;
+    }
+    text(a, "machine") == text(b, "machine") && text(a, "workspace") == text(b, "workspace")
+}
+
+fn location_page(location: &Map<String, Value>) -> Option<&str> {
+    location.get("page").and_then(Value::as_str)
+}
+
+/// How one step is recorded.
+pub(super) struct Step<'a> {
+    pub(super) window: &'a str,
+    pub(super) location: Map<String, Value>,
+    pub(super) at_ms: i64,
+    /// `steps: workspaces`: a location in the newest entry's sidebar item
+    /// replaces it.
+    pub(super) workspace_steps: bool,
+    /// A place the person jumped to on purpose: the newest entry is never
+    /// coalesced away.
+    pub(super) jump: bool,
+}
+
 impl TrailDocument {
-    /// Records one step; true when the document changed.
-    fn record(
-        &mut self,
-        window: &str,
-        location: Map<String, Value>,
-        replace: bool,
-        now_ms: i64,
-    ) -> (u64, bool) {
-        let same_place = self.entries.last().is_some_and(|last| last.place() == place(&location));
-        if let Some(last) = self.entries.last_mut()
-            && (replace || same_place)
-        {
-            let changed = last.location != location || last.window != window;
-            last.location = location;
-            window.clone_into(&mut last.window);
-            let id = last.id;
-            // A replace that lands on the place of the entry before it is
-            // that entry again (a quick pass there and back).
-            let count = self.entries.len();
-            if count >= 2
-                && self.entries[count - 2].place() == self.entries[count - 1].place()
-                && let Some(newest) = self.entries.pop()
-                && let Some(previous) = self.entries.last_mut()
-            {
-                previous.location = newest.location;
-                previous.window = newest.window;
-                return (previous.id, true);
+    /// Records one step; the entry it landed in and whether the document
+    /// changed.
+    fn record(&mut self, step: Step<'_>) -> (u64, bool) {
+        let Step { window, location, at_ms, workspace_steps, jump } = step;
+        if let Some(newest) = self.entries.last_mut() {
+            let same_place = newest.place() == place(&location);
+            if same_place || (workspace_steps && same_sidebar_item(&newest.location, &location)) {
+                let changed = newest.location != location || newest.window != window;
+                newest.location = location;
+                window.clone_into(&mut newest.window);
+                return (newest.id, changed);
             }
-            return (id, changed);
+            if !jump && at_ms.saturating_sub(newest.at_ms) < COALESCE_MS {
+                // A quick pass: the newest entry was only passed through.
+                self.entries.pop();
+                if let Some(previous) = self.entries.last_mut()
+                    && previous.place() == place(&location)
+                {
+                    previous.location = location;
+                    window.clone_into(&mut previous.window);
+                    return (previous.id, true);
+                }
+            }
         }
         let highest = self.entries.iter().map(|entry| entry.id).max().unwrap_or(0);
         self.next_id = self.next_id.max(highest) + 1;
         let id = self.next_id;
-        self.entries.push(TrailEntry { id, window: window.to_owned(), at_ms: now_ms, location });
+        self.entries.push(TrailEntry { id, window: window.to_owned(), at_ms, location });
         let excess = self.entries.len().saturating_sub(CAPACITY);
         self.entries.drain(..excess);
         (id, true)
@@ -146,9 +184,23 @@ impl TrailDocument {
         self.retain(|entry| since_ms.is_some_and(|since| entry.at_ms < since))
     }
 
+    /// Keeps the entries `keep` accepts, then joins two neighbours of the
+    /// same place into the older one (with the newer context). Answers how
+    /// many entries went.
     fn retain(&mut self, keep: impl Fn(&TrailEntry) -> bool) -> u64 {
         let before = self.entries.len();
         self.entries.retain(keep);
+        let mut joined: Vec<TrailEntry> = Vec::with_capacity(self.entries.len());
+        for entry in self.entries.drain(..) {
+            match joined.last_mut() {
+                Some(older) if older.place() == entry.place() => {
+                    older.location = entry.location;
+                    older.window = entry.window;
+                }
+                _ => joined.push(entry),
+            }
+        }
+        self.entries = joined;
         (before - self.entries.len()) as u64
     }
 }
@@ -319,13 +371,28 @@ pub(super) fn record(
             Some(_) => Err(invalid(name, format!("{name} must be a boolean"))),
         }
     };
-    let replace = flag("replace")?;
+    let jump = flag("jump")?;
+    let workspace_steps = match fields.get("steps") {
+        None | Some(Value::Null) => true,
+        Some(Value::String(steps)) if steps == "workspaces" => true,
+        Some(Value::String(steps)) if steps == "everything" => false,
+        Some(_) => return Err(invalid("steps", "steps must be workspaces or everything")),
+    };
+    let at_ms = match fields.get("at_ms") {
+        None | Some(Value::Null) => now_ms,
+        Some(value) => value
+            .as_str()
+            .and_then(|text| text.parse::<i64>().ok())
+            .filter(|at| *at >= 0)
+            .ok_or_else(|| invalid("at_ms", "at_ms must be an unsigned decimal string"))?,
+    };
     // Incognito steps never reach the disk (the app keeps them in memory).
     if flag("incognito")? {
         return Ok((json!({"recorded": false}), false));
     }
     let (id, changed) = change(mux, key, actor, |document| {
-        let (id, changed) = document.record(window, location.clone(), replace, now_ms);
+        let step = Step { window, location: location.clone(), at_ms, workspace_steps, jump };
+        let (id, changed) = document.record(step);
         ((id, changed), changed)
     })
     .map_err(|error| super::store_failed(OPERATION, format!("{error:#}")))?;

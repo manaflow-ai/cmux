@@ -17381,13 +17381,33 @@
             },
             "description": "Where the person is now."
           },
-          "replace": {
+          "at_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The step's time in Unix milliseconds, from the recording app's clock (quick passes compare these). Omitted: the daemon's clock."
+          },
+          "steps": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "workspaces",
+                "everything"
+              ]
+            },
+            "description": "What a step is (navigation.history.steps): workspaces, a location in the newest entry's sidebar item replaces it; everything, every place is a step.",
+            "default": "workspaces"
+          },
+          "jump": {
             "required": false,
             "type": {
               "kind": "primitive",
               "name": "boolean"
             },
-            "description": "The step replaces the newest entry (the app counts it as the same step: the same sidebar item, or a quick pass through the newest entry).",
+            "description": "A place the person jumped to on purpose: the newest entry is never coalesced away as a quick pass.",
             "default": false
           },
           "incognito": {
@@ -17423,7 +17443,7 @@
       ],
       "constraints": [
         "Only origin user (the verified cmux app connection, gate A2) may send it: the app that shows the windows reports where the person went, so no agent adds a step. Any other origin is refused with origin.forbidden.",
-        "The daemon owns the trail (projection history.locations; the first write adopts the app's older history.trail document). A location with the same machine and tab as the newest entry refreshes that entry; replace puts it in the newest entry; else a new entry is appended. Two newest entries never name the same place; at most 200 entries are kept (the oldest go). Every change emits history-changed with kind location."
+        "The daemon owns the trail (projection history.locations; the first write adopts the app's older history.trail document) and runs the Swift LocationTrail step rules at the end of the trail: the same machine and tab as the newest entry refresh it; with steps workspaces, a location in the newest entry's sidebar item (the same top page, or the same workspace on the same machine) replaces its place; a step less than 750 ms after the newest entry (and no jump) drops that entry as a quick pass, refreshing the entry before it when it is this place; else a new entry is appended. At most 200 entries are kept (the oldest go). A remove or clear joins two neighbours of the same place. Every change emits history-changed with kind location."
       ]
     },
     "history.visit.import": {
