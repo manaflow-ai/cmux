@@ -478,6 +478,7 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     }
 
     private func send(_ data: Data) {
+        TerminalMemory.trace("input: send \(data.count) bytes stream=\(String(describing: streamId)) client=\(client != nil) \(String(decoding: data, as: UTF8.self).debugDescription)")
         guard let streamId, let client else { return }
         revealCursorHorizontally()
         try? client.sendTerminalInput(streamId: streamId, data)
@@ -618,11 +619,15 @@ final class TerminalViewController: UIViewController, UIGestureRecognizerDelegat
     private func keyboardWillChange(_ change: KeyboardChange) {
         guard let window = view.window else { return }
         let end = window.convert(change.endFrame, from: window.screen.coordinateSpace)
+        let previous = keyboardFrame
         keyboardFrame = change.hiding || end.minY >= window.bounds.maxY - 1 ? nil : end
-        // The keyboard went down (swipe, Hide key, anything): drop focus so a
-        // tap on the composer field or the terminal brings it back. Not with
-        // a hardware keyboard, where the software keyboard is never shown.
-        if keyboardFrame == nil, !GhosttyTerminalView.hardwareKeyboardAttached { endInputFocus() }
+        // A software keyboard that was up went down (swipe, Hide key,
+        // anything): drop focus so a tap on the composer field or the terminal
+        // brings it back. Never when no software keyboard was showing: with a
+        // hardware keyboard UIKit posts hide/zero-height changes while the
+        // terminal keeps focus, and resigning there loses every typed key.
+        let softwareKeyboardWasUp = (previous?.height ?? 0) > 100
+        if keyboardFrame == nil, softwareKeyboardWasUp, !GhosttyTerminalView.hardwareKeyboardAttached { endInputFocus() }
         let animations = {
             self.placeAccessories()
             self.view.layoutIfNeeded()
