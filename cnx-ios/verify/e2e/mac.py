@@ -60,6 +60,16 @@ def dev_credential():
 RIG_BUNDLE = re.compile(r"\.cnx[.-]e2e[.-][0-9A-Za-z]+$")
 
 
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 def running_rig_apps():
     """[(pid, bundle_id, bundle_path)] of every running rig Mac app (a `cnx-e2e-*`
     tagged build, bundle id com.cmuxterm.app.debug.cnx.e2e.<sha8>), from lsappinfo."""
@@ -70,6 +80,8 @@ def running_rig_apps():
         pid = re.search(r"\bpid = (\d+)", entry)
         if not bundle or not pid or not RIG_BUNDLE.search(bundle.group(1)):
             continue
+        if "exited-with-subordinates" in entry or not _alive(int(pid.group(1))):
+            continue  # lsappinfo keeps an exited app's entry while its helpers live on
         path = re.search(r'bundle path="([^"]+)"', entry)
         apps.append((int(pid.group(1)), bundle.group(1), path.group(1) if path else "?"))
     return apps
@@ -141,7 +153,11 @@ class Mac:
         os.makedirs(os.path.dirname(self.creds), mode=0o700, exist_ok=True)
         os.chmod(os.path.dirname(self.creds), 0o700)
         stamp = os.path.join(self.rig, "mac", ".source")
-        src_id = f"{os.path.realpath(self.source_app)} {os.path.getmtime(os.path.join(self.source_app, 'Contents/Info.plist'))}"
+        # CNX_E2E_RB_HOST: a cmux-remote-browser-host.app (with its own CEF) the rig
+        # app starts instead of the one it bundles (LocalRemoteBrowserHostLocator's
+        # CMUX_NEXT_RB_HOST), to try a host build without a new Mac app build.
+        rb_host = os.environ.get("CNX_E2E_RB_HOST", "")
+        src_id = f"{os.path.realpath(self.source_app)} {os.path.getmtime(os.path.join(self.source_app, 'Contents/Info.plist'))} rb={rb_host}"
         if not (os.path.isdir(self.app) and os.path.exists(stamp) and open(stamp).read() == src_id):
             if os.path.exists(self.app):
                 shutil.rmtree(self.app)
@@ -156,9 +172,11 @@ class Mac:
             pb(p, "Delete :SUFeedURL", check=False)
             pb(p, "Delete :SUPublicEDKey", check=False)
             for key, value in (("CMUX_NEXT_CONFIG_FILE", self.config), ("CMUX_AUTH_CREDENTIALS_FILE", self.creds),
-                               ("CMUX_NEXT_IPHONE_PAIRING_SEED", self.pairing_seed)):
+                               ("CMUX_NEXT_IPHONE_PAIRING_SEED", self.pairing_seed),
+                               ("CMUX_NEXT_RB_HOST", rb_host)):
                 pb(p, f"Delete :LSEnvironment:{key}", check=False)
-                pb(p, f"Add :LSEnvironment:{key} string {value}")
+                if value:
+                    pb(p, f"Add :LSEnvironment:{key} string {value}")
             subprocess.run(["codesign", "--force", "--sign", "-", "--preserve-metadata=entitlements,requirements,flags,runtime", self.app],
                            check=True, capture_output=True)
             subprocess.run(["xattr", "-dr", "com.apple.quarantine", self.app], capture_output=True)
