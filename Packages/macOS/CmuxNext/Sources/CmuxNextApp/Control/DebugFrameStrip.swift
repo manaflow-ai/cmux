@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
@@ -18,6 +19,19 @@ import UniformTypeIdentifiers
 /// (`intermediate` counts the ones that equal neither), and no frame shows
 /// the content area blank, one flat color that was not there before the key (`blank`). PNGs of every frame and
 /// one strip (`strip.png`, the frames side by side) go to `dir`.
+///
+/// `perform` runs that action by name instead of a key (`target`: a tab id).
+/// `modifiers` (default `["command"]`) sends another chord, for tab switches
+/// and closes (Control-Tab, Command-Shift-], Command-W). Inside the content
+/// area, `settled_ms` is the first frame from which it equals the last frame
+/// for good, `first_change_ms` the first that differs from before the key,
+/// and `content_intermediate` counts the frames equal to neither: a loading,
+/// partly drawn or reflowing page between the two tabs. The pane's strip is
+/// left out of those and of `intermediate` (its tabs slide when one opens or
+/// closes); `strip_intermediate` counts its frames between the two; `desync` counts the frames
+/// where one of the strip and the content shows the new tab and the other the
+/// old one. `region: "workspace"` measures the whole workspace area instead of
+/// the focused pane's.
 @MainActor
 enum DebugFrameStrip {
     nonisolated struct Frame: Sendable {
@@ -43,46 +57,113 @@ enum DebugFrameStrip {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
-        let sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": .array([.string("command")]),
+        let sent: JSONValue
+        if let action = params["perform"]?.stringValue {
+            // The action a key runs, by name (`nextSurface`, `nextSidebarTab`), whatever the keymap binds.
+            let target = params["target"]?.stringValue.map { ActionTargetRef(kind: .tab, id: $0) }
+            let ran = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(target: target, origin: .user))
+            sent = .object(["action": .string(action), "ran": .bool(ran)])
+        } else {
+            let modifiers = params["modifiers"] ?? .array([.string("command")])
+            sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": modifiers,
                                   "window": .string(controller.state.id)], services: services)
+        }
         let sentAt = BenchSpans.ms(.now - start)
         let frames = await recording.value
         let spans = BenchSpans.end()
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
-        let content = contentRect(controller, window: window, frame: first)
+        let workspace = params["region"]?.stringValue == "workspace"
+        let content = contentRect(controller, window: window, frame: first, workspace: workspace)
+        // The pane's strip, apart: its own motion (a close's tabs sliding over) is not content.
+        let strip = workspace ? nil : (controller.content?.focusedPane?.view.stripView)
+            .flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : rect(of: $0, window: window, frame: first) }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [JSONValue] = []
-        var intermediate = 0, blank = 0
-        for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
-            let outsideBefore = difference(frame, before, excluding: content)
-            let outsideFinal = difference(frame, last, excluding: content)
+        var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0, stripIntermediate = 0
+        var settledAt: Double?, firstChange: Double?
+        let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
+        // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
+        let measures = await measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
+        for (offset, m) in measures.enumerated() {
+            let index = shown + offset, frame = frames[index]
+            let (outsideBefore, outsideFinal) = (m.outsideBefore, m.outsideFinal)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
-            // Flat, and not still the content from before the key (an empty terminal is flat too).
-            let isBlank = content.map { flatness(frame, in: $0) > 0.995 && difference(frame, before, within: $0) > tolerance } ?? false
+            let (insideBefore, insideFinal, stripBefore, stripFinal) = (m.insideBefore, m.insideFinal, m.stripBefore, m.stripFinal)
+            // One of the strip and the content at the new tab, the other still at the old one (L4).
+            let isDesync = strip != nil
+                && ((stripFinal <= tolerance && stripBefore > tolerance && insideBefore <= tolerance && insideFinal > tolerance)
+                    || (insideFinal <= tolerance && insideBefore > tolerance && stripBefore <= tolerance && stripFinal > tolerance))
+            // Flat, and neither the content from before the key nor the settled one (an empty terminal is flat too).
+            let isBlank = content != nil && m.flatness > 0.995 && insideBefore > tolerance && insideFinal > tolerance
+            // After the key, the content area equal to neither the content before it nor the settled one.
+            let isContentIntermediate = frame.milliseconds > sentAt && insideBefore > tolerance && insideFinal > tolerance
             if isIntermediate { intermediate += 1 }
             if isBlank { blank += 1 }
+            if isContentIntermediate { contentIntermediate += 1 }
+            if frame.milliseconds > sentAt, stripBefore > tolerance, stripFinal > tolerance { stripIntermediate += 1 }
+            if frame.milliseconds > sentAt {
+                if isDesync { desync += 1 }
+                if firstChange == nil, insideBefore > tolerance { firstChange = frame.milliseconds - sentAt }
+                if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
+            }
             let name = String(format: "frame-%03d.png", index)
             write(frame, to: (dir as NSString).appendingPathComponent(name))
             rows.append(.object([
                 "ms": .number((frame.milliseconds - sentAt).rounded()), "file": .string(name),
                 "outside_vs_before": .number(outsideBefore), "outside_vs_final": .number(outsideFinal),
-                "intermediate": .bool(isIntermediate), "blank": .bool(isBlank),
+                "intermediate": .bool(isIntermediate), "blank": .bool(isBlank), "desync": .bool(isDesync),
+                "content_intermediate": .bool(isContentIntermediate),
             ]))
         }
         writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
         return .object([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
+            "content_intermediate": .number(Double(contentIntermediate)), "desync": .number(Double(desync)),
+            "strip_intermediate": .number(Double(stripIntermediate)), "content_rect": content.map(Self.json) ?? .null, "strip_rect": strip.map(Self.json) ?? .null,
+            "settled_ms": settledAt.map { .number($0.rounded()) } ?? .null, "first_change_ms": firstChange.map { .number($0.rounded()) } ?? .null,
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
     }
 
-    /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page.
-    private static func contentRect(_ controller: WindowController, window: NSWindow, frame: Frame) -> CGRect? {
-        guard let host = controller.content?.focusedPane?.view.contentHost, host.window === window,
+    /// One frame's comparisons with the frame before the key and the last one.
+    nonisolated struct Measure: Sendable {
+        var outsideBefore: Double, outsideFinal: Double, insideBefore: Double, insideFinal: Double
+        var stripBefore: Double, stripFinal: Double, flatness: Double
+    }
+
+    @concurrent nonisolated static func measure(_ frames: [Frame], before: Frame, last: Frame,
+                                                content: CGRect?, strip: CGRect?) async -> [Measure] {
+        let outside = content.map { content in strip.map { content.union($0) } ?? content }
+        return frames.map { frame in
+            // Outside: the window beyond the content and the strip, whose tabs slide on their own.
+            Measure(outsideBefore: difference(frame, before, excluding: outside),
+                    outsideFinal: difference(frame, last, excluding: outside),
+                    insideBefore: content.map { difference(frame, before, excluding: strip, within: $0) } ?? 0,
+                    insideFinal: content.map { difference(frame, last, excluding: strip, within: $0) } ?? 0,
+                    stripBefore: strip.map { difference(frame, before, within: $0) } ?? 0,
+                    stripFinal: strip.map { difference(frame, last, within: $0) } ?? 0,
+                    flatness: content.map { flatness(frame, in: $0) } ?? 0)
+        }
+    }
+
+    /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page;
+    /// with `workspace`, the whole workspace area beside the sidebar (a sidebar item switch, `region: "workspace"`).
+    private static func contentRect(_ controller: WindowController, window: NSWindow, frame: Frame, workspace: Bool) -> CGRect? {
+        let view: NSView? = workspace ? controller.content?.layoutView : controller.content?.focusedPane?.view.contentHost
+        return view.flatMap { rect(of: $0, window: window, frame: frame) }
+    }
+
+    private static func json(_ rect: CGRect) -> JSONValue {
+        .array([rect.minX, rect.minY, rect.width, rect.height].map { .number($0.rounded()) })
+    }
+
+    /// `host`'s bounds in `frame` pixels (top-left origin).
+    private static func rect(of host: NSView, window: NSWindow, frame: Frame) -> CGRect? {
+        guard host.window === window,
               let windowHeight = window.contentView?.superview?.bounds.height ?? window.contentView?.bounds.height
         else { return nil }
         let rect = host.convert(host.bounds, to: nil)
@@ -122,19 +203,24 @@ enum DebugFrameStrip {
     }
 
     /// The share of pixels outside `excluded` (or only those `within` it) whose color differs by more than a small step.
+    /// How far a channel moves before a pixel counts as changed. Frames of unchanged content compare
+    /// equal; 24 missed a whole background drawn in another dark color (13 apart, Leo 2026-10-13).
+    nonisolated static let channelStep = 8
+
     nonisolated static func difference(_ a: Frame, _ b: Frame, excluding excluded: CGRect? = nil, within: CGRect? = nil) -> Double {
         guard a.width == b.width, a.height == b.height else { return 1 }
         var differing = 0, counted = 0
         for y in 0..<a.height {
             for x in 0..<a.width {
-                // Rows run bottom-up in the bitmap; the rects are top-left based.
-                let point = CGPoint(x: Double(x) + 0.5, y: Double(a.height - 1 - y) + 0.5)
+                // The bitmap holds its top row first, as the rects count from the top left (a flipped
+                // read compared the strip's rows as content and missed the content's bottom).
+                let point = CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)
                 if let excluded, excluded.contains(point) { continue }
                 if let within, !within.contains(point) { continue }
                 let i = (y * a.width + x) * 4
                 counted += 1
                 if max(abs(Int(a.pixels[i]) - Int(b.pixels[i])), abs(Int(a.pixels[i + 1]) - Int(b.pixels[i + 1])),
-                       abs(Int(a.pixels[i + 2]) - Int(b.pixels[i + 2]))) > 24 { differing += 1 }
+                       abs(Int(a.pixels[i + 2]) - Int(b.pixels[i + 2]))) > channelStep { differing += 1 }
             }
         }
         return counted == 0 ? 0 : Double(differing) / Double(counted)
@@ -145,7 +231,7 @@ enum DebugFrameStrip {
         var counts: [UInt32: Int] = [:], total = 0
         var samples: [(Int, Int, Int)] = []
         for y in 0..<frame.height {
-            for x in 0..<frame.width where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(frame.height - 1 - y) + 0.5)) {
+            for x in 0..<frame.width where rect.contains(CGPoint(x: Double(x) + 0.5, y: Double(y) + 0.5)) {
                 let i = (y * frame.width + x) * 4
                 let r = Int(frame.pixels[i]), g = Int(frame.pixels[i + 1]), b = Int(frame.pixels[i + 2])
                 counts[UInt32(r >> 3) << 10 | UInt32(g >> 3) << 5 | UInt32(b >> 3), default: 0] += 1
