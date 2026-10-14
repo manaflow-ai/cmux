@@ -20,11 +20,17 @@ fn client_list(server: &HeadlessServer) -> Vec<Value> {
     writeln!(writer, "{request}").unwrap();
     loop {
         let mut line = String::new();
-        assert!(reader.read_line(&mut line).unwrap() > 0, "client.list: the daemon closed the connection");
+        assert!(
+            reader.read_line(&mut line).unwrap() > 0,
+            "client.list: the daemon closed the connection"
+        );
         let reply: Value = serde_json::from_str(&line).unwrap();
         if reply["type"] == "response" && reply["id"] == "chat-kind-clients" {
             assert_eq!(reply["ok"], true, "client.list: {reply}");
-            return reply["result"].as_array().cloned().unwrap_or_else(|| panic!("client.list: {reply}"));
+            return reply["result"]
+                .as_array()
+                .cloned()
+                .unwrap_or_else(|| panic!("client.list: {reply}"));
         }
     }
 }
