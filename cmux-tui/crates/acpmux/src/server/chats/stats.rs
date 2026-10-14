@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use super::Origin;
+use super::super::Origin;
 use crate::hub::Hub;
 use crate::rpc::{RpcError, method};
 use crate::stats::StatsOptions;
