@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""Window resize frame-time measurement on the GUI host (Leo, cosmic-gray 2026-10-13).
+"""Live-resize frame-time bench on the GUI host (Leo, cosmic-gray 2026-10-13).
 
-  resize-frames-live.py --tag <tag> --out DIR [--steps 240] [--sample]
+  resize-frames-live.py --tag <tag> --out DIR [--steps 150] [--sample]
 
 Launches the tagged app (no activation, automation socket, own config), opens a
 layout with the sidebar, a terminal and a New Tab page (a web view) side by
-side, then resizes the window once per 120 Hz frame through `debug.window_frame`
-(`setFrame(_:display: true)`: the layout and drawing of every step run inside
-the call) while `debug.frames` records display-link intervals. Reports per-step
-latency (p50/p95/p99/max ms) and frame intervals; `--sample` also runs
-`sample` on the app during the resize (sample.txt). Kills only the app it started.
+side, then live-resizes the window: the bottom-right corner pressed and dragged
+one `debug.mouse` event per 120 Hz frame (`--steps` events per drag), out by
+300 x 150 points and back, twice. AppKit's own resize tracking reads the events
+(`inLiveResize` holds) and the user's pointer never moves. `debug.frames`
+records display-link intervals throughout. Reports frame intervals (p50, p95,
+p99, max, missed vsyncs) and each event's round trip, which waits for the main
+thread; `--sample` also runs `sample` on the app (sample.txt). Kills only the
+app it started.
 """
-import argparse, glob, json, os, plistlib, signal, socket, statistics, subprocess, sys, time
+import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
