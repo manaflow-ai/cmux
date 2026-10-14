@@ -112,6 +112,13 @@ final class SSHTuiWorkspaceCoordinator {
                         backoff: backoff
                     )
                 },
+                retrying: { [weak self, weak workspace] in
+                    // A wait that ended takes no further wakes; a stale one
+                    // would cut the next failure's backoff short.
+                    guard let self, let workspace,
+                          self.recoveries[workspace.id]?.backoff === backoff else { return }
+                    self.recoveries.removeValue(forKey: workspace.id)
+                },
                 attempt: { willRetry in
                     try await self.attach(workspace: workspace, configuration: configuration, attemptID: attemptID,
                                           restoring: true, keepsReservationPending: willRetry)
@@ -119,8 +126,13 @@ final class SSHTuiWorkspaceCoordinator {
             )
             guard workspace.sshTuiConnectionAttemptID == attemptID else { return }
             switch outcome {
-            case .connected, .cancelled:
+            case .connected:
                 self.recoveries.removeValue(forKey: workspace.id)
+            case .cancelled:
+                // Still current, so nothing replaced this attempt: remote
+                // connections were turned off. Do not leave it connecting.
+                self.recoveries.removeValue(forKey: workspace.id)
+                workspace.applyRemoteConnectionStateUpdate(.disconnected, detail: nil, target: configuration.displayTarget)
             case .failed(let error):
                 // Park so a later link-up still recovers the workspace and
                 // retracts this error, without waiting for a manual Reconnect.
@@ -377,7 +389,13 @@ final class SSHTuiWorkspaceCoordinator {
     func disconnect(workspace: Workspace) {
         workspace.sshTuiConnectionAttemptID = nil
         attempts.removeValue(forKey: workspace.id)?.cancel()
-        recoveries.removeValue(forKey: workspace.id)
+        if recoveries.removeValue(forKey: workspace.id)?.backoff != nil {
+            // A backoff keeps the reserved pane pending for the next attempt.
+            // No attempt follows a disconnect, so show its failure card instead.
+            for pending in workspace.cloudPendingCreations.values where pending.machine.isSSH {
+                workspace.failReservedCloudTerminalPane(pending, error: CloudDiagnosticFailure.network)
+            }
+        }
         for projection in catalog.projections where projection.workspaceID == workspace.id && projection.resource.machine.isSSH {
             let provider = catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider
             _ = provider?.manualMirrorSessions[projection.panelID]?.cancelConnectionAttempt()

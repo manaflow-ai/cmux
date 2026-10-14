@@ -28,7 +28,14 @@ struct SSHTuiAttachRetryPolicy: Sendable {
     static func isRetryable(_ error: Error) -> Bool {
         if error is CancellationError { return false }
         if let failure = error as? CloudDiagnosticFailure, failure == .unsupported { return false }
-        if case CloudMachineLink.LinkError.clientMissing? = error as? CloudMachineLink.LinkError { return false }
+        if let failure = error as? CloudMachineLink.LinkError {
+            switch failure {
+            // The carrier already waited out its own connect deadline
+            // (minutes, with internal retries); another lap only delays the report.
+            case .clientMissing, .timedOut: return false
+            default: break
+            }
+        }
         if CloudMachineAccessLoss(error: error) != nil { return false }
         return true
     }
@@ -90,13 +97,15 @@ enum SSHTuiAttachRetry {
     /// `attempt` receives a predicate telling it whether a given error will be
     /// retried, so it can keep a reserved pane pending instead of failing it
     /// between attempts. `failed` runs before each backoff wait so the caller
-    /// can record whether the machine link was up when the attempt failed.
+    /// can record whether the machine link was up when the attempt failed,
+    /// and `retrying` runs when that wait ends, before the next attempt.
     @MainActor
     static func run(
         policy: SSHTuiAttachRetryPolicy,
         clock: any Clock<Duration>,
         backoff: SSHTuiAttachBackoff,
         failed: @MainActor (Error) -> Void = { _ in },
+        retrying: @MainActor () -> Void = {},
         attempt: @MainActor (_ willRetry: (Error) -> Bool) async throws -> Void
     ) async -> Outcome {
         var failures = 0
@@ -116,6 +125,7 @@ enum SSHTuiAttachRetry {
                 }
                 failed(error)
                 await backoff.wait(delay, clock: clock)
+                retrying()
             }
         }
     }

@@ -31,7 +31,9 @@ struct SSHTuiAttachRetryTests {
         #expect(policy.retryDelay(afterFailure: 1, error: CloudDiagnosticFailure.unsupported) == nil)
         #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.clientMissing) == nil)
         #expect(policy.retryDelay(afterFailure: 1, error: CancellationError()) == nil)
-        #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.timedOut) == .seconds(1))
+        // The carrier already spent its connect deadline; report instead of another lap.
+        #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.timedOut) == nil)
+        #expect(policy.retryDelay(afterFailure: 1, error: CloudMachineLink.LinkError.requestTimedOut) == .seconds(1))
     }
 
     @Test("Only a link that came up after the failure retries early")
@@ -50,10 +52,12 @@ struct SSHTuiAttachRetryTests {
         var attempts = 0
         var keptPending: [Bool] = []
         var failures = 0
+        var retries = 0
         let run = Task { @MainActor in
             await SSHTuiAttachRetry.run(
                 policy: policy, clock: clock, backoff: backoff,
                 failed: { _ in failures += 1 },
+                retrying: { retries += 1 },
                 attempt: { willRetry in
                     attempts += 1
                     if attempts == 1 {
@@ -73,6 +77,7 @@ struct SSHTuiAttachRetryTests {
             return
         }
         #expect(attempts == 2)
+        #expect(retries == 1)
         #expect(keptPending == [true])
     }
 
