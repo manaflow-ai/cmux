@@ -24,6 +24,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
+| `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens. |
 | `tabs.newTabTemplate` | string | `"default"` | `default`, `composer`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it. |
 | `tabs.newTabPosition` | string | `"end"` | `end`, `afterCurrent` | New Tab Position. Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab. |
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
@@ -178,7 +179,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
-| `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
+| `sidebar.density` | string | `"compact"` | `compact`, `expanded` | Sidebar Density. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
@@ -200,7 +201,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.workspaceRow.progress` | boolean | `true` |  | Progress. A progress bar under the row and the busy mark of running work. |
 | `sidebar.workspaceRow.working` | boolean | `true` |  | Agent Working. A mark while an agent works in the workspace. |
 | `sidebar.workspaceRow.log` | boolean | `true` |  | Log. The newest line agents and scripts log: cmux workspace log append <text>. |
-| `sidebar.workspaceRow.notification` | boolean | `false` |  | Latest Notification. The text of the workspace's newest unread notification. |
+| `sidebar.workspaceRow.notification` | boolean | `true` |  | Latest Notification. The text of the workspace's newest unread notification. |
 | `sidebar.workspaceRow.secondLineOrder` | array | `["notification","directory","branch","process","agentStatus","ports","lastActivity"]` | `notification`, `directory`, `branch`, `process`, `agentStatus`, `ports`, `lastActivity` | Second Line Order. The order of the shown items under the workspace name. |
 | `sidebar.workspaceRow.terminal.icon` | boolean |  |  | Icon |
 | `sidebar.workspaceRow.terminal.directory` | boolean |  |  | Folder |
