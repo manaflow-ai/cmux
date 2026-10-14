@@ -67,6 +67,12 @@ public struct LinkFileArtifactSource: ArtifactSource {
         } catch let error as LinkError {
             throw Self.unavailable(error, path: path, macName: macName)
         }
+        // The Mac refuses by closing the channel (outside the shared
+        // folders, missing, a folder): without this the refusal read as an
+        // empty file and the preview stayed blank.
+        if let refusal = await channel.closeError() {
+            throw Self.unavailable(refusal, path: path, macName: macName)
+        }
         return data
     }
 
@@ -97,6 +103,9 @@ public struct LinkFileArtifactSource: ArtifactSource {
         case .binary:
             return .binary(description: "\(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")
         default:
+            if data.isEmpty {
+                return .binary(description: "Empty file\n\(artifact.reference)")
+            }
             guard let text = String(data: data, encoding: .utf8) else {
                 return .binary(description: "Binary file, \(ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file))\n\(artifact.reference)")
             }

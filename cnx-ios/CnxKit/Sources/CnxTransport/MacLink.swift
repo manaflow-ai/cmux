@@ -54,6 +54,14 @@ public protocol LinkChannel: AnyObject, Sendable {
     /// The next message, or nil once the channel is closed.
     func receive() async throws -> Data?
     func close(code: String, reason: String) async
+    /// Why the peer closed the channel, once `receive` returned nil: nil for
+    /// a clean end (`eof`) or while open; otherwise the peer's refusal or
+    /// failure (`forbidden`, `not_found`, ...) with its reason.
+    func closeError() async -> LinkError?
+}
+
+extension LinkChannel {
+    public func closeError() async -> LinkError? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {

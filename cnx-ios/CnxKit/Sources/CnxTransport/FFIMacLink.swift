@@ -155,11 +155,31 @@ final class FFIChannel: LinkChannel, @unchecked Sendable {
         do { try await handle.send(data: data) } catch let error as CnxError { throw error.linkError }
     }
 
+    private let closeLock = NSLock()
+    private var closedWith: LinkError?
+
     func receive() async throws -> Data? {
         switch await handle.recv() {
-        case .data(let bytes): bytes
-        case .closed: nil
+        case .data(let bytes):
+            return bytes
+        case .closed(let code, let reason):
+            // A refusal arrives as the close itself; keep it for `closeError`
+            // (a `file` read outside the shared folders used to read as an
+            // empty file).
+            if let error = Self.closeError(code: code, reason: reason) {
+                closeLock.withLock { closedWith = error }
+            }
+            return nil
         }
+    }
+
+    func closeError() async -> LinkError? {
+        closeLock.withLock { closedWith }
+    }
+
+    /// The error a close code stands for; nil for a clean end.
+    static func closeError(code: String, reason: String) -> LinkError? {
+        code.isEmpty || code == "eof" ? nil : LinkError(code: code, message: reason)
     }
 
     func close(code: String, reason: String) async {
