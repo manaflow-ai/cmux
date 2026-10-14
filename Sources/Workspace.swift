@@ -7909,6 +7909,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             port: remoteConfiguration.port,
             identityFile: remoteConfiguration.identityFile,
             sshOptions: remoteConfiguration.sshOptions,
+            routeSensitiveIdentifier: remoteConfiguration.routeSensitiveIdentifier,
             token: foregroundAuthToken
         )
         return SSHPTYAttachStartupCommandBuilder.command(

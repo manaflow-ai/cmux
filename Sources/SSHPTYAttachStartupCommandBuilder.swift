@@ -7,6 +7,9 @@ enum SSHPTYAttachStartupCommandBuilder {
         let port: Int?
         let identityFile: String?
         let sshOptions: [String]
+        /// The route digest a ``WorkspaceRemoteConfiguration`` keeps beside
+        /// its options, so the merge still picks the route's private master.
+        let routeSensitiveIdentifier: String?
         let token: String
         let postAuthenticationCommand: String?
 
@@ -15,6 +18,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             port: Int?,
             identityFile: String?,
             sshOptions: [String],
+            routeSensitiveIdentifier: String? = nil,
             token: String,
             postAuthenticationCommand: String? = nil
         ) {
@@ -22,6 +26,7 @@ enum SSHPTYAttachStartupCommandBuilder {
             self.port = port
             self.identityFile = identityFile
             self.sshOptions = sshOptions
+            self.routeSensitiveIdentifier = routeSensitiveIdentifier
             self.token = token
             self.postAuthenticationCommand = postAuthenticationCommand
         }
@@ -158,7 +163,11 @@ enum SSHPTYAttachStartupCommandBuilder {
             named: "RemoteCommand",
             from: sharingOptions.mergingDefaults(
                 into: auth.sshOptions,
-                routeSensitiveOptions: auth.identityFile.map { ["IdentityFile=\($0)"] } ?? []
+                routeSensitiveOptions: (auth.identityFile.map { ["IdentityFile=\($0)"] } ?? [])
+                    + (auth.routeSensitiveIdentifier
+                        .flatMap(SSHConnectionSharingOptions.routeSensitiveMarkerOption(for:))
+                        .map { [$0] } ?? []),
+                routeIdentifier: auth.routeSensitiveIdentifier
             )
         )
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {

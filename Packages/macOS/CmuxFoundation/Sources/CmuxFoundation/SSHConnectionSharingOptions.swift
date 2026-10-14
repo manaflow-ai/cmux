@@ -329,16 +329,21 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// The marker carries only the digest of OpenSSH's resolved configuration;
     /// it never serializes a proxy command, socket path, or credential.
     public func routeSensitiveOption(for routeIdentifier: String) -> String? {
-        guard Self.isRouteDigest(routeIdentifier) else { return nil }
-        return "\(Self.routeSensitiveMarkerKey)=\(routeIdentifier)"
+        Self.routeSensitiveMarkerOption(for: routeIdentifier)
+    }
+
+    /// The serialized route marker for `routeIdentifier`, or `nil` when it is
+    /// not a route digest. Needs no instance, so pure value types can use it.
+    public static func routeSensitiveMarkerOption(for routeIdentifier: String) -> String? {
+        guard isRouteDigest(routeIdentifier) else { return nil }
+        return "\(routeSensitiveMarkerKey)=\(routeIdentifier)"
     }
 
     /// Drops the private route marker from serialized SSH options.
     ///
-    /// The marker is cmux's own note and not an OpenSSH option, so a caller
-    /// that hands options to `ssh` or `scp` without merging defaults first has
-    /// to remove it; OpenSSH refuses an option it does not know. Every other
-    /// option is returned as given.
+    /// The marker is cmux's own note and not an OpenSSH option; OpenSSH
+    /// refuses an option it does not know. Every other option is returned as
+    /// given.
     public static func removingRouteSensitiveMarker(from options: [String]) -> [String] {
         let resolver = SSHAgentSocketResolver(environment: [:])
         return options.filter { resolver.optionKey($0) != routeSensitiveMarkerKey }
@@ -346,6 +351,11 @@ public struct SSHConnectionSharingOptions: Sendable {
 
     /// Reads the opaque route marker from serialized SSH options.
     public func routeSensitiveIdentifier(in options: [String]) -> String? {
+        Self.routeSensitiveMarkerIdentifier(in: options)
+    }
+
+    /// Reads the opaque route marker from serialized SSH options without an instance.
+    public static func routeSensitiveMarkerIdentifier(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])
         guard let value = resolver.optionValue(named: Self.routeSensitiveMarkerKey, in: options),
               Self.isRouteDigest(value) else {

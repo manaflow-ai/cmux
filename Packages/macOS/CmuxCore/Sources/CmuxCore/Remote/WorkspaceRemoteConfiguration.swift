@@ -28,6 +28,15 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let identityFile: String?
     /// `-o` SSH options applied to every spawned SSH process.
     public let sshOptions: [String]
+    /// The opaque route digest `cmux ssh` hands off when its connection must
+    /// not share another route's ControlMaster.
+    ///
+    /// It arrives as the private `__cmux_route_sensitive=<digest>` entry in
+    /// the handed-off SSH options. The initializer moves it here so
+    /// ``sshOptions`` holds only real OpenSSH options and can be written out
+    /// as `-o` arguments to `ssh`, `scp` or `sftp` as is. Connection-sharing
+    /// code reads it through ``mergingConnectionSharingDefaults(_:routeSensitiveOptions:)``.
+    public let routeSensitiveIdentifier: String?
     /// Deterministic local proxy port override (docker regression test hook).
     public let localProxyPort: Int?
     /// CLI relay port for remote `cmux` command forwarding.
@@ -81,6 +90,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
+        routeSensitiveIdentifier: String? = nil,
         localProxyPort: Int?,
         relayPort: Int?,
         relayID: String?,
@@ -105,7 +115,11 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
-        self.sshOptions = sshOptions
+        // Saved snapshots and `cmux ssh` handoffs carry the marker inside the
+        // options; keeping it out of the stored list migrates both.
+        self.routeSensitiveIdentifier = routeSensitiveIdentifier
+            ?? SSHConnectionSharingOptions.routeSensitiveMarkerIdentifier(in: sshOptions)
+        self.sshOptions = SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: sshOptions)
         self.localProxyPort = localProxyPort
         self.relayPort = relayPort
         self.relayID = relayID
@@ -196,6 +210,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
             lhs.sshOptions == rhs.sshOptions &&
+            lhs.routeSensitiveIdentifier == rhs.routeSensitiveIdentifier &&
             lhs.localProxyPort == rhs.localProxyPort &&
             lhs.relayPort == rhs.relayPort &&
             lhs.relayID == rhs.relayID &&
@@ -281,7 +296,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedPort = port.map(String.init) ?? ""
         let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
-        let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
+        let normalizedOptions = proxyBrokerSSHOptions.joined(separator: "\u{1f}")
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
@@ -311,8 +326,10 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         return ownerWorkspaceID == other.ownerWorkspaceID
     }
 
-    private static func proxyBrokerSSHOptions(_ options: [String]) -> [String] {
-        durableSSHOptions(options)
+    /// Durable options plus the route marker: two routes that resolve
+    /// differently must not share a broker or a persistent PTY identity.
+    private var proxyBrokerSSHOptions: [String] {
+        Self.durableSSHOptions(sshOptions) + routeSensitiveMarkerOptions
     }
 
     /// True when `other` addresses the same persistent-PTY daemon identity, so
@@ -335,7 +352,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && managedCloudVMID == other.managedCloudVMID
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
-            && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
+            && proxyBrokerSSHOptions == other.proxyBrokerSSHOptions
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
     }
 
@@ -356,7 +373,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedRelayPort = relayPort.map(String.init) ?? ""
         let normalizedManagedCloudVMID = managedCloudVMID ?? ""
         let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
-        let normalizedSSHOptions = Self.proxyBrokerSSHOptions(sshOptions)
+        let normalizedSSHOptions = proxyBrokerSSHOptions
             .joined(separator: "\u{1f}")
         let normalizedWebSocketEndpoint = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let components: [String] = [
@@ -410,6 +427,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
+            routeSensitiveIdentifier: routeSensitiveIdentifier,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -446,6 +464,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
+            routeSensitiveIdentifier: routeSensitiveIdentifier,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -477,6 +496,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
+            routeSensitiveIdentifier: routeSensitiveIdentifier,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -579,7 +599,7 @@ extension WorkspaceRemoteConfiguration {
             destination: normalizedDestination,
             port: port,
             identityFile: Self.normalizedIdentityPath(identityFile),
-            sshOptions: sshOptionsOverride ?? Self.durableSSHOptions(sshOptions),
+            sshOptions: (sshOptionsOverride ?? Self.durableSSHOptions(sshOptions)) + routeSensitiveMarkerOptions,
             agentSocketPath: agentSocketPath,
             agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet ? true : nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
@@ -593,8 +613,42 @@ extension WorkspaceRemoteConfiguration {
         // snapshot must not claim cmux-tui ownership.
         if terminalTransport == .ssh && !skipDaemonBootstrap && relayPort == nil && daemonWebSocketEndpoint == nil {
             snapshot.sshSessionOwner = "cmux-tui"
-            if sshOptionsOverride == nil { snapshot.sshOptions = Self.restorableCarrierSSHOptions(sshOptions) }
+            if sshOptionsOverride == nil {
+                snapshot.sshOptions = Self.restorableCarrierSSHOptions(sshOptions) + routeSensitiveMarkerOptions
+            }
         }
         return snapshot
+    }
+}
+
+extension WorkspaceRemoteConfiguration {
+    /// The serialized route marker, for the snapshot and the connection-sharing
+    /// merge only. It is never an OpenSSH option.
+    var routeSensitiveMarkerOptions: [String] {
+        routeSensitiveIdentifier
+            .flatMap(SSHConnectionSharingOptions.routeSensitiveMarkerOption(for:))
+            .map { [$0] } ?? []
+    }
+
+    /// This configuration's SSH options with cmux's connection-sharing
+    /// defaults, for a native `ssh` that may reuse a ControlMaster.
+    ///
+    /// The route marker makes the merge pick the route's private master, as
+    /// it did when the marker lived inside ``sshOptions``; the result never
+    /// contains it.
+    ///
+    /// - Parameters:
+    ///   - sharing: The connection-sharing defaults to apply.
+    ///   - routeSensitiveOptions: The caller's values that make the route
+    ///     private, such as its `IdentityFile`.
+    public func mergingConnectionSharingDefaults(
+        _ sharing: SSHConnectionSharingOptions,
+        routeSensitiveOptions: [String] = []
+    ) -> [String] {
+        sharing.mergingDefaults(
+            into: sshOptions,
+            routeSensitiveOptions: routeSensitiveOptions + routeSensitiveMarkerOptions,
+            routeIdentifier: routeSensitiveIdentifier
+        )
     }
 }

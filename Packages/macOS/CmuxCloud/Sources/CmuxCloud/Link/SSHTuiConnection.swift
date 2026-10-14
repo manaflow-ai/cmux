@@ -54,15 +54,13 @@ public struct SSHTuiConnection: Sendable {
     /// Hashes the route inputs that must share, or avoid sharing, an SSH master.
     private func digest(includeAgentSocket: Bool) -> String {
         let resolver = SSHAgentSocketResolver(environment: [:])
-        let sharingOptions = SSHConnectionSharingOptions()
         let persistentOptions = configuration.sshOptions.filter {
             let key = resolver.optionKey($0) ?? ""
             return !["controlmaster", "controlpersist", "controlpath"].contains(key)
-                && sharingOptions.routeSensitiveIdentifier(in: [$0]) == nil
         }
         var components = [configuration.destination, configuration.port.map(String.init) ?? "",
                           configuration.identityFile ?? ""] + persistentOptions
-        if let routeIdentifier = sharingOptions.routeSensitiveIdentifier(in: configuration.sshOptions) {
+        if let routeIdentifier = configuration.routeSensitiveIdentifier {
             components.append(routeIdentifier)
         }
         if includeAgentSocket {
@@ -148,6 +146,11 @@ public struct SSHTuiConnection: Sendable {
             // An inherited socket is not an SSH option, but it is still part
             // of the credentials carried by a multiplexed master.
             routeSensitiveOptions.append("inherited-agent-route")
+        }
+        if configuration.routeSensitiveIdentifier != nil {
+            // `cmux ssh` resolved a route that must not share the `%C` master;
+            // `routeIdentityDigest` already covers its identity.
+            routeSensitiveOptions.append("cmux-route-sensitive")
         }
         return sharing.mergingDefaults(
             into: options,
