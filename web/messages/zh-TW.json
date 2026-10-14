@@ -114,6 +114,16 @@
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "{plan} 運算額度已用完",
+      "computeMessage": "你的 {plan} 方案已用完本計費週期的 {included} 運算小時。1 運算小時是 1 個 vCPU 搭配 2 GB 記憶體執行一小時。你的機器可在 {resetDate} 再次啟動。",
+      "computeAction": "已暫停的機器會保留其檔案。如需在 {resetDate} 之前取得更多運算資源，請聯絡支援團隊。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} 磁碟額度已用完",
+      "storageMessage": "你的 {plan} 方案為所有已儲存的機器總共提供 {included} GB 磁碟。已儲存的機器使用了 {used} GB，此請求需要 {requested} GB。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Cloud VM 資源不足",
       "memoryMessage": "你的 VM 已使用 {pool} GB RAM 中的 {used} GB。這台 VM 需要 {requested} GB。",

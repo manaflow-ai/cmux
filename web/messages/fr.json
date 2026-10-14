@@ -114,6 +114,16 @@
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     },
+    "planBudget": {
+      "computeTitle": "Quota de calcul {plan} épuisé",
+      "computeMessage": "Votre forfait {plan} a utilisé ses {included} heures de calcul pour cette période de facturation. Une heure de calcul correspond à 1 vCPU avec 2 Go de mémoire pendant une heure. Vos machines pourront redémarrer le {resetDate}.",
+      "computeAction": "Les machines en pause conservent leurs fichiers. Contactez le support si vous avez besoin de plus de calcul avant le {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota de disque {plan} épuisé",
+      "storageMessage": "Votre forfait {plan} inclut {included} Go de disque pour l'ensemble des machines enregistrées. Les machines enregistrées utilisent {used} Go, et cette demande nécessite {requested} Go.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+    },
     "resourcePool": {
       "title": "Ressources Cloud VM insuffisantes",
       "memoryMessage": "Vos VMs utilisent déjà {used} Go de RAM sur {pool}. Cette VM a besoin de {requested} Go.",
