@@ -67,6 +67,7 @@ impl NameUpdate {
         Self { source: NameSource::User, generation: None, name_revision: None, release: false }
     }
 
+    #[cfg(test)]
     pub(crate) fn new(
         source: Option<NameSource>,
         generation: Option<String>,
@@ -187,7 +188,7 @@ impl NameUpdate {
             return Err(ResourceError::revision_conflict(expected, current.revision).into());
         }
         if self.source == NameSource::Auto && !self.release {
-            if !name.is_some_and(|value| !value.trim().is_empty()) {
+            if name.is_none_or(|value| value.trim().is_empty()) {
                 return Err(name_refusal(operation, resource, NAME_EMPTY).into());
             }
             if !(current.unnamed || current.source == NameSource::Auto) {

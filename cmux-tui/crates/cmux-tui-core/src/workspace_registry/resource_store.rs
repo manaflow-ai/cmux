@@ -2721,7 +2721,7 @@ fn resource_change_is_stored(
 ) -> anyhow::Result<bool> {
     Ok(match change {
         ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
-            let (name_source, name_revision) = super::workspace_name_store::sql_name_provenance(
+            let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
                 workspace.name_source,
                 workspace.name_revision,
             )?;
@@ -3358,13 +3358,11 @@ fn upsert_resource_workspace(
     active_screen: Option<&ScreenPublicId>,
     revision: i64,
 ) -> anyhow::Result<()> {
-    super::workspace_name_store::fence_stored_row(transaction, workspace)?;
+    workspace_name_store::fence_stored_row(transaction, workspace)?;
     upsert_workspace_resource(transaction, workspace, revision)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
-    let (name_source, name_revision) = super::workspace_name_store::sql_name_provenance(
-        workspace.name_source,
-        workspace.name_revision,
-    )?;
+    let (name_source, name_revision) =
+        workspace_name_store::sql_name_provenance(workspace.name_source, workspace.name_revision)?;
     transaction.execute(
         "INSERT INTO workspaces(
            workspace_key, numeric_id, name, group_key, position, tombstoned,
