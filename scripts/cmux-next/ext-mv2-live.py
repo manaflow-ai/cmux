@@ -152,7 +152,10 @@ class Job:
             raise SystemExit("the app socket never answered")
         if not (self.call("debug.focus").get("result") or {}).get("windows"):
             self.call("action.run", {"action": "newWindow", "origin": "script"})
-        deadline = time.monotonic() + 60
+        # Chromium starts with the first Chromium tab (CEFRuntime.start is lazy).
+        self.call("action.run", {"action": "openBrowser.chromium", "args": {"url": "about:blank"},
+                                 "focus": True, "origin": "remote"})
+        deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             try:
                 cdp.targets(self.port)
