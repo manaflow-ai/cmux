@@ -8,6 +8,7 @@ import type {
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
+  PromptImage,
   QueueEdit,
   StartSource,
 } from "./model";
@@ -387,6 +388,16 @@ const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
 /// the events seen when it was made, so later turns go below it; after a lag rebuild, which
 /// replays events older than it, it moves after them again.
+/// The images a `user_message` names (`images: [{id, mimeType, name?}]`), malformed entries left out.
+function promptImages(value: unknown): PromptImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((image) =>
+    image && typeof image.id === "string" && typeof image.mimeType === "string"
+      ? [{ id: image.id, mimeType: image.mimeType, ...(typeof image.name === "string" && { name: image.name }) }]
+      : [],
+  );
+}
+
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
   private readonly local = new Set<string>();
@@ -1582,6 +1593,7 @@ export class AcpmuxDirectClient {
           at: event.at,
           kind: "user",
           text: String(msg.text ?? ""),
+          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -2065,9 +2077,50 @@ export class AcpmuxDirectClient {
     this.emit();
     return this.send(failed.input, failed.attachments);
   }
-  /// The original blocks for a completed turn, for the App send path to retry safely.
-  retryAttachmentsFor(rowId: string): ComposerAttachment[] {
-    return this.retryAttachments.get(rowId) ?? [];
+  /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
+  /// its images read back from acpmux (a prompt sent before a reload, or from another window).
+  async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
+    const kept = this.retryAttachments.get(rowId);
+    if (kept?.length) return kept;
+    const images = this.rows.get(rowId)?.images ?? [];
+    const read = await Promise.all(
+      images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
+        const data = await this.promptImageData(image.id);
+        if (!data) return undefined;
+        return {
+          id: `sent-${image.id}`,
+          kind: "image",
+          name: image.name ?? `image-${index + 1}`,
+          mimeType: data.mimeType,
+          size: Math.floor((data.data.length * 3) / 4),
+          data: data.data,
+        };
+      }),
+    );
+    return read.filter((attachment): attachment is ComposerAttachment => attachment !== undefined);
+  }
+  /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
+  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  async promptImage(id: string): Promise<string | undefined> {
+    const shown = this.promptImageUrls.get(id);
+    if (shown) return shown;
+    const data = await this.promptImageData(id);
+    const url = data && `data:${data.mimeType};base64,${data.data}`;
+    if (url) this.promptImageUrls.set(id, url);
+    return url;
+  }
+  private readonly promptImageUrls = new Map<string, string>();
+  private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
+    const sessionId = this.selectedSession;
+    if (!sessionId) return undefined;
+    try {
+      const reply = await this.request("_acpmux/attachment", { sessionId, id });
+      return typeof reply?.data === "string"
+        ? { mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png", data: reply.data }
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
