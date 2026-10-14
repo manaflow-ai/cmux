@@ -201,7 +201,13 @@ public struct SettingsRoot: View {
             if let info = connection.hostInfo {
                 LabeledContent("Mac host", value: "\(info.hostName) · \(info.version)")
             }
-            LabeledContent("Server", value: auth.backend.configuration.baseURL.host() ?? apiBase)
+            // Product copy names no hosting vendor: "cmux Cloud". DEBUG builds
+            // also show the endpoint for testers.
+            LabeledContent("Server", value: "cmux Cloud")
+            #if DEBUG
+            LabeledContent("Endpoint (debug)", value: auth.backend.configuration.baseURL.host() ?? apiBase)
+                .font(.caption)
+            #endif
         }
     }
 
