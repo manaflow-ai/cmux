@@ -111,6 +111,9 @@ public struct CnxColors: Sendable {
     public var onAccent = token("#000000", "#FFFFFF")
     public var success = token("#30D158", "#34C759")
     public var danger = token("#FF453A", "#FF3B30")
+    /// Small error text: `danger` is 3.55:1 on white, so light mode uses the
+    /// high-contrast system red (#D70015, 5.7:1). Dark #FF453A is 6.2:1 on black.
+    public var dangerText = token("#FF453A", "#D70015")
     public var warning = token("#FFD60A", "#FFCC00")
     public var offline = token("#48484A", "#C7C7CC")
     public var diffAddText = token("#3FB950", "#1A7F37")

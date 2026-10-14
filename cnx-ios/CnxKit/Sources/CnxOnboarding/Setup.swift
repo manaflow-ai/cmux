@@ -216,6 +216,9 @@ private struct TeamStep: View {
     let create: () -> Void
     let next: () -> Void
     @State private var isRetrying = false
+    /// "Create a team" arrives 0.1 s after the team rows (its own fade: a
+    /// nested transition would not run inside the rows' insertion).
+    @State private var showsCreate = false
 
     private enum Phase: Hashable { case loading, failed, loaded }
 
@@ -272,7 +275,8 @@ private struct TeamStep: View {
                                     }
                                 }
                                 row(action: create) { createRow }
-                                    .transition(.opacity.animation(theme.motion.smooth.animation.delay(0.1)))
+                                    .opacity(showsCreate ? 1 : 0)
+                                    .allowsHitTesting(showsCreate)
                                     .accessibilityIdentifier("setup.teams.create")
                             }
                             .transition(.opacity)
@@ -281,6 +285,13 @@ private struct TeamStep: View {
                 }
                 .animation(theme.motion.smooth.animation, value: phase)
             }
+        }
+        .onChange(of: phase, initial: true) { _, phase in
+            guard phase == .loaded else {
+                showsCreate = false
+                return
+            }
+            withAnimation(theme.motion.smooth.animation.delay(0.1)) { showsCreate = true }
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(theme.colors.bg.color.ignoresSafeArea())
@@ -409,7 +420,7 @@ private struct CreateTeamPage: View {
                     .font(theme.type.body)
                     .cnxInputField()
                     .onSubmit(create)
-                if let error { Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger) }
+                if let error { Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText) }
             }
         } actions: {
             PrimaryCapsule("Create team", isLoading: isCreating) { create() }
@@ -441,7 +452,7 @@ private struct CreateTeamPage: View {
 /// with iPhone connections allowed appears by itself, in whichever team or
 /// personal space it uses: live discovery moves the phone to that team, the
 /// status line flips, and Continue appears. The welcome's art waits with it:
-/// a faint thread and dot every 2.4 s, then the ride and the chevron's bloom
+/// a 1.5 s faint thread and dot every 2.4 s, then the ride and the chevron's bloom
 /// when the Mac shows up.
 private struct PairMacStep: View {
     let email: String?
@@ -516,9 +527,9 @@ private struct PairMacStep: View {
             let idle: Double? = {
                 guard waiting else { return nil }
                 let u = context.date.timeIntervalSince(waitingSince).truncatingRemainder(dividingBy: 2.4)
-                return u < WelcomeArt.idleDuration ? u : nil
+                return u < WelcomeArt.IdleStyle.waiting.duration ? u : nil
             }()
-            WelcomeArt(t: t, idle: idle, width: 200)
+            WelcomeArt(t: t, idle: idle, idleStyle: .waiting, width: 200)
         }
     }
 }

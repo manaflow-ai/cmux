@@ -49,7 +49,7 @@ struct EmailSignInSheet: View {
                             .padding(.top, 20)
                             .onSubmit(send)
                         if let error {
-                            Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger).padding(.top, 10)
+                            Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText).padding(.top, 10)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -147,7 +147,7 @@ struct EmailCodeStep: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
             if let error {
-                Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger)
+                Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText)
                     .frame(maxWidth: .infinity).padding(.top, 14)
             }
             TimelineView(.periodic(from: .now, by: 1)) { context in

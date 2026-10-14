@@ -15,7 +15,7 @@ public struct CnxCapsuleSize: Sendable, Hashable {
 }
 
 /// Solid `accent` capsule with `onAccent` label. Pressed: 0.85 opacity and 0.98
-/// scale; disabled: `fill` with `label3`; loading: spinner, width kept.
+/// scale; disabled: the same capsule at 40%; loading: spinner, width kept.
 public struct PrimaryCapsule: View {
     let title: LocalizedStringKey
     let systemImage: String?
@@ -145,19 +145,21 @@ public struct CnxCapsuleStyle: ButtonStyle {
             .frame(minHeight: size.height)
             .background(background, in: .capsule)
             .contentShape(.capsule)
+            // Disabled primary: the same capsule at 40%, still shaped.
+            .opacity(kind == .primary && !isEnabled ? 0.4 : 1)
             .opacity(pressed ? 0.85 : 1)
             .scaleEffect(pressed ? 0.98 : 1)
             .animation(theme.motion.snap.animation, value: pressed)
     }
 
     private var foreground: AnyShapeStyle {
-        guard isEnabled else { return AnyShapeStyle(theme.colors.label3) }
+        guard isEnabled || kind == .primary else { return AnyShapeStyle(theme.colors.label3) }
         return kind == .primary ? AnyShapeStyle(theme.colors.onAccent) : AnyShapeStyle(theme.colors.label)
     }
 
     private var background: AnyShapeStyle {
         if kind == .primary {
-            return isEnabled ? AnyShapeStyle(theme.colors.accent) : AnyShapeStyle(theme.colors.fillSelected)
+            return AnyShapeStyle(theme.colors.accent)
         }
         return colorScheme == .dark ? AnyShapeStyle(theme.colors.surface) : AnyShapeStyle(theme.colors.fill)
     }
