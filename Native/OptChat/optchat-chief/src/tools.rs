@@ -483,7 +483,8 @@ fn connection(conn: UnixStream, served: &Served) {
                 // A subagent's tools (its MCP server or launcher) say so:
                 // section 9 gives subagents zoom and date, not spawn.
                 let subagent = req.get("from").and_then(Value::as_str) == Some("subagent");
-                let grant = served.chief.as_ref().map(|c| &c.grant);
+                let grant = served.chief.as_ref().map(|c| c.grant());
+                let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
                     Ok(Call::Spawn { .. } | Call::Tell { .. } | Call::Profile { .. })
                         if subagent =>
