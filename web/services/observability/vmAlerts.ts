@@ -419,18 +419,25 @@ async function listUnhealthyVms(
     // without the reporter is unknown rather than silently treated as dead;
     // new images and the stats route establish this heartbeat on first use.
     sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'providerVmId') = ${cloudVms.providerVmId}`,
-    sql`(${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$'`,
     sql`CASE WHEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt') ~ '^[0-9]+$')
       THEN ((${cloudVms.providerMetadata}->'cmuxResourceUsage'->>'receivedAt')::double precision)
       ELSE NULL END < ${before.getTime()}`,
   );
-  const [countRow] = await db.select({ total: count() }).from(cloudVms).where(stale);
-  const samples = await db
-    .select({ id: cloudVms.id, updatedAt: cloudVms.updatedAt })
+  // Count and sample in one statement so an alert never reports a count from
+  // one database snapshot alongside IDs from another.
+  const rows = await db
+    .select({
+      id: cloudVms.id,
+      updatedAt: cloudVms.updatedAt,
+      total: sql<number>`count(*) over ()`,
+    })
     .from(cloudVms)
     .where(stale)
     .limit(VM_ALERT_SAMPLE_LIMIT);
-  return { count: Number(countRow?.total ?? 0), samples };
+  return {
+    count: Number(rows[0]?.total ?? 0),
+    samples: rows.map(({ id, updatedAt }) => ({ id, updatedAt })),
+  };
 }
 
 function healthAlerts(
