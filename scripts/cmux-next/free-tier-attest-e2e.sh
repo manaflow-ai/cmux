@@ -5,23 +5,41 @@
 # local relay serves a signed-out agent request with the device token from the
 # cmux API at <origin>. Real app, real relay, real API; no screenshot.
 #
-#   free-tier-attest-e2e.sh <signed-app.zip> <api-origin> <out-dir>
+#   free-tier-attest-e2e.sh <signed-app.zip> <api-origin> <out-dir> <tag>
 #
 # Writes <out-dir>/result.json (statuses, states and error codes only: never a
-# token, a proof or a device token). Everything it starts is stopped by the
-# pid or the socket it started, and its files are removed at the end, the
-# app's keychain item for the free-tier key included.
+# token, a proof or a device token). Nothing is ever killed: the app quits
+# through its own control socket (action.run quitEndSessions, only when the
+# socket's peer is the app this script started) and the daemon through
+# `acpmux daemon shutdown`; its files are removed at the end, the app's
+# keychain item for the free-tier key included.
 set -uo pipefail
-zip="$1"; origin="$2"; out="$3"
+zip="$1"; origin="$2"; out="$3"; tag="$4"
 mkdir -p "$out"
 root="$(mktemp -d /tmp/hq39ft.XXXXXX)"
 home="$root/a"
 daemon_pid=""
 app_pid=""
 cleanup() {
-  if [[ -n "$app_pid" ]]; then kill "$app_pid" 2>/dev/null; fi
+  if [[ -n "$app_pid" ]]; then
+    python3 -I - "/tmp/cmux-debug-$tag.sock" "$app_pid" >>"$out/host.txt" 2>&1 <<'PY'
+import json, socket, sys
+path, pid = sys.argv[1], int(sys.argv[2])
+c = socket.socket(socket.AF_UNIX)
+c.settimeout(10)
+try:
+    c.connect(path)
+    if c.getsockopt(0, 2) != pid:  # SOL_LOCAL, LOCAL_PEERPID: only the app this script started
+        print("quit: the control socket is not the started app's; not asked")
+    else:
+        c.sendall((json.dumps({"id": 1, "method": "action.run", "params": {"id": "quitEndSessions"}}) + "\n").encode())
+        print("quit: asked (action.run quitEndSessions):", c.recv(4096)[:200])
+except OSError as e:
+    print("quit: no reply or no socket:", e)
+PY
+  fi
   if [[ -n "$daemon_pid" ]]; then
-    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown >/dev/null 2>&1 || kill "$daemon_pid" 2>/dev/null
+    ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown >/dev/null 2>&1 || echo "daemon shutdown failed (pid $daemon_pid)" >>"$out/host.txt"
   fi
   if [[ -n "${bundle_id:-}" ]]; then
     security delete-generic-password -s "com.cmuxterm.next.free-tier.app-attest.$bundle_id" -a key >/dev/null 2>&1
