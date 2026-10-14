@@ -102,10 +102,13 @@ public struct AgentSessionMover {
 
         let code: AgentMoveCodeOutcome
         if request.carriesCode {
-            code = try AgentMoveCodeSync(mover: self, sessionID: id, pathMap: pathMap)
+            code = try AgentMoveCodeSync(mover: self, sessionID: id, pathMap: pathMap, createsMissingCheckout: request.createsMissingCheckout)
                 .carry(from: request.source, workingDirectory: sourceCwd, to: request.destination)
         } else {
             code = .skipped
+        }
+        if request.createsMissingCheckout, try !shell(request.destination, scripts.isDirectory(destinationCwd)).succeeded {
+            _ = try shell(request.destination, scripts.makeDirectories([destinationCwd]))
         }
         guard try shell(request.destination, scripts.isDirectory(destinationCwd)).succeeded else {
             throw AgentMoveError.destinationWorkingDirectoryMissing(destinationCwd)

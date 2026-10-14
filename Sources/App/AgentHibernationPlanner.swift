@@ -8,14 +8,23 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
     /// the idle delay, live-terminal limit and confirmation window, and keeps
     /// every safety check.
     case manual
+    /// Move to Cloud stops one named Claude at a turn boundary so its session
+    /// can leave this Mac. It is a manual request that may stop an agent on
+    /// screen; every other safety check still applies.
+    case sessionMove
 
     var isMemoryPressure: Bool {
         switch self {
-        case .scheduled, .manual:
+        case .scheduled, .manual, .sessionMove:
             false
         case .systemMemoryPressure, .aggregateMemoryPressure:
             true
         }
+    }
+
+    /// Only a session move may stop an agent that is on screen.
+    var allowsVisiblePanel: Bool {
+        self == .sessionMove
     }
 }
 
@@ -52,7 +61,7 @@ enum AgentHibernationPlanner {
         case .scheduled:
             guard settings.enabled else { return [] }
             scheduledExcess = liveRestorable.count - settings.maxLiveTerminals
-        case .manual:
+        case .manual, .sessionMove:
             // Manual requests name their panel and never go through the planner.
             return []
         case .systemMemoryPressure, .aggregateMemoryPressure:

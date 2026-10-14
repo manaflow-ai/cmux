@@ -81,6 +81,20 @@ struct AgentMoveScripts {
         "git -C \(q.quote(path)) rev-parse --show-toplevel 2>/dev/null || true"
     }
 
+    /// Prints the top of the git checkout holding `path` or, when `path` does
+    /// not exist yet, its nearest existing parent; nothing outside any checkout.
+    func enclosingCheckoutTop(_ path: String) -> String {
+        """
+        p=\(q.quote(path)); while [ ! -d "$p" ] && [ "$p" != / ] && [ "$p" != . ]; do p=$(dirname "$p"); done
+        git -C "$p" rev-parse --show-toplevel 2>/dev/null || true
+        """
+    }
+
+    /// Exits 0 when nothing is at `path` or it is an empty folder.
+    func isMissingOrEmpty(_ path: String) -> String {
+        "p=\(q.quote(path)); [ ! -e \"$p\" ] || { [ -d \"$p\" ] && [ -z \"$(ls -A \"$p\")\" ]; }"
+    }
+
     /// Exits 0 when `path` is the top of a git checkout (not a folder inside another repository).
     func isCheckout(_ path: String) -> String {
         """
@@ -97,6 +111,18 @@ struct AgentMoveScripts {
     /// Exits 0 when `gitDirectory` is a repository.
     func isRepository(gitDirectory: String) -> String {
         "git --git-dir=\(q.quote(gitDirectory)) rev-parse >/dev/null 2>&1"
+    }
+
+    /// Prints the checkout's `origin` URL, or nothing.
+    func originURL(checkout: String) -> String {
+        "git -C \(q.quote(checkout)) remote get-url origin 2>/dev/null || true"
+    }
+
+    /// Creates an empty repository at `path` (a fresh machine), with `origin`
+    /// pointing where the source's does so the branch can be pushed from there.
+    func initCheckout(path: String, origin: String?) -> String {
+        let remote = origin.map { " && git -C \(q.quote(path)) remote add origin \(q.quote($0))" } ?? ""
+        return "mkdir -p \(q.quote(path)) && git init -q \(q.quote(path))" + remote + " 2>&1"
     }
 
     /// Adds a detached worktree at `path`.

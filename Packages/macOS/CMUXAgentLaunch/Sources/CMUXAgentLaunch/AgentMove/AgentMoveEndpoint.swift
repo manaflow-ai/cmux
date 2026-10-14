@@ -58,13 +58,17 @@ public struct AgentMoveSSHTarget: Sendable, Equatable, Codable {
     public var identityFile: String?
     /// Extra `-o` options.
     public var options: [String]
+    /// `ssh -F`: `/dev/null` keeps the user's `ssh_config` out of a grant
+    /// connection (no proxies, forwards or extra keys). Nil reads it as usual.
+    public var configFile: String?
 
     /// Creates a target.
-    public init(destination: String, port: String? = nil, identityFile: String? = nil, options: [String] = []) {
+    public init(destination: String, port: String? = nil, identityFile: String? = nil, options: [String] = [], configFile: String? = nil) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
         self.options = options
+        self.configFile = configFile
     }
 
     /// Whether every value can be passed through `rsync -e` and `GIT_SSH_COMMAND` unquoted.
@@ -72,7 +76,7 @@ public struct AgentMoveSSHTarget: Sendable, Equatable, Codable {
     /// `rsync -e` splits its argument on whitespace, so values containing whitespace
     /// are refused rather than quoted differently per rsync implementation.
     public var isTransportSafe: Bool {
-        let values = [destination] + [port, identityFile].compactMap { $0 } + options
+        let values = [destination] + [port, identityFile, configFile].compactMap { $0 } + options
         return !destination.isEmpty
             && !destination.hasPrefix("-")
             && !destination.contains("://")
@@ -81,7 +85,8 @@ public struct AgentMoveSSHTarget: Sendable, Equatable, Codable {
 
     /// `ssh` flags (without the program name and destination).
     public var sshArguments: [String] {
-        var arguments = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=30"]
+        var arguments = configFile.map { ["-F", $0] } ?? []
+        arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=30"]
         if let port { arguments += ["-p", port] }
         if let identityFile { arguments += ["-i", identityFile] }
         for option in options { arguments += ["-o", option] }

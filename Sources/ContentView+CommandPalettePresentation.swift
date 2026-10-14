@@ -8,6 +8,7 @@ extension ContentView {
              "palette.forkAgentConversationBottom",
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
+             ContentView.moveAgentConversationToCloudCommandId,
              "palette.layout.saveCurrent",
              "palette.swapWithSession",
              ContentView.commandPaletteCloudAvailabilityInfoCommandId,

@@ -31,7 +31,7 @@ extension CMUXCLI {
         String(
             localized: "cli.session.usage",
             // One literal so the localization tooling reads the English source.
-            defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a local\nworkspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
+            defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local> [options]\n\nMove a stopped Claude Code session to another machine and resume it there.\nExit the agent first: the move refuses while the session runs on either side.\n\nThe move carries:\n  - the cwd's git checkout: HEAD (on the same branch when safe) plus modified,\n    deleted and untracked non-ignored files; a worktree is added when the\n    repository exists on the destination but the path does not; a Cloud machine\n    without the repository gets a new checkout with the same origin\n  - the transcript, its session directory, file history, and the project\n    memory directory (merged both ways, newest wins, nothing deleted)\n\nIt then opens a workspace on the destination (`cmux ssh` for a host, a terminal\non the machine for `cloud`, a local workspace for `local`) that resumes the session with its recorded launcher.\nWhen the destination home is not at the same absolute path, paths under the\nhome are mapped and the project is re-slugged.\n\nOptions:\n  --to <destination>      SSH destination (user@host or ssh_config alias), cloud\n                          (a Cloud machine picked like `cmux vm agent`), cloud:<machine>, or local\n  --from <destination>    Where the session is now (default: where the last move put it, else local)\n  --name <title>          Workspace title (default: the first 8 characters of the id)\n  --no-code               Do not carry the git checkout\n  --port <n>              SSH port\n  --identity <path>       SSH identity file\n  --ssh-option <opt>      Extra SSH -o option (repeatable)\n  --no-focus              Open the workspace without switching to it\n\nExamples:\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to dev@my-host\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to cloud\n  cmux session move 0b7a1e7c-3f0a-4c6e-9d59-8a0d8f7c2b11 --to local"
         )
     }
 
@@ -58,7 +58,7 @@ extension CMUXCLI {
                 return
             }
             throw CLIError(message: String(
-                format: String(localized: "cli.session.error.unknownSubcommand", defaultValue: "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|local>"),
+                format: String(localized: "cli.session.error.unknownSubcommand", defaultValue: "Unknown session subcommand: %@. Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"),
                 commandArgs.first ?? ""
             ))
         }
@@ -68,12 +68,26 @@ extension CMUXCLI {
         let recordStore = SessionMoveRecordStore(home: home)
         let previous = recordStore.load(sessionID: sessionID)
 
-        let destination = options.endpoint(for: options.to, fallback: nil)
+        // A Cloud end is an SSH grant made for this move; its key folder goes when the move is done.
+        var cloudTargets: [SessionMoveCloudTarget] = []
+        defer { for cloud in cloudTargets { try? FileManager.default.removeItem(at: cloud.directory) } }
+        func endpoint(_ name: String, fallback: AgentMoveSSHTarget?) throws -> (AgentMoveEndpoint, cloudMachine: String?) {
+            guard let machine = Self.sessionMoveCloudMachine(name) else {
+                return (options.endpoint(for: name, fallback: fallback), nil)
+            }
+            let client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+            defer { client.close() }
+            let cloud = try sessionMoveCloudTarget(machine: machine, workDirectory: FileManager.default.currentDirectoryPath, client: client)
+            cloudTargets.append(cloud)
+            return (.ssh(cloud.target), cloud.machine)
+        }
+
+        let (destination, destinationCloudMachine) = try endpoint(options.to, fallback: nil)
         let source: AgentMoveEndpoint
         if let from = options.from {
-            source = options.endpoint(for: from, fallback: nil)
+            source = try endpoint(from, fallback: nil).0
         } else if let previous {
-            source = options.endpoint(for: previous.location, fallback: previous.ssh)
+            source = try endpoint(previous.location, fallback: previous.ssh).0
         } else if destination.isLocal {
             throw CLIError(message: String(
                 localized: "cli.session.move.error.unknownSource",
@@ -106,7 +120,8 @@ extension CMUXCLI {
                 source: source,
                 destination: destination,
                 localHome: home,
-                carriesCode: !options.noCode
+                carriesCode: !options.noCode,
+                createsMissingCheckout: destinationCloudMachine != nil
             ))
         } catch let error as AgentMoveError {
             throw CLIError(message: sessionMoveErrorMessage(error))
@@ -114,9 +129,10 @@ extension CMUXCLI {
 
         recordStore.save(SessionMoveRecord(
             sessionID: sessionID,
-            location: destination.isLocal ? "local" : destination.displayName,
+            location: destinationCloudMachine.map { "cloud:" + $0 } ?? (destination.isLocal ? "local" : destination.displayName),
             ssh: {
-                if case .ssh(let target) = destination { return target }
+                // A Cloud grant expires; the next move asks for a new one by the machine id.
+                if destinationCloudMachine == nil, case .ssh(let target) = destination { return target }
                 return nil
             }(),
             workingDirectory: outcome.destinationWorkingDirectory,
@@ -149,7 +165,12 @@ extension CMUXCLI {
             environment: nil
         ) ?? "claude --resume \(sessionID)"
 
-        let client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+        let client: SocketClient
+        do {
+            client = try connectClient(socketPath: socketPath, explicitPassword: explicitPassword, launchIfNeeded: false)
+        } catch {
+            throw sessionMoveCloudUnfinished(error, machine: destinationCloudMachine, sessionID: sessionID, workingDirectory: outcome.destinationWorkingDirectory)
+        }
         defer { client.close() }
         // The session left this Mac: its old surface must not auto-resume a second writer.
         if source.isLocal, let hookRecord {
@@ -162,6 +183,25 @@ extension CMUXCLI {
         }
 
         let name = options.name ?? String(sessionID.prefix(8))
+        if let destinationCloudMachine {
+            do {
+                _ = try openSessionMoveCloudTerminal(
+                    machine: destinationCloudMachine,
+                    sessionID: sessionID,
+                    workingDirectory: outcome.destinationWorkingDirectory,
+                    permissionMode: hookRecord?.lastPermissionMode,
+                    name: name,
+                    focus: !options.noFocus,
+                    client: client
+                )
+            } catch {
+                throw sessionMoveCloudUnfinished(error, machine: destinationCloudMachine, sessionID: sessionID, workingDirectory: outcome.destinationWorkingDirectory)
+            }
+            for line in sessionMoveSummary(outcome: outcome, source: source, destination: destination) {
+                print(line)
+            }
+            return
+        }
         switch destination {
         case .ssh(let target):
             var sshArgs = [target.destination, "--name", name, "--command", resumeCommand]
@@ -332,7 +372,7 @@ struct SessionMoveOptions {
         guard positional.count == 1, !to.isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.session.move.error.usage",
-                defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|local>"
+                defaultValue: "Usage: cmux session move <session-id> --to <ssh-destination|cloud[:<machine>]|local>"
             ))
         }
         sessionID = positional[0]
