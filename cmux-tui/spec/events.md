@@ -416,10 +416,14 @@ a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
 records the module newly folded. The payload is
 `{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
 names the entry kinds that changed (`page`, `command`, `agent`, and
-`closed` when a history remove or clear deleted closed groups); interested
-frontends re-read `history.entries.list`. A replayed mutation publishes
-nothing. Other changes of closed items and of the app's location trail are
-announced by their owners' events, not by this one. Page visits are shared
+`closed` when a history remove or clear deleted closed groups, or when a
+committed change closed or deleted a workspace, tab, screen or group in the
+closed-history store, after the module's journal feed started with a history
+read); interested frontends re-read `history.entries.list`. A replayed
+mutation publishes nothing, and a deletion can publish `closed` twice (the
+mutation and its journal record). Changes of the app's location trail are
+announced by the app, not by this event. A page relay hears this event when
+its page lists it in page-router.json (`page-events-v1`). Page visits are shared
 by the sessions of a machine; the event goes to the session that served the
 change.
 
@@ -508,7 +512,11 @@ in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
 id (the JWT `sub`) of the lease the daemon used for the upstream socket that
 produced the event, absent when that lease has no readable `sub`; a client
 drops an event whose `account` is present and differs from the account
-signed in now.
+signed in now. The daemon also sends `cloud-inbox-reset` with `seq` 0 when the
+verified app sets a new lease (a sign-in or another account, not a renewal),
+so the person's other clients (a page, `ws-cloud-conversations-v1`) list the
+inbox again. With `ws-cloud-conversations-v1` these events also reach a paired
+WebSocket connection while the app holds the lease.
 
 ### conversation-typing
 

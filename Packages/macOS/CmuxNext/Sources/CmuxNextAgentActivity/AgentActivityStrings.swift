@@ -10,7 +10,7 @@ nonisolated enum AgentActivityStrings {
     static var filter: String { t("pane.filter", "Filter") }
     static var emptyTitle: String { t("pane.empty.title", "No computer use yet") }
     static var emptyDetail: String {
-        t("pane.empty.detail", "When an agent uses computer use, its session and a timeline of every action appear here.")
+        t("pane.empty.detail", "Sessions and their steps show here when an agent uses the computer.")
     }
     static var selectSession: String { t("pane.selectSession", "Select a session") }
     static var noFrame: String { t("pane.noFrame", "No screenshot for this step") }
@@ -22,6 +22,7 @@ nonisolated enum AgentActivityStrings {
     static var pause: String { t("action.pause", "Pause") }
     static var resume: String { t("action.resume", "Resume") }
     static var watch: String { t("action.watch", "Watch") }
+    static var unwatch: String { t("action.unwatch", "Stop Watching") }
     static var export: String { t("action.export", "Export") }
     static var more: String { t("action.more", "More") }
     static var openAgent: String { t("action.openAgent", "Open Agent") }
@@ -62,6 +63,23 @@ nonisolated enum AgentActivityStrings {
 
     static var thisMac: String { t("machine.thisMac", "This Mac") }
     static var foregroundOnly: String { t("pane.foregroundOnly", "Foreground only") }
+
+    static var layout: String { t("layout.title", "Layout") }
+    static var layoutSplit: String { t("layout.split", "Split") }
+    static var layoutTimeline: String { t("layout.timeline", "Timeline") }
+    static var layoutGrid: String { t("layout.grid", "Grid") }
+
+    /// Every string the web page shows, by the key the page reads (`model.ts` `strings`).
+    static var page: [String: String] {
+        [
+            "title": title, "filter": filter, "emptyTitle": emptyTitle, "emptyDetail": emptyDetail,
+            "noFrame": noFrame, "active": status(.active), "idle": status(.idle), "paused": status(.paused),
+            "live": live, "stop": stop, "pause": pause, "resume": resume, "watch": watch, "unwatch": unwatch,
+            "thisMac": thisMac, "layout": layout, "layoutSplit": layoutSplit, "layoutTimeline": layoutTimeline,
+            "layoutGrid": layoutGrid, "notStarted": connection(.notStarted) ?? "",
+            "notSetUp": connection(.notSetUp) ?? "", "unreachable": connection(.unreachable) ?? "",
+        ]
+    }
 }
 
 /// Strings the App needs for the pane (tab title, local machine name).

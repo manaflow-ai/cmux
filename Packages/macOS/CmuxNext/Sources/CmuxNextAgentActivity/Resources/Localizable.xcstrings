@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When an agent uses computer use, its session and a timeline of every action appear here."
+            "value": "Sessions and their steps show here when an agent uses the computer."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عندما يستخدم وكيل التحكم بالحاسوب، تظهر هنا جلسته وخط زمني لكل إجراء."
+            "value": "تظهر الجلسات وخطواتها هنا عندما يستخدم وكيل الكمبيوتر."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kada agent koristi upravljanje računarom, ovdje se pojavljuju njegova sesija i vremenska linija svake radnje."
+            "value": "Sesije i njihovi koraci prikazuju se ovdje kada agent koristi računar."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Når en agent bruger computerstyring, vises dens session og en tidslinje over hver handling her."
+            "value": "Sessioner og deres trin vises her, når en agent bruger computeren."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wenn ein Agent die Computersteuerung nutzt, erscheinen hier seine Sitzung und eine Zeitleiste aller Aktionen."
+            "value": "Sitzungen und ihre Schritte erscheinen hier, wenn ein Agent den Computer bedient."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuando un agente usa el control del ordenador, aquí aparecen su sesión y una cronología de cada acción."
+            "value": "Las sesiones y sus pasos aparecen aquí cuando un agente usa el ordenador."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quand un agent utilise le contrôle de l’ordinateur, sa session et la chronologie de chaque action apparaissent ici."
+            "value": "Les sessions et leurs étapes s’affichent ici quand un agent utilise l’ordinateur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quando un agente usa il controllo del computer, qui compaiono la sua sessione e una cronologia di ogni azione."
+            "value": "Le sessioni e i loro passaggi appaiono qui quando un agente usa il computer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントがコンピュータ操作を使うと、そのセッションとすべての操作のタイムラインがここに表示されます。"
+            "value": "エージェントがコンピュータを操作すると、セッションとその手順がここに表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "នៅពេលភ្នាក់ងារប្រើការគ្រប់គ្រងកុំព្យូទ័រ វគ្គ និងបន្ទាត់ពេលវេលានៃសកម្មភាពនីមួយៗនឹងបង្ហាញនៅទីនេះ។"
+            "value": "វគ្គ និងជំហានរបស់វាបង្ហាញនៅទីនេះ នៅពេលភ្នាក់ងារប្រើកុំព្យូទ័រ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 컴퓨터 사용을 하면 세션과 모든 동작의 타임라인이 여기에 표시됩니다."
+            "value": "에이전트가 컴퓨터를 사용하면 세션과 단계가 여기에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Når en agent bruker datamaskinstyring, vises økten og en tidslinje over hver handling her."
+            "value": "Økter og trinnene deres vises her når en agent bruker datamaskinen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gdy agent użyje sterowania komputerem, pojawi się tu jego sesja i oś czasu każdej akcji."
+            "value": "Sesje i ich kroki pojawiają się tutaj, gdy agent używa komputera."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quando um agente usa o controle do computador, a sessão e uma linha do tempo de cada ação aparecem aqui."
+            "value": "As sessões e suas etapas aparecem aqui quando um agente usa o computador."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Когда агент управляет компьютером, здесь появятся его сеанс и хронология каждого действия."
+            "value": "Сеансы и их шаги появляются здесь, когда агент управляет компьютером."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เมื่อเอเจนต์ใช้การควบคุมคอมพิวเตอร์ เซสชันและไทม์ไลน์ของทุกการกระทำจะแสดงที่นี่"
+            "value": "เซสชันและขั้นตอนจะแสดงที่นี่เมื่อเอเจนต์ใช้คอมพิวเตอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir ajan bilgisayar denetimini kullandığında oturumu ve her eylemin zaman çizelgesi burada görünür."
+            "value": "Bir ajan bilgisayarı kullandığında oturumlar ve adımları burada görünür."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Коли агент керує комп’ютером, тут з’являться його сеанс і хронологія кожної дії."
+            "value": "Сеанси та їхні кроки з’являються тут, коли агент керує комп’ютером."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Khi một tác tử điều khiển máy tính, phiên và dòng thời gian của mọi thao tác sẽ hiện ở đây."
+            "value": "Các phiên và các bước của chúng hiển thị ở đây khi một tác nhân sử dụng máy tính."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理使用电脑操作时，其会话和每个操作的时间线会显示在这里。"
+            "value": "智能体使用电脑时，会话及其步骤会显示在这里。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理使用電腦操作時，其工作階段和每個操作的時間軸會顯示在這裡。"
+            "value": "代理程式使用電腦時，工作階段及其步驟會顯示在這裡。"
           }
         }
       }
@@ -4189,6 +4189,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "更多"
+          }
+        }
+      }
+    },
+    "action.unwatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Watching"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إيقاف المشاهدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prestani gledati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stop med at se"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht mehr ansehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dejar de ver"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrêter de regarder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Smetti di guardare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視聴をやめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈប់មើល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보기 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slutt å se"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przestań oglądać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parar de assistir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перестать смотреть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หยุดดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İzlemeyi Durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Припинити перегляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngừng xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止观看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停止觀看"
+          }
+        }
+      }
+    },
+    "layout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raspored"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Układ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เค้าโครง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzen"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Макет"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bố cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "佈局"
+          }
+        }
+      }
+    },
+    "layout.split": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مقسّم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podijeljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geteilt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Partagé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diviso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំបែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Delt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podział"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dividido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แยก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölünmüş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поділ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chia đôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分欄"
+          }
+        }
+      }
+    },
+    "layout.timeline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المخطط الزمني"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vremenska linija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeitachse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronología"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chronologie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タイムライン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់ពេលវេលា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "타임라인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tidslinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oś czasu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linha do tempo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хронология"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไทม์ไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaman Çizelgesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хронологія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dòng thời gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "时间线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "時間軸"
+          }
+        }
+      }
+    },
+    "layout.grid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grid"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شبكة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mreža"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gitter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Raster"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuadrícula"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Griglia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グリッド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រឡា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "격자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rutenett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siatka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сетка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตาราง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izgara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сітка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "网格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "格狀"
           }
         }
       }

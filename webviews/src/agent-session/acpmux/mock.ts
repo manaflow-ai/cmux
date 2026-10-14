@@ -435,7 +435,11 @@ export class MockAcpmuxSocket {
         )
           throw Object.assign(new Error("not a side chat"), { code: -32602 });
         const entry = this.sessions.find((session) => session.sessionId === target)!;
-        this.touch(target, { tags: { ...(entry.tags && !Array.isArray(entry.tags) ? entry.tags : {}), side: String(params.chat) } }, false);
+        this.touch(
+          target,
+          { tags: { ...(entry.tags && !Array.isArray(entry.tags) ? entry.tags : {}), side: String(params.chat) } },
+          false,
+        );
         return this.sessions.find((session) => session.sessionId === target);
       }
       // This Mac's agent CLIs as last checked: every listed harness signed in.

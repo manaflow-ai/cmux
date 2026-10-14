@@ -4,8 +4,9 @@ import QuartzCore
 
 /// Wraps one App-provided pane view. The content sits in `clipView`, the
 /// cell inset by the pane padding. A view that reports a header
-/// (`PaneContentChrome`: the tab strip, a browser toolbar) rounds its own
-/// content area and the chrome traces that area only; any other view is
+/// (`PaneContentChrome`: the tab strip) rounds its own content area, one
+/// container for terminal, browser toolbar and page alike, and the chrome
+/// traces that area only; any other view is
 /// clipped to a rounded rect here, header and all. Layer clips take the
 /// Ghostty Metal layer and WebKit along; Chromium pages are child windows
 /// no clip reaches, so the browser module reads the rounded ancestor and
