@@ -330,3 +330,96 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
     assert_eq!(summary["lastTurn"]["status"], "completed");
 }
+
+/// A daemon over an on-disk store whose event segments roll every `segment_bytes`.
+async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert(
+        "fake".to_owned(),
+        HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["python3".into(), fake.into()],
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = segment_bytes;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client.become_person().await;
+    (hub, client, dir)
+}
+
+fn seqs(page: &Value) -> Vec<u64> {
+    page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
+}
+
+/// Opening a long chat reads only the end of its log: a tail page, and an older
+/// page, come from the newest segments, so their cost does not grow with the
+/// whole history (a remote session's log can be very long). Shown by an oldest
+/// segment that cannot be read at all: pages that never reach it still load.
+#[tokio::test]
+async fn tail_pages_read_only_the_newest_segments() {
+    let (hub, mut c, dir) = setup_segmented(512).await;
+    let id = new_session(&mut c, "long").await;
+    for n in 0..12 {
+        c.request(method::SESSION_PROMPT, prompt(&id, &format!("turn {n}"), None)).await.unwrap();
+    }
+    let session = hub.resolve("long").unwrap();
+    let transcript = seqs(
+        &c.request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 10_000}),
+        )
+        .await
+        .unwrap(),
+    );
+    let events = dir.join("sessions").join(&session.id).join("events");
+    let mut segments: Vec<_> = std::fs::read_dir(&events)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ndjson"))
+        .collect();
+    segments.sort();
+    assert!(segments.len() > 8, "the log spans many segments: {}", segments.len());
+
+    // The oldest segment can no longer be read (a directory where the file was).
+    std::fs::remove_file(&segments[0]).unwrap();
+    std::fs::create_dir(&segments[0]).unwrap();
+
+    let mut a = connect(&hub).await;
+    let att = a
+        .request(method::MUX_ATTACH, json!({"sessionId": id, "kinds": ["transcript"], "limit": 4}))
+        .await
+        .expect("the tail page loads without reading the oldest segment");
+    assert_eq!(seqs(&att), transcript[transcript.len() - 4..]);
+    assert_eq!(att["hasMore"], true);
+    let older = a
+        .request(
+            method::MUX_EVENTS,
+            json!({"sessionId": id, "kinds": ["transcript"], "limit": 4, "beforeSeq": seqs(&att)[0]}),
+        )
+        .await
+        .expect("an older page loads without reading the oldest segment");
+    assert_eq!(seqs(&older), transcript[transcript.len() - 8..transcript.len() - 4]);
+    assert_eq!(older["hasMore"], true);
+    let _ = std::fs::remove_dir_all(&dir);
+}
