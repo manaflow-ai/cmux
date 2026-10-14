@@ -12,6 +12,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     private var commands: [[String: Any]] = []
     /// The next N attaches answer "unknown surface" (a Mac host that just restarted).
     var failNextAttaches = 0
+    /// `identify` advertises attach-initial-size.
+    var initialSize = false
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -23,6 +25,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             Self.line(["id": id, "ok": true, "data": data])
         }
         switch cmd {
+        case "identify" where initialSize:
+            return [reply(["capabilities": ["attach-initial-size"]])]
         case "attach-surface":
             let fail: Bool = lock.withLock {
                 guard failNextAttaches > 0 else { return false }
@@ -249,6 +253,44 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(!outputs.contains { $0.contains("unknown surface") || $0.contains("stale") })
         #expect(outputs.contains("hello\r\n$ "))
         #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 4)
+    }
+
+    /// termqa D8: the Mac's own window sets this terminal's grid (39 rows),
+    /// so the phone's 42 is overruled. A reattach attaches at the Mac's size
+    /// and does not ask for 42 again: the PTY is not resized away and back
+    /// (each resize made Codex redraw its whole transcript over the link).
+    @Test func aReattachKeepsAnOverruledSize() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.initialSize = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        session.start { _ in }
+        session.resize(columns: 53, rows: 42)
+        try await waitUntil { session.isAttached }
+        let first = try #require(daemon.recorded.first { $0["cmd"] as? String == "attach-surface" })
+        #expect(first["rows"] as? Int == 42)
+        // The Mac keeps 39 rows.
+        session.handle(FakeTerminalDaemon.line(["event": "resized", "surface": 7, "cols": 53, "rows": 39,
+                                                "replay": Data("x".utf8).base64EncodedString()]))
+        await channels.last?.close(code: "link_closed", reason: "background")
+        try await waitUntil { !session.isAttached }
+        let resizesBefore = daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        let second = try #require(daemon.recorded.last { $0["cmd"] as? String == "attach-surface" })
+        #expect(second["cols"] as? Int == 53)
+        #expect(second["rows"] as? Int == 39)
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore)
+        // A new phone grid asks again.
+        session.resize(columns: 53, rows: 40)
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == resizesBefore + 1 }
     }
 
     @Test func detachedEventEndsTheTerminal() async throws {

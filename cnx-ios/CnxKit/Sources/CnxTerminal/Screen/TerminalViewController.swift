@@ -544,15 +544,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// moment (`TerminalResizeSettle`): each resize resets the mirror, and an
     /// inline TUI redraws its transcript.
     private func measuredGrid(columns: Int, rows: Int) {
-        // Before the Mac's terminal is attached a size costs nothing (the
-        // session keeps it for the attach): the latest one goes at once.
-        if !model.connectionState.isAttached {
-            resizeSettle = TerminalResizeSettle()
-            _ = resizeSettle.measured(.init(columns: columns, rows: rows))
-            settleTask?.cancel()
-            model.session.resize(columns: columns, rows: rows)
-            return
-        }
+        // Before the attach too: the size the session keeps goes out with the
+        // attach, so a transient one (the grid's zoom animation measured 44
+        // and 43 rows for a 42-row page) is held like any other. Sent at once,
+        // the attach carried it and the settled size followed: two resets
+        // and replays for one tab open (termqa D9).
         switch resizeSettle.measured(.init(columns: columns, rows: rows)) {
         case .sendNow(let size):
             sendResize(size, why: "first size")

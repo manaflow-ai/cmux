@@ -9,6 +9,8 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case alternateScreen(Bool)
     /// The Mac terminal's rows (`vt-state`, `resized`).
     case rows(Int)
+    /// The Mac terminal's columns (`vt-state`, `resized`), before its rows.
+    case columns(Int)
     /// The authoritative mirror changed size: reset the local mirror before the
     /// replay. `alternate` is the alternate screen state the replay ends in, so
     /// a TUI that stays on screen across a resize is never reported as leaving
@@ -35,12 +37,14 @@ struct DaemonTerminalEventParser: Sendable {
         var out: [DaemonTerminalInbound] = []
         switch event {
         case "vt-state":
+            if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
             emit(object["data"] as? String, into: &out)
             emit(object["pending"] as? String, into: &out)
         case "output":
             emit(object["data"] as? String, into: &out)
         case "resized":
+            if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
             // The authoritative mirror changed size: start over from the replay,
             // whose final alternate screen state goes with the reset.

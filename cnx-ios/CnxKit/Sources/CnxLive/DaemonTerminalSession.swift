@@ -200,7 +200,18 @@ public final class DaemonTerminalSession: TerminalSession {
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if initialSize, let size = lastSize ?? pendingSize {
+            if initialSize, everAttached, let size = lastSize ?? pendingSize, let overruled,
+               overruled.asked.columns == size.columns, overruled.asked.rows == size.rows {
+                // The Mac kept its own size for this request last time: attach
+                // at that size (no PTY resize), and do not ask again.
+                log.notice("surface \(self.surface, privacy: .public): reattach at the Mac's \(overruled.mac.columns, privacy: .public)x\(overruled.mac.rows, privacy: .public) (asked \(size.columns, privacy: .public)x\(size.rows, privacy: .public) was overruled)")
+                reply = try await client.request("attach-surface", params: ["surface": surface, "cols": overruled.mac.columns, "rows": overruled.mac.rows])
+                if Self.error(in: reply) != nil {
+                    reply = try await client.request("attach-surface", params: ["surface": surface])
+                } else {
+                    attachedWithSize = size
+                }
+            } else if initialSize, let size = lastSize ?? pendingSize {
                 reply = try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
                 if Self.error(in: reply) != nil {
                     // A policy that does not pass the size: attach without it.
@@ -280,8 +291,22 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.output(data))
         case .alternateScreen(let on):
             setAlternate(on)
+        case .columns(let columns):
+            reportedColumns = columns
         case .rows(let rows):
             reportedRows = rows
+            // The Mac answered a size other than the one asked for (another
+            // view of this terminal, the Mac's own window, sets the grid): the
+            // request was overruled. A reattach then keeps the Mac's size
+            // instead of resizing its PTY to the phone's grid and back, which
+            // made an inline TUI (Codex) redraw its whole transcript twice
+            // over the link (termqa D4/D8).
+            if attached, let asked = lastSize, let columns = reportedColumns,
+               asked.columns != columns || asked.rows != rows {
+                overruled = Overruled(asked: asked, mac: (columns, rows))
+            } else if attached, let asked = lastSize, asked.columns == reportedColumns, asked.rows == rows {
+                overruled = nil
+            }
         case .resetMirror(let alternate):
             log.notice("surface \(self.surface, privacy: .public): mirror reset for a resized event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
@@ -464,6 +489,12 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         return try result.get()
     }
+
+    /// The Mac's columns (`vt-state`, `resized`).
+    private var reportedColumns: Int?
+    /// The phone's last size request the Mac answered with another size.
+    private struct Overruled { var asked: (columns: Int, rows: Int); var mac: (columns: Int, rows: Int) }
+    private var overruled: Overruled?
 
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?

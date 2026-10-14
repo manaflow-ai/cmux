@@ -25,7 +25,7 @@ ART = os.path.join(HERE, "artifacts")
 RAW = os.path.expanduser("~/cnx-ios-e2e/termqa-raw")
 HOST = os.environ.get("TQ_HOST", "mini-cmuxs-mac-mini-2")
 RBASE = "~/cnx-ios-e2e/termqa"
-BUNDLE = "dev.cmux.cnx.cnx"
+BUNDLE = "dev.cmux.cnx"
 
 
 def load():
@@ -394,3 +394,32 @@ def app_mem():
     import re
     m2 = re.search(r"phys_footprint:\s*([\d.]+ \w+)", fp) or re.search(r"Footprint:\s*([\d.]+ \w+)", fp)
     return {"pid": pid, "rss_mb": round(rss / 1024, 1), "footprint": m2.group(1) if m2 else None, "t": time.strftime("%H:%M:%S")}
+
+
+def lifecycle(tag):
+    """Mid-stream: background 15 s and back; switch to t2 and back; kill cnx-hostd (link drop)."""
+    s, m, j = ctx()
+    res = {}
+    paste_composer("Print the numbers 1 to 900 in your reply, one per line, as N. followed by a sentence about reliability. No tools.")
+    time.sleep(1); j.hide_keyboard(); time.sleep(5)
+    v = rec_start(f"{tag}-lifecycle")
+    s.home(); time.sleep(15)
+    s.launch(BUNDLE, terminate=False); time.sleep(6)
+    res["after_background"] = compare_bottom(4)
+    s.tap_q(label="Tabs", kind="Button"); time.sleep(2)
+    c = [e for e in s.find(kind="Button") if (e.label or "").startswith("e2e-t2")]
+    if c:
+        s.tap_el(c[0])
+    time.sleep(6)
+    s.tap_q(label="Tabs", kind="Button"); time.sleep(2)
+    c = [e for e in s.find(kind="Button") if (e.label or "").startswith("e2e-t1")]
+    if c:
+        s.tap_el(c[0])
+    time.sleep(5)
+    res["after_tab_switch"] = compare_bottom(4)
+    rsh('pkill -9 -f "cnx-e2e-604fc689.app/Contents/Resources/bin/cnx-hostd"')
+    time.sleep(12)
+    res["after_link_drop"] = compare_bottom(4)
+    rec_stop()
+    res["motion"] = motion_stats(v, start=1.5)
+    return res
