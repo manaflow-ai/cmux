@@ -206,7 +206,7 @@
     },
     "providerCapacity": {
       "title": "No Cloud capacity right now",
-      "message": "The Cloud service has no room for this machine at the moment. Nothing was changed.",
+      "message": "The Cloud service is at capacity and has no room for this machine right now. Nothing was changed.",
       "action": "Try again in a minute."
     },
     "stateConflict": {

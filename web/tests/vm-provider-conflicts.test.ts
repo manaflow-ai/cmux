@@ -43,10 +43,11 @@ function providerWith(vms: Record<string, unknown>): FreestyleProvider {
 }
 
 describe("a provider capacity refusal", () => {
-  test.each([
+  const refusals: Array<[string, () => FreestyleApiError]> = [
     ["409 CONFLICT naming capacity", capacity],
     ["409 PLACEMENT_REJECTED", placementRejected],
-  ])("a create refused with %s answers a retryable 503 that says capacity", async (_label, refusal) => {
+  ];
+  test.each(refusals)("a create refused with %s answers a retryable 503 that says capacity", async (_label, refusal) => {
     const provider = providerWith({ create: async () => { throw refusal(); } });
     const cause = await failure(() => provider.create({ image: "snapshot" }));
     const { response, payload } = await answer("create", cause);
