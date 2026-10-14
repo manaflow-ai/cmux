@@ -201,12 +201,12 @@ test("rows are 10 px tab stops; every prompt on screen is current; hover magnifi
   }
 });
 
-test("the card opens 250 ms after the pointer reaches the rail, at once within 300 ms of closing, and closes 100 ms after it leaves", async () => {
+test("the card follows the app's hover intent: it waits the hover delay, follows the pointer at once while warm, and goes as the pointer leaves", async () => {
   const view = await mount(8);
   jest.useFakeTimers();
   try {
     await enter(3);
-    await advance(200);
+    await advance(400);
     expect(card()).toBeNull();
     await advance(60);
     expect(card()).not.toBeNull();
@@ -215,22 +215,24 @@ test("the card opens 250 ms after the pointer reaches the rail, at once within 3
     await enter(4);
     expect(card()!.textContent).toContain("Question 4");
     expect(tick(4).getAttribute("aria-describedby")).toBe(card()!.id);
-    // Leaving: the card stays for 100 ms, then goes.
+    // Leaving the rail (not for the card): the card goes at once.
     await leave(4);
-    await advance(90);
-    expect(card()).not.toBeNull();
-    await advance(20);
     expect(card()).toBeNull();
-    // Back within 300 ms of closing: at once.
-    await advance(150);
+    // Back while the rail is warm: at once.
+    await advance(300);
     await enter(2);
     expect(card()!.textContent).toContain("Question 2");
-    await leave(2);
-    await advance(110 + 400);
-    // Long after: the 250 ms wait again.
+    // Into the card: it stays.
+    await pointer("pointerout", tick(2), { relatedTarget: card() });
+    await advance(1_000);
+    expect(card()!.textContent).toContain("Question 2");
+    await pointer("pointerout", card()!, { relatedTarget: document.body });
+    expect(card()).toBeNull();
+    await advance(600);
+    // Cooled: the hover delay again.
     await enter(6);
     expect(card()).toBeNull();
-    await advance(260);
+    await advance(460);
     expect(card()).not.toBeNull();
   } finally {
     await view.unmount();
@@ -264,7 +266,7 @@ test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes 
   jest.useFakeTimers();
   try {
     await enter(4);
-    await advance(300);
+    await advance(500);
     expect(card()?.textContent).toContain("Question 4");
     // WebKit does not focus a clicked button; the rail does, so Tab moves to the next row.
     await act(async () => tick(4).click());
