@@ -106,13 +106,18 @@ class Latency:
         j = self.j
         term = j.seed["term1"]
         j.back_to_list(); j.open_seed_workspace()
-        j.mac_write(term, "clear\n")
         if flood:
             # Output flood on the top rows only, so the prompt line stays measurable.
             # ~100 screen updates per second for at most 60 s (self-ending), top row only.
-            j.mac_write(term, "clear; (for i in $(seq 1 6000); do printf '\\0337\\033[1;1H%s %s %s\\0338' $i $RANDOM $RANDOM; sleep 0.01; done) & FLOODPID=$!\n")
+            j.mac_write(term, "(for i in $(seq 1 6000); do printf '\\0337\\033[1;1H%s %s %s\\0338' $i $RANDOM $RANDOM; sleep 0.01; done) & FLOODPID=$!\n")
             time.sleep(1.0)
         j.focus_terminal()
+        # The page can be left scrolled up with the prompt off screen (typing does not
+        # scroll back to the cursor); bring the prompt into view first.
+        jump = self.sim.find(label="Scroll to bottom")
+        if jump:
+            self.sim.tap_el(jump[0]); time.sleep(1.0)
+            self.metrics.setdefault("notes", []).append(f"{name}: the terminal was scrolled up with the prompt off screen; tapped Scroll to bottom")
         keys = self.sim.keyboard()
         letters = [k for k in "asdfghjkl" if k in keys]
         comp = self.sim.find(ident="terminal.composer.field")
@@ -132,7 +137,7 @@ class Latency:
         # Clean the line on the Mac side and stop the flood.
         j.mac.cmux("terminal", term, "keys", "ctrl+u", check=False)
         if flood:
-            j.mac_write(term, "kill $FLOODPID; clear\n")
+            j.mac_write(term, "kill $FLOODPID 2>/dev/null\n")
         j.hide_keyboard()
         # Analyse: key-down (key region changes) -> echo (line region changes).
         line = frames(vid, line_region)
@@ -148,7 +153,8 @@ class Latency:
             t1 = first_change(line, t0 - 0.001, threshold=0.2)
             samples.append((t1 - t0) if t1 is not None and t1 - t0 < 1.5 else None)
             self._cursor = t0 + 0.3
-        self.metrics[name] = summarize(samples) | {"video": os.path.basename(vid)}
+        self.metrics[name] = summarize(samples) | {"video": os.path.basename(vid),
+                                                   "taps": [[l, list(f)] for l, f in taps], "line_region": list(line_region)}
         self.log(f"    {name}: {self.metrics[name]}")
 
     # ---------------------------------------------------------------- connects

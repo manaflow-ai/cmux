@@ -684,6 +684,15 @@ class Journey:
                                   f"no model picker on the screen; Mac CLI `cmux chief engine`: {eng}")
         raise Blocked(f"Chief loaded in {loaded:.1f} s; send/receive not run (a paid model call). Model controls: {model[:3] or 'none'}; Mac engine: {eng}")
 
+    def settings_find(self, timeout=8, **q):
+        """Finds a row on the Settings page, scrolling up then down."""
+        for d in [(250, 750)] * 3 + [(650, 250)] * 6:
+            e = self.sim.find(**q)
+            if e and 100 < e[0].center[1] < 780:
+                return e[0]
+            self.sim.drag(201, d[0], 201, d[1], 0.4, 20, 0.2); time.sleep(0.6)
+        return None
+
     def settings_transport(self, name):
         self.tab("Settings")
         cur = self.settings_find(contains="Transport,", kind="PopUpButton")
@@ -873,5 +882,9 @@ class Journey:
         for sid, title, owner, fn in self.plan():
             if (only and sid not in only) or sid in skip:
                 continue
-            self.step(sid, title, owner, fn)
+            try:
+                self.step(sid, title, owner, fn)
+            except Exception as e:  # the rig itself failed around a step: record it and go on
+                self.results.append({"id": sid, "title": title, "owner": owner, "status": "fail",
+                                     "notes": f"rig error around the step: {e}"[:400], "seconds": 0})
         return self.results

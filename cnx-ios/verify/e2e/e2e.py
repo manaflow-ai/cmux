@@ -160,6 +160,7 @@ def main():
             sh("xcrun", "simctl", "shutdown", udid)
             sh("xcrun", "simctl", "delete", udid)
             log(f"simulator {sim_name} shut down and deleted")
+        log("rig done")
 
 
 if __name__ == "__main__":

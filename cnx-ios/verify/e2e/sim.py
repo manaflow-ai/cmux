@@ -46,7 +46,10 @@ class Sim:
 
     # ---- accessibility -------------------------------------------------
     def tree(self):
-        raw = json.loads(sh("axe", "describe-ui", "--udid", self.udid, timeout=60))
+        try:
+            raw = json.loads(sh("axe", "describe-ui", "--udid", self.udid, timeout=60))
+        except (subprocess.TimeoutExpired, RuntimeError, ValueError):
+            return [Element({"type": "Application", "frame": {}})]
         out = []
         def walk(n):
             out.append(Element(n))
@@ -261,8 +264,11 @@ class Sim:
             return None
         os.makedirs(self.shots_dir, exist_ok=True)
         path = os.path.join(self.shots_dir, f"{name}.png")
-        sh("xcrun", "simctl", "io", self.udid, "screenshot", path, check=False)
-        return path
+        try:
+            sh("xcrun", "simctl", "io", self.udid, "screenshot", path, check=False, timeout=45)
+        except subprocess.TimeoutExpired:
+            return None
+        return path if os.path.exists(path) else None
 
     def record_start(self, path):
         self.record_stop()
