@@ -93,6 +93,9 @@ final class MessageCell: UICollectionViewCell {
         quoteLabel.numberOfLines = 2
         quoteLabel.lineBreakMode = .byTruncatingTail
         textLabel.numberOfLines = 0
+        // A row scrolled on before its effect glyphs were rendered ahead
+        // shows them when ready instead of typesetting them in the frame.
+        textLabel.rendersEffectsOffMainThread = true
         emojiLabel.font = .systemFont(ofSize: ConversationTheme.emojiOnlyFontSize)
         emojiLabel.numberOfLines = 0
         footerLabel.font = ConversationTheme.footerFont
