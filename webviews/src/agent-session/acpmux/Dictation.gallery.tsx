@@ -57,7 +57,6 @@ function GalleryDictation({ initialState, initialNotice }: Props) {
         <div className="acpmux-composer">
           <div className="acpmux-composer-box">
             <div className="acpmux-composer-bar">
-              <span className="acpmux-chips-spacer" />
               <div className="acpmux-composer-actions">
                 <DictationMic dictation={dictation} />
               </div>

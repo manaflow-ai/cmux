@@ -111,7 +111,9 @@ test("choosing another folder in a started chat starts a new chat there, never a
   const calls = await mount();
   await openFolder();
   const site = everywhere().find(
-    (element) => element.classList.contains("acpmux-menu-item") && element.textContent?.includes("/work/site"),
+    // The row names the folder; its path is the tooltip (hq#1957 composer location strip).
+    (element) =>
+      element.classList.contains("acpmux-menu-item") && element.querySelector('[title="/work/site"]') !== null,
   );
   expect(site, "the folder list is missing").toBeTruthy();
   await act(async () => {
