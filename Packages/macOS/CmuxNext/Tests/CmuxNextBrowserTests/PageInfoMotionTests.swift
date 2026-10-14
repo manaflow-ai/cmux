@@ -22,6 +22,13 @@ import Testing
         return (window, PageInfoController(tab: { tab }, anchor: { button }))
     }
 
+    /// Waits for `condition` up to `timeout`: the fade's end, which a loaded host (the hosted
+    /// macOS 27 lane ran this suite in 23 s) can deliver well after its 0.15 s duration.
+    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(10)) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
     static func panel(of window: NSWindow) throws -> PageInfoPanel {
         try #require(NSApp.windows.compactMap { $0 as? PageInfoPanel }.first { $0.parent === window })
     }
@@ -45,7 +52,7 @@ import Testing
         // Review: keys and clicks go back to the page now, not when the fade ends.
         #expect(!panel.isKeyWindow, "the fading bubble still takes keys")
         #expect(panel.ignoresMouseEvents, "the fading bubble still takes clicks")
-        try await Task.sleep(for: .milliseconds(600))
+        try await Self.until { !panel.isVisible && panel.parent == nil }
         #expect(!panel.isVisible)
         #expect(panel.parent == nil)
     }
@@ -58,6 +65,8 @@ import Testing
         let panel = try Self.panel(of: window)
         controller.close()
         controller.perform(.show(.main))
+        try await Self.until { panel.alphaValue == 1 }
+        // Past the earlier close's end, so a late completion of it would show here.
         try await Task.sleep(for: .milliseconds(600))
         #expect(panel.isVisible, "the earlier close took the reopened bubble away")
         #expect(panel.alphaValue == 1)

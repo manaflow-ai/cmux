@@ -119,12 +119,6 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
-    /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
-    /// Archive). Replaced in tests.
-    public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
-        throw AcpmuxStatusClient.Failure.closed
-    }
-
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
@@ -141,10 +135,6 @@ import CmuxNextCompat
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
-        }
-        tagSession = { [weak self] session, set, remove in
-            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
-            try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
         markUnread = { [weak self] session in
             guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
@@ -257,13 +247,13 @@ import CmuxNextCompat
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
         // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
-        // pane was shown, and only for an option that prompt offers as an allow. Page script can
-        // still turn a click into an allow of such a prompt (cx-ocdz: a native person-input gate
-        // for the permission card is the fix).
+        // pane was shown, only for an option that prompt offers as an allow, and only right after
+        // the person's own click (cx-ocdz: a posted click or a keystroke's gesture never answers).
         if intent.method == "_acpmux/permission_respond" {
             guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
                   case .string(let option)? = intent.params["optionId"], sessions.contains(session),
-                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option),
+                  gestures.hasFreshAnswerGesture else { return nil }
         }
         return gestures.reserve(connection: current, intent: intent)
     }

@@ -678,7 +678,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          # The item carries the bundle's macOS floor (26.0 for cmux-next). A
+          # The item carries the bundle's macOS floor (14.0 for cmux-next since 2026-10-13). A
           # pinned final legacy item, when present, keeps macOS 14/15 on the
           # last legacy build (skills/cmux-release/references/cmux-next-update-floor.md).
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor build-universal/Build/Products/Release/cmux.app)"

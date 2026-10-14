@@ -1,8 +1,8 @@
 import AppKit
-import CmuxNextBrowser
+public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDaemon
-import Foundation
+public import CmuxNextDaemon
+public import Foundation
 import Observation
 
 /// Writes a browser page's back/forward entries and scroll positions to
@@ -11,9 +11,13 @@ import Observation
 /// Navigations are debounced like the record write-back; scroll changes
 /// fire no page event, so the shown page's position is measured when the
 /// user leaves the app (a crash afterwards keeps it) and at quit.
-final class BrowserHistoryWriter {
-    typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
-    typealias Page = any BrowserTab & BrowserSessionRestoring
+public final class BrowserHistoryWriter {
+    /// Stores a history with the tab's daemon; true when it was stored.
+    public typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
+    /// A page whose history the writer saves.
+    public typealias Page = any BrowserTab & BrowserSessionRestoring
+    /// Waits a duration (tests pass their own clock).
+    public typealias Sleep = @Sendable (Duration) async throws -> Void
 
     /// How long quit waits for the shown page to say how far it is
     /// scrolled; a page that does not answer keeps its last known position.
@@ -22,16 +26,31 @@ final class BrowserHistoryWriter {
     private(set) var recorded: FrontendBrowserHistory?
     private weak var page: Page?
     private let delay: Duration
-    private let sleep: BrowserRecordWriter.Sleep
+    private let sleep: Sleep
     private let send: Send
+    /// Whether the page engine's own history goes with the entries (this
+    /// Mac's daemon only: it holds form data and every entry's state).
+    private let keepsEngineState: Bool
+    /// The page showed a password field: its engine state is never saved again (WebKit leaves
+    /// password values out of the form state it keeps; this keeps such pages out entirely).
+    private var showedPasswordField = false
+    /// Whether the last write carried engine state (`debug.browser.page_status`).
+    public private(set) var savedEngineState = false
     private var observation: Task<Void, Never>?
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
     private var resignObserver: (any NSObjectProtocol)?
+    /// Where it hears that the app resigned active (tests post to their own).
+    private let center: NotificationCenter
 
-    init(page: Page, recorded: FrontendBrowserHistory?, delay: Duration, sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
+    /// Starts writing `page`'s history after each change, waiting `delay`; `recorded` is what the daemon holds.
+    /// `keepsEngineState` adds the engine's own history (this Mac's daemon only).
+    public init(page: Page, recorded: FrontendBrowserHistory?, keepsEngineState: Bool = false, delay: Duration,
+                sleep: @escaping Sleep, center: NotificationCenter = .default, send: @escaping Send) {
         self.page = page
+        self.center = center
         self.recorded = recorded
+        self.keepsEngineState = keepsEngineState
         self.delay = delay
         self.sleep = sleep
         self.send = send
@@ -40,8 +59,8 @@ final class BrowserHistoryWriter {
                 self?.pageDidChange(state)
             }
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
-                                                                object: nil, queue: .main) { [weak self] _ in
+        resignObserver = center.addObserver(forName: NSApplication.didResignActiveNotification,
+                                             object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.appDidResignActive() } // main-proof: observer on queue: .main
         }
     }
@@ -57,7 +76,7 @@ final class BrowserHistoryWriter {
     }
 
     /// Sends the history now with the shown page's scroll position (quit).
-    func flushNow() async {
+    public func flushNow() async {
         pending?.cancel()
         pending = nil
         guard let page else { return }
@@ -69,14 +88,15 @@ final class BrowserHistoryWriter {
         }
     }
 
-    func cancel() {
+    /// Stops writing.
+    public func cancel() {
         observation?.cancel()
         pending?.cancel()
         leaving?.cancel()
         observation = nil
         pending = nil
         leaving = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        if let resignObserver { center.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -95,7 +115,20 @@ final class BrowserHistoryWriter {
     }
 
     private func write(_ session: BrowserSavedSession) async {
-        guard let history = Self.history(session), history != recorded else { return }
+        guard var history = Self.history(session) else { return }
+        if keepsEngineState, let page {
+            if !showedPasswordField, case .bool(true)? = try? await page.evaluate(Self.hasPasswordField, world: .isolated) {
+                showedPasswordField = true
+            }
+            // Only state taken from the page the entries were saved at (the page may have moved on).
+            let list = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.compactMap(\.url) ?? []
+            if !showedPasswordField, let shown = page.state.url, shown == session.entries[session.current].url,
+               Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
+                history = history.with(engineState: Self.engineState(of: page))
+            }
+        }
+        savedEngineState = history.engineState != nil
+        guard history != recorded else { return }
         if await send(history) { recorded = history }
     }
 
@@ -106,8 +139,43 @@ final class BrowserHistoryWriter {
         }, index: session.current).bounded()
     }
 
+    static let hasPasswordField = "!!document.querySelector('input[type=password]')"
+
+    /// Whether WebKit's own history over `urls` restores without wider file access than a load
+    /// of `shown` grants: no local files, or only local files in `shown`'s folder. WebKit reads a
+    /// restored local entry with access to every file unless its process already reads that
+    /// folder, which `BrowserHistoryStarts` grants by loading `shown` first.
+    static func keepsFileAccess(_ urls: [URL], shown: URL) -> Bool {
+        guard urls.contains(where: \.isFileURL) else { return true }
+        guard shown.isFileURL else { return false }
+        let folder = shown.standardizedFileURL.deletingLastPathComponent().path
+        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+        return urls.allSatisfy { $0.isFileURL && $0.standardizedFileURL.path.hasPrefix(prefix) }
+    }
+
+    /// The page engine's own history as the daemon stores it.
+    static func engineState(of page: any BrowserTab) -> FrontendBrowserHistory.EngineState? {
+        switch (page as? any BrowserHibernationSource)?.hibernationState() {
+        case .webKit(let data)?: data.isEmpty ? nil : .init(engine: "webkit", data: data.base64EncodedString())
+        case .chromium(let state)?: state.isEmpty ? nil : .init(engine: "chromium", data: state)
+        case nil: nil
+        }
+    }
+
+    /// `history`'s engine state as a page restores it, when it was saved
+    /// at `url` (its current entry), for a page in `engine`.
+    public static func restoreState(_ history: FrontendBrowserHistory?, at url: URL?, engine: BrowserEngineKind) -> BrowserRestoreState? {
+        guard let history, let state = history.engineState, let url,
+              history.entries.indices.contains(history.index), history.entries[history.index].url == url.absoluteString else { return nil }
+        switch (engine, state.engine) {
+        case (.webkit, "webkit"): return Data(base64Encoded: state.data).map(BrowserRestoreState.webKit)
+        case (.cef, "chromium"): return .chromium(state.data)
+        default: return nil
+        }
+    }
+
     /// The saved entries of `history` (nil when it has none to restore).
-    static func session(_ history: FrontendBrowserHistory) -> BrowserSavedSession? {
+    public static func session(_ history: FrontendBrowserHistory) -> BrowserSavedSession? {
         let entries = history.entries.compactMap { entry in
             URL(string: entry.url).map { BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost == true) }
         }
@@ -117,7 +185,7 @@ final class BrowserHistoryWriter {
 
     /// `work`'s result, or nil when `budget` passes first (the work then
     /// finishes unawaited).
-    static func within<T: Sendable>(_ budget: Duration, sleep: @escaping BrowserRecordWriter.Sleep,
+    public static func within<T: Sendable>(_ budget: Duration, sleep: @escaping Sleep,
                                     _ work: @escaping @MainActor () async -> T?) async -> T? {
         let once = Once<T>()
         return await withCheckedContinuation { continuation in

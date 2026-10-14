@@ -108,6 +108,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDictation",
         "CmuxNextPages",
@@ -146,6 +147,7 @@
         "CmuxNextBridge",
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
@@ -214,6 +216,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextApp",
+        "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -294,6 +297,16 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserHistory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHistory",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
       ],
       "packages": []
     },
@@ -389,6 +402,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextControlTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",

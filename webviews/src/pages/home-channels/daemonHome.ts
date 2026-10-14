@@ -3,10 +3,12 @@
 // `subscribe` events, projected into the page's shapes (types.ts). The same rules the app's Home
 // applies (CmuxHomeCore `ConversationSummary.kind` and `unreadCount`, HomeCoreMapping): no Swift in
 // the data path, so the page runs the same in a plain browser, the app's web view, Chromium and
-// GPUI. Slice 3 moves this projection into the daemon as `home.*` operations.
+// GPUI. Cloud conversations come through the same daemon (cloudHome.ts, ws-cloud-conversations-v1)
+// and merge into the one inbox. Slice 3 moves this projection into the daemon as `home.*` operations.
 import { pageError, type PageClient, type PageCallOptions, type PageHandler } from "../shared/pageClient";
 import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
+import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import {
   HomeOps,
   type HomeConversation,
@@ -176,6 +178,11 @@ export class DaemonHomeClient implements PageClient {
   private streamStarted: Promise<void> | null = null;
   /** Conversations whose page the page read (refetched after a lost event). */
   private readonly opened = new Set<string>();
+  /** The cloud owners through this daemon; `cloudCapable` once `identify` names the capability. */
+  private readonly cloud: CloudHome;
+  private cloudCapable: Promise<boolean> | null = null;
+  /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
+  private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
 
   /** Starts the daemon stream once per connection (a page resubscribe adds a listener only). */
   private startStream(): Promise<void> {
@@ -192,7 +199,20 @@ export class DaemonHomeClient implements PageClient {
     return this.streamStarted;
   }
 
-  constructor(private readonly daemon: DaemonSocket) {}
+  constructor(private readonly daemon: DaemonSocket) {
+    this.cloud = new CloudHome(daemon, conversation, (summary) => {
+      for (const listener of this.cloudListeners) listener(summary);
+    });
+  }
+
+  /** Whether this daemon serves the cloud owners to a page (an older one does not: local only). */
+  private cloudReady(): Promise<boolean> {
+    this.cloudCapable ??= this.daemon
+      .request<{ capabilities?: string[] }>("identify")
+      .then((identity) => identity.capabilities?.includes(WS_CLOUD_CAPABILITY) === true)
+      .catch(() => false);
+    return this.cloudCapable;
+  }
 
   async call<R>(op: string, rawParams: unknown, options?: PageCallOptions): Promise<R> {
     const params = (rawParams ?? {}) as Json;
@@ -203,6 +223,8 @@ export class DaemonHomeClient implements PageClient {
         const code = (error as DaemonError).code;
         if (code === "conversation_rejected") throw pageError("cmux.page.invalid_params", error.message);
         if (code === "disconnected") throw pageError("cmux.page.unavailable", "the cmux instance is offline", true);
+        // The app signed out (or switched accounts): the cloud inbox is listed again.
+        if (code === "cloud_signed_out") this.cloud.reset();
         throw pageError(`cmux.home.${code}`, error.message);
       }
       throw error;
@@ -215,12 +237,22 @@ export class DaemonHomeClient implements PageClient {
   }
 
   private async submit(conversationId: string, key: string, op: Json): Promise<Json> {
+    if (this.cloud.owns(conversationId)) {
+      const sent = await this.cloud.op(conversationId, key, op);
+      return { rev: num(sent.rev), replayed: sent.replayed === true, conversation: conversationId };
+    }
     const result = await this.daemon.request("conversation-op", {
       conversation: conversationId,
       idempotency_key: key,
       op,
     });
     return { rev: num(result.rev), replayed: result.replayed === true, conversation: conversationId };
+  }
+
+  /** A read of the conversation's owner: the local one, or a cloud owner through the daemon. */
+  private read(cmd: string, id: string, params: Json): Promise<Json> {
+    if (this.cloud.owns(id)) return this.cloud.read(`cloud-${cmd}`, params);
+    return this.daemon.request(cmd, params);
   }
 
   private async dispatch(op: string, params: Json, options?: PageCallOptions): Promise<unknown> {
@@ -233,26 +265,29 @@ export class DaemonHomeClient implements PageClient {
           .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
+        // The person's Cloud inbox through the same daemon; a Cloud failure never hides the local one.
+        const cloud = await this.cloud.inbox(await this.cloudReady()).catch(() => []);
         return {
           me,
-          conversations: summaries.map((entry) => conversation(entry, this.me)),
+          conversations: [...summaries.map((entry) => conversation(entry, this.me)), ...cloud],
           rev: Math.max(0, ...summaries.map((entry) => num(entry.rev))),
         };
       }
       case HomeOps.page: {
         this.opened.add(str(params, "conversation"));
-        const page = await this.daemon.request("conversation-snapshot", {
+        const page = await this.read("conversation-snapshot", str(params, "conversation"), {
           conversation: str(params, "conversation"),
           tail: bounded(params.tail, 100),
         });
+        const id = str(params, "conversation");
         return {
-          conversation: conversation(page.conversation as Json, this.me),
+          conversation: this.cloud.summary(id) ?? conversation(page.conversation as Json, this.me),
           messages: ((page.messages as Json[]) ?? []).map(message),
           threads: threads(page.threads),
         };
       }
       case HomeOps.history: {
-        const page = await this.daemon.request("conversation-history", {
+        const page = await this.read("conversation-history", str(params, "conversation"), {
           conversation: str(params, "conversation"),
           before_seq: num(params.beforeSeq),
           limit: bounded(params.limit, 100),
@@ -260,7 +295,7 @@ export class DaemonHomeClient implements PageClient {
         return { messages: ((page.messages as Json[]) ?? []).map(message), threads: threads(page.threads) };
       }
       case HomeOps.thread: {
-        const page = await this.daemon.request("conversation-thread", {
+        const page = await this.read("conversation-thread", str(params, "conversation"), {
           conversation: str(params, "conversation"),
           root: str(params, "root"),
           after_seq: Math.max(0, num(params.afterSeq)),
@@ -385,8 +420,24 @@ export class DaemonHomeClient implements PageClient {
           if (batch) onEvent(batch as E, ++seq);
         });
     };
+    const offCloud = (() => {
+      const listener = (summary: HomeConversation) => deliver((batch) => (batch.conversations ??= []).push(summary));
+      this.cloudListeners.add(listener);
+      return () => this.cloudListeners.delete(listener);
+    })();
     const offEvent = this.daemon.onEvent((event) => {
-      if (event.event === "conversation-changed") {
+      const cloud =
+        typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
+      if (cloud) {
+        deliver((batch) => {
+          if (cloud.message) (batch.messages ??= []).push(message(cloud.message));
+          if (cloud.conversation) (batch.conversations ??= []).push(cloud.conversation);
+          if (cloud.conversations?.length) (batch.conversations ??= []).push(...cloud.conversations);
+          if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
+          if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
+          if (cloud.inboxStale) batch.inboxStale = true;
+        });
+      } else if (event.event === "conversation-changed") {
         const change = (event.change ?? {}) as Json;
         if ((change.kind === "message" || change.kind === "message-updated") && change.message) {
           deliver((batch) => {
@@ -426,6 +477,8 @@ export class DaemonHomeClient implements PageClient {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).
         this.streamStarted = null;
+        // Lost cloud events too: the cloud inbox is listed again with the inbox.
+        this.cloud.reset();
         void this.startStream().catch(() => deliver((batch) => (batch.connection = "offline")));
         deliver((batch) => {
           batch.inboxStale = true;
@@ -439,6 +492,7 @@ export class DaemonHomeClient implements PageClient {
     } catch (error) {
       offEvent();
       offClose();
+      offCloud();
       throw error;
     }
     deliver((batch) => {
@@ -448,6 +502,7 @@ export class DaemonHomeClient implements PageClient {
     return () => {
       offEvent();
       offClose();
+      offCloud();
     };
   }
 

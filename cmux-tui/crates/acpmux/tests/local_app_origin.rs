@@ -290,6 +290,39 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
     assert!(missing.get("error").is_some(), "{missing}");
 }
 
+/// New side chat (cx-jlzsf): the pane tags the fork it made as a side chat
+/// of its chat with `_acpmux/side`, which sets only the `side` tag.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
+    let d = Daemon::start("side-chat");
+    let token = d.local_token();
+    let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
+    let trust =
+        call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
+    let mut ids = Vec::new();
+    for id in [3, 4] {
+        let new = call(&mut app, id, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
+        ids.push(new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned());
+    }
+    let (chat, fork) = (&ids[0], &ids[1]);
+    let side = call(&mut app, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
+    assert_eq!(side["result"]["tags"]["side"], json!(chat), "{side}");
+    assert!(side["result"]["tags"].as_object().is_some_and(|t| t.len() == 1), "{side}");
+    // Never its own side chat, never of an unknown chat, and the chat is required.
+    for (id, params) in [
+        (6, json!({"sessionId": chat, "chat": chat})),
+        (7, json!({"sessionId": fork, "chat": "no-such-chat"})),
+        (8, json!({"sessionId": fork})),
+        // The exact id only: a prefix or a name never resolves another chat.
+        (9, json!({"sessionId": fork, "chat": &chat[..chat.len().min(6)]})),
+    ] {
+        let refused = call(&mut app, id, "_acpmux/side", params.clone()).await;
+        assert!(refused.get("error").is_some(), "{params}: {refused}");
+    }
+}
+
 /// A stop right after the ready line is a clean stop: SIGTERM ends the
 /// daemon through its shutdown path (exit 0, run/localapp.token removed).
 /// The daemon installed its SIGTERM handler only after the ready line, so a

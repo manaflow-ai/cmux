@@ -228,6 +228,15 @@ public struct DaemonCapabilities: Sendable {
     /// commands and their `cloud-*` events. Advertised only when the daemon
     /// has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
+    /// `page-credential`: the verified app gets a credential for its own page, which then gets
+    /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
+    public let pageCredential = "page-credential-v1"
+    /// `ws-listen`: a running owner opens its loopback page listener on
+    /// request (cx-hnmbt.5); an older owner is handed off to the bundled build.
+    public let wsListen = "ws-listen-v1"
+    /// `ws-listen {allow_origins}`: the listener admits every first-party page origin
+    /// (cx-hnmbt.10); an owner without it gets the Channels origin only.
+    public let wsListenOrigins = "ws-listen-origins-v1"
     /// Groups placed among the loose personal workspaces: `top_index` on
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).
@@ -310,6 +319,9 @@ public struct DaemonCapabilities: Sendable {
     /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
     /// `ClientHello.originClaimCapability`).
     public let originClaim = "origin-claim-v1"
+    /// Page ids on page relays and the per-page allow list (`page-router-v1`;
+    /// `DaemonClientRole.pageRouterCapability`).
+    public let pageRouter = "page-router-v1"
     /// `read-session-journal` for agent history (`AgentHistory`).
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
@@ -329,11 +341,11 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
