@@ -5,7 +5,9 @@
 //   renames, untracked files, `paths` and `context_lines`;
 // - file.search ranks as the mock daemon does, relative to the folder searched;
 // - a folder outside the slot's folder, a slot-less server and a write are refused;
-// - the read list admits no mutating git command.
+// - the read list admits no mutating git command, not even by an abbreviated option;
+// - a repository's own config never runs a program (fsmonitor, filter drivers), and the dev's
+//   GIT_* environment never redirects a read.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -264,8 +266,64 @@ describe("confinement", () => {
       ["symbolic-ref", "-d", "HEAD"],
       ["config", "user.name", "x"],
       ["config", "--get", "a", "b"],
+      ["diff", "--out=/tmp/x"],
+      ["diff", "--ext-dif"],
+      ["diff", "--textc"],
       [],
     ])
       expect(isReadOnlyGit(args)).toBe(false);
+  });
+});
+
+describe("untrusted repository", () => {
+  test("a folder that only shares the slot folder's prefix is refused", async () => {
+    const sibling = `${repo}-sibling`;
+    fs.mkdirSync(sibling, { recursive: true });
+    const { body } = await read("git.status", { cwd: sibling });
+    expect(body.ok).toBe(false);
+    expect(body.error.code).toBe("native.unsupported");
+  });
+
+  test("a path that reads as an option is invalid", async () => {
+    expect((await read("git.diff", { scope: "uncommitted", paths: ["--output=/tmp/x"] })).body.error.code).toBe(
+      "validation.invalid",
+    );
+  });
+
+  test("the repository's fsmonitor and filter drivers never run", async () => {
+    const fsmonitorMarker = path.join(root, "fsmonitor-ran");
+    const filterMarker = path.join(root, "filter-ran");
+    git("config", "core.fsmonitor", `touch ${fsmonitorMarker}; false`);
+    git("config", "filter.evil.clean", `touch ${filterMarker}; cat`);
+    git("config", "filter.evil.required", "true");
+    fs.writeFileSync(path.join(repo, ".git", "info", "attributes"), "*.md filter=evil\n");
+    // Stat-dirty: git must read the file again, through its clean filter.
+    write("docs/readme.md", "# Readme\n\nMore, changed.\n");
+    try {
+      expect((await read("git.status")).body.ok).toBe(true);
+      expect((await read("git.diff", { scope: "uncommitted", include_patch: true })).body.ok).toBe(true);
+      expect((await read("git.diff", { scope: "unstaged" })).body.ok).toBe(true);
+      expect(fs.existsSync(fsmonitorMarker)).toBe(false);
+      expect(fs.existsSync(filterMarker)).toBe(false);
+    } finally {
+      git("config", "--unset", "core.fsmonitor");
+      git("config", "--remove-section", "filter.evil");
+      fs.rmSync(path.join(repo, ".git", "info", "attributes"));
+      write("docs/readme.md", "# Readme\n\nMore.\n");
+    }
+  });
+
+  test("a GIT_DIR in the dev's environment never redirects a read", async () => {
+    const other = path.join(root, "other");
+    execFileSync("git", ["init", "-q", "-b", "main", other]);
+    execFileSync("git", ["-C", other, "commit", "-q", "--allow-empty", "-m", "other"]);
+    process.env.GIT_DIR = path.join(other, ".git");
+    try {
+      const { body } = await read("git.status");
+      expect(body.value.branch).toBe("feature");
+    } finally {
+      delete process.env.GIT_DIR;
+    }
+    expect(git("rev-parse", "--abbrev-ref", "HEAD")).toBe("feature");
   });
 });
