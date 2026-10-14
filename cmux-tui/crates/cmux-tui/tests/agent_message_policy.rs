@@ -97,10 +97,18 @@ mod agent_message_policy {
         let (reader, _) = daemon.agent_terminal(&alpha, "true");
         let (other, _) = daemon.agent_terminal(&beta, "true");
         let cli = env!("CARGO_BIN_EXE_cmux-tui");
+        // The child sends once `run` has placed its terminal in a tab: a
+        // terminal with no view yet has no workspace, so it would be held.
+        let go = daemon.dir.join("go");
         let (writer, credential) = daemon.agent_terminal(
             &alpha,
-            &format!("'{cli}' --json agent message {reader} from-the-child"),
+            &format!(
+                "while [ ! -e '{}' ]; do sleep 0.05; done; \
+                 '{cli}' --json agent message {reader} from-the-child",
+                go.display()
+            ),
         );
+        std::fs::write(&go, "").unwrap();
         daemon.place_session("near", &alpha_key);
 
         // A terminal child's own CLI sends as its terminal.
@@ -114,7 +122,7 @@ mod agent_message_policy {
             std::thread::sleep(std::time::Duration::from_millis(50));
         };
         assert_eq!(from_child["sender"], writer.as_str(), "{from_child}");
-        assert_eq!(state_and_reason(&from_child, &reader).0, "queued");
+        assert_eq!(state_and_reason(&from_child, &reader).0, "queued", "{from_child}");
 
         // Same workspace: queued. Another workspace: held for the person.
         let sent = daemon.sent(
