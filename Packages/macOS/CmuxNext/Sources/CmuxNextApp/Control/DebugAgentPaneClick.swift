@@ -134,5 +134,25 @@ enum DebugAgentPaneClick {
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
         ])
     }
+
+    /// `debug.agent_pane {action: "hover", x, y}`: the pointer moves to window point `x`,`y`
+    /// (top-left origin, as `debug.mouse`) over the agent page, as a real move there: a mouse
+    /// moved event straight to the web view, which takes it also in a window that is not key
+    /// (AppKit sends a posted move to no view there, and WebKit's tracking area owner is no
+    /// responder). Recordings of the page's hovers on a capture slot.
+    static func hover(_ params: [String: JSONValue], pane: String, view: AgentPaneView) -> JSONValue {
+        guard let window = view.window, let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
+            return .object(["pane": .string(pane), "error": .string("pass x and y; the pane must be in a window")])
+        }
+        let height = window.contentView?.bounds.height ?? window.frame.height
+        let point = NSPoint(x: x, y: height - y)
+        guard let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 0, clickCount: 0, pressure: 0) else {
+            return .object(["pane": .string(pane), "error": .string("could not synthesize the move")])
+        }
+        view.webView.mouseMoved(with: event)
+        return .object(["pane": .string(pane), "x": .number(x), "y": .number(y)])
+    }
 }
 #endif
