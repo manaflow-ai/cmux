@@ -28,29 +28,33 @@ async fn full_list(c: &mut TestClient) -> Vec<String> {
 #[tokio::test]
 async fn session_list_pages_neither_repeat_nor_skip_while_sessions_move() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut created = Vec::new();
     for _ in 0..SESSIONS {
-        c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
-        // Distinct updatedAt values, so a deleted cursor session's fallback is exact.
-        tokio::time::sleep(Duration::from_millis(3)).await;
+        let s =
+            c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+        created.push(s["sessionId"].as_str().unwrap().to_owned());
     }
-    // Let start-up status changes settle, then take the list twice.
+    // Let start-up status changes settle, then stamp each session in a known
+    // order: a draft write sets updatedAt, and the waits keep every stamp distinct.
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let before = full_list(&mut c).await;
-    assert_eq!(before.len(), SESSIONS);
-    assert_eq!(full_list(&mut c).await, before, "the list is settled");
-
-    // The order is updatedAt desc, then sessionId asc.
-    let r = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
-    let rows = r["sessions"].as_array().unwrap();
-    for w in rows.windows(2) {
-        let key = |s: &Value| {
-            (
-                std::cmp::Reverse(s["updatedAt"].as_u64().unwrap_or(0)),
-                s["sessionId"].as_str().unwrap_or("").to_owned(),
-            )
-        };
-        assert!(key(&w[0]) < key(&w[1]), "list order: {} then {}", w[0], w[1]);
+    for (n, id) in created.iter().enumerate() {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        c.request(method::MUX_DRAFT_SET, json!({"sessionId": id, "text": format!("d{n}")}))
+            .await
+            .unwrap();
     }
+    // Newest first: the last session stamped leads.
+    let before: Vec<String> = created.iter().rev().cloned().collect();
+    let r = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    assert!(r.get("nextCursor").is_none(), "no limit, no nextCursor: {r}");
+    assert_eq!(ids(&r), before, "the full list, newest first: {r}");
+    let stamps: Vec<u64> = r["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["updatedAt"].as_u64().unwrap())
+        .collect();
+    assert!(stamps.windows(2).all(|w| w[0] > w[1]), "distinct updatedAt stamps: {stamps:?}");
 
     let first = c.request(method::MUX_SESSIONS, json!({"limit": PAGE})).await.unwrap();
     assert_eq!(ids(&first), before[..PAGE].to_vec(), "page one: {first}");
@@ -60,7 +64,7 @@ async fn session_list_pages_neither_repeat_nor_skip_while_sessions_move() {
     // Between pages: a session from a later page moves to the top, and the
     // session the cursor names is deleted.
     let moved = before[PAGE + 3].clone();
-    tokio::time::sleep(Duration::from_millis(3)).await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
     c.request(method::MUX_DRAFT_SET, json!({"sessionId": moved, "text": "moves it up"}))
         .await
         .unwrap();
