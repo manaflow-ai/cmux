@@ -73,6 +73,11 @@ The first channel of every link is `auth`:
    - the device id with both keys is on the app's approved list: `{ok}`;
    - otherwise hostd emits `pair_request` to the app, sends `{pending}`, and
      waits up to 120 s for the app's next `devices` line to approve or deny.
+     It asks only once the app sent its first `devices` line (waiting up to
+     10 s), within the prompt limits in PROTOCOL.md "Pairing" (one `auth` per
+     link, 3 new keys per device and 6 in all per 10 minutes, 10 minutes of
+     silence for a device after a refusal). `pair_request` carries
+     `registered_at_ms`, the device's registration date, for the dialog.
 5. A channel the phone opens after `auth` waits for its outcome, at most
    the signature and approval waits, so a link still opens its workspaces,
    chats and Feed channels at once (fast connect). It is served only if

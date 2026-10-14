@@ -47,7 +47,11 @@ pub async fn serve(
         peer = peer.device_id,
         "channel opened"
     );
-    let paired = config.pairing.is_none() || service == "auth" || link.paired().await;
+    let gate = if config.pairing.is_none() || service == "auth" {
+        crate::pairing::Gate::Paired
+    } else {
+        link.gate().await
+    };
     let result = match service.as_str() {
         "auth" => crate::pairing::serve(
             config.pairing.as_ref(),
@@ -59,7 +63,12 @@ pub async fn serve(
         )
         .await
         .map_err(|(code, reason)| Refusal::new(code, reason)),
-        _ if !paired => Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)")),
+        _ if gate == crate::pairing::Gate::Busy => {
+            Err(Refusal::new("busy", "too many channels wait for this iPhone's pairing"))
+        }
+        _ if gate != crate::pairing::Gate::Paired => {
+            Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)"))
+        }
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &sender, receiver).await,
@@ -82,6 +91,13 @@ pub async fn serve(
             sender.close(refusal.code, &refusal.reason).await;
         }
     }
+}
+
+/// Closes `incoming` at once with `code` (the accept loop's own refusals).
+pub async fn refuse(incoming: IncomingChannel, code: &'static str, reason: &str) {
+    let (sender, _receiver) = incoming.channel.split();
+    tracing::info!(service = incoming.service, code, reason, "channel refused");
+    sender.close(code, reason).await;
 }
 
 #[derive(Debug)]

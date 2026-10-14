@@ -134,6 +134,11 @@ async fn fixture(fake: FakeOptions) -> Fixture {
 }
 
 async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
+    fixture_trust(fake, pairing, true).await
+}
+
+/// `loaded`: whether the app already sent its (empty) `devices` list.
+async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixture {
     let server = FakeSignaling::start(fake).await;
     let sockets = tempfile::tempdir().unwrap();
     let root = tempfile::tempdir().unwrap();
@@ -164,15 +169,15 @@ async fn fixture_with(fake: FakeOptions, pairing: bool) -> Fixture {
     let mac_id = uuid::Uuid::new_v4().to_string();
     let (mut trust, mut events) = (None, None);
     if pairing {
-        let (trust_tx, trust_rx) = tokio::sync::watch::channel(None);
+        let (trust_tx, trust_rx) = tokio::sync::watch::channel(loaded.then(DeviceTrust::default));
         let (events_tx, events_rx) = tokio::sync::mpsc::unbounded_channel();
-        services.pairing = Some(Pairing {
-            mac_device_id: mac_id.clone(),
-            trust: trust_rx,
-            emit: Arc::new(move |event| {
+        services.pairing = Some(Pairing::new(
+            mac_id.clone(),
+            trust_rx,
+            Arc::new(move |event| {
                 let _ = events_tx.send(event);
             }),
-        });
+        ));
         trust = Some(trust_tx);
         events = Some(tokio::sync::Mutex::new(events_rx));
     }
@@ -602,6 +607,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             name: "Test iPhone".into(),
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
+            registered_at_ms: None,
         }
     );
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
@@ -745,4 +751,65 @@ async fn channels_opened_after_auth_wait_for_it() {
     forged.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
     assert_eq!(drain(&mut forged).await.1, "unpaired");
     assert_eq!(drain(&mut daemon).await.1, "unpaired");
+}
+
+fn trusting(fixture: &Fixture, keys: &PhoneKeys) -> DeviceTrust {
+    DeviceTrust {
+        devices: vec![TrustedDevice {
+            id: fixture.phone_id.clone(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+        }],
+        denied: vec![],
+    }
+}
+
+fn open_auth_args(keys: &PhoneKeys) -> serde_json::Value {
+    serde_json::json!({"identityKey": keys.identity_hex, "approvalKey": keys.approval_hex,
+                       "name": "Test iPhone", "action": "pair"})
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_link_runs_one_auth_at_a_time() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut first = connected.link.open("auth", open_auth_args(&keys)).await.unwrap();
+    let _challenge = json_frame(first.recv().await);
+    let mut second = connected.link.open("auth", open_auth_args(&phone_keys())).await.unwrap();
+    assert_eq!(drain(&mut second).await.1, "busy");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_a_refusal_new_keys_for_that_phone_ask_nothing() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let _ = fixture.events.as_ref().unwrap().lock().await.recv().await;
+    fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
+        devices: vec![],
+        denied: vec![DeniedDevice { id: fixture.phone_id.clone(), identity_key: keys.identity_hex.clone() }],
+    }));
+    assert_eq!(drain(&mut channel).await.1, "denied");
+    // A fresh key pair from the same device id: refused, and the Mac is not asked.
+    let fresh = phone_keys();
+    let mut again = auth(&connected.link, &fixture, &fresh, &fresh.identity, "pair").await;
+    assert_eq!(drain(&mut again).await.1, "rate_limited");
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_paired_phone_is_not_asked_before_the_app_sends_its_devices() {
+    let fixture = fixture_trust(FakeOptions::default(), true, false).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut channel = auth(&connected.link, &fixture, &keys, &keys.identity, "pair").await;
+    // The list arrives and names this phone: it passes without a prompt (an
+    // early prompt would still be queued below).
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
+    assert!(fixture.events.as_ref().unwrap().lock().await.try_recv().is_err());
 }

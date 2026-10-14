@@ -288,6 +288,32 @@ refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
 
+## Pairing (`auth` service and the Mac app's control lines)
+
+The `auth` handshake is in `verify/phone-approvals.md` ("Pairing on every
+link"). The limits and close codes the phone sees:
+
+| close code | meaning |
+| --- | --- |
+| `busy` | an `auth` is already running on this link (one at a time), or 32 channels already wait behind it |
+| `rate_limited` | the Mac asked about this iPhone recently: 10 minutes after the person refused one of its keys, or after 3 new identity keys from that device id (6 from all phones) in 10 minutes; the reason names the wait |
+| `unavailable` | the Mac app has not sent its approved list within 10 s (hostd never asks before it has it) |
+| `timeout` | nobody answered the Mac's prompt within 120 s; opening `auth` again on the same link asks again |
+| `denied` / `unpaired` | the person refused this key / the signature or pairing failed |
+
+hostd → app, one JSON line on stdout (supervised mode, `control.rs`):
+
+```json
+{"type":"pair_request","phone_device_id":"<uuid>","name":"<phone>",
+ "identity_key":"04…","approval_key":"04…","registered_at_ms":1791961929681}
+```
+
+`registered_at_ms` (integer, epoch milliseconds; added 2026-10-14) is when
+that phone device id first registered with the service (`createdAt` of `GET
+/v1/me/devices`), so the Mac's dialog can show how new the device is. It is
+absent when the lookup failed or took over 3 s; the dialog then says the
+date is unknown.
+
 ## Connection setup (phone)
 
 Nothing here changes the wire; it is how a phone keeps a dial short.
