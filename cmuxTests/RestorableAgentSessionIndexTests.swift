@@ -1409,12 +1409,7 @@ struct RestorableAgentSessionIndexTests {
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
     private func expectedClaudeProjectDirName(_ path: String) -> String {
-        String(path.unicodeScalars.map { scalar -> Character in
-            switch scalar {
-            case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
-            default: return "-"
-            }
-        })
+        expectedClaudeProjectSlug(path)
     }
 
     @Test
@@ -2051,4 +2046,17 @@ struct RestorableAgentSessionIndexTests {
             options: .atomic
         )
     }
+}
+
+/// Claude Code's project-directory name for `path`, written independently of
+/// production code: every non-ASCII-alphanumeric scalar becomes `-`. Runner
+/// temp paths can contain `_`, so a fixture that only replaces `/` and `.`
+/// builds a directory Claude never creates.
+func expectedClaudeProjectSlug(_ path: String) -> String {
+    String(path.unicodeScalars.map { scalar -> Character in
+        switch scalar {
+        case "a"..."z", "A"..."Z", "0"..."9": return Character(scalar)
+        default: return "-"
+        }
+    })
 }
