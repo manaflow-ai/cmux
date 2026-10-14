@@ -20,6 +20,8 @@ struct NotificationPreviewTests {
         let located = LocatedTab(tab: try #require(paneModel.tabs.first), pane: paneModel, workspace: workspace)
         let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
         let service = NotificationCenterService()
+        // A test host's screen may read as locked: unlocked unless a case says otherwise.
+        service.screenLocked = { false }
         configure(service)
         var decision = NotificationPolicy.Decision()
         decision.desktop = true
@@ -34,6 +36,21 @@ struct NotificationPreviewTests {
         let posted = try #require(try banner(Self.finished))
         #expect(posted.title == "Claude finished")
         #expect(posted.body == "Fixed the flaky login test and pushed the branch.")
+    }
+
+    @Test func showPreviewsKeepsTheMessageOffTheLockScreenOrEverywhere() throws {
+        func body(_ previews: NotificationPreviews, locked: Bool) throws -> String? {
+            try banner(Self.finished) { service in
+                service.preferences.previews = previews
+                service.screenLocked = { locked }
+            }?.body
+        }
+        let message = "Fixed the flaky login test and pushed the branch."
+        #expect(try body(.whenUnlocked, locked: false) == message)
+        #expect(try body(.whenUnlocked, locked: true) == "", "the default hides it while the screen is locked")
+        #expect(try body(.always, locked: true) == message)
+        #expect(try body(.never, locked: false) == "")
+        #expect(NotificationPreferences().previews == .whenUnlocked, "previews are on by default")
     }
 
     @Test func aNotifySubtitleReachesTheBanner() throws {

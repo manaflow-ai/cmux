@@ -8246,6 +8246,11 @@ hook helper sends beside a turn-start event (`session.journal.append` `live_prom
 The daemon keeps it in memory only: it is never journaled, persisted or logged, and a
 daemon restart, a closed terminal or an ended agent session forgets it.
 
+A finished or failed turn's last agent message rides the same way (`live_reply`, at most
+200 characters): the turn's `notification` event carries it as `preview`, the banner text
+the app shows per its Show Previews setting, and the daemon drops it once that event is
+sent. The durable notification row never holds it.
+
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or
 waited. After a daemon restart it is the last report's time. Older daemons omit
