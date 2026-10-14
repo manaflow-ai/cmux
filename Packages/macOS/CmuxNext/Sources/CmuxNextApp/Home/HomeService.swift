@@ -134,6 +134,8 @@ final class HomeService {
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
+                // The Chief's daemon link names this connection's socket, known only once it is up.
+                if homeWasOpened { publishAppLinks() }
             }
         }
         startCloud()

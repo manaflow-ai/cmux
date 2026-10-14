@@ -32,7 +32,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits-license"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -165,6 +165,12 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # CEF's dylibs ship with local symbols and debug stabs (7 MiB in
+  # libvk_swiftshader.dylib). Drop them before signing; exported symbols stay
+  # for the Vulkan loader's dlsym.
+  for lib in "$fw/Versions/A/Libraries"/*.dylib; do
+    if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
+  done
   # Chromium's CREDITS.html (license notices), before signing seals Resources:
   # the artifact's own file, else the INTERIM stock credits for the pinned
   # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.

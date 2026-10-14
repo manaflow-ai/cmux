@@ -127,10 +127,10 @@ impl Translator {
                         let input = c.get("input").cloned().unwrap_or(Value::Null);
                         // A subagent comes before its Agent tool call, so a client
                         // that draws subagents can leave the call out.
-                        if let ("Task" | "Agent", Some(id)) =
+                        if let ("Task" | "Agent" | "Workflow", Some(id)) =
                             (name, c.get("id").and_then(Value::as_str))
                         {
-                            out.push(upd(self.spawn_subagent(id, &input).await));
+                            out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
@@ -246,6 +246,9 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        if let Some(update) = self.workflow_launched(tool, is_err, line).await {
+                            out.push(upd(update));
+                        }
                         // A background subagent's result is only its launch.
                         if self.background_subagents.lock().await.contains(tool) {
                             continue;
@@ -383,6 +386,8 @@ impl Translator {
                             ),
                         ));
                     }
+                } else if let Some(acp) = rid.strip_prefix("stop-") {
+                    out.push(super::workflows::stop_reply(acp, ok, &resp));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -495,6 +500,9 @@ impl Translator {
             "system" if sub.starts_with("task_") => {
                 if let Some(update) = self.background_shell_task(sub, line, &sid).await {
                     out.push(update);
+                }
+                if let Some(progress) = self.subagent_progress(sub, line).await {
+                    out.push(upd(progress));
                 }
                 if let Some(ended) = self.subagent_task(sub, line).await {
                     out.push(upd(ended));
@@ -621,6 +629,7 @@ impl Translator {
             return None;
         }
         self.subagent_tasks.lock().await.remove(task);
+        self.workflows.lock().await.remove(&tool);
         let child = self.subagents.lock().await.remove(&tool)?;
         let state = match line.get("status").and_then(Value::as_str) {
             Some("failed") => "failed",
@@ -634,16 +643,24 @@ impl Translator {
         }))
     }
 
-    /// Records a new Agent tool call as a subagent session and returns its
-    /// `subagent_spawned` update. Claude's short `description` names it.
-    async fn spawn_subagent(&self, tool_use_id: &str, input: &Value) -> Value {
+    /// Records a new Agent or Workflow tool call as a subagent session and
+    /// returns its `subagent_spawned` update. Claude's short `description`
+    /// names an agent; a workflow, which always runs in the background, is
+    /// named by its saved name until its launch names the run.
+    async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
         let child = format!("{}/{tool_use_id}", self.acp_session_id);
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
-        if input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let workflow = tool == "Workflow";
+        if workflow {
+            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+        }
+        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
-        let task = s("description").or(s("name")).or(s("subagent_type")).unwrap_or("Agent");
+        let task = s("description").or(s("name")).or(s("subagent_type"));
+        let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
+        let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
         json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
@@ -651,7 +668,7 @@ impl Translator {
             "task": task,
             "prompt": input.get("prompt"),
             "capabilities": {},
-            "_meta": {"claude": {"subagentType": input.get("subagent_type"), "toolUseId": tool_use_id}}
+            "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
         })
     }
 }
