@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e.
+// cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -525,6 +525,33 @@ pub type CloudConversationOpResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    pub agent: String,
+    pub conversation: String,
+    pub run: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationRunResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunsRequest {
+    pub agent: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_started_at: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationRunsResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationSnapshotRequest {
     pub conversation: String,
     pub tail: u32,
@@ -659,6 +686,24 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
 }
 
 #[rustfmt::skip]
@@ -897,6 +942,60 @@ pub struct ConversationOpResult {
     pub seq: Option<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub transaction: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after_rev: Option<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    pub run: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunResult {
+    pub has_more: bool,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunAppendRequest {
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub steps: Option<Vec<T::JsonValue>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunAppendResult {
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_started_at: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub turns: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunsResult {
+    pub has_more: bool,
+    pub runs: Vec<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -1882,6 +1981,8 @@ pub struct MoveTabToColumnRequest {
     pub after_column: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub dock: Optional<T::ColumnPin>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_focus: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1919,6 +2020,8 @@ pub type MoveTabToNewWorkspaceResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTabToSplitRequest {
     pub edge: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub keep_focus: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ratio: Optional<f32>,
@@ -2453,6 +2556,8 @@ pub struct RegisterBrowserProviderRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bearer_token: Optional<String>,
     pub endpoint: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hosting: Optional<T::BrowserProviderHosting>,
     pub provider_id: String,
     pub targets: Vec<T::BrowserProviderTarget>,
 }
@@ -3855,6 +3960,14 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
     }
 
+    pub fn cloud_conversation_run(&mut self, request: CloudConversationRunRequest) -> Result<CloudConversationRunResult> {
+        self.execute(&CLOUD_CONVERSATION_RUN_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_runs(&mut self, request: CloudConversationRunsRequest) -> Result<CloudConversationRunsResult> {
+        self.execute(&CLOUD_CONVERSATION_RUNS_METADATA, &request)
+    }
+
     pub fn cloud_conversation_snapshot(&mut self, request: CloudConversationSnapshotRequest) -> Result<CloudConversationSnapshotResult> {
         self.execute(&CLOUD_CONVERSATION_SNAPSHOT_METADATA, &request)
     }
@@ -3911,6 +4024,10 @@ impl CmuxClient {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
     }
 
+    pub fn conversation_attachment_link(&mut self, request: ConversationAttachmentLinkRequest) -> Result<ConversationAttachmentLinkResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_LINK_METADATA, &request)
+    }
+
     pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {
         self.execute(&CONVERSATION_ATTACHMENT_READ_METADATA, &request)
     }
@@ -3949,6 +4066,18 @@ impl CmuxClient {
 
     pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
         self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_run(&mut self, request: ConversationRunRequest) -> Result<ConversationRunResult> {
+        self.execute(&CONVERSATION_RUN_METADATA, &request)
+    }
+
+    pub fn conversation_run_append(&mut self, request: ConversationRunAppendRequest) -> Result<ConversationRunAppendResult> {
+        self.execute(&CONVERSATION_RUN_APPEND_METADATA, &request)
+    }
+
+    pub fn conversation_runs(&mut self, request: ConversationRunsRequest) -> Result<ConversationRunsResult> {
+        self.execute(&CONVERSATION_RUNS_METADATA, &request)
     }
 
     pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
@@ -4290,6 +4419,10 @@ impl CmuxClient {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "dock-columns-v1")?;
         }
+        if request.keep_focus.is_some() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "tab-split-keep-focus-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
@@ -4305,6 +4438,10 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if request.keep_focus.is_some() {
+            self.require_protocol_field("move-tab-to-split", 12)?;
+            self.require_capability_field("move-tab-to-split", "tab-split-keep-focus-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-split", 12)?;
             self.require_capability_field("move-tab-to-split", "tab-split-respawn-v1")?;
@@ -4561,6 +4698,9 @@ impl CmuxClient {
     }
 
     pub fn register_browser_provider(&mut self, request: RegisterBrowserProviderRequest) -> Result<RegisterBrowserProviderResult> {
+        if !request.hosting.is_missing() {
+            self.require_capability_field("register-browser-provider", "browser-provider-native-hosting-v1")?;
+        }
         self.execute(&REGISTER_BROWSER_PROVIDER_METADATA, &request)
     }
 

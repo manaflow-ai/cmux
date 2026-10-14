@@ -63,6 +63,7 @@ final class SidebarBridge {
         SidebarWorkspacePins.wire(self)
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
+        container.sidebarView.customization = services.sidebarCustomization
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
@@ -120,7 +121,7 @@ final class SidebarBridge {
                     newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
-                return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+                return (SidebarSection.decorated(sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                         SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
             }) {
                 guard let self else { return }
@@ -251,6 +252,8 @@ final class SidebarBridge {
                                      tabTitle: tabTitle)
         if let creations { sections = CloudCreationRows.adding(creations.shown(in: window.id), to: sections) }
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
+        // Debug Settings: sample rows with 1 to 7 pending items, to compare the row badges.
+        if SidebarTunables.rowBadgePreview.value { sections += SidebarSection.rowBadgePreview() }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
     }

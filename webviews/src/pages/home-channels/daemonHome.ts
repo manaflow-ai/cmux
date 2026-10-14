@@ -11,13 +11,17 @@ import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import {
   HomeOps,
+  type HomeAttachment,
   type HomeConversation,
+  type HomeDerivedImage,
   type HomeEventBatch,
   type HomeMessage,
   type HomeParticipant,
   type HomePart,
   type HomeReaction,
   type HomeResolvedLink,
+  type HomeRun,
+  type HomeRunStep,
   type HomeThreadObject,
   type HomeThreadStats,
 } from "./types";
@@ -27,6 +31,10 @@ type Json = Record<string, unknown>;
 const LOCAL_USER = "user_local";
 /** `thread.update`, `Message.thread` and the thread object fields of the stats. */
 const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
+/** Attachment uploads, reads and download links on this WebSocket (local conversations). */
+const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
+/** The attachment steps the page may send (the owner checks every field). */
+const UPLOAD_STEPS = new Set(["begin", "chunk", "commit", "cancel"]);
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
@@ -37,6 +45,10 @@ const TAPBACK_EMOJI: Record<string, string> = {
   question: "❓",
 };
 const MAX_PAGE = 200;
+/** Agent runs (`conversation-run*`, the `conversation-run-changed` event for a page that asks). */
+const RUNS_CAPABILITY = "conversation-runs-v1";
+/** A Cloud Chief's runs through the daemon (`cloud-conversation-run*`). */
+const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 
 const time = (value: unknown): number => (typeof value === "string" ? Date.parse(value) || 0 : 0);
 const num = (value: unknown): number => (typeof value === "number" ? value : 0);
@@ -48,7 +60,8 @@ function participant(raw: Json): HomeParticipant {
   return {
     id: String(raw.id),
     kind: raw.kind === "agent" ? "agent" : "human",
-    name: chief ? "Chief" : String(raw.display_name ?? raw.id),
+    // Several Chiefs keep their own names; one without a name is "Chief".
+    name: String(raw.display_name || (chief ? "Chief" : raw.id)),
     chief,
   };
 }
@@ -75,18 +88,60 @@ function part(raw: Json): HomePart {
       };
     }
     case "attachment":
-      return {
-        type: "attachment",
-        name: String(raw.name ?? ""),
-        mimeType: String(raw.mime_type ?? ""),
-        byteCount: num(raw.byte_count),
-        hash: String(raw.hash ?? ""),
-      };
+      return attachmentPart(raw);
     case "link_preview":
       return { type: "other", text: String(raw.url ?? "") };
     default:
       return { type: "other", text: String(raw.type ?? "") };
   }
+}
+
+function derivedImage(raw: unknown): HomeDerivedImage | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const image = raw as Json;
+  return { hash: String(image.hash ?? ""), mimeType: String(image.mime_type ?? ""), byteCount: num(image.byte_count) };
+}
+
+function attachmentPart(raw: Json): HomeAttachment {
+  const part: HomeAttachment = {
+    type: "attachment",
+    name: String(raw.name ?? ""),
+    mimeType: String(raw.mime_type ?? ""),
+    byteCount: num(raw.byte_count),
+    hash: String(raw.hash ?? ""),
+  };
+  if (typeof raw.width === "number") part.width = raw.width;
+  if (typeof raw.height === "number") part.height = raw.height;
+  if (typeof raw.duration_ms === "number") part.durationMs = raw.duration_ms;
+  const poster = derivedImage(raw.poster);
+  if (poster) part.poster = poster;
+  const preview = derivedImage(raw.preview);
+  if (preview) part.preview = preview;
+  return part;
+}
+
+/** The owner's wire form of an attachment part the page sends. */
+function wireAttachment(value: unknown): Json {
+  if (!value || typeof value !== "object") throw pageError("cmux.page.invalid_params", "attachments");
+  const part = value as HomeAttachment;
+  const image = (derived: HomeDerivedImage) => ({
+    hash: String(derived.hash),
+    mime_type: String(derived.mimeType),
+    byte_count: num(derived.byteCount),
+  });
+  const wire: Json = {
+    type: "attachment",
+    hash: String(part.hash),
+    name: String(part.name),
+    mime_type: String(part.mimeType),
+    byte_count: num(part.byteCount),
+  };
+  if (typeof part.width === "number") wire.width = part.width;
+  if (typeof part.height === "number") wire.height = part.height;
+  if (typeof part.durationMs === "number") wire.duration_ms = part.durationMs;
+  if (part.poster) wire.poster = image(part.poster);
+  if (part.preview) wire.preview = image(part.preview);
+  return wire;
 }
 
 function reaction(raw: Json): HomeReaction {
@@ -128,12 +183,115 @@ export function message(raw: Json): HomeMessage {
   return result;
 }
 
+const opt = <T>(value: T | undefined | null): T | undefined => (value === null ? undefined : value);
+const optNum = (value: unknown): number | undefined => (typeof value === "number" ? value : undefined);
+const optStr = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+
+/** A run as the owner sends it (`conversation-runs-v1`, snake_case), in the page's shape. */
+export function run(raw: Json): HomeRun {
+  const status = ["running", "done", "failed", "cancelled"].includes(String(raw.status)) ? raw.status : "running";
+  const usage = raw.usage as Json | undefined;
+  const session = raw.session as Json | undefined;
+  const result: HomeRun = {
+    id: String(raw.id),
+    conversation: String(raw.conversation),
+    author: String(raw.author),
+    status: status as HomeRun["status"],
+    startedAt: num(raw.started_at),
+    // 0 when the owner does not say (a Cloud brain's runs): never read as stalled.
+    updatedAt: num(raw.updated_at),
+    rev: num(raw.rev),
+    stepCount: num(raw.step_count),
+    answers: ((raw.answers as unknown[] | undefined) ?? []).map(String),
+  };
+  if (typeof raw.ended_at === "number") result.endedAt = raw.ended_at;
+  for (const [from, to] of [
+    ["turn", "turn"],
+    ["thread_root", "threadRoot"],
+    ["title", "title"],
+    ["model", "model"],
+    ["harness", "harness"],
+    ["error", "error"],
+    ["workspace", "workspace"],
+  ] as const) {
+    const value = optStr(raw[from]);
+    if (value !== undefined) result[to] = value;
+  }
+  if (typeof raw.cost_usd === "number") result.costUsd = raw.cost_usd;
+  if (usage && typeof usage === "object")
+    result.usage = {
+      input: optNum(usage.input),
+      output: optNum(usage.output),
+      cacheRead: optNum(usage.cache_read),
+      cacheWrite: optNum(usage.cache_write),
+    };
+  if (session && typeof session === "object")
+    result.session = { kind: String(session.kind), id: String(session.id), host: opt(optStr(session.host)) };
+  return result;
+}
+
+/** A run step as the owner sends it, in the page's shape. */
+export function runStep(raw: Json): HomeRunStep {
+  const kind = ["talk", "thought", "tool", "note"].includes(String(raw.kind)) ? raw.kind : "note";
+  const status = ["running", "done", "failed"].includes(String(raw.status)) ? raw.status : undefined;
+  const tool = raw.tool as Json | undefined;
+  const result: HomeRunStep = {
+    id: String(raw.id),
+    seq: num(raw.seq),
+    at: num(raw.at),
+    rev: num(raw.rev),
+    kind: kind as HomeRunStep["kind"],
+    attachments: ((raw.attachments as Json[] | undefined) ?? []).map((item) => ({
+      hash: String(item.hash ?? ""),
+      name: String(item.name ?? ""),
+      mimeType: String(item.mime_type ?? ""),
+      byteCount: num(item.byte_count),
+      width: optNum(item.width),
+      height: optNum(item.height),
+      durationMs: optNum(item.duration_ms),
+    })),
+    links: ((raw.links as Json[] | undefined) ?? []).map((link) => ({
+      label: String(link.label ?? ""),
+      url: String(link.url ?? ""),
+    })),
+  };
+  if (status) result.status = status as HomeRunStep["status"];
+  if (typeof raw.text === "string") result.text = raw.text;
+  if (raw.truncated === true) result.truncated = true;
+  if (tool && typeof tool === "object") {
+    result.tool = {
+      name: String(tool.name ?? "tool"),
+      kind: optStr(tool.kind),
+      title: optStr(tool.title),
+      input: tool.input,
+      output: optStr(tool.output),
+      outputTruncated: tool.output_truncated === true || undefined,
+      exitCode: optNum(tool.exit_code),
+      startedAt: optNum(tool.started_at),
+      endedAt: optNum(tool.ended_at),
+      files: ((tool.files as Json[] | undefined) ?? []).map((file) => ({
+        path: String(file.path ?? ""),
+        oldText: optStr(file.old_text),
+        newText: optStr(file.new_text),
+        added: optNum(file.added),
+        removed: optNum(file.removed),
+        line: optNum(file.line),
+      })),
+    };
+  }
+  return result;
+}
+
 function plain(raw: Json | undefined): string | undefined {
   if (!raw || raw.retracted_at) return undefined;
-  return ((raw.parts as Json[] | undefined) ?? [])
+  const parts = (raw.parts as Json[] | undefined) ?? [];
+  const text = parts
     .map((item) => (item.type === "text" ? String(item.text ?? "") : ""))
     .join(" ")
-    .slice(0, 200);
+    .trim();
+  // A message of files only previews their names (the page has no wording here).
+  const files = parts.filter((item) => item.type === "attachment").map((item) => String(item.name ?? ""));
+  return (text || files.join(", ")).slice(0, 200);
 }
 
 export function conversation(raw: Json, me: string): HomeConversation {
@@ -162,6 +320,15 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
+  // The last message's time orders the list even when it was deleted (a read never moves a row).
+  if (last) result.lastAt = time(last.created_at);
+  if (last && !last.retracted_at) {
+    result.lastAuthor = String(last.author);
+    const work = ((last.parts as Json[] | undefined) ?? []).find((item) => item.type === "work");
+    const status = work && String(work.status);
+    if (status === "running" || status === "waiting" || status === "done" || status === "failed")
+      result.lastWork = status;
+  }
   return result;
 }
 
@@ -209,7 +376,7 @@ export class DaemonHomeClient implements PageClient {
     this.streamStarted ??= (async () => {
       await this.daemon.request("set-client-info", {
         name: "cmux page: home-channels",
-        capabilities: ["conversation-draft-events-v1"],
+        capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY],
       });
       await this.daemon.request("subscribe");
     })().catch((error) => {
@@ -373,9 +540,12 @@ export class DaemonHomeClient implements PageClient {
         });
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
-        if (!text || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
+        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
+        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
-        const send: Json = { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] };
+        const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
+        const send: Json = { kind: "message.send", client_msg_id: key, parts };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
         // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
         if (typeof params.replyTo === "string" && params.replyTo)
@@ -419,11 +589,135 @@ export class DaemonHomeClient implements PageClient {
           throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
         return this.submit(str(params, "conversation"), this.key(params, options), update);
       }
+      case HomeOps.runs: {
+        const id = str(params, "conversation");
+        if (this.cloud.owns(id)) return this.cloudRuns(id, params);
+        if (!(await this.capable(RUNS_CAPABILITY))) return { runs: [], hasMore: false };
+        const turns = ((params.turns as unknown[] | undefined) ?? []).filter(
+          (turn): turn is string => typeof turn === "string" && turn.length > 0 && turn.length <= 128,
+        );
+        const request: Json = { conversation: id };
+        if (turns.length > 0) request.turns = turns.slice(0, 200);
+        else request.limit = Math.min(bounded(params.limit, 50), 200);
+        const found = await this.read("conversation-runs", id, request);
+        return {
+          runs: ((found.runs as Json[] | undefined) ?? []).map(run),
+          hasMore: found.has_more === true,
+        };
+      }
+      case HomeOps.run: {
+        const id = str(params, "conversation");
+        // A Cloud Chief's run is read from its brain by agent, steps after a seq (no revisions).
+        const page = this.cloud.owns(id)
+          ? await this.cloud.read("cloud-conversation-run", {
+              conversation: id,
+              agent: str(params, "agent", 128),
+              run: str(params, "run", 128),
+              after_seq: Math.max(0, num(params.afterSeq)),
+            })
+          : await this.read("conversation-run", id, {
+              conversation: id,
+              run: str(params, "run", 128),
+              after_rev: Math.max(0, num(params.afterRev)),
+            });
+        return {
+          run: run(page.run as Json),
+          steps: ((page.steps as Json[] | undefined) ?? []).map(runStep),
+          hasMore: page.has_more === true,
+        };
+      }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
+      case HomeOps.attachmentSupport:
+        // Cloud conversations take attachments once the daemon proxies the cloud upload.
+        return { local: await this.capable(WS_ATTACHMENTS_CAPABILITY), cloud: false };
+      case HomeOps.attachmentUpload:
+        return this.attachmentUpload(params);
+      case HomeOps.attachmentRead: {
+        const id = str(params, "conversation");
+        this.localAttachments(id);
+        const read: Json = { conversation: id, hash: str(params, "hash", 64) };
+        if (typeof params.variant === "string") read.variant = params.variant;
+        if (typeof params.offset === "number") read.offset = params.offset;
+        if (typeof params.length === "number") read.length = params.length;
+        const bytes = await this.daemon.request<Json>("conversation-attachment-read", read);
+        return {
+          mimeType: String(bytes.mime_type ?? ""),
+          byteCount: num(bytes.byte_count),
+          offset: num(bytes.offset),
+          data: String(bytes.data ?? ""),
+          eof: bytes.eof === true,
+        };
+      }
+      case HomeOps.attachmentUrl: {
+        const id = str(params, "conversation");
+        this.localAttachments(id);
+        const request: Json = { conversation: id, hash: str(params, "hash", 64) };
+        if (typeof params.variant === "string") request.variant = params.variant;
+        if (typeof params.name === "string" && params.name) request.name = params.name;
+        const link = await this.daemon.request<Json>("conversation-attachment-link", request);
+        // The link is a path on the daemon's own listener: this connection's origin.
+        const base = this.daemon.url.replace(/^ws/, "http");
+        return { url: new URL(String(link.path), base).toString(), expiresInMs: num(link.expires_in_ms) };
+      }
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
+  }
+
+  /** Attachments of a Cloud conversation need the daemon's cloud upload (not yet): say so. */
+  private localAttachments(conversationId: string): void {
+    if (this.cloud.owns(conversationId))
+      throw pageError("cmux.page.unavailable", "attachments of cloud conversations are not available here yet");
+  }
+
+  /** One upload step for the local owner (`conversation-attachment-upload`), fields as the owner names them. */
+  private async attachmentUpload(params: Json): Promise<unknown> {
+    const op = str(params, "op", 16);
+    if (!UPLOAD_STEPS.has(op)) throw pageError("cmux.page.invalid_params", "op");
+    if (op === "begin") this.localAttachments(str(params, "conversation"));
+    const request: Json = { op };
+    for (const field of [
+      "conversation",
+      "sha256",
+      "byte_count",
+      "mime_type",
+      "name",
+      "width",
+      "height",
+      "duration_ms",
+      "poster",
+      "preview",
+      "upload",
+      "piece",
+      "offset",
+      "data",
+    ])
+      if (params[field] !== undefined) request[field] = params[field];
+    return this.daemon.request("conversation-attachment-upload", request);
+  }
+
+  /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
+   * agent), merged newest first. A daemon without the proxy answers nothing. */
+  private async cloudRuns(id: string, params: Json): Promise<{ runs: HomeRun[]; hasMore: boolean }> {
+    // The brain lists newest first only: a read by reply keys has nothing more to find.
+    if (!(await this.capable(CLOUD_RUNS_CAPABILITY)) || Array.isArray(params.turns))
+      return { runs: [], hasMore: false };
+    const agents = (this.cloud.summary(id)?.participants ?? [])
+      .filter((participant) => participant.kind === "agent")
+      .map((participant) => participant.id)
+      .slice(0, 8);
+    const limit = Math.min(bounded(params.limit, 20), 100);
+    const lists = await Promise.all(
+      agents.map((agent) =>
+        this.cloud
+          .read("cloud-conversation-runs", { conversation: id, agent, limit })
+          .then((found) => ((found.runs as Json[] | undefined) ?? []).map(run))
+          .catch(() => [] as HomeRun[]),
+      ),
+    );
+    const runs = lists.flat().sort((a, b) => b.startedAt - a.startedAt);
+    return { runs, hasMore: false };
   }
 
   /** A channel of the local user and known local participants (the Chief when none is named);
@@ -489,6 +783,12 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.run) {
+            const changed = run(cloud.run.run);
+            // A Cloud brain's run carries no update time: this event is its newest change.
+            if (!changed.updatedAt) changed.updatedAt = Date.now();
+            (batch.runs ??= []).push({ run: changed, steps: cloud.run.steps.map(runStep) });
+          }
         });
       } else if (event.event === "conversation-changed") {
         const change = (event.change ?? {}) as Json;
@@ -524,6 +824,13 @@ export class DaemonHomeClient implements PageClient {
             text: String(item.text ?? ""),
             fresh: item.fresh === true,
             done: item.done === true,
+          }),
+        );
+      } else if (event.event === "conversation-run-changed" && event.run) {
+        deliver((batch) =>
+          (batch.runs ??= []).push({
+            run: run(event.run as Json),
+            steps: ((event.steps as Json[] | undefined) ?? []).map(runStep),
           }),
         );
       } else if (event.event === "overflow") {

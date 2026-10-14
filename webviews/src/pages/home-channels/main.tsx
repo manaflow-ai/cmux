@@ -14,16 +14,18 @@ import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
+import "./paneStrings";
 import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
-import { HomeChannelsStore } from "./store";
-import { DaemonGate, InstanceBar, type DaemonSource, type HostCredential } from "./DaemonGate";
+import { HomeChannelsStore, PendingCarry } from "./store";
+import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
 import "./styles.css";
+import "./ledger.css";
 import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountHomeChannelsPage(
@@ -54,13 +56,14 @@ export function mountDaemonHomeChannelsPage(
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("page.title");
+  // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
+  const carry = new PendingCarry();
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DaemonGate source={source} strings={strings}>
-        {(daemon, pages) => (
+        {(daemon) => (
           <div className="hc-daemon">
-            <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
-            <DaemonHome daemon={daemon} strings={strings} />
+            <DaemonHome daemon={daemon} strings={strings} carry={carry} />
           </div>
         )}
       </DaemonGate>
@@ -69,8 +72,8 @@ export function mountDaemonHomeChannelsPage(
 }
 
 /** One store per daemon connection (a render never makes a second one). */
-function DaemonHome({ daemon, strings }: { daemon: DaemonSocket; strings: Strings }) {
-  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon)));
+function DaemonHome({ daemon, strings, carry }: { daemon: DaemonSocket; strings: Strings; carry: PendingCarry }) {
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon), carry));
   // Web links: homeLinks.ts sends them to workspace.open_url, but the daemon takes that operation
   // from a page only with the person's confirmation (page-router gesture list), which this
   // WebSocket cannot present yet. Until the host relays the click with a confirmation

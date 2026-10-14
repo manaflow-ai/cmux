@@ -139,6 +139,15 @@ extension TabStripView {
         groupEditor.show(group: item, anchor: anchor, parent: window, themeAnchor: self)
     }
 
+    /// The group's full menu under its chip (the editor's More row; Option-right-click).
+    func showGroupMenu(for group: TabGroupID) {
+        guard let menu = contextMenuProvider?(.group(group)), !menu.items.isEmpty, let chip = groups.chips[group] else { return }
+        let frame = tabsClip.convert(chip.frame, to: self)
+        beginMenuTracking(menu)
+        menu.popUp(positioning: nil, at: CGPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2), in: self)
+        endMenuTracking()
+    }
+
     /// Click-and-hold on a chip opens the editor.
     func startChipHold(_ group: TabGroupID) {
         groups.holdTask?.cancel()

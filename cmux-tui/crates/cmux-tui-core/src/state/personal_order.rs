@@ -11,7 +11,6 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde_json::Value;
 
 use super::values::{local_registry_id, workspace_public_id_for_key};
 use crate::user_settings::NewWorkspacePlacement;
@@ -141,6 +140,20 @@ pub(crate) fn place_created_workspaces_at(
     created: &CreatedWorkspaces,
     placement: NewWorkspacePlacement,
 ) -> anyhow::Result<()> {
+    place_created_rows(transaction, created, placement)?;
+    if !created.keys.is_empty() {
+        // sidebar-doc-v1: the new workspaces are adopted into their machine
+        // section at the place their personal rows got.
+        super::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
+}
+
+fn place_created_rows(
+    transaction: &Transaction<'_>,
+    created: &CreatedWorkspaces,
+    placement: NewWorkspacePlacement,
+) -> anyhow::Result<()> {
     if created.keys.is_empty() || !super::store::state_tables_ready(transaction)? {
         return Ok(());
     }
@@ -197,11 +210,8 @@ pub(crate) fn place_created_workspaces_at(
     }
     // The new rows and every row after them moved, and group slots after
     // them: clients that rebuild from events get each of those.
-    let moved =
-        |change: &Value| change["value"]["index"].as_u64().is_some_and(|row| row >= index as u64);
-    for change in super::personal::all_placements(transaction)?.into_iter().filter(moved) {
-        super::closed_history_store::queue_change(transaction, &change)?;
-    }
+    let changes = super::personal::placements_in(transaction, index..=usize::MAX)?;
+    super::closed_history_store::queue_changes(transaction, &changes)?;
     let slots = read_groups(transaction)?;
     for change in super::personal::all_groups(transaction)?.into_iter().filter(|change| {
         let id = change["id"].as_str();

@@ -37,6 +37,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationLinkResolveResult, "truncated");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
+    try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
+    try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
     try expectExplicitNullRejected(protocol.ConversationSnapshotResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -55,6 +57,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.MoveTabToColumnRequest, "keep_focus");
+    try expectExplicitNullRejected(protocol.MoveTabToSplitRequest, "keep_focus");
     try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
     try expectExplicitNullRejected(protocol.NewFrontendBrowserTabRequest, "activate");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
@@ -77,6 +81,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
     try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
@@ -142,6 +147,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "authentication");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "clients");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
     try expectExplicitNullRejected(protocol.ConversationChange, "conversation");
     try expectExplicitNullRejected(protocol.ConversationChange, "message");

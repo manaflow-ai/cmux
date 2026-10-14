@@ -62,7 +62,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -287,13 +287,8 @@ public final class SidebarView: NSView {
 
     // MARK: Titlebar row
 
-    /// The header row beside the traffic lights is titlebar: it moves the
-    /// window, and a double-click zooms or minimizes (the user's macOS
-    /// setting). Its buttons take their own clicks.
-    override public func mouseDown(with event: NSEvent) {
-        guard convert(event.locationInWindow, from: nil).y < titlebarHeight else { return super.mouseDown(with: event) }
-        WindowTitlebar.handleMouseDown(event, in: window)
-    }
+    // The header row beside the traffic lights is titlebar: the window moves
+    // it and runs the double-click action (`titlebarPress`, below).
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -355,7 +350,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
+                    cards: SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
                 )
             }) {
                 self?.render(state)
@@ -397,5 +392,17 @@ public final class SidebarView: NSView {
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+    }
+}
+
+// The header row beside the traffic lights is titlebar: a press there moves the
+// window and a double-click runs the user's action, both from the window's one
+// decision (`TitlebarDragPolicy`). The + button and the accessory take their own.
+extension SidebarView: TitlebarPressDeciding {
+    public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
+        let point = convert(windowPoint, from: nil)
+        guard point.y < titlebarHeight else { return .staysPut }
+        let controls = [newButton as NSView?, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

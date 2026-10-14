@@ -688,10 +688,16 @@ pub(crate) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<Pers
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// The position of a new last row: a gap after the last one, so later
+/// moves next to it need no renumbering
+/// ([`super::personal_mutations::row_position`]).
 pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
     Ok(connection.query_row(
-        "SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces",
-        [],
+        "SELECT COALESCE(MAX(position) + ?1, ?2) FROM personal_workspaces",
+        rusqlite::params![
+            super::personal_mutations::row_position::GAP,
+            super::personal_mutations::row_position::FIRST
+        ],
         |row| row.get::<_, i64>(0),
     )?)
 }
@@ -712,6 +718,8 @@ pub(crate) fn commit_personal(
         object.insert("personal_revision".into(), json!(revision));
     }
     append_presentation_record(transaction, kind, subjects, &payload)?;
+    // sidebar-doc-v1: the sidebar document follows the old personal write.
+    crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
     Ok(revision)
 }
 

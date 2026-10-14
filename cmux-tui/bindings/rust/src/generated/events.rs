@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 442dff11d53dfe645fc5ba440d155e195aa7731c5bcae322ad5f01627e4f886e.
+// cmux-tui mux protocol 12, IR 63b0df7a776267c3d7bddccc9c36fd5efc7ad0a9122bdbb7882dbbfe3d20e8eb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -21,6 +21,9 @@ pub struct AgentChangedEvent {
     /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub last_prompt: Optional<String>,
     pub session: Nullable<String>,
     /// When the agent entered \`state\` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use \`updated_at_ms\`.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -154,6 +157,16 @@ pub struct CloudConversationResyncedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationRunChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudInboxChangedEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
@@ -250,6 +263,14 @@ pub struct ConversationDraftEvent {
     pub conversation: String,
     pub item: T::JsonValue,
     pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationRunChangedEvent {
+    pub conversation: String,
+    pub run: Nullable<T::JsonValue>,
+    pub steps: Vec<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -864,6 +885,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     CloudConversationChanged(CloudConversationChangedEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
+    CloudConversationRunChanged(CloudConversationRunChangedEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -874,6 +896,7 @@ pub enum Event {
     ConfigReloadRequested(ConfigReloadRequestedEvent),
     ConversationChanged(ConversationChangedEvent),
     ConversationDraft(ConversationDraftEvent),
+    ConversationRunChanged(ConversationRunChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -947,6 +970,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::CloudConversationChanged(_) => Some("cloud-conversation-changed"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
+            Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -957,6 +981,7 @@ impl Event {
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
             Self::ConversationChanged(_) => Some("conversation-changed"),
             Self::ConversationDraft(_) => Some("conversation-draft"),
+            Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -1029,6 +1054,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::CloudConversationChanged(_) => Some(&CLOUD_CONVERSATION_CHANGED_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
+            Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1039,6 +1065,7 @@ impl Event {
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
             Self::ConversationChanged(_) => Some(&CONVERSATION_CHANGED_EVENT_METADATA),
             Self::ConversationDraft(_) => Some(&CONVERSATION_DRAFT_EVENT_METADATA),
+            Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -1198,6 +1225,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("cloud-inbox-changed") => match serde_json::from_value::<CloudInboxChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudInboxChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -1272,6 +1307,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-draft") => match serde_json::from_value::<ConversationDraftEvent>(raw.clone()) {
             Ok(event) => Event::ConversationDraft(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-run-changed") => match serde_json::from_value::<ConversationRunChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationRunChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

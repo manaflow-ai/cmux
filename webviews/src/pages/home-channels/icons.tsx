@@ -20,7 +20,17 @@ export type HomeIconName =
   | "addReaction"
   | "more"
   | "close"
-  | "chevronRight";
+  | "chevronRight"
+  | "plus"
+  | "search"
+  | "check"
+  | "threads"
+  | "hash"
+  | "command"
+  | "attach"
+  | "download"
+  | "video"
+  | "chevronLeft";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -88,6 +98,28 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   ),
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
+  chevronLeft: <path d="m12 5-5 5 5 5" />,
+  attach: <path d="m15.5 9.5-5.8 5.8a3.6 3.6 0 0 1-5.1-5.1l6.2-6.2a2.4 2.4 0 0 1 3.4 3.4l-6.1 6.1a1.2 1.2 0 0 1-1.7-1.7l5.5-5.5" />,
+  download: <path d="M10 3.5v9M6 9l4 4 4-4M4.5 16h11" />,
+  video: (
+    <>
+      <rect x="3" y="5" width="10" height="10" rx="2" />
+      <path d="m13 8.5 4-2.5v8l-4-2.5" />
+    </>
+  ),
+  plus: <path d="M10 4.5v11M4.5 10h11" />,
+  search: (
+    <>
+      <circle cx="9" cy="9" r="5" />
+      <path d="m12.8 12.8 3.7 3.7" />
+    </>
+  ),
+  check: <path d="m5 10.5 3.2 3L15 6.5" />,
+  threads: <path d="M4 5h12M4 10h12M4 15h7" />,
+  hash: <path d="M8 3.5 6.5 16.5M13.5 3.5 12 16.5M4 7.5h12.5M3.5 12.5H16" />,
+  command: (
+    <path d="M7.5 7.5h5v5h-5zM7.5 7.5V6a1.5 1.5 0 1 0-1.5 1.5zM12.5 7.5V6A1.5 1.5 0 1 1 14 7.5zM7.5 12.5V14A1.5 1.5 0 1 1 6 12.5zM12.5 12.5V14a1.5 1.5 0 1 0 1.5-1.5z" />
+  ),
 };
 
 export function HomeIcon({ name, size = 20 }: { name: HomeIconName; size?: number }) {
