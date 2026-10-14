@@ -290,7 +290,9 @@
 /* The top row is a compact control rail. Keep the selected value visible so the
    model, effort, and access choices can be scanned without opening a menu. */
 .acpmux-composer-bar .acpmux-chips {
-  gap: 2px;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-width: 0;
 }
 .acpmux-composer-bar .acpmux-mode-text {
   display: inline;
@@ -312,6 +314,15 @@
   height: 30px;
   border-radius: 8px;
   color: var(--agent-muted);
+}
+.acpmux-composer-bar .acpmux-model,
+.acpmux-composer-bar .acpmux-effort {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.acpmux-composer-bar .acpmux-model .acpmux-picker-button,
+.acpmux-composer-bar .acpmux-effort .acpmux-picker-button {
+  max-width: none;
 }
 .acpmux-composer-bar .acpmux-access.acpmux-unrestricted .acpmux-picker-button {
   color: var(--acpmux-warning);
@@ -375,7 +386,8 @@
 /* The composer is one material surface. The location scope is quiet metadata at its lower edge,
    so it cannot read as a second box over wallpaper or add a full-width divider. */
 .acpmux-composer-box {
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  --acpmux-composer-surface: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  background: var(--acpmux-composer-surface);
   box-shadow:
     0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
     inset 0 0 0 .5px color-mix(in srgb, var(--agent-text) 16%, transparent);
@@ -391,7 +403,7 @@
   padding-inline: 12px;
   border: 0;
   border-radius: 0 0 var(--acpmux-composer-radius) var(--acpmux-composer-radius);
-  background: transparent;
+  background: var(--acpmux-composer-surface, var(--acpmux-composer-bg));
   box-shadow: none;
 }
 .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker {
@@ -403,8 +415,8 @@
 }
 .acpmux-composer-bar .acpmux-chips-spacer {
   display: block;
-  flex: 1 1 auto;
-  min-width: 8px;
+  flex: 1 1 12px;
+  min-width: 4px;
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));
