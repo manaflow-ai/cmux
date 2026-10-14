@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{Command, MessageWriter, Mux, Response, handle_command_with_cancellation, responses};
 use crate::cloud_conversations::{
-    CloudConversations, CloudError, OpRequest, SessionParams, Target,
+    CloudConversations, CloudError, InboxOpRequest, OpRequest, SessionParams, Target,
 };
 use crate::conversation_store::LOCAL_USER;
 
@@ -101,6 +101,23 @@ impl From<OpParams> for OpRequest {
     fn from(params: OpParams) -> Self {
         let OpParams { conversation, idempotency_key, origin, op } = params;
         OpRequest { conversation, idempotency_key, origin, op }
+    }
+}
+
+/// `cloud-inbox-op` (`conversation-inbox-state-v1`): the person's own pin or
+/// "marked unread" of one cloud conversation (UserDO `inbox.pin`,
+/// `inbox.mark_unread`).
+#[derive(Deserialize)]
+pub(super) struct InboxOpParams {
+    conversation: String,
+    idempotency_key: String,
+    op: Value,
+}
+
+impl From<InboxOpParams> for InboxOpRequest {
+    fn from(params: InboxOpParams) -> Self {
+        let InboxOpParams { conversation, idempotency_key, op } = params;
+        InboxOpRequest { conversation, idempotency_key, op }
     }
 }
 
@@ -332,6 +349,27 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
     Ok(service.op(&OpRequest::from(params))?)
 }
 
+/// The person's own list state: only the person's clients (the verified
+/// app, an authenticated page) write it, never a brain on its chief lease.
+pub(super) fn inbox_op(mux: &Mux, client: u64, params: InboxOpParams) -> anyhow::Result<Value> {
+    let service = lease_user(mux, client)?;
+    check_person(mux, client)?;
+    Ok(service.inbox_op(&InboxOpRequest::from(params))?)
+}
+
+fn check_person(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    if is_person(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "cloud-inbox-op requires the verified cmux app connection or the person's authenticated page"
+            .into(),
+        retryable: false,
+    }
+    .into())
+}
+
 pub(super) fn subscribe(
     mux: &Mux,
     client: u64,
@@ -394,6 +432,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
             | Command::CloudConversationRuns(_)
             | Command::CloudConversationRun(_)
             | Command::CloudConversationOp(_)
+            | Command::CloudInboxOp(_)
             | Command::CloudMuxAck(_)
     )
 }
@@ -449,6 +488,14 @@ pub(super) fn start(
                 conversation: params.conversation.clone(),
                 idempotency_key: params.idempotency_key.clone(),
                 origin: params.origin.clone(),
+                op: params.op.clone(),
+            })?;
+        }
+        if let Command::CloudInboxOp(params) = &cmd {
+            check_person(mux, client)?;
+            service.check_inbox_op(&InboxOpRequest {
+                conversation: params.conversation.clone(),
+                idempotency_key: params.idempotency_key.clone(),
                 op: params.op.clone(),
             })?;
         }
