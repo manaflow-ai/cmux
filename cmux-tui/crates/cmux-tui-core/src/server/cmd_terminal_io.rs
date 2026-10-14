@@ -93,6 +93,8 @@ pub(super) fn send(
     };
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
+    // Bytes queued for this terminal while it was being created go first.
+    mux.wait_for_creating_input_flush(&surface);
     if paste {
         let mut payload = text.unwrap_or_default().into_bytes();
         if let Some(b64) = bytes {
@@ -323,6 +325,7 @@ pub(super) fn send_key(
         }
         Ok::<(), anyhow::Error>(())
     })??;
+    mux.wait_for_creating_input_flush(&surface);
     surface.write_bytes(&encoded)?;
     mux.note_terminal_input(surface.id, client);
     Ok(json!({}))

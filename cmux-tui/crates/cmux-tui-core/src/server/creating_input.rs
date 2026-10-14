@@ -27,7 +27,7 @@ impl Command {
     }
 }
 
-/// `send {terminal_id}`: the same semantics as `terminal.input.write`. The connection's own
+/// `send {terminal_id}`: write to the live terminal, or queue for a creating one. The connection's own
 /// event queue gets a `terminal-input-unclaimed` notice if queued bytes are given back.
 #[allow(clippy::too_many_arguments)] // the `send` command's fields, plus the connection
 pub(super) fn send_to_terminal(
@@ -47,6 +47,11 @@ pub(super) fn send_to_terminal(
         payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
     }
     if payload.is_empty() {
+        // Nothing to write, but the id must still name a live or creating terminal.
+        anyhow::ensure!(
+            mux.knows_terminal_input_target(&terminal_id),
+            "unknown terminal {terminal_id}"
+        );
         return Ok(json!({}));
     }
     let notice_writer = writer.clone();

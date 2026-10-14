@@ -1424,17 +1424,24 @@ Params:
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
-*creating* when the daemon receives the request, before its host starts. Input for a creating id is not
+*creating* when the daemon receives the request, before its host starts. (A request whose id a live
+terminal or an earlier creation still in flight already has does not.) Input for a creating id is not
 written yet: it is queued in one FIFO per id, in arrival order across connections, and the result is
-`{queued:true}`. At most 65536 bytes wait for one id; a request that would pass that fails with error code
-`input.overflow` and queues nothing. When the creation committed and its terminal is live, the queue is
-written to it in order, before any input that arrives later. When the creation fails, its connection closes
-first, or it has not ended 10 seconds after the first queued byte, nothing is written: each connection that
-queued bytes gets them back, in order, in one `terminal-input-unclaimed` control event
-([events.md](events.md#terminal-input-unclaimed)) with `reason` `failed`, `cancelled`, `expired` or
-`write-failed`, so the client can give them to the terminal that has focus. Authority is the same as for a live
-`send {surface}`: a local connection may queue input for a creating id; a remote relay connection may not
-send in either form (the relay refuses `send` before it is parsed). After the creation ended, `terminal_id` writes to the live terminal at once.
+`{queued:true}`. At most 65536 bytes wait for one id; a request that would take the queue over that fails
+with error code `input.overflow` and queues nothing. When the creation committed and its terminal is live,
+the queue is written to it in order. Until that write ended, input by `terminal_id` still joins the queue
+(`{queued:true}`), and input to the new terminal by any other path (`send {surface}`, `send-key`, the
+`terminal.input.*` resource operations) waits for it, so queued bytes precede all later input. When the
+creation fails, its connection closes first, or it has not ended 10 seconds after the first queued byte,
+nothing of the queue is written: each connection that queued bytes gets them back, in order, in one
+`terminal-input-unclaimed` control event ([events.md](events.md#terminal-input-unclaimed)) with `reason`
+`failed`, `cancelled` or `expired`, so the client can give them to the terminal that has focus. When a write
+of the queue fails, the bytes before it were written and the rest come back with `reason` `write-failed`.
+After an expiry the creation itself may still commit; until it does, `terminal_id` gets `unknown terminal`.
+Authority is the same as for a live `send {surface}`: a local connection may queue input for a creating id;
+a remote relay connection may not send in either form (the relay refuses `send` before it is parsed).
+After the queue was written, `terminal_id` writes to the live terminal at once. An empty payload writes
+nothing but still fails with `unknown terminal` for an id that is neither live nor creating.
 
 Result:
 
@@ -1448,7 +1455,7 @@ Errors:
 | --- | --- |
 | `unknown surface <id>` | Surface id does not exist |
 | `unknown terminal <id>` | `terminal_id` names no live or creating terminal |
-| `input.overflow` (error code) | The creating terminal already holds 65536 queued bytes with this request |
+| `input.overflow` (error code) | The request would take the creating terminal's queue over 65536 bytes; nothing was queued |
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | base64 decode error | `bytes` is not valid standard base64 |
 | IO error string | PTY write fails |

@@ -35,9 +35,9 @@ struct CreationSlot {
     launched: Mutex<Option<Option<String>>>,
     /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
     trace: Mutex<Option<crate::debug_spans::Trace>>,
-    /// The caller-minted terminal id, creating from submit to commit
-    /// (`terminal-input-while-creating-v1`: input for it waits, `mux::creating_input`).
-    creating_terminal: Option<String>,
+    /// The caller-minted terminal id whose input queue this creation owns, with its generation:
+    /// creating from submit to commit (`terminal-input-while-creating-v1`, `mux::creating_input`).
+    creating_terminal: Option<(String, u64)>,
 }
 
 impl Command {
@@ -174,10 +174,9 @@ impl ConnectionSurfaceScheduler {
             _ => "create",
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
-        let creating_terminal = pending.request.cmd.created_terminal_id();
-        if let Some(terminal_id) = &creating_terminal {
-            mux.begin_creating_input(terminal_id);
-        }
+        let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
+            mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
+        });
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
@@ -274,8 +273,8 @@ impl ConnectionSurfaceScheduler {
         };
         // Input queued for the new terminal goes to it now, before any later input, or back to
         // its senders when the create failed or was dropped.
-        if let Some(terminal_id) = &slot.creating_terminal {
-            mux.finish_creating_input(terminal_id, cancelled.then_some("cancelled"));
+        if let Some((terminal_id, generation)) = &slot.creating_terminal {
+            mux.finish_creating_input(terminal_id, *generation, cancelled.then_some("cancelled"));
         }
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());

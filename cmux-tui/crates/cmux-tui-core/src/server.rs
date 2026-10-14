@@ -859,7 +859,7 @@ enum Command {
         #[serde(default)]
         surface: Option<SurfaceId>,
         /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-        /// being created (the input waits for it; the same semantics as `terminal.input.write`).
+        /// being created (the input is queued for it, `mux::creating_input`).
         #[serde(default)]
         terminal_id: Option<String>,
         #[serde(default)]
