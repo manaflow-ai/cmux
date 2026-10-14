@@ -83,7 +83,7 @@ impl Brain {
             .name("turn".into())
             .spawn(move || {
                 // Section 6, as the chief changed it (2026-10-10: a user turn
-                // never waits more than 10 s on compaction): the turn waits
+                // never waits more than SETTLE_BOUND on compaction): the turn waits
                 // until every view line is a summary, at most SETTLE_BOUND.
                 // Then it starts anyway and reads the lines still building
                 // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
@@ -295,7 +295,7 @@ impl Brain {
     /// have lost acpmux (the turn would fail at once and consume the queue)
     /// or appended to the log (an orphan's fold), which can leave a view line
     /// unsummarized again; then the queue stays and the wait starts over.
-    /// Chief 2026-10-10: a user turn never waits more than 10 s on
+    /// A user turn never waits more than SETTLE_BOUND (1 s) on
     /// compaction (README, Deviations from the spec, Section 6).
     /// `deferred`: the worker waited SETTLE_BOUND and starts the turn with
     /// lines still building (they read as the placeholder).

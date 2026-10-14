@@ -322,6 +322,7 @@ _cmux_now() {
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 typeset -g _CMUX_GROK_WRAPPER=""
+typeset -g _CMUX_MUSE_WRAPPER=""
 # Sets REPLY to PATH-style $2 with $1 moved to the front (and $3 dropped),
 # without the subshell a command substitution would fork.
 _cmux_path_prepend_unique_directory_into_reply() {
@@ -593,7 +594,9 @@ _cmux_install_cli_wrapper() {
     fi
 }
 _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
 _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+_cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
@@ -1102,6 +1105,20 @@ _cmux_reset_terminal_keyboard_protocols() {
     # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
     # prompt, return terminal input encoding to plain readline bytes.
     printf '\033[>m\033[<8u'
+}
+
+_cmux_reset_terminal_leftover_modes() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}" ]] || return 0
+    # A TUI killed mid-run (SIGKILL, a crash) leaves its modes on: mouse
+    # reporting types reports like 35;1;13M at the prompt. The shell is the
+    # foreground job here, before its line editor turns bracketed paste back
+    # on. A hidden cursor comes back. Cursor-key mode (?1) stays:
+    # zle sets it after this hook.
+    printf '\033[?9l\033[?1000l\033[?1002l\033[?1003l\033[?1005l\033[?1006l\033[?1015l\033[?1016l\033[?1004l\033[?2004l\033[?25h'
+    # Leaving the alternate screen restores a saved cursor; ESC 7 makes that
+    # the prompt's own spot on Ghostty's primary screen. tmux and screen keep
+    # the 1049 cursor apart from ESC 7, so there the prompt would jump.
+    [[ -n "${TMUX:-}${STY:-}" ]] || printf '\033\067\033[?1049l'
 }
 
 _cmux_ports_kick() {
@@ -2199,6 +2216,7 @@ _cmux_precmd() {
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_leftover_modes
         _cmux_reset_terminal_keyboard_protocols
     fi
     if [[ -n "$CMUX_PANEL_ID" ]] || (( ! cmux_has_unix_socket )); then
@@ -2389,7 +2407,9 @@ _cmux_fix_path() {
         fi
     fi
     _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper agy _CMUX_AGY_WRAPPER
     _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+    _cmux_install_cli_wrapper muse _CMUX_MUSE_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
