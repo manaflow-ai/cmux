@@ -223,3 +223,24 @@ class Mac:
                 if m:
                     return m.group(1)
         return None
+
+
+    def link_events(self, since):
+        """[(epoch, "up"|"down")] from cnx-hostd's log after `since` (same host clock)."""
+        import datetime
+        path = os.path.join(self.hostd_state, "cnx-hostd.log")
+        out = []
+        if not os.path.exists(path):
+            return out
+        for line in open(path, errors="replace"):
+            m = re.match(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+)Z .*cnx_hostd::host: link (up|down)", line)
+            if not m:
+                continue
+            ts = datetime.datetime.strptime(m.group(1)[:26], "%Y-%m-%dT%H:%M:%S.%f").replace(tzinfo=datetime.timezone.utc).timestamp()
+            if ts >= since:
+                out.append((ts, m.group(2)))
+        return out
+
+    def computer_name(self):
+        r = subprocess.run(["scutil", "--get", "ComputerName"], capture_output=True, text=True)
+        return r.stdout.strip() or "Mac"

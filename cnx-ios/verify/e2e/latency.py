@@ -166,11 +166,12 @@ class Latency:
         return (0, 150, 402, 300)
 
     def cold_connect(self):
-        """Kill + launch -> Workspaces list showing the rig Mac's rows and Connected."""
+        """Kill + launch. Two numbers per launch: the Mac sees the phone's link up
+        (cnx-hostd log, same host clock), and the list region settles with the Mac's rows (video)."""
         j = self.j
         j.back_to_list()
         region = self._list_region()
-        samples = []
+        samples, links = [], []
         vid = self.video("cold_connect")
         t_rec = self.sim.record_start(vid)
         launches = []
@@ -180,10 +181,16 @@ class Latency:
             # -cnx-tab (DEBUG) only picks the first tab, so the list is on screen from launch.
             t = self.sim.launch("dev.cmux.cnx", args=("-cnx-tab", "workspaces"))
             launches.append(t - t_rec)
-            ok = j.wait_connected(20) is not None and self.sim.find(label=j.ws_name, kind="Button")
+            up = None
+            while time.time() - t < 20 and up is None:
+                ev = [e for e in self.mac.link_events(t) if e[1] == "up"]
+                up = ev[0][0] - t if ev else None
+                time.sleep(0.3)
+            links.append(up)
+            ok = self.sim.wait(prefix=j.ws_name, kind="Button", timeout=15)
             if not ok:
                 launches[-1] = None
-            time.sleep(1.0)
+            time.sleep(1.5)
         self.sim.record_stop()
         fr = frames(vid, region)
         for i, t0 in enumerate(launches):
@@ -193,35 +200,33 @@ class Latency:
             t1 = settle_time(fr, t0, (nxt - 1.0) if nxt else None)
             samples.append((t1 - t0) if t1 else None)
         self.metrics["cold_connect_to_list"] = summarize(samples) | {"video": os.path.basename(vid),
-                                                                   "note": "simctl launch (process start) to the list region settled with the Mac's rows"}
-        self.log(f"    cold: {self.metrics['cold_connect_to_list']}")
+            "note": "simctl launch (process start) to the list region settled with the Mac's rows (video)"}
+        self.metrics["cold_link_up"] = summarize(links) | {"note": "simctl launch to cnx-hostd logging the phone's link up"}
+        self.log(f"    cold: {self.metrics['cold_connect_to_list']} link: {self.metrics['cold_link_up']}")
 
     def warm_reconnect(self, background_s=20):
+        """Home, `background_s` in background, foreground. Measured on the Mac side: the
+        foreground to cnx-hostd's next link up when the link dropped in background."""
         j = self.j
         j.back_to_list()
-        samples = []
-        vid = self.video("warm_reconnect")
-        region = self._status_region()
-        t_rec = self.sim.record_start(vid)
-        fgs = []
+        samples, survived = [], 0
         for i in range(self.n):
             self.sim.home()
+            t_bg = time.time()
             time.sleep(background_s)
             t = self.sim.launch("dev.cmux.cnx", terminate=False)
-            fgs.append(t - t_rec)
-            if j.wait_connected(15) is None:
-                fgs[-1] = None
+            up = None
+            while time.time() - t < 15 and up is None:
+                ev = [e for e in self.mac.link_events(t) if e[1] == "up"]
+                up = ev[0][0] - t if ev else None
+                time.sleep(0.2)
+            if up is None and not [e for e in self.mac.link_events(t_bg) if e[1] == "down"]:
+                survived += 1
+                up = 0.0  # the link never dropped: nothing to reconnect
+            samples.append(up)
             time.sleep(1.0)
-        self.sim.record_stop()
-        fr = frames(vid, region)
-        for i, t0 in enumerate(fgs):
-            if t0 is None:
-                samples.append(None); continue
-            nxt = next((x for x in fgs[i + 1:] if x is not None), None)
-            t1 = settle_time(fr, t0, (nxt - background_s) if nxt else None)
-            samples.append((t1 - t0) if t1 else None)
-        self.metrics["warm_reconnect"] = summarize(samples) | {"video": os.path.basename(vid),
-                                                             "note": f"after {background_s} s in background: foreground to the status line settled on Connected"}
+        self.metrics["warm_reconnect"] = summarize(samples) | {
+            "note": f"after {background_s} s in background: foreground to cnx-hostd's link up; {survived} of {self.n} links survived the background (0 ms)"}
         self.log(f"    warm: {self.metrics['warm_reconnect']}")
 
     def tab_switch(self):

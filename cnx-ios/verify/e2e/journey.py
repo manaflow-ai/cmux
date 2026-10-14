@@ -185,7 +185,7 @@ class Journey:
 
     def open_seed_workspace(self):
         self.back_to_list()
-        row = self.sim.wait(label=self.ws_name, kind="Button", timeout=30)
+        row = self.sim.wait(prefix=self.ws_name, kind="Button", timeout=30)
         check(row, f"workspace {self.ws_name} not in the phone's list")
         t = self.sim.tap_el(row)
         el = self.sim.wait(ident="terminal.composer.field", timeout=20)
@@ -287,7 +287,9 @@ class Journey:
         check(f, "email field missing")
         self.sim.dismiss_keyboard_intro()
         self.sim.softtype("42")
-        t = self.sim.tap_q(label="Send code", kind="Button")
+        go = [e for e in self.sim.find(kind="Button") if e.label in ("Send code", "Continue") and e.frame[1] < 560]
+        check(go, "no Send code / Continue button on the email step")
+        t = self.sim.tap_el(go[0])
         i, _ = self.sim.wait_any([dict(ident="setup.teams.create"), dict(ident="setup.teams.choose"),
                                   dict(contains="Connect your Mac"), dict(label="Workspaces", kind="RadioButton")], timeout=40)
         check(i is not None, "sign-in did not finish within 40 s")
@@ -300,7 +302,10 @@ class Journey:
         notes = []
         if i in (0, 1):
             nn = self.sim.find(label="Not now", kind="Button")
-            if nn:
+            personal = self.sim.find(ident="setup.teams.personal")
+            if personal:
+                self.sim.tap_el(personal[0]); notes.append("space: Personal")
+            elif nn:
                 self.sim.tap_el(nn[0]); notes.append("team: Not now (personal space)")
             else:
                 p = self.sim.find(contains="Personal", kind="Button")
@@ -320,6 +325,8 @@ class Journey:
     def s_mac_discovered(self):
         self.tab("Workspaces")
         check(self.device_id, "the rig Mac has no cnx-hostd device id (Allow iPhone Connections off?)")
+        if self.sim.wait(ident="workspaces.filter", timeout=8) and not self.sim.find(ident="workspaces.chip.*"):
+            return self.mac_discovered_filter()
         lies, t0 = [], time.time()
         chip = None
         while time.time() - t0 < 45:
@@ -353,6 +360,33 @@ class Journey:
               f"LiveCoordinator.select is reached only from Reconnect)")
         return {"notes": f"{chip.label} [{chip.value}] -> '{st}' in {time.time()-t:.1f} s"}
 
+    def lie_scan(self, els, t, lies):
+        for e in els:
+            if (e.ident or "").startswith("workspaces.empty") or "No workspaces" in (e.label or ""):
+                lies.append(f"{e.label or e.ident}@{time.time()-t:.1f}s")
+
+    def mac_discovered_filter(self):
+        lies, t0 = [], time.time()
+        for _ in range(4):
+            self.lie_scan(self.sim.tree(), t0, lies)
+        t = self.choose_mac()
+        rows = None
+        while time.time() - t < 30:
+            els = self.sim.tree()
+            self.lie_scan(els, t, lies)
+            if self.sim.find(prefix=self.ws_name, kind="Button", elements=els):
+                rows = time.time() - t
+                break
+            time.sleep(0.3)
+        check(rows is not None, f"the rig Mac's workspaces never listed within 30 s of choosing it; lies {lies[:3]}")
+        st = self.link_status()
+        dt = self.wait_connected(30) if "Connected" not in st else 0.0
+        st = st if "Connected" in st else self.link_status()
+        check(dt is not None, f"rows shown, but the link never reached Connected ({st!r})")
+        check(not lies, f"empty state shown while the Mac was online: {sorted(set(l.split('@')[0] for l in lies))[:2]} "
+                        f"at {[l.split('@')[1] for l in lies][:4]}")
+        return {"notes": f"Filter > rig Mac: rows in {rows:.1f} s; link '{st}'"}
+
     def watch_link(self, t, timeout, lies):
         while time.time() - t < timeout:
             els = self.sim.tree()
@@ -371,7 +405,7 @@ class Journey:
         deadline = time.time() + 20
         phone = []
         while time.time() < deadline:
-            phone = [e.label for e in self.sim.find(ident="workspace.row.*")]
+            phone = sorted({(e.label or "").split(",")[0] for e in self.sim.find(ident="workspace.row.*", kind="Button")})
             if self.ws_name in phone:
                 break
             time.sleep(0.5)
@@ -641,11 +675,17 @@ class Journey:
         check(chip, "no image attached after picking a photo")
         name = chip[0].label
         self.sim.tap_q(ident="terminal.composer.send")
-        time.sleep(3)
+        time.sleep(4)
+        errors = [e.label for e in self.sim.tree() if re.search(r"couldn.t send|failed|error", e.label or "", re.I)]
+        for e in self.sim.find(kind="Button"):
+            if (e.label or "").startswith("Remove "):  # leave the composer clean for later steps
+                self.sim.tap_el(e); time.sleep(0.5)
         text = self.mac_screen(self.seed["term1"]).get("text", "")
-        paths = re.findall(r"(~?/\S*" + re.escape(name.split(".")[0]) + r"\S*)", text.replace("\n", ""))
+        flat = text.replace("\n", "").replace("\\ ", " ")
+        paths = re.findall(r"(~?/[^❯'\"]*?\.(?:jpe?g|png|heic))", flat, re.I)
+        check(not errors, f"the phone reported: {errors[0]}")
         check(paths, f"the phone sent {name} but no path reached the Mac terminal; tail {text[-160:]!r}")
-        p = os.path.expanduser(paths[-1])
+        p = os.path.expanduser(paths[-1].strip())
         check(os.path.exists(p) and os.path.getsize(p) > 0,
               f"the phone typed {paths[-1]} into the shell, but no such file exists on the Mac (upload never happened); "
               f"shell said: {text.strip().splitlines()[-3:] }")
@@ -705,13 +745,13 @@ class Journey:
         self.sim.press(*item.center, hold=0.1)
         t = time.time()
         self.tab("Workspaces")
+        lab = ""
         while time.time() - t < 30:
-            s = self.sim.find(ident="mac-link-status")
-            if s and "Connected" in (s[0].label or "") and (name.lower() in s[0].label.lower() or name == "WebRTC" and "webrtc" in s[0].label.lower()):
+            lab = self.link_status()
+            if "Connected" in lab and name.lower() in lab.lower():
                 return time.time() - t
             time.sleep(0.3)
-        s = self.sim.find(ident="mac-link-status")
-        raise Fail(f"{name}: link not Connected over {name} after 30 s ({s[0].label if s else 'no status'})")
+        raise Fail(f"{name}: link not Connected over {name} after 30 s ({lab!r})")
 
     def term_roundtrip(self):
         self.open_seed_workspace()
@@ -783,8 +823,32 @@ class Journey:
         return "signed out to Welcome, signed back in and relinked the rig Mac"
 
     def link_status(self):
+        """The rig Mac's link line. Old list: the status row. Redesigned list: the
+        subtitle of the rig Mac in the Filter menu (read by OCR; AX has only the name)."""
         s = self.sim.find(ident="mac-link-status")
-        return s[0].label if s else ""
+        if s:
+            return s[0].label or ""
+        f = self.sim.find(ident="workspaces.filter")
+        if not f:
+            return ""
+        self.sim.press(*f[0].center, hold=0.1)
+        item = self.sim.wait(ident=f"workspaces.filter.{self.device_id}", timeout=4)
+        text = ""
+        if item:
+            x, y, w, h = item.frame
+            text = " ".join(o[4] for o in self.sim.ocr() if y - 2 <= o[1] <= y + h and o[0] >= x - 4)
+        self.sim.tap(60, 450)  # outside the menu: dismiss without choosing
+        time.sleep(0.6)
+        return text
+
+    def choose_mac(self):
+        """Redesigned list: Filter > the rig Mac. Returns the tap time."""
+        f = self.sim.wait(ident="workspaces.filter", timeout=10)
+        check(f, "no Filter button on Workspaces")
+        self.sim.press(*f.center, hold=0.1)
+        item = self.sim.wait(ident=f"workspaces.filter.{self.device_id}", timeout=6)
+        check(item, f"the Filter menu does not list the rig Mac ({self.device_id})")
+        return self.sim.press(*item.center, hold=0.1)
 
     def wait_connected(self, timeout):
         t = time.time()
@@ -828,22 +892,48 @@ class Journey:
                 "metric_mac_relaunch_reconnect_s": round(dt, 2)}
 
     def s_device_removal(self):
+        """Settings > Paired Macs > swipe the rig Mac > Remove. It must leave the phone's
+        Mac list and stay gone (the rig Mac keeps running with iPhone connections on)."""
+        self.back_to_list()
         self.tab("Settings")
-        self.sim.tap_q(contains="Paired Macs", kind="Button")
-        time.sleep(1.5)
-        row = self.sim.find(contains=self.mac_name() or "Aziz")
-        actions = []
-        if row:
-            self.sim.swipe(350, row[0].center[1], 80, row[0].center[1], 0.3)
+        pm = self.settings_find(contains="Paired Macs", kind="Button")
+        check(pm, "no Paired Macs row in Settings")
+        self.sim.tap_el(pm); time.sleep(2.5)
+        rows = [e for e in self.sim.tree() if e.kind in ("Button", "Cell", "StaticText") and (e.label or "").startswith(self.mac.computer_name())
+                and 100 < e.center[1] < 780 and e.frame[2] > 300]
+        online = [e for e in rows if re.search(r"Connected|WebRTC|WireGuard|Online", e.label or "")] or rows
+        check(online, f"the rig Mac ({self.mac.computer_name()}) is not in Paired Macs")
+        before = len(rows)
+        y = online[0].center[1]
+        self.sim.drag(370, y, 120, y, 0.4, 20, 0.2); time.sleep(1)
+        rm = self.sim.wait(label="Remove", kind="Button", timeout=4)
+        check(rm, "no Remove action on the row's trailing swipe")
+        self.sim.tap_el(rm); time.sleep(1.2)
+        conf = [e for e in self.sim.find(label="Remove", kind="Button")]
+        check(conf, "no Remove confirmation")
+        msg = [e.label for e in self.sim.tree() if (e.label or "").startswith(self.mac.computer_name()) and "leaves" in (e.label or "")]
+        self.sim.press(*conf[-1].center, hold=0.1)
+        t = time.time()
+        gone = None
+        while time.time() - t < 20:
+            now = [e for e in self.sim.tree() if (e.label or "").startswith(self.mac.computer_name()) and 100 < e.center[1] < 780 and e.frame[2] > 300]
+            if len(now) < before:
+                gone = time.time() - t
+                break
             time.sleep(1)
-            actions = [e.label for e in self.sim.find(kind="Button") if re.search(r"remove|forget|unpair|delete", e.label or "", re.I)]
-        back = self.sim.find(ident="BackButton")
-        if back:
-            self.sim.tap_el(back[0])
-        if not actions:
-            raise Fail("no way to remove a device: Paired Macs has no Remove/Forget action, and the Mac's removal is not revocation "
-                       "(production-audit.md: no DELETE route); the Mac side has no CLI action for it")
-        return f"removal actions: {actions}"
+        err = [e.label for e in self.sim.tree() if "Couldn't remove" in (e.label or "")]
+        check(not err, f"removal failed: {err}")
+        check(gone is not None, "the rig Mac stayed in Paired Macs 20 s after Remove")
+        time.sleep(30)
+        self.back_to_list()
+        f = self.sim.find(ident="workspaces.filter")
+        back = None
+        if f:
+            self.sim.press(*f[0].center, hold=0.1)
+            back = self.sim.wait(ident=f"workspaces.filter.{self.device_id}", timeout=3)
+            self.sim.tap(60, 450)
+        check(back is None, "the removed rig Mac came back in the phone's Mac list within 30 s (cmux on it is still running)")
+        return {"notes": f"removed in {gone:.1f} s; still gone 30 s later; dialog: {msg[:1]}"}
 
     def mac_name(self):
         return None
@@ -877,9 +967,14 @@ class Journey:
             ("device_removal", "Device removal", "machost", self.s_device_removal),
         ]
 
-    def run(self, only=None, skip=()):
-        self.seed_mac()
+    LAST = ("device_removal",)  # run by e2e.py after the latency metrics (it unlinks the Mac)
+
+    def run(self, only=None, skip=(), last=False):
+        if not last:
+            self.seed_mac()
         for sid, title, owner, fn in self.plan():
+            if (sid in self.LAST) != last:
+                continue
             if (only and sid not in only) or sid in skip:
                 continue
             try:

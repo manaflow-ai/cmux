@@ -38,7 +38,37 @@ def newest_mac_app():
     return apps[-1]
 
 
+def ensure_xcframework(log):
+    """CnxFFI.xcframework (gitignored) for this checkout's Rust sources: the demo-build cache
+    (same key as scripts/demo-build.sh), else built with JOBS=4 and cached."""
+    import shutil
+    repo = os.path.dirname(CNX)
+    trees = [sh("git", "-C", repo, "rev-parse", f"HEAD:{p}").stdout.strip()
+             for p in ("cnx-ios/rust", "cmux-tui/crates/cmux-wg", "cmux-tui/crates/cmux-transport")]
+    import hashlib
+    key = hashlib.sha1(("\n".join(trees) + "\n").encode()).hexdigest()[:16]
+    dest = os.path.join(CNX, "CnxKit/Frameworks/CnxFFI.xcframework")
+    stamp = dest + ".key"
+    if os.path.isdir(dest) and os.path.exists(stamp) and open(stamp).read().strip() == key:
+        return
+    cache = os.path.expanduser(f"~/cnx-ios-builds/.cache/xcframework/{key}/CnxFFI.xcframework")
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    if os.path.isdir(cache):
+        log(f"CnxFFI.xcframework: cache hit {key}")
+        shutil.copytree(cache, dest, symlinks=True)
+    else:
+        log(f"CnxFFI.xcframework: building {key} (JOBS=4)")
+        r = subprocess.run(["bash", os.path.join(CNX, "rust/scripts/build-xcframework.sh")], env=dict(os.environ, JOBS="4"))
+        if r.returncode:
+            sys.exit("CnxFFI.xcframework build failed")
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        shutil.copytree(dest, cache, symlinks=True)
+    open(stamp, "w").write(key)
+
+
 def build_ios(log, config):
+    ensure_xcframework(log)
     log(f"building the iOS app ({config}, arm64, -jobs 4)")
     r = sh("xcodegen", "generate", "-q", cwd=CNX)
     if r.returncode:
@@ -145,6 +175,7 @@ def main():
             log("latency")
             which = None if a.latency == "all" else set(a.latency.split(","))
             metrics = Latency(j, os.path.join(out, "latency"), log, a.samples).run(which)
+        j.run(only=set(a.steps.split(",")) if a.steps else None, skip=set(filter(None, a.skip.split(","))), last=True)
     finally:
         if j:
             results = j.results

@@ -59,11 +59,12 @@ class Sim:
             walk(n)
         return out
 
-    def find(self, label=None, ident=None, kind=None, contains=None, value=None, elements=None, suffix=None):
+    def find(self, label=None, ident=None, kind=None, contains=None, value=None, elements=None, suffix=None, prefix=None):
         res = []
         for e in elements if elements is not None else self.tree():
             if label is not None and e.label != label: continue
             if suffix is not None and not (e.label or "").endswith(suffix): continue
+            if prefix is not None and not ((e.label or "") == prefix or (e.label or "").startswith(prefix + ",")): continue
             if ident is not None and not (e.ident == ident or (ident.endswith("*") and (e.ident or "").startswith(ident[:-1]))): continue
             if kind is not None and e.kind != kind: continue
             if value is not None and e.value != value: continue

@@ -33,7 +33,8 @@ case "${1:-}" in
     hq="${HQ_ROOT:-$(cd "$repo/../.." && pwd)}"
     job=$(cd "$src" && ~/.local/bin/cmux-ci build cmux --ref "$sha" --tag "$tag" --priority -10 \
           --workspace "${E2E_PR_URL:-https://github.com/manaflow-ai/cmux/pull/20414}" \
-          --backend-helper "$hq/scripts/dev-backend.sh" --receipt "$dest/submit.json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          --backend-helper "$hq/scripts/dev-backend.sh" --receipt "$dest/submit.json" | tee "$dest/submit.log" \
+          | python3 -c 'import json,sys; print([json.loads(l) for l in sys.stdin if l.startswith("{")][-1]["id"])')
     echo "fleet job $job ($tag); waiting"
     ~/.local/bin/cmux-ci wait "$job" --receipt "$dest/terminal.json" || { echo "wait again: ~/.local/bin/cmux-ci wait $job (never resubmit)"; exit 1; }
     ~/.local/bin/cmux-ci artifact "$job" "$dest/cmux.app.zip"
