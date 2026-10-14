@@ -27,6 +27,8 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   // The welcome shows only once the plan confirms the upgrade; a stale
   // ?welcome link must not hide the prompt from a Free viewer.
   if (plan.data.isPro) return welcome ? <PlanWelcomeBanner plan={welcome} /> : null;
+  // Team pays for Cloud access separately from each member's personal plan.
+  if (feature === "cloud" && plan.data.teamPlanId === "team") return null;
   return (
     <section data-testid="requires-pro" className="mb-3 flex flex-wrap items-start justify-between gap-3 border border-border p-3">
       <div className="min-w-0 flex-1">

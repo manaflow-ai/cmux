@@ -148,6 +148,33 @@ describe("billing plan route", () => {
     expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "team" });
   });
 
+  test("the dashboard recognizes an operator Team grant without granting personal Pro", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxVmPlan: "team" } } });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "team" });
+  });
+
+  test("the dashboard does not grant Team from a stale subscription mirror", async () => {
+    currentUser = planUser({ selectedTeam: { id: "team-plan", clientReadOnlyMetadata: { cmuxPlan: "team" } } });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "free" });
+  });
+
+  test("the dashboard keeps a selected Free team separate from another team's grant", async () => {
+    currentUser = planUser({
+      selectedTeam: { id: "team-free", clientReadOnlyMetadata: {} },
+      listTeams: mock(async () => [{ id: "team-paid", clientReadOnlyMetadata: { cmuxVmPlan: "team" } }]),
+    });
+
+    const response = await dashboardPlanResponse();
+
+    expect(response).toMatchObject({ planId: "free", isPro: false, teamPlanId: "free" });
+  });
+
   test("reports no Team management when team metadata has no Stripe row", async () => {
     currentUser = planUser({
       selectedTeam: {
@@ -197,6 +224,12 @@ describe("billing plan route", () => {
 async function planResponse() {
   const response = await GET(new NextRequest("https://cmux.test/api/billing/plan"));
   return response.json() as Promise<Record<string, unknown>>;
+}
+
+function dashboardPlanResponse() {
+  return call(billingRouter.current, undefined, {
+    context: { request: new Request("https://cmux.test/api/dashboard/rpc"), serverPrefetch: true },
+  });
 }
 
 function planUser(options: {

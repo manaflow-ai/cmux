@@ -9,8 +9,6 @@ import {
 } from "../../../../services/billing/pro";
 import {
   billingSeatsFromMetadata,
-  resolveBillingTeam,
-  type BillingTeamUserLike,
 } from "../../../../services/billing/teamResolution";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
 import {
@@ -20,8 +18,8 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import {
+  resolveTeamPlanStatus,
   teamPlanStatusForTeam,
-  type TeamPlanStatus,
 } from "../../../../services/billing/teamPlanStatus";
 
 
@@ -136,12 +134,4 @@ async function explicitTeamPlanResponse(
     role: access.role,
     canManageBilling: access.canManageBilling,
   });
-}
-
-async function resolveTeamPlanStatus(user: BillingTeamUserLike): Promise<TeamPlanStatus> {
-  const team = await resolveBillingTeam(user);
-  if (!team?.id) {
-    return { planId: FREE_PLAN_ID, billingManagement: "none", granted: false };
-  }
-  return teamPlanStatusForTeam(team);
 }
