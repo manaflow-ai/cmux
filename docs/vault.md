@@ -1,8 +1,29 @@
-# Vault agent registration
+# Vault agent registration and session filtering
 
 Vault restores built-in agent sessions and can also read custom agent registrations from
 `cmux.json`. Registrations define how cmux detects a running terminal process, where the
 agent's native session id comes from, and which command resumes that session.
+
+Vault can omit non-interactive Claude Code Agent SDK transcripts and other sessions
+with filters in the same `vault` section. `hideClaudeSDKSessions` hides Claude
+transcripts whose `entrypoint` begins with `sdk-`. Each `exclude` rule is an AND
+of the fields it contains; multiple rules are ORed. Agent ids, folders, and
+entrypoints accept `*` and `?` wildcards. `labelPattern` (or its shorter `pattern`
+alias) matches the session label with those wildcards or with a regular expression;
+prefixing with `re:` makes the regular-expression intent explicit.
+
+```jsonc
+{
+  "vault": {
+    "hideClaudeSDKSessions": true,
+    "exclude": [
+      { "agent": "claude", "entrypoint": "sdk-*" },
+      { "folder": "*/scratch/*" },
+      { "labelPattern": "re:^(Review|Audit) this change" }
+    ]
+  }
+}
+```
 
 Pi, OMP, Campfire, Amp, Antigravity, Grok, Kimi Code, and Hermes Agent are
 registered by default. The following partial example shows the Pi, OMP, and Campfire
