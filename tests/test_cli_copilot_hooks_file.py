@@ -144,6 +144,30 @@ class CopilotHooksFileTests(unittest.TestCase):
                          [{"hooks": [{"type": "command", "command": "echo user-hook", "timeout": 1000}]}],
                          migrated)
 
+    def test_setup_prunes_the_commands_an_older_cmux_really_wrote(self):
+        # The old installer put the same shell dispatch strings this version
+        # generates into config.json, as nested groups under PascalCase keys.
+        # Harvest them from a fresh install so the fixture is the real thing.
+        self.setup()
+        installed = json.loads(self.hooks_file().read_text())['hooks']
+        session_start = installed['sessionStart'][0]['bash']
+        feed = installed['preToolUse'][0]['bash'].replace('--event preToolUse', '--event PreToolUse')
+        self.assertIn('hooks enqueue copilot session-start', session_start)
+        self.assertIn('--event PreToolUse', feed)
+        config = self.copilot_dir / 'config.json'
+        config.write_text(json.dumps({
+            "hooks": {
+                "SessionStart": [{"hooks": [{"type": "command", "command": session_start, "timeout": 5000}]}],
+                "PreToolUse": [{"hooks": [{"type": "command", "command": feed, "timeout": 120000}]},
+                               {"hooks": [{"type": "command", "command": "echo mine", "timeout": 1000}]}],
+            },
+        }))
+        result = self.setup()
+        self.assertIn('Removed 2 cmux hook(s)', result.stdout + result.stderr)
+        migrated = json.loads(config.read_text())
+        self.assertEqual(migrated, {"hooks": {"PreToolUse": [
+            {"hooks": [{"type": "command", "command": "echo mine", "timeout": 1000}]}]}}, migrated)
+
     def test_uninstall_removes_the_file_and_legacy_entries_only(self):
         config = self.copilot_dir / 'config.json'
         config.write_text(json.dumps(legacy_config()))

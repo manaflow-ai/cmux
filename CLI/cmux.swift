@@ -37504,7 +37504,14 @@ export default {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: URL(fileURLWithPath: configPath), options: .atomic)
-        print("Removed \(removed) stale cmux hook(s) from \(configPath)")
+        print(String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.copilot.legacyRemoved",
+                defaultValue: "Removed %1$lld cmux hook(s) from %2$@"
+            ),
+            Int64(removed),
+            configPath
+        ))
     }
 
     private func uninstallAntigravityHooks(_ def: AgentHookDef) throws {
