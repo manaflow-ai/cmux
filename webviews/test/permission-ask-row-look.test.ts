@@ -144,4 +144,33 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
       await page.close();
     },
   );
+
+  // The app's WebKit treats the bottom stack's flexed height as definite and resolved the panel's
+  // 45% cap against it: the stack is the panel's own height, so a lone ask showed under half of
+  // itself (the row cut through its answers, the scope note hidden; a capture mini, 2026-10-14).
+  // Playwright's engines leave that height indefinite, so the test pins the stack to its laid-out
+  // height, the size WebKit resolves against.
+  test.each(["chromium", "webkit"])("%s: the whole ask shows when the stack's height is definite", async (engine) => {
+    const page = await browsers[engine]!.newPage({ viewport: { width: 640, height: 480 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/permission-panel.html`);
+    await page.waitForFunction(() => "__showPermissions" in window);
+    await page.evaluate(
+      (shown) => (window as unknown as { __showPermissions(state: unknown): void }).__showPermissions(shown),
+      state,
+    );
+    await page.locator(".acpmux-permission-panel button").first().waitFor();
+    const seen = await page.evaluate(() => {
+      const stack = document.querySelector<HTMLElement>(".acpmux-asks-stack")!;
+      stack.style.height = `${stack.getBoundingClientRect().height}px`;
+      const panel = document.querySelector<HTMLElement>(".acpmux-permission-panel")!;
+      const card = panel.firstElementChild as HTMLElement;
+      return {
+        panelScrolls: panel.scrollHeight > panel.clientHeight + 1,
+        cardShown: panel.getBoundingClientRect().bottom >= card.getBoundingClientRect().bottom - 1,
+      };
+    });
+    expect(seen).toEqual({ panelScrolls: false, cardShown: true });
+    await page.close();
+  });
 });
