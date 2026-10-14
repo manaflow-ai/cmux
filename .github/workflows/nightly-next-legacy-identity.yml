@@ -19,10 +19,10 @@ name: nightly-next cmux NIGHTLY identity
 on:
   # GitHub dispatches a workflow by file name only after an event has run it
   # once. The promotion that first brings this file to nightly-next registers
-  # it here; a push run does nothing.
+  # it here (no paths filter: a promotion can change more than the 300 files
+  # GitHub filters on); a push run only skips its job.
   push:
     branches: [nightly-next]
-    paths: [.github/workflows/nightly-next-legacy-identity.yml]
   workflow_dispatch:
     inputs:
       build:
@@ -34,7 +34,7 @@ permissions: {}
 
 # One at a time; a newer request waits and replaces an older waiting one.
 concurrency:
-  group: nightly-next-legacy-identity
+  group: nightly-next-legacy-identity-${{ github.event_name }}
   cancel-in-progress: false
 
 env:
@@ -76,6 +76,8 @@ jobs:
           for name in NIGHTLY_NEXT_FEED_BASE NIGHTLY_NEXT_LEGACY_FEED_BASE NIGHTLY_NEXT_R2_BUCKET NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; do
             value="$(sed -n "s/^  ${name}: \(.*\)$/\1/p" .github/workflows/nightly.yml)"
             [ "$(printf '%s\n' "$value" | grep -c .)" = 1 ] || { echo "nightly.yml has no single env $name" >&2; exit 1; }
+            # Plain values only: a quote or a trailing comment would be copied in.
+            if [[ "$value" =~ [\"\'#[:space:]] ]]; then echo "nightly.yml env $name is not a plain value: $value" >&2; exit 1; fi
             echo "$name=$value" >> "$GITHUB_ENV"
           done
 
@@ -257,28 +259,23 @@ jobs:
           url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$(basename "$dmg")"
           curl -fsSIL --retry 5 --retry-all-errors --retry-delay 5 -o /dev/null "$url"
           # Signed release notes sit beside each appcast (ReleaseNotesStore):
-          # copy cmux NEXT's, already signed, next to the old feed. Best effort.
-          notes_src="${NIGHTLY_NEXT_FEED_BASE}/notes"
-          mkdir -p legacy-notes
-          if curl -fsSL --retry 3 -o legacy-notes/index.json "$notes_src/index.json" \
-             && curl -fsSL --retry 3 -o legacy-notes/index.json.sig "$notes_src/index.json.sig"; then
-            python3 -I -c 'import json, re, sys; [print(b["build"]) for b in json.load(open(sys.argv[1]))["builds"][:50] if re.fullmatch(r"\d+", str(b.get("build", "")))]' legacy-notes/index.json \
-              | while IFS= read -r notes_build; do
-                  if ! { curl -fsSL --retry 3 -o "legacy-notes/$notes_build.json" "$notes_src/$notes_build.json" \
-                         && curl -fsSL --retry 3 -o "legacy-notes/$notes_build.json.sig" "$notes_src/$notes_build.json.sig"; }; then
-                    rm -f "legacy-notes/$notes_build.json" "legacy-notes/$notes_build.json.sig"
-                  fi
-                done
-            for file in legacy-notes/*.json; do
-              [ -f "$file.sig" ] || continue
-              name="$(basename "$file")"
-              case "$name" in index.json) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
-              upload "$file" "$prefix/notes/$name" application/json "$cache"
-              upload "$file.sig" "$prefix/notes/$name.sig" text/plain "$cache"
+          # copy cmux NEXT's index and this build's notes, already signed, next
+          # to the old feed. Best effort: a notes problem never blocks the feed.
+          copy_notes() {
+            local src="${NIGHTLY_NEXT_FEED_BASE}/notes" name
+            mkdir -p legacy-notes
+            for name in index.json "${NIGHTLY_BUILD}.json"; do
+              curl -fsSL --retry 3 -o "legacy-notes/$name" "$src/$name" || return 1
+              curl -fsSL --retry 3 -o "legacy-notes/$name.sig" "$src/$name.sig" || return 1
             done
-          else
-            echo "::warning::cmux NEXT release notes not found at $notes_src; the old feed's notes stay as they are"
-          fi
+            # This build's notes first, the index (which names it) last.
+            for name in "${NIGHTLY_BUILD}.json" index.json; do
+              case "$name" in index.json) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
+              upload "legacy-notes/$name" "$prefix/notes/$name" application/json "$cache" || return 1
+              upload "legacy-notes/$name.sig" "$prefix/notes/$name.sig" text/plain "$cache" || return 1
+            done
+          }
+          copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
           upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
           # Keep the three newest cmux NIGHTLY-identity DMGs, never the one the feed names.
           gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \

@@ -3752,7 +3752,15 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$BUILD'" >&2; exit 1; }
-          gh workflow run nightly-next-legacy-identity.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f build="$BUILD"
+          # A workflow GitHub has not registered yet answers 404: warn, cmux NEXT is published.
+          if ! out="$(gh workflow run nightly-next-legacy-identity.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f build="$BUILD" 2>&1)"; then
+            echo "$out" >&2
+            if grep -q 'HTTP 404' <<<"$out"; then
+              echo "::warning title=cmux NIGHTLY-identity not requested (cx-x7hwx)::nightly-next-legacy-identity.yml is not registered yet; build $BUILD was not requested"
+              exit 0
+            fi
+            exit 1
+          fi
           echo "Requested the cmux NIGHTLY-identity publication of build $BUILD (nightly-next-legacy-identity.yml)" >> "$GITHUB_STEP_SUMMARY"
 
   generate-nightly-deltas:
