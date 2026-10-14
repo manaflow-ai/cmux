@@ -125,9 +125,10 @@ pub struct Invocation {
 impl Invocation {
     /// `codex exec` with the user's provider overrides (`codex_config`), each
     /// as `-c <value>` right after `exec`.
-    pub fn with_codex_overrides(self, overrides: &[String]) -> Self {
-        // hq#1957: not implemented yet (the failing tests come first).
-        let _ = overrides;
+    pub fn with_codex_overrides(mut self, overrides: &[String]) -> Self {
+        let at = self.args.iter().position(|a| a == "exec").map_or(0, |i| i + 1);
+        let pairs = overrides.iter().flat_map(|o| ["-c".to_owned(), o.clone()]);
+        let _ = self.args.splice(at..at, pairs);
         self
     }
 }

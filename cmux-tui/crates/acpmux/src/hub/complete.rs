@@ -5,7 +5,9 @@
 
 use super::*;
 use crate::complete::{
-    self, CompleteError, Request, model_pick,
+    self, CompleteError, Request,
+    codex_config::CodexUserConfig,
+    model_pick,
     recipes::{self, Recipe},
     run::{self, RunDir, RunError},
 };
@@ -37,6 +39,21 @@ fn offered_ids(models: &Value, name: &str, refused: bool) -> Vec<String> {
         }
     }
     ids
+}
+
+/// The user's Codex config (`$CODEX_HOME/config.toml`, the profile's
+/// `CODEX_HOME` first); empty when there is none.
+async fn codex_user_config(env: &BTreeMap<String, String>) -> CodexUserConfig {
+    let home = env_value(env, "CODEX_HOME");
+    let Some(path) =
+        complete::codex_config::config_path(home.as_deref(), dirs::home_dir().as_deref())
+    else {
+        return CodexUserConfig::default();
+    };
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) => CodexUserConfig::parse(&text),
+        Err(_) => CodexUserConfig::default(),
+    }
 }
 
 /// `key` from the profile env (with its route), else the login environment,
@@ -98,13 +115,18 @@ impl Hub {
         name: &str,
         recipe: Recipe,
         env: &BTreeMap<String, String>,
+        codex: &CodexUserConfig,
     ) -> Option<String> {
         let models = self.models_catalog().await;
-        if recipe != Recipe::Claude {
-            return model_pick::pick(recipe, &offered_ids(&models, name, false));
-        }
         let live: Option<Vec<String>> =
             self.live_models_for(name).map(|list| list.into_iter().map(|m| m.id).collect());
+        match recipe {
+            Recipe::Claude => {}
+            Recipe::Codex => {
+                return codex.model_for(&offered_ids(&models, name, false), live.as_deref());
+            }
+            _ => return model_pick::pick(recipe, &offered_ids(&models, name, false)),
+        }
         let refused = offered_ids(&models, name, true);
         let small_fast = env_value(env, model_pick::SMALL_FAST_ENV);
         let default_haiku = env_value(env, model_pick::DEFAULT_HAIKU_ENV);
@@ -134,9 +156,14 @@ impl Hub {
         self.apply_route_for(name, None, None, profile, &mut env)
             .await
             .map_err(|e| failed(e.message))?;
+        // Codex runs without the user's config: their provider comes back.
+        let codex = match recipe {
+            Recipe::Codex => codex_user_config(&env).await,
+            _ => CodexUserConfig::default(),
+        };
         let model = match &req.model {
             Some(model) => Some(model.clone()),
-            None => self.small_model(name, recipe, &env).await,
+            None => self.small_model(name, recipe, &env, &codex).await,
         };
         // The CLIs need the login environment (PATH, API keys).
         tokio::time::timeout_at(deadline, self.wait_startup()).await.map_err(|_| timed_out())?;
@@ -150,7 +177,8 @@ impl Hub {
             .map_err(|_| timed_out())?
             .map_err(|e| failed(e.to_string()))?;
         let dir = RunDir::new().map_err(|e| failed(format!("a run folder: {e}")))?;
-        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), dir.path());
+        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), dir.path())
+            .with_codex_overrides(&codex.overrides);
         if let Some(file) = &inv.prompt_file {
             dir.write_private(file, req.prompt.as_bytes())
                 .map_err(|e| failed(format!("the prompt file: {e}")))?;
