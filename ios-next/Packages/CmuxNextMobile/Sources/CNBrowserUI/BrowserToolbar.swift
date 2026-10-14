@@ -72,6 +72,10 @@ struct BrowserToolbar: View {
     var onGo: (String) -> Void
     var onSwipeChanged: (CGFloat) -> Void
     var onSwipeEnded: (CGFloat, CGFloat) -> Void
+    /// Swipe up on the bar (Safari opens the tab grid, following the
+    /// finger): the upward translation and velocity in points (/s).
+    var onSwipeUpChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
+    var onSwipeUpEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
     /// Long-press back/forward menus: the pages before (most recent first)
     /// and after (next first) the current one.
     var navigationHistory: BrowserHistoryList? = nil
@@ -80,6 +84,11 @@ struct BrowserToolbar: View {
     var onHistoryMenu: () -> Void = {}
 
     @State private var labelWidth: CGFloat = 69
+    /// The bar drag's direction, fixed once it moved past the slop.
+    @State private var swipeAxis: BarSwipe.Axis?
+    /// A bar drag moved past the slop: the button under the finger must not
+    /// act on touch-up (Safari never opens a menu from a swipe).
+    @State private var swipeMoved = false
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.colorScheme) private var scheme
@@ -262,7 +271,7 @@ struct BrowserToolbar: View {
         let glyphOpacity: Double = (collapsed || chrome.editing ? 0 : 1) * (chrome.menuOpen ? 0.3 : 1)
         ZStack {
             // Leading page-menu slot (48 pt).
-            Button(action: onMenu) {
+            Button(action: unlessSwiped(onMenu)) {
                 PageMenuGlyph()
                     .fill(style.colors.label)
                     .frame(width: 16.3, height: 12.3)
@@ -301,7 +310,7 @@ struct BrowserToolbar: View {
             }
 
             // Trailing reload / stop.
-            Button(action: onReload) {
+            Button(action: unlessSwiped(onReload)) {
                 ZStack {
                     if tab?.loading == true {
                         Image(systemName: "xmark").transition(.opacity)
@@ -359,9 +368,9 @@ struct BrowserToolbar: View {
 
     /// Title over a subtitle (`host ~/cwd` for terminals); collapses to the title like the URL.
     @ViewBuilder private func localLabel(_ t: LocalPageTitle, _ r: CGRect) -> some View {
-        Button {
+        Button(action: unlessSwiped {
             if collapsed { chrome.expand(tap: true) } else { onMenu() }
-        } label: {
+        }) {
             VStack(spacing: 0) {
                 Text(t.title)
                     .font(.system(size: collapsed ? 13 : 15, weight: .semibold))
@@ -385,9 +394,9 @@ struct BrowserToolbar: View {
     @ViewBuilder private func label(_ r: CGRect) -> some View {
         // The start page has no menu glyph, so the placeholder may use the leading slot.
         let maxW = max(40, r.width - (showsStartPage ? style.metrics.control + 24 : 2 * style.metrics.control + 8))
-        Button {
+        Button(action: unlessSwiped {
             if collapsed { chrome.expand(tap: true) } else { onBeginEditing() }
-        } label: {
+        }) {
             HStack(spacing: 5) {
                 if showsStartPage || tab?.searchQuery != nil {
                     Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium))
@@ -413,15 +422,37 @@ struct BrowserToolbar: View {
         .accessibilityLabel(collapsed ? "Show toolbar, \(labelText)" : "Address, \(labelText)")
     }
 
+    /// A button action that does nothing when the touch was a bar swipe.
+    private func unlessSwiped(_ action: @escaping () -> Void) -> () -> Void {
+        {
+            if swipeMoved { swipeMoved = false } else { action() }
+        }
+    }
+
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { v in
-                guard !chrome.editing, !collapsed, abs(v.translation.width) > abs(v.translation.height) || chrome.swiping else { return }
-                onSwipeChanged(v.translation.width)
+                guard !chrome.editing, !collapsed else { return }
+                swipeMoved = true
+                let axis = swipeAxis ?? BarSwipe.axis(v.translation)
+                if swipeAxis == nil { swipeAxis = axis }
+                switch axis {
+                case .horizontal: onSwipeChanged(v.translation.width)
+                case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
+                case .down: break
+                }
             }
             .onEnded { v in
-                guard chrome.swiping else { return }
-                onSwipeEnded(v.translation.width, v.predictedEndTranslation.width)
+                let axis = swipeAxis
+                swipeAxis = nil
+                // After the button under the finger saw this touch-up.
+                Task { @MainActor in swipeMoved = false }
+                switch axis {
+                case .horizontal?:
+                    if chrome.swiping { onSwipeEnded(v.translation.width, v.predictedEndTranslation.width) }
+                case .up?: onSwipeUpEnded(-v.translation.height, -v.velocity.height)
+                default: break
+                }
             }
     }
 

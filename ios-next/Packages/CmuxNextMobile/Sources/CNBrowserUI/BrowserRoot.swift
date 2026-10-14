@@ -368,6 +368,7 @@ struct BrowserScreen: View {
                            onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                            onEndEditing: { endEditing() }, onGo: go,
                            onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
+                           onSwipeUpChanged: swipeUpChanged, onSwipeUpEnded: swipeUpEnded,
                            navigationHistory: model.activeTabId.flatMap { model.histories[$0] },
                            onHistory: model.goToHistory,
                            onHistoryMenu: { model.refreshHistory() })
@@ -1179,6 +1180,25 @@ struct BrowserScreen: View {
     }
 
     // MARK: Toolbar swipe
+
+    /// Swipe up on the bar: the page shrinks toward its card with the finger.
+    private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
+        if zoomState.phase == .page {
+            guard !creatingTab, !chrome.swiping, tabs.activeKey != nil || showsStartPage else { return }
+            zoomTabId = tabs.activeKey
+            prepareOverview(revealing: tabs.activeIndex ?? 0, count: tabs.items.count)
+            zoomDriver.beginInteraction()
+        }
+        guard zoomState.phase == .interactive else { return }
+        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: max(0, up)), velocity: BarSwipe.velocity(up: velocity))
+    }
+
+    /// Release: on to the grid, or back to the page (past half way or with
+    /// the finger's velocity), on the release spring.
+    private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+        guard zoomState.phase == .interactive, !zoomPinchActive else { return }
+        zoomDriver.endInteraction(velocity: BarSwipe.velocity(up: velocity), startedFromOverview: false)
+    }
 
     private func swipeChanged(_ dx: CGFloat) {
         if !chrome.swiping {
