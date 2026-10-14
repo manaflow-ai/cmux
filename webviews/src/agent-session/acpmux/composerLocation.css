@@ -10,7 +10,6 @@
    it, and keyboard focus draws a ring in the theme's text color. */
 .acpmux-composer-strip {
   --acpmux-strip-height: 30px;
-  --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   position: relative;
   display: flex;
   align-items: stretch;
@@ -19,7 +18,8 @@
   margin: 0 var(--acpmux-strip-inset, 18px);
   box-sizing: border-box;
   border-radius: 10px 10px 0 0;
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  /* The card's solid surface (composerStates.css), so the strip and the card are one fill. */
+  background: var(--acpmux-composer-surface);
   --acpmux-strip-edge: var(--acpmux-composer-edge);
   box-shadow:
     inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-strip-edge),
@@ -28,9 +28,6 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-composer-strip { --acpmux-composer-glass: var(--acpmux-base); }
 }
 .acpmux-composer-context {
   display: flex;
@@ -225,7 +222,8 @@
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
    legible over a busy painting while the backdrop still shows through. On an opaque page the base is
-   the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
+   the page color, so the card looks as before. Reduce Transparency makes the card opaque. The
+   composer card itself paints the solid composer surface (below, composerStates.css). */
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
@@ -363,7 +361,7 @@
    the --acpmux-composer-edge hairline (styles.css), one device pixel (--cmux-hairline, #20481) and
    clear under appearance.borders = none: no drop shadow (hq#1957 border hunt). */
 .acpmux-composer-box {
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  background: var(--acpmux-composer-surface);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-send-ready {
   background: var(--agent-accent, var(--agent-text));

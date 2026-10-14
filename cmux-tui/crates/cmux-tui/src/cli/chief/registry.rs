@@ -46,6 +46,7 @@ struct Text {
     unsupported: &'static str,
     picture_not_set: &'static str,
     agent_refused: &'static str,
+    control_refused: &'static str,
 }
 
 static ENGLISH: Text = Text {
@@ -60,7 +61,8 @@ static ENGLISH: Text = Text {
     default_mark: "default",
     unsupported: "this needs a newer cmux daemon (the chief.profile.list operation); stop it and run the command again",
     picture_not_set: "the picture was not set",
-    agent_refused: "cmux chief {what} is refused for an agent caller ({marker} is set); the person makes, deletes and grants Chiefs",
+    agent_refused: "cmux chief {what} is refused for an agent caller ({marker} is set); only the person makes, changes and deletes Chiefs; a Chief changes its own profile with its profile tool",
+    control_refused: "{what} is refused for an agent caller ({marker} is set); only the person writes a Chief's profile, engine or turn; a Chief changes its own profile with its profile tool and its own engine with its chief engine tool",
 };
 
 static JAPANESE: Text = Text {
@@ -75,7 +77,8 @@ static JAPANESE: Text = Text {
     default_mark: "既定",
     unsupported: "これには新しい cmux デーモン (chief.profile.list 操作) が必要です。デーモンを停止してから、もう一度実行してください",
     picture_not_set: "画像は設定されていません",
-    agent_refused: "エージェントからの呼び出しでは cmux chief {what} を使えません ({marker} が設定されています)。Chief の作成、削除、権限の付与は本人が行います",
+    agent_refused: "エージェントからの呼び出しでは cmux chief {what} を使えません ({marker} が設定されています)。Chief の作成、変更、削除は本人だけが行います。Chief は自分のプロフィールを profile ツールで変更します",
+    control_refused: "エージェントからの呼び出しでは {what} を使えません ({marker} が設定されています)。Chief のプロフィール、エンジン、ターンを変えられるのは本人だけです。Chief は自分のプロフィールを profile ツールで、自分のエンジンを chief engine ツールで変更します",
 };
 
 fn text() -> &'static Text {
@@ -168,23 +171,21 @@ fn parse(args: &[String]) -> Result<Request, String> {
     Ok(request)
 }
 
-/// The profile fields that grant power: what a Chief may use and run.
-const GRANT_FIELDS: [&str; 6] = ["tools", "harnesses", "self_edit", "harness", "model", "effort"];
-
 impl Request {
-    /// What of this request only the person may do (cx-ebm.60.9 layer 1):
-    /// make or delete a Chief, or change a grant field. `None` for a list or
-    /// a profile-text edit.
-    fn grant_change(&self) -> Option<&str> {
+    /// What of this request only the person may do (cx-ebm.60.9 layer 1,
+    /// hq-6d 2026-10-14): every write. An agent caller may not make, edit
+    /// (any field, picture included) or delete any Chief; a Chief changes its
+    /// own profile only through its `profile` tool on its own bound
+    /// connection. `None` for a read (list).
+    fn write(&self) -> Option<&str> {
         match self.word.as_str() {
-            "new" | "delete" => Some(self.word.as_str()),
-            "edit" => GRANT_FIELDS.into_iter().find(|field| self.fields.contains_key(*field)),
+            "new" | "edit" | "delete" => Some(self.word.as_str()),
             _ => None,
         }
     }
 }
 
-/// The typed refusal of a grant change for an agent caller: the
+/// The typed refusal of a Chief write for an agent caller: the
 /// `origin.forbidden` shape of `--all-sessions` (cli/federation.rs). The
 /// marker check is cooperative: it stops a model that tries, not a process
 /// that clears its env (the daemon cannot tell the turn's unbound
@@ -196,6 +197,55 @@ fn agent_refused(what: &str, marker: &str) -> Value {
         "details": {"reason": "agent_caller", "marker": marker, "refused": what},
         "retryable": false,
     })
+}
+
+/// The `chief.*` operations an agent caller may call: the reads. Every other
+/// `chief.*` operation (a profile write, `chief.engine.set`, `chief.stop`,
+/// and any later one) is a write the person makes, so a new daemon `chief.*`
+/// read must be added here too.
+const AGENT_READS: [&str; 4] =
+    ["chief.engine.get", "chief.profile.list", "chief.profile.get", "chief.profile.avatar.get"];
+
+/// The refusal of a Chief write that an agent caller sends by another path
+/// than `cmux chief new|edit|delete` (cx-ebm.60.9 layer 1, hq-6d
+/// 2026-10-14): `cmux chief engine` with a change and `cmux chief stop`
+/// (`refused` the word), and `cmux raw operation|command` naming a `chief.*`
+/// write (`refused` the operation). `None` for a read or a person.
+pub(in crate::cli) fn agent_control_refusal(command: &str, refused: &str) -> Option<Value> {
+    let marker = super::super::federation::agent_marker(|key| std::env::var(key).ok())?;
+    Some(json!({
+        "code": "origin.forbidden",
+        "message": text().control_refused.replace("{what}", command).replace("{marker}", marker),
+        "details": {"reason": "agent_caller", "marker": marker, "refused": refused},
+        "retryable": false,
+    }))
+}
+
+/// [`agent_control_refusal`] for a raw request that names `operation`.
+pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> {
+    if !operation.starts_with("chief.") || AGENT_READS.contains(&operation) {
+        return None;
+    }
+    agent_control_refusal(&format!("cmux raw operation {operation}"), operation)
+}
+
+/// The app actions that write a Chief through the app's own connection:
+/// their ids and their CLI names (`cmux action run` takes either).
+const APP_ACTIONS: [&str; 5] = [
+    "home.newChief",
+    "home.archiveChief",
+    "home.stopChief",
+    "home new-chief",
+    "home archive-chief",
+];
+
+/// [`agent_control_refusal`] for an app action (`cmux action run ID`,
+/// `cmux home new-chief`) that writes a Chief; `refused` is the action.
+pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
+    if !APP_ACTIONS.contains(&action.trim()) {
+        return None;
+    }
+    agent_control_refusal(&format!("cmux action run {}", action.trim()), action.trim())
 }
 
 /// `cmux chief list|new|edit|delete …`.
@@ -212,7 +262,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", t.usage);
         return 0;
     }
-    if let Some(what) = request.grant_change()
+    if let Some(what) = request.write()
         && let Some(marker) = super::super::federation::agent_marker(|key| std::env::var(key).ok())
     {
         let output = if request.json { OutputMode::Json } else { global.output };

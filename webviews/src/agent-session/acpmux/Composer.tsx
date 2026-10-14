@@ -501,7 +501,11 @@ export function Composer({
   const planning = plan?.id === currentModeId;
   const planChoice: Choice | undefined =
     plan && onMode
-      ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
+      ? {
+          id: `plan:${plan.id}`,
+          name: planning ? t("picker.build") : t("picker.plan"),
+          icon: planning ? <BuildIcon /> : <PlanIcon />,
+        }
       : undefined;
   // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
   const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);

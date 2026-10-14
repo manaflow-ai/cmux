@@ -365,7 +365,7 @@ export function ComposerPickers({
     return (
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
-      modelIdName(id)
+      modelIdName(id, t)
     );
   };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
@@ -400,7 +400,7 @@ export function ComposerPickers({
       snapshot.catalog
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
-      modelIdName(resolvedId));
+      modelIdName(resolvedId, t));
   // A New Tab's chat names the model it will start on (the last pick here), not the default's last
   // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
   const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
@@ -426,12 +426,19 @@ export function ComposerPickers({
         ? t("picker.reasoning")
         : effortChoice.name
       : undefined;
-  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
+  const shownMode = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0]) : undefined;
+  const modeLabel = shownMode?.name;
+  const modeId = shownMode?.id;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  // A harness no chat has shown here yet (a fresh profile, the New Tab's first chat) names the
+  // level acpmux starts it on (`_acpmux/harnesses` start), so Reasoning never goes missing.
+  const startEffort = awaiting ? snapshot.catalog.find((entry) => entry.id === chipHarness)?.start?.effort : undefined;
+  const startEffortKey = startEffort ? LEVEL_KEYS[startEffort] : undefined;
+  const pendingEffort = lastChips?.effort ?? (startEffortKey ? t(startEffortKey) : undefined);
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
-      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
-  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
+      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -490,8 +497,10 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
-      {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
+      {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
+      {modes.length === 0 && lastChips?.mode && (
+        <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
+      )}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -535,7 +544,9 @@ export function ComposerPickers({
 
 /// A control the session has not reported yet, as this harness's chats last showed it: the real
 /// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
-function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+/// `modeId` is read from storage: only a string names a mode that may skip approvals.
+function PendingChip({ kind, label, modeId }: { kind: "effort" | "mode"; label: string; modeId?: unknown }) {
+  const warning = typeof modeId === "string" && unrestricted(modeId) ? " acpmux-unrestricted" : "";
   return kind === "effort" ? (
     <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
       <span className="acpmux-picker-button">
@@ -544,7 +555,7 @@ function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }
       </span>
     </span>
   ) : (
-    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+    <span className={`acpmux-mode acpmux-access acpmux-chip-pending${warning}`} aria-hidden="true">
       <span className="acpmux-picker-button acpmux-access-trigger">
         <LockIcon />
         <span className="acpmux-mode-text">{label}</span>
@@ -642,7 +653,7 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as a ring that fills. A click opens
+/// How much of the context window the session has used, as a pie that fills. A click opens
 /// the details: the share used, tokens used of the window, and Compact when the agent offers it.
 export function ContextRing({
   used,
@@ -669,8 +680,10 @@ export function ContextRing({
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  const radius = 6.5;
-  const circumference = 2 * Math.PI * radius;
+  // A 1px track ring, and the share used as a filled wedge inside it (a pie, not a spinner):
+  // a circle stroked as wide as its diameter, dashed to the share, with butt ends.
+  const wedgeRadius = 2.75;
+  const wedgeCircumference = 2 * Math.PI * wedgeRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% popover.
@@ -705,19 +718,23 @@ export function ContextRing({
         }}
       >
         <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
-          {fraction > 0 && (
-            <circle
-              cx="8"
-              cy="8"
-              r={radius}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeDasharray={`${circumference * fraction} ${circumference}`}
-              transform="rotate(-90 8 8)"
-            />
+          <circle cx="8" cy="8" r={7} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={1} />
+          {fraction >= 1 ? (
+            <circle cx="8" cy="8" r={wedgeRadius * 2} fill="currentColor" />
+          ) : (
+            fraction > 0 && (
+              <circle
+                cx="8"
+                cy="8"
+                r={wedgeRadius}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={wedgeRadius * 2}
+                strokeLinecap="butt"
+                strokeDasharray={`${wedgeCircumference * fraction} ${wedgeCircumference}`}
+                transform="rotate(-90 8 8)"
+              />
+            )
           )}
         </svg>
       </button>

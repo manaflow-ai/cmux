@@ -20,9 +20,24 @@
 }
 
 .acpmux-shell {
+  /* The composer's surface (Leo 10-14), New Tab's box and the chat composer alike, derived from the
+     theme's opaque page color: in a light theme the page lifted toward white, so the composer is
+     lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
+     toward the text, as the theme's elevated surface. Solid, so it sits as chrome over a wallpaper. */
+  --acpmux-composer-surface: light-dark(
+    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
+    color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
+  );
+  /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
+     none in a dark one, where a drop shadow on a dark page shows nothing. */
+  --acpmux-composer-shadow: var(--elevation-1);
   /* One step past hover, for the press. */
   --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
+}
+
+:root[data-theme="dark"] .acpmux-shell {
+  --acpmux-composer-shadow: 0 0 transparent;
 }
 
 /* Composer chips: Plan, the mode, model and effort pickers, and +. */

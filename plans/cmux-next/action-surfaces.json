@@ -19132,6 +19132,35 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-identifier",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab",
+        "agentChat",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyIdentifier",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Agent Identifier",
+      "title_key" : "action.agentChat.copyIdentifier",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent add-harness",
       "context_menu" : "noObject",
@@ -20872,6 +20901,33 @@
       "palette_suggested" : null,
       "title" : "Install cmux-tui on Machine…",
       "title_key" : "action.remote.install",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace set-remote-localhost",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.setRemoteLocalhost",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Localhost…",
+      "title_key" : "action.workspace.setRemoteLocalhost",
       "title_table" : "RemoteActions"
     },
     {
@@ -26190,6 +26246,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action sidebar-density-comfortable",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.density.comfortable",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Density: Comfortable",
+      "title_key" : "action.sidebar.density.comfortable",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action sidebar-density-expanded",
       "context_menu" : "offered",
       "context_menus" : [
@@ -27631,6 +27714,24 @@
                 "value" : "Vesper"
               },
               {
+                "title" : "Soft Blue",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue"
+              },
+              {
+                "title" : "Clay Orange",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange"
+              },
+              {
+                "title" : "Olive Grey",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Olive Grey"
+              },
+              {
                 "title" : "Rose Pine Dawn",
                 "title_key" : null,
                 "title_table" : null,
@@ -27647,6 +27748,18 @@
                 "title_key" : null,
                 "title_table" : null,
                 "value" : "GitHub Light Default"
+              },
+              {
+                "title" : "Soft Blue Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue Light"
+              },
+              {
+                "title" : "Clay Orange Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange Light"
               }
             ]
           },
@@ -27766,6 +27879,19 @@
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
           "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentChat.copyIdentifier",
+          "kind" : "action",
+          "order" : 13,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -30725,6 +30851,24 @@
                     "value" : "Vesper"
                   },
                   {
+                    "title" : "Soft Blue",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue"
+                  },
+                  {
+                    "title" : "Clay Orange",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange"
+                  },
+                  {
+                    "title" : "Olive Grey",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Olive Grey"
+                  },
+                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
@@ -30741,6 +30885,18 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "GitHub Light Default"
+                  },
+                  {
+                    "title" : "Soft Blue Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue Light"
+                  },
+                  {
+                    "title" : "Clay Orange Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange Light"
                   }
                 ]
               },
@@ -32028,7 +32184,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.density.expanded",
+              "id" : "sidebar.density.comfortable",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -32040,14 +32196,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.density.expanded",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 5
+              "order" : 6
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 6,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -33161,6 +33330,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -33177,6 +33364,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -33637,6 +33836,19 @@
                   "id" : "palette.copyPaneLink",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35377,6 +35589,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -35393,6 +35623,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -35635,14 +35877,51 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "localhost",
+                    "more_opens_palette" : false,
+                    "values" : [
+                      {
+                        "title" : "The Workspace's Machine",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "machine"
+                      },
+                      {
+                        "title" : "This Mac",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "thisMac"
+                      },
+                      {
+                        "title" : "Follow Settings",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "setting"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.setRemoteLocalhost",
+                  "kind" : "choices",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "remoteHosts",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -35893,6 +36172,19 @@
                   "id" : "copyWorkspaceSSHError",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,

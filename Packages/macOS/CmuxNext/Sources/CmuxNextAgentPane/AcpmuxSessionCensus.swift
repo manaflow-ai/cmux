@@ -141,7 +141,7 @@ public nonisolated struct AcpmuxQuit {
             status = try await AcpmuxStatusClient.status(socketPath: socket)
             chief = keptSessions(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value, keep: keep)
             if keep == .chief { AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) } }
-            try await AcpmuxStatusClient.shutdown(socketPath: socket, endAgents: true, keepSessions: chief)
+            try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
             return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
         } catch {

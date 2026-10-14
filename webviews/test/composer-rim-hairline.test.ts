@@ -120,7 +120,9 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
             true,
           );
           // The ring keeps its 1px look: one CSS pixel wherever a CSS pixel is whole device pixels.
-          if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
+          // The New Tab box keeps its one-device-pixel rim on focus (newtab-quiet-focus.test.ts).
+          if (id === "newtab") expect(pixels, `${id} focus rim at ${scale}x`).toBe(1);
+          else if (Number.isInteger(scale)) expect(spread, `${id} focus ring at ${scale}x`).toBe(1);
         }
       }
       await page.close();

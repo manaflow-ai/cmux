@@ -6,8 +6,19 @@
 //! Callers. The owner: a registered Unix client with no link peer record
 //! acting as `user_local` (the rule of chief.engine.*). A Chief: a Unix
 //! connection bound with `conversation-bind` to the participant id of a live
-//! record. Every other connection (a page, a WebSocket, a relayed or remote
-//! client, an agent that is not a Chief) is refused with `origin.forbidden`.
+//! record. The person's page (`chief-profile-ws-v1`): an authenticated
+//! WebSocket acting as `user_local` that is no remote client and no bound
+//! agent, and is either page `home-channels` admitted with a credential
+//! bound to that page (`page-credential {page}`, the app's Channels page on
+//! its Chief owner) or no page with the daemon's own credential (a
+//! pairing-store credential is refused: a paired device can send any Origin);
+//! it lists and reads Chiefs and changes display_name, role and the avatar;
+//! create, delete, instructions, personality and the grant (tools,
+//! harnesses, engine, self_edit) need the person's gesture, which a WebSocket
+//! never carries (`gesture_required`; the host's page relay brings it,
+//! request_origin.rs). Every other
+//! connection (another page, a relayed or remote client, a paired device, an
+//! agent that is not a Chief) is refused with `origin.forbidden`.
 //! The owner may do everything except delete the default Chief. A Chief
 //! may read every record, and may change only its own fields that its
 //! record lists in `self_edit` (the person's rule): never its tools,
@@ -49,7 +60,13 @@ enum Caller {
     Owner,
     /// The Chief with this id (its bound participant).
     Chief(String),
+    /// The person's page on an authenticated WebSocket: the owner's rights
+    /// without the grant fields and delete (no gesture on a WebSocket).
+    Page,
 }
+
+/// The capability that names the person's page as a caller.
+pub const CHIEF_PROFILE_WS_CAPABILITY: &str = "chief-profile-ws-v1";
 
 pub(super) fn handle(
     mux: &Arc<Mux>,
@@ -95,13 +112,14 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
                         "bytes": avatar.bytes, "data": STANDARD.encode(data)}})),
                 }
             }
-            _ => mutate(mux, store, &caller, request),
+            _ => mutate(mux, client, store, &caller, request),
         }
     })
 }
 
 fn mutate(
     mux: &Mux,
+    client: u64,
     store: &mut ChiefStore,
     caller: &Caller,
     request: &ParsedResourceRequest,
@@ -134,10 +152,16 @@ fn mutate(
     if let Caller::Chief(me) = caller {
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }
-    let actor = match caller {
-        Caller::Owner => LOCAL_USER.to_owned(),
-        Caller::Chief(me) => me.clone(),
-    };
+    if *caller == Caller::Page
+        && (matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileDelete)
+            || chief_registry::names_gesture_field(&profile))
+    {
+        return Err(crate::request_origin::forbidden(
+            "creating or deleting a Chief, or changing its instructions, personality, tools, harnesses, engine or self-edit rights, needs the person's gesture in the cmux app",
+            json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
+        ));
+    }
+    let actor = audit_actor(mux, client, caller);
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
@@ -153,6 +177,13 @@ fn mutate(
         .map_err(|e| internal(operation, &e))?;
     match outcome {
         Ok((record, replayed)) => {
+            if !replayed {
+                mux.chiefs().brains.chief_written(
+                    &record,
+                    operation == Op::ChiefProfileCreate,
+                    operation == Op::ChiefProfileDelete,
+                );
+            }
             let (_, generation) = mux.registry_identity();
             Ok(json!({"value": chief_registry::wire(&record), "generation": generation,
                       "revision": record.rev.to_string(), "replayed": replayed}))
@@ -161,6 +192,21 @@ fn mutate(
             Err(ResourceError::idempotency_conflict(&key, &committed))
         }
         Err(refusal) => Err(refused(operation, &refusal)),
+    }
+}
+
+/// The actor the ledger records for a write: a page's write (a page
+/// WebSocket, or the host's page relay) is told apart from a terminal's,
+/// `user_local via page:<page>` (`user_local via websocket` for a page with no
+/// page id); a Chief is its own id.
+fn audit_actor(mux: &Mux, client: u64, caller: &Caller) -> String {
+    match caller {
+        Caller::Chief(me) => me.clone(),
+        Caller::Owner | Caller::Page => match super::origin_gate::connection_page(mux, client) {
+            Some(page) => format!("{LOCAL_USER} via page:{page}"),
+            None if *caller == Caller::Page => format!("{LOCAL_USER} via websocket"),
+            None => LOCAL_USER.to_owned(),
+        },
     }
 }
 
@@ -236,8 +282,26 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
             json!({"derived": "agent", "required": "user", "reason": "chief_registry_caller"}),
         )
     };
-    if !unix || mux.is_remote_client(client) {
+    if mux.is_remote_client(client) {
         return Err(forbidden());
+    }
+    if !unix {
+        // The person's page (chief-profile-ws-v1): an authenticated WebSocket
+        // as `user_local`, no bound agent, and either no page with the
+        // daemon's own credential, or page home-channels admitted with a
+        // credential bound to that page. A pairing-store credential (an
+        // approved pairing; the app's person credential shares the store) is
+        // refused with or without a page Origin: a native client can send any
+        // Origin. Every lock read fails closed.
+        let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| {
+            match ws.page.as_deref() {
+                None => !ws.person,
+                Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
+            }
+        });
+        let unbound = matches!(mux.bound_conversation_participant(client), Ok(None));
+        let person_page = admitted && unbound && principal == LOCAL_USER;
+        return if person_page { Ok(Caller::Page) } else { Err(forbidden()) };
     }
     if principal == LOCAL_USER {
         return Ok(Caller::Owner);
