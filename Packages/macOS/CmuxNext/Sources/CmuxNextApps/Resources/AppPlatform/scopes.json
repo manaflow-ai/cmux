@@ -1381,6 +1381,10 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "scope": "sidebar:write",
       "class": "mutation"
@@ -1390,6 +1394,10 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "scope": "sidebar:write",
       "class": "mutation"
     },
