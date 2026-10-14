@@ -71,7 +71,7 @@ enum SidebarDocWiring {
     static func handle(_ intent: SidebarIntent, bridge: SidebarBridge) -> Bool {
         guard let store = SidebarDocStore.current, let drag = drag(bridge) else { return false }
         let model = bridge.model, title = SidebarDocStore.moveTitle
-        func items(_ ids: [SidebarWorkspaceID]) -> [String] { ids.compactMap { drag.item(.workspace($0)) } }
+        func items(_ ids: [SidebarWorkspaceID]) -> [String] { ids.compactMap { drag.item(.workspace($0)) }.count == ids.count ? ids.compactMap { drag.item(.workspace($0)) } : [] }
         func layoutMove(_ moving: [String], _ section: LayoutSectionID, _ index: Int) {
             store.move(moving, to: SidebarDocDrag.target(section, index: index, moving: moving, layout: model.layout), title: title)
         }

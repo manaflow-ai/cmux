@@ -111,6 +111,7 @@ public final class SidebarDocStore {
 
     /// Moves `items` to `target` as one change and one undo step titled `title`.
     public func move(_ items: [String], to target: SidebarDocTarget, title: String) {
+        guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
         send(.move(items, to: target, key: Self.newKey()), title: title) { remote, key in
             try await remote.move(items, to: target, key: key)
         }
@@ -118,6 +119,7 @@ public final class SidebarDocStore {
 
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
+        guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
         send(.pin(items, key: Self.newKey()), title: title) { remote, key in
             try await remote.pin(items, key: key)
         }
@@ -125,6 +127,7 @@ public final class SidebarDocStore {
 
     /// Unpin: each item moves to the end of its own machine section.
     public func unpin(_ items: [String], title: String) {
+        guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
         send(.unpin(items, key: Self.newKey()), title: title) { remote, key in
             try await remote.unpin(items, key: key)
         }
