@@ -1,6 +1,6 @@
 // Toolbars over Base UI Toolbar: one Tab stop, arrows move between controls (direction-aware),
 // each icon control named by `label` with a tooltip that repeats it.
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { Toolbar as BaseToolbar } from "@base-ui/react/toolbar";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 import { Toggle } from "@base-ui/react/toggle";
@@ -19,8 +19,13 @@ const LazyCard = lazy(() => import("./Tooltip").then((module) => ({ default: mod
  */
 function useHint() {
   const intent = useHoverIntent<Element>({ group: tooltipGroup });
+  // The last button it showed under: the card stays mounted there once loaded, so it can fade out
+  // (and fade in again next time) instead of vanishing with its element.
+  const [placed, setPlaced] = useState<Element | null>(null);
+  if (intent.shown && intent.shown !== placed) setPlaced(intent.shown);
   return {
     anchor: intent.shown,
+    placed: intent.shown ?? placed,
     /** A warm group's hint: there at once, with no fade in. */
     instant: intent.instant,
     show: (element: Element, delay?: number) => intent.hover(element, delay),
@@ -92,9 +97,9 @@ export function ToolbarButton({
       >
         {children}
       </BaseToolbar.Button>
-      {hint.anchor ? (
+      {hint.placed ? (
         <Suspense fallback={null}>
-          <LazyCard anchor={hint.anchor} className="ui-hint" instant={hint.instant}>
+          <LazyCard anchor={hint.placed} open={hint.anchor !== null} className="ui-hint" instant={hint.instant}>
             {label}
           </LazyCard>
         </Suspense>

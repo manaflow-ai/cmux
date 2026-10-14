@@ -182,9 +182,14 @@ export function installTooltips(
   // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
   // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
   let frame: number | undefined;
-  const hideTip = () => {
+  /** Hides the tooltip: fading out, or at once when `immediately` (a click, a key, a scroll). */
+  const hideTip = (immediately = false) => {
     if (frame !== undefined) win.cancelAnimationFrame(frame);
     frame = undefined;
+    if (immediately) {
+      finishFade();
+      return;
+    }
     if (tip.hidden || ending !== undefined) return;
     // Fades out (quicker than the fade in), then hides; at once with no transition.
     tip.removeAttribute("data-starting-style");
@@ -270,7 +275,8 @@ export function installTooltips(
     const under = target;
     intent.dismiss();
     cancelHide();
-    hideTip();
+    // At once, as AppKit's: it does not linger over the menu a click opens or over moving content.
+    hideTip(true);
     target = under;
   };
   const onScroll = () => {

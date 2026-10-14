@@ -80,7 +80,7 @@ public final class TooltipPresenter {
         inside.removeAll()
         candidate = nil
         run(intent.dismiss())
-        hide()
+        hide(immediately: true)
     }
 
     /// A scroll-wheel event: the tooltip goes, and the rows that pass under the pointer show none
@@ -153,9 +153,10 @@ public final class TooltipPresenter {
         guard let tracker = current, let view = tracker.view, let window = view.window,
               let text = tracker.text, let anchor = tracker.screenRect else { return }
         let style = view.performWithTheme { TooltipStyle.current() }
-        panel.show(text: text, shortcut: tracker.shortcut, style: style, appearance: view.effectiveAppearance)
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
+        panel.show(text: text, shortcut: tracker.shortcut, style: style, appearance: view.effectiveAppearance,
+                   scale: screen?.backingScaleFactor ?? window.backingScaleFactor)
         // The surface sits `margin` inside the window (room for its shadow): place the surface.
         let origin = Self.origin(for: panel.surfaceSize, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000))
         panel.setFrameOrigin(NSPoint(x: origin.x - TooltipPanel.margin, y: origin.y - TooltipPanel.margin))
@@ -164,9 +165,14 @@ public final class TooltipPresenter {
         scheduleCheck()
     }
 
-    private func hide() {
+    /// Hides what shows: fading out, or `immediately` (a click, a key, a scroll, the app going inactive).
+    private func hide(immediately: Bool = false) {
         checker.cancel()
-        if shown != nil { panel.fadeOut() }
+        if immediately {
+            if panel.isVisible { panel.hideNow() }
+        } else if shown != nil {
+            panel.fadeOut()
+        }
         shown = nil
         current = nil
         if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }

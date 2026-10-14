@@ -109,14 +109,15 @@ final class TooltipPanel: NSPanel {
         NSSize(width: frame.width - Self.margin * 2, height: frame.height - Self.margin * 2)
     }
 
-    /// Lays out `text` and `shortcut` in `style` and sizes the window to them.
-    func show(text value: String, shortcut: String?, style: TooltipStyle, appearance: NSAppearance) {
+    /// Lays out `text` and `shortcut` in `style` and sizes the window to them; `scale` is the
+    /// backing scale of the screen it shows on (the rim is one of its pixels).
+    func show(text value: String, shortcut: String?, style: TooltipStyle, appearance: NSAppearance, scale: CGFloat) {
         self.appearance = appearance
         blur.isHidden = !style.frosted
         tint.layer?.backgroundColor = style.fill.cgColor
         tint.layer?.borderColor = style.border.cgColor
         // One device pixel (`--cmux-hairline` in pages).
-        tint.layer?.borderWidth = 1 / max(screen?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, 1)
+        tint.layer?.borderWidth = 1 / max(scale, 1)
         text.stringValue = value
         text.textColor = style.ink
         hint.stringValue = shortcut ?? ""
@@ -140,6 +141,11 @@ final class TooltipPanel: NSPanel {
 
     /// Puts it on screen: fading in and rising when `fade`, else at once (a warm neighbor's, or new text).
     func present(fade: Bool) {
+        // Already up (new text, a warm swap): it stays as it is, a fade in under way included.
+        if !fade, isVisible, !isFadingOut {
+            orderFrontRegardless()
+            return
+        }
         generation += 1
         isFadingOut = false
         guard let layer = surface.layer else {
@@ -173,6 +179,16 @@ final class TooltipPanel: NSPanel {
         }
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: layer.presentation()?.opacity ?? layer.opacity)
         CATransaction.commit()
+    }
+
+    /// Takes it off screen at once: a click, a key, a scroll or the app going inactive (as AppKit's
+    /// tooltip, it does not linger over the menu a click opens or over moving content).
+    func hideNow() {
+        generation += 1
+        isFadingOut = false
+        surface.layer?.removeAllAnimations()
+        if let layer = surface.layer { Motion.withoutAnimation { layer.opacity = 1 } }
+        orderOut(nil)
     }
 
     private func fadedOut(_ fading: Int) {

@@ -56,6 +56,8 @@ export function Tooltip({ label, children, side = "bottom", shortcut }: TooltipP
 export interface AnchoredCardProps {
   /** Shown when set; the element (or rect) it sits under. */
   anchor: UiAnchor;
+  /** Whether it shows (default: while `anchor` is set); false keeps it placed while it fades out. */
+  open?: boolean;
   className?: string;
   /** `data-state` on the card, for styling. */
   state?: string;
@@ -68,10 +70,10 @@ export interface AnchoredCardProps {
  * A hover card for content the page does not render with React (a link inside the editor): a
  * tooltip anchored to that element, opened and closed by the caller. It never takes focus.
  */
-export function AnchoredCard({ anchor, className, state, instant, children }: AnchoredCardProps) {
+export function AnchoredCard({ anchor, open, className, state, instant, children }: AnchoredCardProps) {
   const container = usePortalContainer();
   return (
-    <BaseTooltip.Root open={anchor !== null}>
+    <BaseTooltip.Root open={open ?? anchor !== null}>
       <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner
           className="ui-positioner"
