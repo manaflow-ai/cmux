@@ -17,7 +17,7 @@ public enum SignalMessage: Codable, Sendable, Hashable {
     case unknown(type: String, raw: JSONValue)
 
     enum Key: String, CodingKey {
-        case type, peerId, hosts, hostId, online, to, from, sessionId, sdp, candidate, sdpMid, sdpMLineIndex, code, message
+        case type, peerId, hosts, hostId, online, to, from, sessionId, sdp, candidate, sdpMid, sdpMLineIndex, code, message, removed
     }
 
     public var sessionId: String? {
@@ -37,7 +37,8 @@ public enum SignalMessage: Codable, Sendable, Hashable {
         case "welcome":
             self = .welcome(peerId: try s(.peerId), hosts: try c.decodeIfPresent([HostPresence].self, forKey: .hosts) ?? [])
         case "presence":
-            self = .presence(HostPresence(hostId: try s(.hostId), online: try c.decode(Bool.self, forKey: .online)))
+            self = .presence(HostPresence(hostId: try s(.hostId), online: try c.decode(Bool.self, forKey: .online),
+                                          removed: try c.decodeIfPresent(Bool.self, forKey: .removed) ?? false))
         case "offer":
             self = .offer(to: try o(.to), from: try o(.from), sessionId: try s(.sessionId), sdp: try s(.sdp))
         case "answer":
@@ -62,6 +63,7 @@ public enum SignalMessage: Codable, Sendable, Hashable {
             try c.encode("welcome", forKey: .type); try c.encode(peerId, forKey: .peerId); try c.encode(hosts, forKey: .hosts)
         case .presence(let p):
             try c.encode("presence", forKey: .type); try c.encode(p.hostId, forKey: .hostId); try c.encode(p.online, forKey: .online)
+            if p.removed { try c.encode(true, forKey: .removed) }
         case .offer(let to, let from, let sid, let sdp):
             try c.encode("offer", forKey: .type); try c.encodeIfPresent(to, forKey: .to); try c.encodeIfPresent(from, forKey: .from)
             try c.encode(sid, forKey: .sessionId); try c.encode(sdp, forKey: .sdp)

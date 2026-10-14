@@ -54,6 +54,12 @@ public final class HostsStore {
     }
 
     public func apply(_ presence: HostPresence) {
+        if presence.removed {
+            // Deleted on another device or by the backend: drop it.
+            knownPresence[presence.hostId] = nil
+            hosts.removeAll { $0.id == presence.hostId }
+            return
+        }
         knownPresence[presence.hostId] = presence.online
         guard let i = hosts.firstIndex(where: { $0.id == presence.hostId }) else { return }
         hosts[i].online = presence.online

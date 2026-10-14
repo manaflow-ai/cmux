@@ -198,10 +198,20 @@ public final class AppModel {
     }
 
     /// Keeps the selection valid after the host list changes.
+    /// Keeps the selection valid after the host list changes (refresh,
+    /// pairing, or a `presence {removed}`): a selected host that disappeared is
+    /// disconnected and replaced by the first online one, or none.
     func reconcileSelection() {
-        guard hosts.hasLoaded, !hosts.hosts.isEmpty else { return }
+        guard hosts.hasLoaded else { return }
         if let id = preferences.selectedHostId, hosts.host(id: id) != nil { return }
-        selectHost((hosts.onlineHosts.first ?? hosts.hosts.first)?.id)
+        let replacement = (hosts.onlineHosts.first ?? hosts.hosts.first)?.id
+        if replacement == nil, preferences.selectedHostId != nil {
+            connection.disconnect()
+            preferences.selectedHostId = nil
+            return
+        }
+        guard let replacement else { return }
+        selectHost(replacement)
     }
 
     func selectHost(_ id: String?) {

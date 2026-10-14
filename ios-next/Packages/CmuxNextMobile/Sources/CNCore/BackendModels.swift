@@ -84,5 +84,25 @@ public struct BackendErrorBody: Codable, Sendable, Hashable {
 public struct HostPresence: Codable, Sendable, Hashable {
     public var hostId: String
     public var online: Bool
-    public init(hostId: String, online: Bool) { self.hostId = hostId; self.online = online }
+    /// The host was deleted (unpaired); drop it from lists (PROTOCOL §5).
+    public var removed: Bool
+    public init(hostId: String, online: Bool, removed: Bool = false) {
+        self.hostId = hostId; self.online = online; self.removed = removed
+    }
+
+    enum CodingKeys: String, CodingKey { case hostId, online, removed }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hostId = try c.decode(String.self, forKey: .hostId)
+        online = try c.decode(Bool.self, forKey: .online)
+        removed = try c.decodeIfPresent(Bool.self, forKey: .removed) ?? false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(hostId, forKey: .hostId)
+        try c.encode(online, forKey: .online)
+        if removed { try c.encode(true, forKey: .removed) }
+    }
 }
