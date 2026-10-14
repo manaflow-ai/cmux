@@ -1746,6 +1746,7 @@
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
