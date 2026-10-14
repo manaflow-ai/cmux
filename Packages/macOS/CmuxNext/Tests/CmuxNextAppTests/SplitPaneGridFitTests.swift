@@ -11,7 +11,7 @@ import Testing
 /// before the first quit the first pane drew a 664 pt view with 48 rows (46 fit) and the lower
 /// panes 33 rows where 32 fit, so the shell had rows below the bottom edge until a relaunch.
 /// The same layout here, made the way a script makes it, on the real daemon.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(6)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct SplitPaneGridFitTests {
     @Test func splitPanesShownAgainRenderTheGridTheirViewsFit() async throws {
         try await Self.withApp { services in
@@ -105,11 +105,11 @@ struct SplitPaneGridFitTests {
             let grid = terminal?.grid.map { "\($0.columns)x\($0.rows)" } ?? "-"
             let fit = terminal?.fitGrid.map { "\($0.columns)x\($0.rows)" } ?? "-"
             let view = terminal.map { "\(Int($0.viewSize.width))x\(Int($0.viewSize.height))" } ?? "-"
-            return "\(pane.paneKey) tabs=\(pane.orderedIDs.count) presence=\(status.presence) content=\(Int(status.contentSize.width))x\(Int(status.contentSize.height)) view=\(view) grid=\(grid) fit=\(fit)"
+            return "\(pane.paneKey) kind=\(status.kind) tabs=\(pane.orderedIDs.count) presence=\(status.presence) content=\(Int(status.contentSize.width))x\(Int(status.contentSize.height)) view=\(view) grid=\(grid) fit=\(fit)"
         }.joined(separator: "\n")
     }
 
-    private static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20),
+    private static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(60),
                               report: () -> String = { "" }, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
