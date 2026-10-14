@@ -112,3 +112,41 @@ if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Library/SystemExtensions" -path '*/Contents/MacOS/*' -type f -print0)
 fi
+
+# Compiled String Catalogs ship as binary property lists. Xcode re-encodes them
+# with STRINGS_FILE_OUTPUT_ENCODING, and the project's binary setting does not
+# reach SwiftPM package targets, so the resource bundles' tables arrive as
+# UTF-16 XML (cmux NEXT: 2,109 files, 19.6 MiB; 9.5 MiB as binary). Foundation
+# reads both forms. Binary and old-style text tables stay as they are, and
+# nested code bundles, signed on their own, are skipped.
+python3 -I - "$APP_PATH/Contents/Resources" <<'PY'
+import os, plistlib, sys
+
+root = sys.argv[1]
+count = before = after = 0
+for dirpath, dirnames, filenames in os.walk(root):
+    dirnames[:] = [d for d in dirnames if not d.endswith((".app", ".appex", ".framework", ".plugin", ".xpc"))]
+    for name in filenames:
+        if not name.endswith(".strings"):
+            continue
+        path = os.path.join(dirpath, name)
+        if os.path.islink(path):
+            continue
+        with open(path, "rb") as f:
+            data = f.read()
+        text = data.decode("utf-16") if data[:2] in (b"\xff\xfe", b"\xfe\xff") else data.decode("utf-8", "replace")
+        if not text.lstrip().startswith(("<?xml", "<!DOCTYPE plist", "<plist")):
+            continue
+        table = plistlib.loads(text.encode("utf-8"))
+        binary = plistlib.dumps(table, fmt=plistlib.FMT_BINARY)
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(binary)
+        os.chmod(tmp, os.stat(path).st_mode & 0o7777)
+        os.replace(tmp, path)
+        count += 1
+        before += len(data)
+        after += len(binary)
+if count:
+    print(f"binary strings tables: {count} files, {before / 1048576:.2f} -> {after / 1048576:.2f} MiB")
+PY
