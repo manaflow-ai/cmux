@@ -54,6 +54,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "app.hideDockIconWithoutWindows", // whether the Dock icon shows with no window open (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.tabBar.terminal", "tabs.tabBar.browser", "tabs.tabBar.agent",
         "palette.scopes.tabs.prefix",
