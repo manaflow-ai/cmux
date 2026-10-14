@@ -88,6 +88,9 @@ public struct DaemonCapabilities: Sendable {
     /// Client-minted `pane_id` / `tab_id` on `split`, `new-pane` and `new-pane-right`, keyed
     /// retries (plans/cmux-next/remote-state-ownership.md S1).
     public let splitClientKeys = "split-client-keys-v1"
+    /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
+    /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
+    public let terminalInputWhileCreating = "terminal-input-while-creating-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
@@ -357,7 +360,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, pageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, paletteUsage, browserDevices, projectList, splitClientKeys,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, paletteUsage, browserDevices, projectList, splitClientKeys, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 

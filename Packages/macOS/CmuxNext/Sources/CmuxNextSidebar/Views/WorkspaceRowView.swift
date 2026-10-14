@@ -57,8 +57,6 @@ final class WorkspaceRowView: SidebarRowView {
     var hasSubtitle = false, isExpanded = false, timeText: String?
     private var grouped = false
     private var iconKind: WorkspaceIcon?
-    /// Unread rows draw their title in the primary text color (`SidebarStyle.titleColor`).
-    private var isUnread = false
     /// Selected but not active (the active row paints the selection fill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
     /// A tab dragged from a pane would move into this workspace.
@@ -186,7 +184,6 @@ final class WorkspaceRowView: SidebarRowView {
         iconKind = shown.icon
         title.stringValue = ws.title
         title.font = SidebarStyle.titleFont
-        isUnread = ws.unread.isUnread
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
@@ -263,7 +260,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = SidebarStyle.titleColor(emphasized: isSelected || isSecondarySelected || isUnread)
+            title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary; [timeLabel, metaLabel].forEach { $0.textColor = Palette.textTertiary }
             tabCount.textColor = Palette.textTertiary
             mutedMark.contentTintColor = Palette.textTertiary
