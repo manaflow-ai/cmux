@@ -359,9 +359,10 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   // Files go to the open conversation when its owner takes them through this host.
   const takesFiles =
     open && snap.fileSupport && (open.owner === "cloud" ? snap.fileSupport.cloud : snap.fileSupport.local);
+  const conversation = open?.id;
   const uploads = useMemo(
-    () => (store.attachments && takesFiles && open ? { service: store.attachments, conversation: open.id } : undefined),
-    [store.attachments, takesFiles, open?.id],
+    () => (store.attachments && takesFiles && conversation ? { service: store.attachments, conversation } : undefined),
+    [store.attachments, takesFiles, conversation],
   );
   return (
     <AttachmentContext.Provider value={store.attachments}>
