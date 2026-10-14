@@ -164,6 +164,11 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         return true
     }
 
+    /// Reopens the introduction from the sidebar Cloud button.
+    func presentIntroduction(over parent: NSWindow?) {
+        present(over: parent)
+    }
+
     #if DEBUG
     /// Debug previews deliberately bypass the gate, but still count as seen.
     func presentForDebug(
