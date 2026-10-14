@@ -68,7 +68,7 @@ export function Timeline({
   );
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
   // Destructured: `scroller` alone is the ref; the rest are plain render values.
-  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation);
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight);
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (

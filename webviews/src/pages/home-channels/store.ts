@@ -22,6 +22,8 @@ import {
 } from "./types";
 
 export const PAGE = 100;
+/** Most pages a link loads to reach its message (older history, or later thread replies). */
+const LINK_PAGES = 20;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -156,12 +158,41 @@ export class HomeChannelsStore {
       const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
       if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
       await this.select(link.conversation);
-      if (link.threadRoot) this.openThread(link.threadRoot);
-      this.set({ highlight: link.message?.id });
+      const target = link.message;
+      // A reply from before threads has no owner root; the page shows it in its reply_to thread.
+      const root = link.threadRoot ?? (target ? threadOf(target) : undefined);
+      if (target && root) {
+        await this.openThread(root);
+        await this.pageTo(() => this.snapshot.threadView?.messages, target, async () => {
+          const view = this.snapshot.threadView;
+          if (!view?.hasMore || view.root !== root) return false;
+          await this.loadThread(root, view.messages.at(-1)?.seq ?? 0);
+          return true;
+        });
+      } else if (target) {
+        await this.pageTo(() => this.snapshot.messages, target, async () => {
+          if (!this.snapshot.hasOlder || this.snapshot.selected !== link.conversation) return false;
+          await this.loadOlder();
+          return true;
+        });
+      }
+      this.set({ highlight: target?.id });
       return true;
     } catch (error) {
       this.set({ error: describe(error) });
       return false;
+    }
+  }
+
+  /** Loads more pages (at most LINK_PAGES) until `target` is in `loaded()`. */
+  private async pageTo(
+    loaded: () => readonly HomeMessage[] | undefined,
+    target: HomeMessage,
+    more: () => Promise<boolean>,
+  ): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      if (loaded()?.some((message) => message.id === target.id)) return;
+      if (!(await more())) return;
     }
   }
 
@@ -202,6 +233,7 @@ export class HomeChannelsStore {
       unseen: undefined,
       threadsSeen: new Set(),
       draft: this.drafts.draft(id),
+      highlight: undefined,
     });
     await this.reloadPage(id);
   }
@@ -269,11 +301,12 @@ export class HomeChannelsStore {
     }
   }
 
-  openThread(root: string | undefined): void {
+  /** Opens (or closes) a thread; resolves when its first replies are loaded. */
+  openThread(root: string | undefined): Promise<void> {
     const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
     if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
     else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
-    if (root) void this.loadThread(root, 0);
+    return root ? this.loadThread(root, 0) : Promise.resolve();
   }
 
   /** The next page of the open thread's replies (the owner's thread read). */

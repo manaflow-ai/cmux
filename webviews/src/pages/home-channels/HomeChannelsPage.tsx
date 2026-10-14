@@ -83,7 +83,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     escape: () => {
       if (switcher) setSwitcher(false);
       else if (editing) setEditing(undefined);
-      else if (snap.thread) store.openThread(undefined);
+      else if (snap.thread) void store.openThread(undefined);
       else return false;
       return true;
     },
@@ -165,7 +165,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           strings={strings}
           loadingOlder={snap.loadingOlder}
           onLoadOlder={() => void store.loadOlder()}
-          onOpenThread={(root) => store.openThread(root)}
+          onOpenThread={(root) => void store.openThread(root)}
           onReact={(message, value) => void store.react(message, value)}
           onCopyLink={copyLink}
           highlight={snap.highlight}
@@ -209,7 +209,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
           me={me}
           strings={strings}
           canSend={online}
-          onClose={() => store.openThread(undefined)}
+          onClose={() => void store.openThread(undefined)}
           onSend={(text, parent) => store.send(text, snap.thread, parent)}
           onCopyLink={copyLink}
           highlight={snap.highlight}
