@@ -143,6 +143,10 @@ def mac_write(text, t=None):
 
 
 def rec_start(name):
+    if load().get("rec"):
+        rec_stop()
+    # Only a recorder of THIS simulator (other agents record theirs).
+    subprocess.run(["pkill", "-INT", "-f", f"io {load()['udid']} recordVideo"], capture_output=True)
     st = load()
     os.makedirs(RAW, exist_ok=True)
     path = os.path.join(RAW, f"{name}.mp4")
@@ -150,7 +154,9 @@ def rec_start(name):
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     st["rec"] = {"pid": p.pid, "path": path, "t0": time.time()}
     save(st)
-    time.sleep(1.0)
+    time.sleep(1.5)
+    if p.poll() is not None:
+        raise RuntimeError(f"recordVideo exited ({p.returncode})")
     return path
 
 
@@ -198,3 +204,72 @@ def frames(name, fps=10, start=None, dur=None, width=402):
 
 def load_avg():
     return float(subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True).stdout.split()[1])
+
+
+def composer_send(text, send=True):
+    """Types into the composer on the soft keyboard and taps Send (the user's path)."""
+    s, _, j = ctx()
+    if not s.find(ident="terminal.composer.field"):
+        raise RuntimeError("no composer on screen")
+    s.tap_q(ident="terminal.composer.field")
+    time.sleep(0.6)
+    s.dismiss_keyboard_intro()
+    s.softtype(text)
+    if send:
+        return s.tap_q(ident="terminal.composer.send")
+
+
+def direct_type(text):
+    """Types straight into the terminal (tap the terminal, soft keyboard)."""
+    s, _, j = ctx()
+    j.focus_terminal()
+    s.softtype(text)
+
+
+def key(label):
+    s, _, j = ctx()
+    return j.keybar(label)
+
+
+def hide_kb():
+    s, _, j = ctx()
+    j.hide_keyboard()
+
+
+def composer_clear():
+    s, _, _ = ctx()
+    f = s.find(ident="terminal.composer.field")
+    if not f:
+        return
+    n = len(f[0].value or "")
+    if n == 0:
+        return
+    if not s.keyboard():
+        s.tap_el(f[0]); time.sleep(0.6)
+    k = s.keyboard()
+    if "delete" in k:
+        # Hold delete: iOS accelerates to word deletion.
+        s.long_press(*k["delete"].center, seconds=min(6, 1 + n / 10))
+
+
+def paste_composer(text, send=True):
+    """Simulator pasteboard -> composer (edit menu Paste) -> Send: the person's paste path."""
+    s, _, _ = ctx()
+    subprocess.run(["xcrun", "simctl", "pbcopy", s.udid], input=text, text=True, check=True)
+    f = s.wait(ident="terminal.composer.field", timeout=10)
+    if not s.keyboard():
+        s.tap_el(f); time.sleep(0.7)
+    f = s.find(ident="terminal.composer.field")[0]
+    s.tap_el(f); time.sleep(0.5)
+    p = s.wait(label="Paste", timeout=3)
+    if not p:
+        s.long_press(*f.center, seconds=0.8); time.sleep(0.4)
+        p = s.wait(label="Paste", timeout=3)
+    if not p:
+        raise RuntimeError("no Paste in the composer's edit menu")
+    s.tap_el(p); time.sleep(0.5)
+    allow = s.find(label="Allow Paste", kind="Button")
+    if allow:
+        s.tap_el(allow[0]); time.sleep(0.5)
+    if send:
+        return s.tap_q(ident="terminal.composer.send")
