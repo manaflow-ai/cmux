@@ -6,6 +6,7 @@ import "./desktop.css";
 import { parseComputedColor } from "../../backdrop";
 import { installScrollers } from "../../scrollers";
 import { installTooltips } from "../../ui/titleTooltips";
+import { installImeKeyLayer } from "./imeKeys";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
@@ -48,6 +49,8 @@ export function installDesktopLayer(doc: Document = document): void {
   installTooltips(doc);
   const view = doc.defaultView;
   if (!view) return;
+  // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
+  installImeKeyLayer(doc);
   // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
   updateHairline(doc);
   // A page-zoom or uiScale change resizes the CSS viewport; it may not fire the resolution query.
