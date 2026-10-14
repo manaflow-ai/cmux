@@ -106,7 +106,7 @@ fn bare_url(text: &str) -> Option<Found<'_>> {
     let mut url = &text[..run];
     loop {
         let trimmed = url.trim_end_matches(['.', ',', ';', ':', '!', '?', '*', '_']);
-        let trimmed = match trimmed.chars().last() {
+        let trimmed = match trimmed.chars().next_back() {
             Some(')') if trimmed.matches('(').count() < trimmed.matches(')').count() => {
                 &trimmed[..trimmed.len() - 1]
             }
@@ -136,6 +136,14 @@ fn replace(text: &str, write: impl Fn(&str, &str) -> String) -> (String, Vec<(St
     let mut index = 0;
     while index < text.len() {
         let rest = &text[index..];
+        // Code (a `span` or a fenced block) is shown as written: its links stay text.
+        if rest.starts_with('`') {
+            let fence = rest.len() - rest.trim_start_matches('`').len();
+            let close =
+                rest[fence..].find(&rest[..fence]).map_or(rest.len(), |at| fence + at + fence);
+            index += close;
+            continue;
+        }
         let glued = text[..index].chars().next_back().is_some_and(word);
         let link = markdown_link(rest).or_else(|| if glued { None } else { bare_url(rest) });
         if let Some(link) = link {
@@ -163,9 +171,10 @@ pub(super) fn split(text: &str) -> (String, Vec<(String, String)>) {
     replace(text, |label, _| label.to_owned())
 }
 
-/// `line` with each label of `links` that stands alone (not inside a longer word) written as its
-/// hyperlink. A bare URL the view wrapped over lines links each of its pieces to the whole URL:
-/// the piece that ends a line, the one that starts a line, or a whole line inside it.
+/// `line`, one wrapped line of a message, with each label of that message's `links` that stands
+/// alone (not inside a longer word) written as its hyperlink. A bare URL the view hard-broke over
+/// lines (`render::wrap` starts it on a new line) links each of its pieces to the whole URL: a
+/// piece that fills its line, and the last piece that starts one.
 pub(super) fn mark(line: &str, links: &[(String, String)]) -> String {
     if links.is_empty() {
         return line.to_owned();
@@ -189,42 +198,46 @@ pub(super) fn mark(line: &str, links: &[(String, String)]) -> String {
 
 /// The link that starts at byte `index` of `line`: its length there and its URL. The newest
 /// link wins a tie, so a label used twice links to the latest target.
-fn match_at<'a>(line: &str, index: usize, links: &'a [(String, String)]) -> Option<(usize, &'a str)> {
+fn match_at<'a>(
+    line: &str,
+    index: usize,
+    links: &'a [(String, String)],
+) -> Option<(usize, &'a str)> {
     let rest = &line[index..];
     let before = line[..index].chars().next_back();
     let free_before = |label: &str| !(label.starts_with(word) && before.is_some_and(word));
     let free_after = |label: &str| {
         !(label.ends_with(word) && rest[label.len()..].chars().next().is_some_and(word))
     };
+    // `max_by_key` keeps the last of the longest: the newest link.
     let whole = links
         .iter()
-        .rev()
         .filter(|(label, _)| {
-            !label.is_empty() && rest.starts_with(label.as_str()) && free_before(label) && free_after(label)
+            !label.is_empty()
+                && rest.starts_with(label.as_str())
+                && free_before(label)
+                && free_after(label)
         })
         .max_by_key(|(label, _)| label.len());
     if let Some((label, url)) = whole {
         return Some((label.len(), url.as_str()));
     }
-    // A piece of a wrapped bare URL: the run of non-space text here, at the start of the line's
-    // text or at its end.
-    if before.is_some_and(|c| !c.is_whitespace()) {
+    // A piece of a wrapped bare URL starts the line's text: the whole line inside the URL (its
+    // first or a middle piece), or its last piece, without the punctuation after it.
+    if !line[..index].trim().is_empty() {
         return None;
     }
-    let piece = &rest[..rest.find(char::is_whitespace).unwrap_or(rest.len())];
-    let starts_line = line[..index].trim().is_empty();
-    let ends_line = piece.len() == rest.len();
-    if piece.len() < MIN_PIECE || !(starts_line || ends_line) {
-        return None;
-    }
-    links
-        .iter()
-        .rev()
-        .filter(|(label, url)| label == url && url.len() > piece.len())
-        .find(|(_, url)| {
-            (ends_line && url.starts_with(piece))
-                || (starts_line && url.ends_with(piece))
-                || (starts_line && ends_line && url.contains(piece))
-        })
-        .map(|(_, url)| (piece.len(), url.as_str()))
+    let run = &rest[..rest.find(char::is_whitespace).unwrap_or(rest.len())];
+    let fills = run.len() == rest.len();
+    let last = run.trim_end_matches(['.', ',', ';', ':', '!', '?', '*', '_', ')', ']']);
+    let piece = |url: &'a String| {
+        if fills && run.len() >= MIN_PIECE && url.len() > run.len() && url.contains(run) {
+            Some((run.len(), url.as_str()))
+        } else if last.len() >= MIN_PIECE && url.len() > last.len() && url.ends_with(last) {
+            Some((last.len(), url.as_str()))
+        } else {
+            None
+        }
+    };
+    links.iter().rev().filter(|(label, url)| label == url).find_map(|(_, url)| piece(url))
 }
