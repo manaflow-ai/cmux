@@ -7052,6 +7052,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private(set) var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+    // Set when interpretKeyEvents asks for deleteBackward: during the current keyDown.
+    private var keyRequestedDeleteBackward = false
     private var lastPerformKeyEvent: TimeInterval?
     private(set) var externalCommittedTextDepth = 0
     var numpadIMECommitDeduplicator = NumpadIMECommitDeduplicator()
@@ -7086,7 +7088,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
-        // Intentionally empty - prevents system beep on unhandled key commands
+        // Otherwise empty - prevents system beep on unhandled key commands
+        if keyTextAccumulator != nil, selector == #selector(deleteBackward(_:)) {
+            keyRequestedDeleteBackward = true
+        }
     }
 
     /// Some third-party voice input apps inject committed text by sending the
@@ -7529,6 +7534,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
+        keyRequestedDeleteBackward = false
         defer { keyTextAccumulator = nil }
 
         let markedTextBefore = markedText.length > 0
@@ -7615,6 +7621,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Treat cleared preedit as composing too, so a composing Backspace cancels
         // composition without deleting the preceding terminal input.
         keyEvent.composing = markedText.length > 0 || markedTextBefore
+
+        // Vietnamese Telex commits its preedit on Backspace, then asks for
+        // deleteBackward:. Ghostty drops UTF-8 attached to a Backspace key, so
+        // send the commit as typed text and replay the Backspace on its own.
+        if keyRequestedDeleteBackward, !accumulatedText.isEmpty {
+            for text in accumulatedText where shouldSendText(text) {
+                sendCommittedTextChunk(text)
+            }
+            keyEvent.composing = false
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.text = nil
+            _ = sendGhosttyKey(surface, keyEvent)
+            return
+        }
 
         // Use accumulated text from insertText (for IME), or compute text for key
         if !accumulatedText.isEmpty {
