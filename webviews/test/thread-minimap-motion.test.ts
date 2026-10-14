@@ -97,16 +97,6 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
       return { x: box.left + 8, y: box.top + box.height / 2 };
     }, index);
-  /// Marks the time the pointer reached `selector` (its pointerover).
-  const markOver = (page: Page) =>
-    page.evaluate(() => {
-      document.addEventListener(
-        "pointerover",
-        () => ((window as unknown as { __over: number }).__over = performance.now()),
-        { once: true, capture: true },
-      );
-    });
-
   test("hover grows the tick to 26 px within 160 ms, with no delay, on the spring curve", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {
@@ -117,20 +107,65 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     expect(style.duration).toBe("0.15s"); // at rest: the 150 ms settle; hovered rows use 160 ms
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
-    await markOver(page);
-    const sampling = sample(page, 400);
+    // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
+    // by holding and seeking it, not by sampling frames: a CI runner's headless WebKit paces
+    // frames unevenly. The hold starts in the transition's own `transitionrun`.
+    await page.evaluate(() => {
+      const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!;
+      const held = window as unknown as { __held?: Animation; __over: number };
+      held.__over = 0;
+      document.addEventListener("pointerover", () => (held.__over = performance.now()), { once: true, capture: true });
+      bar.addEventListener(
+        "transitionrun",
+        () => {
+          const running = bar
+            .getAnimations()
+            .find((entry) => (entry as CSSTransition).transitionProperty === "transform");
+          running?.pause();
+          held.__held = running;
+          (held as unknown as { __run: number }).__run = performance.now();
+        },
+        { once: true },
+      );
+    });
     await page.mouse.move(point.x, point.y);
-    await sampling;
-    const over = await page.evaluate(() => (window as unknown as { __over: number }).__over);
-    const after = (await samples(page)).filter((entry) => entry.t >= over);
-    // It starts moving within two frames of the pointer (no dwell), passes through the lengths
-    // between (a transition, not a jump) and is there 160 ms (plus a frame) after it started.
-    const start = after.find((entry) => entry.width > 6.5)!;
-    expect(start.t - over).toBeLessThan(60);
-    expect(after.some((entry) => entry.width > 8 && entry.width < 24)).toBe(true);
-    expect(after.find((entry) => entry.t - start.t >= 160)!.width).toBeGreaterThan(25.4);
-    expect(after.find((entry) => entry.t - start.t >= 40)!.width).toBeLessThan(25.4);
-    expect(Math.max(...after.map((entry) => entry.width))).toBeLessThan(26 * 1.012);
+    await page.waitForFunction(() => "__held" in window, undefined, { timeout: 5_000 });
+    const transition = await page.evaluate(() => {
+      const bar = document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!;
+      const held = window as unknown as { __held?: Animation; __over: number; __run: number };
+      const running = held.__held;
+      if (!running) return undefined;
+      const timing = running.effect!.getComputedTiming();
+      const width = (ms: number) => {
+        running.pause();
+        running.currentTime = ms;
+        return 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a;
+      };
+      const widths = [0, 40, 80, 112, 160].map(width);
+      running.currentTime = 160;
+      running.play();
+      return {
+        duration: timing.duration,
+        delay: timing.delay,
+        // From the pointer reaching the row to the transition starting.
+        wait: held.__run - held.__over,
+        widths,
+      };
+    });
+    expect(transition).toBeDefined();
+    expect(transition!.wait).toBeLessThan(60);
+    // 160 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
+    expect(transition!.duration).toBe(160);
+    expect(transition!.delay).toBe(0);
+    const [w0, w40, w80, w112, w160] = transition!.widths;
+    // From the 6 px rest through the lengths between (a transition, not a jump) to 26 px.
+    expect(Math.round(w0!)).toBe(6);
+    expect(w40!).toBeGreaterThan(8);
+    expect(w40!).toBeLessThan(25.4);
+    expect(w80!).toBeGreaterThan(w40!);
+    // The spring's small overshoot (about 0.8%), then 26 px.
+    expect(w112!).toBeLessThan(26 * 1.012);
+    expect(Math.round(w160!)).toBe(26);
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return { delay: css.transitionDelay, duration: css.transitionDuration };
