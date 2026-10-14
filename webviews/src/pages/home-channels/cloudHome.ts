@@ -134,6 +134,8 @@ export class CloudHome {
       unread: num(entry.unread),
       mentions: num(entry.mentions),
       pinned: entry.pinned === true,
+      ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+      ...(entry.marked_unread === true ? { markedUnread: true } : {}),
       muted: entry.muted === true,
       lastText: base.lastText ?? (String(entry.preview ?? "") || undefined),
     };
@@ -153,7 +155,9 @@ export class CloudHome {
   async op(conversation: string, key: string, op: Json): Promise<Json> {
     const sent: Json = { ...op };
     // An owner from before threads keeps a thread reply as a reply to the root's first part.
-    if (typeof op.thread_root === "string") sent.reply_to = { message_id: op.thread_root, part_index: 0 };
+    // A nested reply keeps its own parent.
+    if (typeof op.thread_root === "string" && !op.reply_to)
+      sent.reply_to = { message_id: op.thread_root, part_index: 0 };
     return this.daemon.request("cloud-conversation-op", {
       conversation,
       idempotency_key: key,
@@ -170,6 +174,8 @@ export class CloudHome {
     removed?: string[];
     stale?: string;
     inboxStale?: boolean;
+    /** A Cloud Chief's run change (the run and the steps that changed), in the owner's shape. */
+    run?: { run: Json; steps: Json[] };
   } | null {
     // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
     if (event.event === "cloud-inbox-reset") {
@@ -197,6 +203,9 @@ export class CloudHome {
         }
         return { conversation: this.summary(id) };
       }
+      case "cloud-conversation-run-changed":
+        if (!event.run || typeof event.run !== "object") return null;
+        return { run: { run: this.localize(event.run as Json), steps: (event.steps as Json[] | undefined) ?? [] } };
       case "cloud-conversation-resynced": {
         const id = String(event.conversation);
         this.heads.set(id, this.localize(event.summary as Json));
@@ -315,5 +324,7 @@ function fromEntry(entry: Json): HomeConversation {
     mentions: num(entry.mentions),
     muted: entry.muted === true,
     pinned: entry.pinned === true,
+    ...(entry.pinned === true && typeof entry.pin_position === "number" ? { pinPosition: entry.pin_position } : {}),
+    ...(entry.marked_unread === true ? { markedUnread: true } : {}),
   };
 }

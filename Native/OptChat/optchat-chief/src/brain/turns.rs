@@ -83,7 +83,7 @@ impl Brain {
             .name("turn".into())
             .spawn(move || {
                 // Section 6, as the chief changed it (2026-10-10: a user turn
-                // never waits more than 10 s on compaction): the turn waits
+                // never waits more than SETTLE_BOUND on compaction): the turn waits
                 // until every view line is a summary, at most SETTLE_BOUND.
                 // Then it starts anyway and reads the lines still building
                 // unsummarized (`PLACEHOLDER`, which `zoom` opens); the next
@@ -160,8 +160,12 @@ impl Brain {
                         let draft = |d: crate::draft::Draft| {
                             let _ = tx.send(Input::Draft(Box::new(d)));
                         };
+                        // The turn's run record, to the same clients.
+                        let run_update = |u: crate::run::RunUpdate| {
+                            let _ = tx.send(Input::Run(Box::new(u)));
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -224,7 +228,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -250,12 +254,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
                         })
                     }
                     Engine::Native(native) => {
@@ -295,7 +299,7 @@ impl Brain {
     /// have lost acpmux (the turn would fail at once and consume the queue)
     /// or appended to the log (an orphan's fold), which can leave a view line
     /// unsummarized again; then the queue stays and the wait starts over.
-    /// Chief 2026-10-10: a user turn never waits more than 10 s on
+    /// A user turn never waits more than SETTLE_BOUND (1 s) on
     /// compaction (README, Deviations from the spec, Section 6).
     /// `deferred`: the worker waited SETTLE_BOUND and starts the turn with
     /// lines still building (they read as the placeholder).
@@ -1045,6 +1049,18 @@ impl Brain {
             (None, Some(error)) => format!("({failed}: {error})"),
             (None, None) => String::new(),
         };
+        // A Chief that reads every message stays quiet with NO_REPLY (membership).
+        let text = if self.settings.membership.acts_on_its_own()
+            && crate::membership::is_no_reply(&text)
+        {
+            (self.log)(&format!(
+                "turn {key} answered {}: nothing posted",
+                crate::membership::NO_REPLY
+            ));
+            String::new()
+        } else {
+            text
+        };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
             // The turn that answers both keeps this one's remote origin.
@@ -1102,11 +1118,27 @@ impl Brain {
             .filter(|t| t.key == key)
             .map(|t| t.session.clone())
             .unwrap_or_default();
+        // In a group conversation the reply goes into the thread of the last
+        // message it answers (membership::thread_target); a superseded turn's
+        // messages keep theirs for the turn that answers them.
+        let thread = if superseded {
+            None
+        } else {
+            let thread = answers
+                .last()
+                .and_then(|id| self.reply_threads.get(id))
+                .cloned();
+            for id in &answers {
+                self.reply_threads.remove(id);
+            }
+            thread
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
-                let entry = answer_entry(conversation, key, &text, answers, pending);
+                let mut entry = answer_entry(conversation, key, &text, answers, pending);
+                in_thread(&mut entry, thread);
                 let entry = self.reply_with_previews(entry);
                 self.state.outbox.push(entry);
             }
@@ -1115,6 +1147,7 @@ impl Brain {
                     "turn {key} said nothing; it closes its messages with a done marker"
                 ));
                 let mut entry = answer_entry(conversation, key, "", answers, pending);
+                in_thread(&mut entry, thread);
                 if let cmux_conversation::Op::MessageSend { parts, .. } = &mut entry.op {
                     *parts = vec![cmux_conversation::Part::Work {
                         session,
@@ -1161,6 +1194,25 @@ impl Brain {
         }
         self.maybe_start_turn();
         self.prewarm_next_turn();
+    }
+}
+
+/// Puts a reply into the thread `(root, parent)`, when it has one.
+fn in_thread(entry: &mut crate::state::OutboxEntry, thread: Option<(String, String)>) {
+    if let (
+        Some((root, parent)),
+        cmux_conversation::Op::MessageSend {
+            thread_root,
+            reply_to,
+            ..
+        },
+    ) = (thread, &mut entry.op)
+    {
+        *thread_root = Some(root);
+        *reply_to = Some(cmux_conversation::PartRef {
+            message_id: parent,
+            part_index: 0,
+        });
     }
 }
 

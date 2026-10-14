@@ -1,6 +1,7 @@
 // One WebSocket connection of a page to its cmux instance's daemon (cmux-tui spec/transports.md
 // "WebSocket"): the same raw protocol-12 envelopes the app sends on the Unix socket, one JSON
-// object per text frame. The first frame authenticates: the daemon credential, or a pairing request
+// object per text frame. The first frame authenticates (unless a same-origin relay already
+// authenticated upstream, `{ origin: true }`): the daemon credential, or a pairing request
 // the person approves on a human surface of that instance (the TUI, the verified app); the approved
 // pairing returns a reconnect credential. Credentials never go in a URL or a log line.
 //
@@ -13,6 +14,9 @@ export interface DaemonError extends Error {
 
 export type DaemonAuth =
   | { token: string }
+  /** The page's own origin already authorized this socket: a same-origin relay that identified the
+   *  person attaches the credential upstream, so the page sends no preamble and never holds it. */
+  | { origin: true }
   | { pair: { onChallenge(code: string, expiresIn: number): void; onCredential(credential: string): void } };
 
 type Pending = { resolve(data: unknown): void; reject(error: unknown): void };
@@ -36,6 +40,13 @@ export class DaemonSocket {
   private readonly operations = new Map<string, Pending>();
   private readonly listeners = new Set<(event: Record<string, unknown>) => void>();
   private readonly closeListeners = new Set<(reason: string) => void>();
+  private endpoint = "";
+
+  /** The WebSocket URL this connection opened (no credential in it): the daemon's origin, where
+   * its listener also serves plain HTTP paths such as attachment download links. */
+  get url(): string {
+    return this.endpoint;
+  }
 
   /** Opens and authenticates. Resolves once the daemon accepts protocol frames. */
   static async connect(url: string, auth: DaemonAuth): Promise<DaemonSocket> {
@@ -48,9 +59,16 @@ export class DaemonSocket {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;
+      this.endpoint = url;
       let ready = false;
       socket.addEventListener("open", () => {
-        if ("token" in auth) {
+        if ("origin" in auth) {
+          // The relay authenticated upstream. If it attached no credential, the daemon closes on the
+          // first protocol frame (1008, or another close code through the relay), which rejects
+          // the identify below like a wrong token.
+          ready = true;
+          resolve();
+        } else if ("token" in auth) {
           socket.send(JSON.stringify({ auth: { token: auth.token } }));
           // The token preamble gets no reply: the next frames are protocol frames. A wrong token
           // closes the socket with 1008 before the first reply, which rejects the identify below.

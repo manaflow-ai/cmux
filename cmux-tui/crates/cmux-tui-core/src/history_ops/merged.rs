@@ -174,7 +174,7 @@ pub(super) fn list(
         let items = mux
             .read_registry_state(crate::state::closed_history_query::closed_items)
             .map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(items.iter().filter_map(sources::closed_entry));
+        entries.extend(sources::closed_entries(&items));
     }
     // A location row also carries its window and stored location (an app
     // rebuilds its Back/Forward steps from them).
@@ -227,7 +227,10 @@ pub(super) fn mutate(
         "history.entries.remove" => remove(mux, key, actor, fields, now_ms, day_start_ms),
         "history.clear" => clear(mux, key, actor, fields, now_ms, day_start_ms),
         "history.trail.record" => {
-            let (value, changed) = trail::record(mux, key, actor, fields, now_ms)?;
+            let (value, changed) =
+                trail::record(mux, key, actor, fields, now_ms).inspect_err(|error| {
+                    trail::log(mux, format!("refused ({}: {})", error.code, error.message));
+                })?;
             Ok((value, if changed { vec![HistoryKind::Location] } else { Vec::new() }))
         }
         _ => pages_only(mux),

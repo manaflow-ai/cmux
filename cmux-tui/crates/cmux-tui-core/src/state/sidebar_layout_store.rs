@@ -73,6 +73,15 @@ pub(crate) fn snapshot_value(document: &Document) -> anyhow::Result<Value> {
     Ok(value)
 }
 
+/// The layout clients read: the stored one with the sidebar document's
+/// Pinned items as its `sec_pinned` tiles (sidebar-doc-v1).
 pub(crate) fn snapshot(connection: &Connection) -> anyhow::Result<Value> {
-    snapshot_value(&document(connection)?)
+    if !super::sidebar_doc_store::is_migrated(connection)? {
+        // Its migration failed at open: the stored tiles, as before.
+        return snapshot_value(&document(connection)?);
+    }
+    let stored = document(connection)?;
+    super::sidebar_doc_store::with_doc(connection, |doc| {
+        snapshot_value(&super::sidebar_doc_legacy::project_layout(&stored, doc))
+    })
 }

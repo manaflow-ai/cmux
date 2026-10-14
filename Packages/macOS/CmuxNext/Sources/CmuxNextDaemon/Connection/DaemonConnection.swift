@@ -227,7 +227,7 @@ public actor DaemonConnection {
             self.identity = identity
             self.endpoint = endpoint
             phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
-            wake.watch(file: endpoint.socketPath)
+            wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             if endpoint.bridge != nil { heartbeat.start(transport, every: configuration.bridgeHeartbeat, misses: configuration.bridgeHeartbeatMisses) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
@@ -325,6 +325,8 @@ public actor DaemonConnection {
                     return
                 default:
                     logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(error.description, privacy: .public)")
+                    // A restoring owner keeps the timed budget (`DaemonStartup.ownerIsRestoring`).
+                    if DaemonStartup.shared.ownerIsRestoring(error) { pacer.reset() }
                 }
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")

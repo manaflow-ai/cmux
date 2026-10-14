@@ -1,6 +1,7 @@
 import { and, count, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms, cloudVmRuntimeIntervals, stripeSubscriptions } from "../../db/schema";
+import { planItem } from "../billing/subscriptionItems";
 
 export const GO_INCLUDED_VM_HOURS = 40;
 export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
@@ -29,8 +30,8 @@ export function runtimeSecondsWithinPeriod(
 }
 
 export function subscriptionPeriodStart(raw: Record<string, unknown> | null): Date | null {
-  const items = raw?.items as { data?: Array<{ current_period_start?: unknown }> } | undefined;
-  const value = items?.data?.[0]?.current_period_start ?? raw?.current_period_start;
+  const item = planItem(raw as { items?: { data?: Array<{ current_period_start?: unknown; price?: { recurring?: { usage_type?: string | null } | null } | null }> } } | null);
+  const value = item?.current_period_start ?? raw?.current_period_start;
   return typeof value === "number" && Number.isFinite(value) && value > 0
     ? new Date(value * 1000) : null;
 }

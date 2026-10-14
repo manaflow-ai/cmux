@@ -16,6 +16,8 @@ final class SidebarRegionView: NSView {
         var drawsLines: Bool
         /// Content height of each shown app section (none: draws nothing).
         var appHeights: [LayoutSectionID: CGFloat] = [:]
+        /// The label font's size (`SidebarStyle.titleFont`): label widths are measured with it.
+        var fontSize: CGFloat = 0
     }
 
     let region: SidebarRegion
@@ -95,9 +97,16 @@ final class SidebarRegionView: NSView {
 
     /// Height the content needs at `width`.
     func update(_ content: Content, width: CGFloat) {
+        // `layoutResult` is always the layout of the shown content at `width`
+        // (`relayout` keeps it so), so the same inputs need no new layout.
+        if content == self.content && width == self.width { return }
+        SidebarPerfCounters.add(.bandUpdates)
         let shown = displayed(content)
         let result = Self.layout(shown, width: width)
-        guard content != self.content || result != layoutResult else { return }
+        guard content != self.content || result != layoutResult else {
+            self.width = width
+            return
+        }
         self.content = content
         self.width = width
         layoutResult = result

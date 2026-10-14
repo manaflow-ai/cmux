@@ -922,6 +922,8 @@ USAGE
   cmux sidebar plugin use <name-or-id>
   cmux sidebar plugin use --builtin
   cmux sidebar plugin update|remove <name-or-id>
+  cmux sidebar section-scroll <section> fixed|flow
+  cmux sidebar section-max-rows <section> <1-50>|none
 ";
 
 const PAIRING_HELP: &str = "\

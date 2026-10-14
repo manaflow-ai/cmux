@@ -246,7 +246,8 @@
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed"
+              "ui.animationSpeed",
+              "ui.paneAnimations"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -269,6 +270,7 @@
           {
             "key" : "settings.group.panes",
             "rows" : [
+              "appearance.chromeStyle",
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
@@ -487,6 +489,16 @@
             "title" : {
               "key" : "settings.group.computerUse",
               "text" : "Computer Use"
+            }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
             }
           }
         ],
@@ -3513,6 +3525,58 @@
       "title" : {
         "key" : "settings.computerUse.driver",
         "text" : "Computer Use Driver"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.freeModel",
+        "text" : "AI Models"
+      },
+      "help" : {
+        "key" : "settings.freeModel.enabled.help",
+        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "freeModel.enabled",
+      "keywords" : [
+        "ai",
+        "model",
+        "free",
+        "sign in",
+        "agents",
+        "models"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "freeModel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.freeModel.enabled.summary",
+        "text" : "Free AI model while signed out"
+      },
+      "title" : {
+        "key" : "settings.freeModel.enabled",
+        "text" : "Free AI Model Without Sign-In"
       },
       "validation" : "portable"
     },
@@ -9899,6 +9963,181 @@
     },
     {
       "accepts" : [
+        "default",
+        "card",
+        "card-outlined",
+        "flat",
+        "flat-sidebar-line",
+        "bare",
+        "panes",
+        "two-tone"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.card",
+            "text" : "Card"
+          },
+          "value" : "card"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.cardOutlined",
+            "text" : "Card with Outlines"
+          },
+          "value" : "card-outlined"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flat",
+            "text" : "Flat"
+          },
+          "value" : "flat"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.flatSidebarLine",
+            "text" : "Flat with Sidebar Line"
+          },
+          "value" : "flat-sidebar-line"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.bare",
+            "text" : "Bare"
+          },
+          "value" : "bare"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.panes",
+            "text" : "Panes"
+          },
+          "value" : "panes"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.twoTone",
+            "text" : "Two-Tone"
+          },
+          "value" : "two-tone"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.appearance.chromeStyle.help",
+        "text" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.chromeStyle",
+      "keywords" : [
+        "window",
+        "style",
+        "chrome",
+        "card",
+        "flat",
+        "border",
+        "borders",
+        "lines",
+        "divider",
+        "outline",
+        "seam",
+        "sidebar",
+        "two-tone",
+        "minimal",
+        "bare"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "chromeStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.chromeStyle.summary",
+        "text" : "Card, lines and sidebar background"
+      },
+      "title" : {
+        "key" : "settings.appearance.chromeStyle",
+        "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.paneAnimations.help",
+        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.paneAnimations",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "slide",
+        "spring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "paneAnimations"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.paneAnimations",
+        "text" : "Animate Panes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "none",
         "dividers",
         "borders",
@@ -13914,6 +14153,7 @@
     {
       "accepts" : [
         "compact",
+        "comfortable",
         "expanded"
       ],
       "agent_refusal" : null,
@@ -13925,6 +14165,13 @@
             "text" : "Compact"
           },
           "value" : "compact"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.comfortable",
+            "text" : "Comfortable"
+          },
+          "value" : "comfortable"
         },
         {
           "title" : {
@@ -13945,7 +14192,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.density.help",
-        "text" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
+        "text" : "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.density",
@@ -13954,9 +14201,11 @@
         "density",
         "expanded",
         "compact",
+        "comfortable",
         "rows",
         "preview",
         "two lines",
+        "taller",
         "t3",
         "codex"
       ],
@@ -15138,7 +15387,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceRows",
@@ -23303,7 +23552,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e16629a189a62fd7f0267dcb737de15c8299b533e0cae8a188b3500ec8fe944a",
+  "schema_hash" : "9ff5d40a2ccf65edc5d7a6882883672ab897ec6b9a4de0e4f34156e20931da60",
   "sections" : [
     {
       "id" : "general",

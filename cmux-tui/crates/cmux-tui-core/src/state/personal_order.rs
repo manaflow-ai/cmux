@@ -11,7 +11,6 @@
 use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde_json::Value;
 
 use super::values::{local_registry_id, workspace_public_id_for_key};
 use crate::user_settings::NewWorkspacePlacement;
@@ -141,14 +140,33 @@ pub(crate) fn place_created_workspaces_at(
     created: &CreatedWorkspaces,
     placement: NewWorkspacePlacement,
 ) -> anyhow::Result<()> {
+    place_created_rows(transaction, created, placement)?;
+    if !created.keys.is_empty() {
+        // sidebar-doc-v1: the new workspaces are adopted into their machine
+        // section at the place their personal rows got.
+        super::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
+}
+
+fn place_created_rows(
+    transaction: &Transaction<'_>,
+    created: &CreatedWorkspaces,
+    placement: NewWorkspacePlacement,
+) -> anyhow::Result<()> {
     if created.keys.is_empty() || !super::store::state_tables_ready(transaction)? {
         return Ok(());
     }
     let local = local_registry_id(transaction)?;
     let has_row = |key: &str| -> anyhow::Result<bool> {
-        Ok(read_workspaces(transaction)?
-            .iter()
-            .any(|row| row.session_id == local && row.workspace_key == key))
+        Ok(transaction
+            .query_row(
+                "SELECT 1 FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+                params![local, key],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     };
     let mut placed = Vec::new();
     for key in &created.keys {
@@ -178,10 +196,15 @@ pub(crate) fn place_created_workspaces_at(
         }
     };
     let Some((index, group)) = slot else {
-        // Appended last: only the new rows changed.
+        // Appended last: the new rows changed; the live workspaces with no
+        // row, which follow every row, moved down by their count.
         for key in &placed {
             queue_placement(transaction, &local, key)?;
         }
+        let rows: i64 =
+            transaction
+                .query_row("SELECT COUNT(*) FROM personal_workspaces", [], |row| row.get(0))?;
+        super::placement_shift::queue(transaction, usize::try_from(rows)?, None)?;
         return Ok(());
     };
     let groups_before = read_groups(transaction)?;
@@ -195,13 +218,15 @@ pub(crate) fn place_created_workspaces_at(
             )?;
         }
     }
-    // The new rows and every row after them moved, and group slots after
-    // them: clients that rebuild from events get each of those.
-    let moved =
-        |change: &Value| change["value"]["index"].as_u64().is_some_and(|row| row >= index as u64);
-    for change in super::personal::all_placements(transaction)?.into_iter().filter(moved) {
-        super::closed_history_store::queue_change(transaction, &change)?;
+    // The new rows changed; every row after them only moved down by the
+    // count of new rows: it is not restated in the commit, only recorded as
+    // a placement shift (a connection without `sidebar-doc-v1` gets those
+    // rows restated when the batch is sent). Group slots after them moved
+    // too: clients that rebuild from events get each of those.
+    for key in &placed {
+        queue_placement(transaction, &local, key)?;
     }
+    super::placement_shift::queue(transaction, index + placed.len(), None)?;
     let slots = read_groups(transaction)?;
     for change in super::personal::all_groups(transaction)?.into_iter().filter(|change| {
         let id = change["id"].as_str();
@@ -232,10 +257,12 @@ fn top_slot(
     let Some((_, home)) = super::home_store::live_home(transaction)? else {
         return Ok((0, None));
     };
-    let index = others(transaction, placed)?
-        .iter()
-        .position(|(session, key)| session == local && *key == home)
-        .map_or(0, |home| home + 1);
+    if placed.contains(&home) {
+        return Ok((0, None));
+    }
+    // The home row's ordinal among the rows other than `placed` (the new
+    // rows were appended last, so none of them is before it).
+    let index = super::personal::row_index(transaction, local, &home)?.map_or(0, |home| home + 1);
     Ok((index, None))
 }
 
@@ -277,17 +304,4 @@ fn after_current_slot(
         })
     });
     Ok((!elsewhere).then_some((index + 1, Some(group))))
-}
-
-/// The personal rows other than `placed`, as `(session, key)` in order.
-fn others(
-    transaction: &Transaction<'_>,
-    placed: &[String],
-) -> anyhow::Result<Vec<(String, String)>> {
-    let local = local_registry_id(transaction)?;
-    Ok(read_workspaces(transaction)?
-        .into_iter()
-        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
-        .map(|row| (row.session_id, row.workspace_key))
-        .collect())
 }
