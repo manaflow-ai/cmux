@@ -213,8 +213,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
-        // One synchronous swap: the old view leaves (its panes stay mounted,
-        // paused) and the new one draws in the same frame.
+        // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
+        // one draws in the same frame, its sidebar row already listed and selected.
+        sidebar.sameTurn.syncNow()
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once; no
         // crossfade, which would fade the swap itself.
@@ -228,8 +229,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation = Task { [weak self] in
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
-        // The new workspace's panes: the coordinator restores its pane and,
-        // now that the content is installed, re-applies it.
+        // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
