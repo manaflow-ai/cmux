@@ -21,6 +21,9 @@ impl HostedReader {
             HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
             _ => unreachable!(),
         };
+        if crate::debug_spans::following() {
+            follow_marks(pty, &output);
+        }
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -137,5 +140,21 @@ impl HostedReader {
             mux.append_shell_commands(terminal.clone(), finished_commands);
         }
         Flow::Continue
+    }
+}
+
+/// OSC 133;A, the shell's prompt start (`ShellMark::PromptStart`).
+const PROMPT_START: &[u8] = b"\x1b]133;A";
+
+/// The first host output and first prompt mark of a terminal its create
+/// follows (`CMUX_TUI_DEBUG_SPANS`). A mark split across two chunks is
+/// missed.
+fn follow_marks(pty: &PtySurface, output: &[u8]) {
+    let Some(identity) = pty.host_identity.as_ref() else { return };
+    crate::debug_spans::terminal_mark(&identity.terminal_id, "host.first_output");
+    if crate::debug_spans::owes(&identity.terminal_id, "first_prompt_mark")
+        && output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START)
+    {
+        crate::debug_spans::terminal_mark(&identity.terminal_id, "first_prompt_mark");
     }
 }
