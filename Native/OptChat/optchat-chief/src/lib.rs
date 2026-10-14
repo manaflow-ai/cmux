@@ -35,6 +35,7 @@ pub mod link_preview;
 pub mod lock;
 pub mod log;
 pub mod mcp;
+pub mod membership;
 pub mod memory_cli;
 pub mod native;
 pub mod pacing;
