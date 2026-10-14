@@ -278,6 +278,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
+    pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
@@ -331,6 +333,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
