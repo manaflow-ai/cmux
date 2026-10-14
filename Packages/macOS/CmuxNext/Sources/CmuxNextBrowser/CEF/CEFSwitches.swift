@@ -56,11 +56,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///   (UserEducationServiceFactory::ProfileAllowsUserEducation): no
     ///   in-product help bubbles, tutorials, "New" badges or New Tab Page
     ///   promos. This is the state Chrome's own automation runs in.
-    /// - `no-default-browser-check`: the default-browser prompt, and the
-    ///   macOS updater promotion infobar (keystone_infobar_delegate.cc), also
-    ///   without the first-run switch.
+    /// - `no-default-browser-check`: the default-browser prompt, also
+    ///   without the first-run switch (defense in depth; the macOS updater
+    ///   infobar it also gates is Google Chrome only).
     /// - `disable-search-engine-choice-screen`: the search engine choice
-    ///   dialog (search_engine_choice_service.cc).
+    ///   dialog (search_engine_choice_service.cc). Defense in depth: a build
+    ///   without Chrome branding makes no dialog service unless
+    ///   `force-search-engine-choice-screen` is set.
     /// - `enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy`: the
     ///   feature-engagement tracker runs in demo mode with only IPH_Dummy
     ///   valid (Tracker::Create, CreateDemoModeTracker), and nothing triggers
@@ -69,15 +71,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///   sign-in promo, "Get Chrome on your phone" promos, price tracking,
     ///   the performance intervention dialog and the downloads page promo.
     ///   The demo tracker keeps its events in memory, so it writes no
-    ///   feature-engagement database to the profile. Chromium uses the first
-    ///   override of a feature, so an IPH_DemoMode entry in the extra
-    ///   switches cannot replace this one.
+    ///   feature-engagement database to the profile. Development extra
+    ///   switches must not name IPH_DemoMode: a second enable entry loses
+    ///   (the first override wins) and its duplicate parameters fail a
+    ///   DCHECK, and `disable-features=IPH_DemoMode` turns this off.
     /// Not switched here because the build already turns them off: surveys
     /// (HaTS needs metrics consent), sign-in and sync promos (no Google OAuth
     /// client in this build, so DICE is off), the outdated-build bubble
-    /// (Google Chrome builds only) and the Privacy Sandbox notice (its
-    /// parameters come from the server field trial config, which this build
-    /// does not fetch).
+    /// (Google Chrome builds only) and the Privacy Sandbox ad privacy notice
+    /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
     static let chromePromptOffSwitches = [
         "no-first-run",
         "no-default-browser-check",

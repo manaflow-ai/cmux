@@ -77,8 +77,15 @@ def windows():
 
 
 def open_tab(url):
-    created = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True}).get("created")
+    """A tab a person opens (origin remote), not an agent-driven one."""
+    created = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True,
+                                 "origin": "remote"}).get("created")
     return (created or [None])[0]
+
+
+def page_status(tab):
+    reply = rpc("debug.browser.page_status", {"tab": tab} if tab else {})
+    return reply if "certificate" in reply else {}
 
 
 def page(tab, script):
@@ -89,13 +96,16 @@ def loaded(tab):
     return page(tab, "document.readyState") == "complete"
 
 
-def focused_pane_tabs():
-    for window in rpc("debug.surfaces").get("windows", []):
-        for pane in window.get("panes", []):
-            if pane.get("focused") or pane.get("is_focused"):
-                return pane.get("tabs", [])
-    panes = [p for w in rpc("debug.surfaces").get("windows", []) for p in w.get("panes", []) if p.get("visible")]
-    return panes[0].get("tabs", []) if panes else []
+def focused_pane():
+    panes = [p for w in rpc("debug.surfaces").get("windows", []) for p in w.get("panes", [])]
+    for pane in panes:
+        if pane.get("focused"):
+            return pane
+    return next((p for p in panes if p.get("visible")), {})
+
+
+def snapshot(name):
+    print("snapshot", name, rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(out, name)}), flush=True)
 
 
 def app_windows(pid):
@@ -145,25 +155,29 @@ try:
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait(windows, 60)
+    # A fresh window has one tab (tab 1); A and B become tabs 2 and 3.
     a = open_tab("https://example.com/")
-    check(bool(wait(lambda: loaded(a), 45)), "tab A loads https://example.com")
+    check(bool(wait(lambda: page_status(a), 45)), "tab A (https://example.com) answers")
     b = open_tab("https://example.org/")
-    check(bool(wait(lambda: loaded(b), 45)), "tab B loads https://example.org")
-    tabs = focused_pane_tabs()
-    print("focused pane tabs:", json.dumps(tabs)[:2000], flush=True)
-    count = len(tabs)
-    check(count >= 2, f"the focused pane has the two Chromium tabs ({count} tabs)")
+    check(bool(wait(lambda: page_status(b), 45)), "tab B (https://example.org) answers")
+    time.sleep(3)  # test script: let both pages paint before the first capture
+    print("tab B page status:", json.dumps(page_status(b))[:600], flush=True)
     before = app_windows(app.pid)
-    shot(app.pid, "0-two-tabs.png")
-    # Switch between the last two tabs (A and B): Chromium counts a switch
-    # back to one of the two most recent tabs.
+    snapshot("0-two-tabs.png")
+    # Switch between tabs 2 and 3 (A and B): Chromium counts a switch back
+    # to one of the two most recent tabs (split_view_iph_controller.cc).
+    selected = []
     for i in range(args.flips):
-        rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": count - 1 if i % 2 == 0 else count}})
+        rpc("action.run", {"action": "selectSurfaceByNumber", "args": {"index": 2 if i % 2 == 0 else 3}})
         time.sleep(0.6)  # test script: a user-paced tab switch
+        selected.append(focused_pane().get("selected_tab"))
+    print("selected tab after each switch:", selected, flush=True)
+    alternated = len(set(selected)) == 2 and all(x != y for x, y in zip(selected, selected[1:]))
+    check(alternated, "the tab switches alternate between the two Chromium tabs")
     time.sleep(3)  # test script: the promo queue shows a bubble within about a second
     after = app_windows(app.pid)
-    shot(app.pid, "1-after-tab-switches.png")
-    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(out, "1-main-snapshot.png")})
+    shot(app.pid, "1-after-tab-switches-capture.png")
+    snapshot("1-after-tab-switches.png")
     extra = None
     if before is not None and after is not None:
         extra = len(after) - len(before)
@@ -175,6 +189,7 @@ try:
     else:
         check(extra is not None and extra <= 0, f"no new window appears after the tab switches (+{extra})")
     v = open_tab("chrome://version")
+    snapshot("2-chrome-version.png")
     if wait(lambda: loaded(v), 30):
         cmd = page(v, "(document.getElementById('command_line')||{}).innerText || ''")
         print("chrome://version command line:", cmd, flush=True)
@@ -182,7 +197,6 @@ try:
             for s in ("--no-first-run", "--no-default-browser-check", "--disable-search-engine-choice-screen",
                       "IPH_DemoMode:chosen_feature/IPH_Dummy"):
                 check(s in str(cmd), f"Chromium's command line has {s}")
-        shot(app.pid, "2-chrome-version.png")
     else:
         print("chrome://version did not load in a cmux tab", flush=True)
 finally:
