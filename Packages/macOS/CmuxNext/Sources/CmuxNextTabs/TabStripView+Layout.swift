@@ -53,6 +53,10 @@ extension TabStripView {
             metrics: metrics,
             closingModeWidth: closingModeWidth
         )
+        // A new tab (Cmd-T, +, a script's tab) is there at once, at its slot and full width, and the
+        // tabs make room for it in the same frame: no grow-in, no slide (Lawrence 2026-10-14: no big
+        // animations by default). A drag or a torn-out tab's drop keeps every spring as it was.
+        let insertsAtOnce = !added.isEmpty && drag == nil && pendingDrop == nil
         for slot in result.slots where slot.id != Self.placeholderID {
             guard var m = motion[slot.id] else { continue }
             if added.contains(slot.id) {
@@ -60,8 +64,7 @@ extension TabStripView {
                     m = TabMotion(x: pendingDrop.x, width: pendingDrop.width, alpha: 1)
                     self.pendingDrop = nil
                 } else {
-                    // New tabs grow in from zero width at their slot.
-                    m = TabMotion(x: slot.x, width: animated ? 0 : slot.width, alpha: animated ? 0 : 1)
+                    m = TabMotion(x: slot.x, width: slot.width, alpha: 1)
                 }
             }
             if drag?.id != slot.id { m.x.target = groupDragX(for: slot) ?? slot.x }
@@ -69,12 +72,15 @@ extension TabStripView {
             m.width.target = slot.width
             // Members of a collapsed group shrink into the chip and fade.
             m.alpha.target = slot.isCollapsed ? 0 : 1
-            if !animated { m.snap() }
+            if !animated || (insertsAtOnce && !groups.isDragged(slot.id)) { m.snap() }
             motion[slot.id] = m
         }
         scroll.target = TabScrollMath.clamp(scroll.target, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         if !animated {
             scroll.snap()
+            for id in dying { removeTab(id) }
+        } else if insertsAtOnce {
+            // The layout already gave a closing tab's room away: it goes now too, one consistent frame.
             for id in dying { removeTab(id) }
         }
         TabSeparatorVisibility.apply(to: self)
