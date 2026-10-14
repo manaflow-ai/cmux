@@ -50,3 +50,22 @@ The retired persistent compile pilot is explicitly archived in
 `docs/ci/mac-fleet.md`; current routing and capacity belong to `ci-runners.md`
 and live controller receipts.
 
+## Refusal and host-load follow-up
+
+Run **38498502461** (PR #20308) exposed a late runner-hook refusal after the
+first cmux-next side job had already been accepted. The rescue watcher now
+continues through run completion, and the rescue workflow wakes directly for
+CI, iOS, Iroh, nightly, and all listed side-lane workflows. A focused fake run
+with an accepted job followed by a refused sibling proves `rerun-failed`.
+
+The cmux app scheme launch budget now records one-minute load, CPU count and a
+bounded threshold. Above `max(16, 2 * CPU count)` it skips only the timing probe
+and leaves the compile required, avoiding a false PR failure under host
+contention such as load 31-35. Unknown load runs the probe. Focused rescue,
+workflow-source and gate tests pass **131/131**, with Python compilation,
+`actionlint`, and `git diff --check` green.
+
+Deployment note: `ci-owned-pool-rescue.yml` is a default-branch
+`workflow_run` consumer and checks out `main`. This PR targets
+`feat-cmux-next`, so the new refusal watcher is source-complete here but needs
+the chief's approved default-branch rollout before it can rescue live runs.

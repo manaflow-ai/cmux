@@ -2489,13 +2489,21 @@ jobs:
           retention-days: 2
           compression-level: 0
 
+      # A busy shared mini makes first-frame timing a host-load measurement.
+      # Keep the compile required, record the load, and leave the launch probe
+      # for a fresh run instead of failing the PR on fleet contention.
+      - name: Gate launch-time budget on host load
+        id: launch-load
+        if: inputs.dev_daily != true
+        run: python3 scripts/ci/launch_budget_gate.py
+
       # Launch-time budget (#17587): warm launches of this build, on a copy
       # named for a tag of its own (its own socket, daemon and state), from an
       # empty profile. Budgets are about 4x a capture Mac's medians, so this
       # catches a launch that blocks (a daemon wait on the main path, a sync
       # read), not run-to-run noise.
       - name: Launch-time budget
-        if: inputs.dev_daily != true
+        if: inputs.dev_daily != true && steps.launch-load.outputs.skip != 'true'
         timeout-minutes: 5
         run: |
           set -euo pipefail
