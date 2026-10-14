@@ -784,6 +784,19 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiUsageLine {
+    pub billed: bool,
+    pub included_usd: Option<WireNumber>,
+    pub per_seat: bool,
+    pub seats: i64,
+    pub spent_usd: WireNumber,
+    pub period_start: Option<i64>,
+    pub period_end: i64,
+    pub stop_applies: bool,
+    pub stopped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAuditEntry {
     pub n: i64,
     pub op: String,

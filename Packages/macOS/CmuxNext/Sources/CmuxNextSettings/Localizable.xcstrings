@@ -86971,136 +86971,136 @@
     }
   },
     "settings.browser.omnibar.glass.help": {
-    "extractionState": "manual",
-    "localizations": {
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
-        }
-      },
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "مادة شريط العنوان. يُظهر الشفاف المزيد مما خلفه. إيقاف يستخدم لون السمة المسطح."
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Materijal adresne trake. Prozirno pokazuje više onoga što je iza nje. Isključeno koristi ravnu boju teme."
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Adresselinjens materiale. Klart viser mere af det, der er bagved. Fra bruger temaets flade farve."
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Das Material der Adressleiste. Klar zeigt mehr vom Hintergrund. Aus verwendet die flache Themenfarbe."
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "El material de la barra de direcciones. Transparente muestra más de lo que hay detrás. Desactivado usa el color plano del tema."
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "La matière de la barre d’adresse. Transparent laisse voir davantage l’arrière-plan. Désactivé utilise la couleur unie du thème."
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Il materiale della barra degli indirizzi. Trasparente mostra di più ciò che c’è dietro. Disattivato usa il colore piatto del tema."
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "アドレスバーの素材です。クリアは背後をより多く見せます。オフはテーマの単色を使います。"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "សម្ភារៈនៃរបារអាសយដ្ឋាន។ ថ្លាបង្ហាញអ្វីដែលនៅខាងក្រោយច្រើនជាង។ បិទប្រើពណ៌រាបស្មើនៃធីម។"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "주소 막대의 재질입니다. 투명은 뒤에 있는 내용을 더 많이 보여 줍니다. 끔은 테마의 단색을 사용합니다."
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Materialet i adressefeltet. Klart viser mer av det som er bak. Av bruker temaets flate farge."
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Materiał paska adresu. Przezroczysty pokazuje więcej tego, co jest pod spodem. Wyłączone używa jednolitego koloru motywu."
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "O material da barra de endereços. Transparente mostra mais do que está atrás. Desativado usa a cor sólida do tema."
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Материал адресной строки. Прозрачное показывает больше того, что за ней. «Выкл.» использует сплошной цвет темы."
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "วัสดุของแถบที่อยู่ แบบใสจะแสดงสิ่งที่อยู่ด้านหลังมากขึ้น ปิดจะใช้สีเรียบของธีม"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Adres çubuğunun malzemesi. Şeffaf, arkasındakileri daha çok gösterir. Kapalı, temanın düz rengini kullanır."
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Матеріал адресного рядка. Прозоре показує більше того, що за ним. «Вимк.» використовує суцільний колір теми."
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chất liệu của thanh địa chỉ. Trong suốt cho thấy nhiều hơn phía sau. Tắt dùng màu phẳng của chủ đề."
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "地址栏的材质。透明会显示更多背后的内容。关闭则使用主题的纯色。"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "網址列的材質。透明會顯示更多後方的內容。關閉則使用主題的純色。"
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مادة شريط العنوان. «شفاف بالكامل» لا يرسم أي تعبئة. الزجاج الشفاف يُظهر المزيد مما خلفه. «إيقاف» يستخدم لون السمة المسطح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Materijal adresne trake. Prozirno ne crta ispunu. Prozirno staklo pokazuje više onoga što je iza. Isključeno koristi ravnu boju teme."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresselinjens materiale. Gennemsigtig tegner ingen udfyldning. Klart glas viser mere af det bagved. Fra bruger temaets flade farve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Material der Adressleiste. Transparent zeichnet keine Füllung. Klares Glas zeigt mehr vom Hintergrund. Aus verwendet die flache Themenfarbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El material de la barra de direcciones. Transparente no dibuja relleno. El vidrio claro deja ver más de lo que hay detrás. Desactivado usa el color plano del tema."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le matériau de la barre d'adresse. Transparent ne dessine aucun fond. Le verre clair laisse voir davantage l'arrière-plan. Désactivé utilise la couleur unie du thème."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il materiale della barra degli indirizzi. Trasparente non disegna alcun riempimento. Il vetro chiaro mostra di più ciò che sta dietro. Disattivato usa il colore piatto del tema."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アドレスバーの素材です。「透明」は塗りを描きません。クリアガラスは背後をより多く見せます。「オフ」はテーマの単色を使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សម្ភារៈនៃរបារអាសយដ្ឋាន។ ថ្លា មិនគូរពណ៌ពេញទេ។ កញ្ចក់ថ្លា បង្ហាញអ្វីដែលនៅខាងក្រោយច្រើនជាង។ បិទ ប្រើពណ៌រាបស្មើរបស់ស្បែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 표시줄의 재질입니다. 투명은 채우기를 그리지 않습니다. 맑은 유리는 뒤쪽을 더 많이 보여 줍니다. 끔은 테마의 단색을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Materialet i adresselinjen. Gjennomsiktig tegner ingen fyll. Klart glass viser mer av det som er bak. Av bruker temaets flate farge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Materiał paska adresu. Przezroczysty nie rysuje wypełnienia. Przejrzyste szkło pokazuje więcej tego, co jest pod spodem. Wyłączony używa płaskiego koloru motywu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O material da barra de endereços. Transparente não desenha preenchimento. O vidro claro mostra mais do que está atrás. Desativado usa a cor plana do tema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Материал адресной строки. «Прозрачный» не рисует заливку. Прозрачное стекло показывает больше того, что за ним. «Выкл.» использует плоский цвет темы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วัสดุของแถบที่อยู่ โปร่งใสจะไม่วาดพื้นสี กระจกใสแสดงสิ่งที่อยู่ด้านหลังได้มากขึ้น ปิดจะใช้สีพื้นเรียบของธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres çubuğunun malzemesi. Saydam dolgu çizmez. Şeffaf cam arkasındakini daha çok gösterir. Kapalı, temanın düz rengini kullanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Матеріал адресного рядка. «Прозорий» не малює заливку. Прозоре скло показує більше того, що за ним. «Вимк.» використовує плаский колір теми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chất liệu của thanh địa chỉ. Trong suốt không tô nền. Kính trong cho thấy nhiều hơn những gì phía sau. Tắt dùng màu phẳng của chủ đề."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "地址栏的材质。“透明”不绘制填充。透明玻璃会显示更多背后的内容。“关闭”使用主题的纯色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網址列的材質。「透明」不繪製填色。透明玻璃會顯示更多背後的內容。「關閉」使用主題的純色。"
+          }
         }
       }
-    }
-  },
+    },
     "settings.browser.omnibar.glassTint": {
     "extractionState": "manual",
     "localizations": {
@@ -89594,6 +89594,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
+          }
+        }
+      }
+    },
+    "settings.choice.transparent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transparent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شفاف بالكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prozirno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gennemsigtig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasparente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透明"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថ្លា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "투명"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjennomsiktig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przezroczysty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прозрачный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปร่งใส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saydam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прозорий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trong suốt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透明"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "透明"
           }
         }
       }

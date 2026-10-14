@@ -12,7 +12,7 @@ import Foundation
 ///   },
 ///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true,
 ///                // the bar's look (cx-gkz5):
-///                "glass": "regular",            // clear, off
+///                "glass": "transparent",        // regular, clear, off
 ///                "glassTint": "background",     // accent, none
 ///                "glassTintStrength": 0.35,     // 0 to 1
 ///                "cornerRadius": "theme",       // capsule, or points 0 to 16
@@ -62,7 +62,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var inlineAutocomplete = true
     public var maxRows = 8
     public var calculator = true
-    public var glass = "regular"
+    public var glass = "transparent"
     public var glassTint = "background"
     public var glassTintStrength = 0.35
     /// nil: the theme's radius; `.infinity`: a capsule; else points.

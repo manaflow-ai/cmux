@@ -31,6 +31,12 @@ and render-server field animation, blurred header and native scrolling.
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
+  - Not ported from Host.swift: the live-resize bitmap keep (780934c,
+    `MessagesWindowView.setLiveResizing`, `RowCell.liveResizing`). Home never
+    sets the flag, so rows draw at every width in a window resize and a
+    divider drag (decision hq-6d, 2026-10-14). The flag is one static per
+    process, and Home has a window view per pane: one pane's resize end
+    would redraw only its own kept rows.
 - `Patches/`: one unified diff per edited vendored file. Every edit is also
   marked `cmux:` in the source.
 - `Sources/MessagesLabHome/Cmux/`: cmux code in the same module (the upstream
