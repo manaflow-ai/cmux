@@ -31,6 +31,7 @@ final class ExtensionMenuRowView: PopupRowView {
         layout.leadingColumn = 16
         layout.gap = 8
         layout.trailing = 10
+        layout.trailingGap = 6
         layout.fillInset = NSSize(width: 5, height: 1)
         super.init(leading: iconView, title: info.name, trailing: buttons, layout: layout)
         frame = NSRect(x: 0, y: 0, width: 280, height: layout.minHeight)

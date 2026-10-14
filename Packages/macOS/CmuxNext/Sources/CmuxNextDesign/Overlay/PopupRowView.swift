@@ -18,8 +18,10 @@ open class PopupRowView: NSView {
         public var trailing: CGFloat = 8
         /// The leading column's width (icon or check mark); 0 for none.
         public var leadingColumn: CGFloat = 15
-        /// Space between the columns.
+        /// Space between the leading column and the title.
         public var gap: CGFloat = 0
+        /// Space between the title and the trailing view (a shortcut keeps a wide gap).
+        public var trailingGap: CGFloat = 12
         public var minHeight: CGFloat = PopupStyle.standard.rowHeight
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
@@ -45,6 +47,7 @@ open class PopupRowView: NSView {
     public var isEnabled = true {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
+            (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
             needsDisplay = true
         }
     }
@@ -102,15 +105,21 @@ open class PopupRowView: NSView {
             constraints += [
                 trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -layout.trailing),
                 trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
-                texts.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -max(layout.gap, 6)),
+                fits(texts.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -layout.trailingGap)),
             ]
         } else {
-            constraints.append(texts.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -layout.trailing))
+            constraints.append(fits(texts.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -layout.trailing)))
         }
         NSLayoutConstraint.activate(constraints)
         setAccessibilityElement(true)
         setAccessibilityRole(interactive ? .button : .staticText)
         setAccessibilityLabel([title, subtitle].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", "))
+    }
+
+    /// The title's end yields while the row is narrower than its columns (a panel not yet sized).
+    private func fits(_ constraint: NSLayoutConstraint) -> NSLayoutConstraint {
+        constraint.priority = .defaultHigh
+        return constraint
     }
 
     @available(*, unavailable)
