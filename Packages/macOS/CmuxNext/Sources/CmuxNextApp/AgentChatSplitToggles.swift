@@ -80,6 +80,9 @@ final class AgentChatSplitToggles {
             .filter { self.opened[$0].id != Self.splitDown }
             .compactMap { splits[$0] }
             .first { Self.beside(chat, $0, in: store) }
+            // A diff with no split of the header's beside the chat joins the pane a chat's clicks open in (ChatBeside).
+            ?? (id == Self.changes ? store.tab(id: chat).flatMap { store.pane(containing: $0.surface) }
+                .flatMap { ChatBeside.besidePane(of: $0, in: store)?.tabs.first } : nil)
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
         opened = Array(opened.suffix(Self.remembered - 1))
         opened.append((id: id, baseline: Set(tabs.map(\.id))))
