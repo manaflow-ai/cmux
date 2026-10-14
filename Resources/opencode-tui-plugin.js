@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createEffect, createRoot } from "solid-js";
 import { CMUXFeed } from "./index.js";
 
 const firstString = (...values) => values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
@@ -79,12 +80,16 @@ export function sessionBelongsToTUI(ctx, id) {
   return visibleRoots(ctx).has(rootFor(ctx, id));
 }
 
-function createOwnership(ctx) {
+function createOwnership(ctx, onChange) {
   let roots = new Set();
-  const refresh = () => {
+  const refreshRoots = () => {
     roots = visibleRoots(ctx);
   };
-  refresh();
+  const refresh = () => {
+    refreshRoots();
+    onChange?.();
+  };
+  refreshRoots();
   const disposers = [];
   for (const owner of [ctx?.ui?.router, ctx?.ui?.tabs]) {
     for (const name of ["onChange", "subscribe", "listen"]) {
@@ -102,7 +107,7 @@ function createOwnership(ctx) {
     // notification. Refresh on the event boundary so a session removed from
     // a background tab, or a closed starter surface, cannot retain ownership.
     belongs: (id) => {
-      refresh();
+      refreshRoots();
       return Boolean(id && roots.has(rootFor(ctx, id)));
     },
     refresh,
@@ -190,10 +195,7 @@ function reportError(ctx, _error) {
   } catch (_) {}
 }
 
-async function handleEvent(ctx, ownership, feed, details, environment) {
-  const event = details?.event || details;
-  const id = sessionID(event);
-  if (!id || !ownership.belongs(id)) return;
+async function deliverEvent(ctx, feed, event, id, environment) {
   const hook = sessionEventName(event);
   if (hook) {
     dispatchSessionHook(hook, {
@@ -208,20 +210,101 @@ async function handleEvent(ctx, ownership, feed, details, environment) {
   await feed.event({ event, ownedSessionId: id });
 }
 
+async function handleEvent(ctx, ownership, feed, details, environment, retrySessionStart) {
+  const event = details?.event || details;
+  const id = sessionID(event);
+  const hook = sessionEventName(event);
+  if (!id) return;
+  if (hook === "session-end") retrySessionStart?.cancel(id);
+  if (!ownership.belongs(id)) {
+    if (hook === "session-start") retrySessionStart?.enqueue(event, id);
+    return;
+  }
+  if (hook === "session-start") retrySessionStart?.cancel(id);
+  await deliverEvent(ctx, feed, event, id, environment);
+}
+
+// The expiry bounds memory for sessions that never become visible. It only
+// removes stale queue entries; route readiness is observed by Solid below.
+const SESSION_START_QUEUE_TTL_MS = 30_000;
+
 export async function createCMUXTUIBridge(ctx, options = {}) {
   const environment = { ...process.env, ...options.environment };
-  const ownership = createOwnership(ctx);
-  const feed = await CMUXFeed(ctx, {
+  let disposed = false;
+  // Keep missed session-start events until the TUI reports a route/tab change.
+  // The nested map lets session-end and delivery cancel one session in O(1).
+  const pending = new Map();
+  const cancelPending = (id) => {
+    const queued = pending.get(id);
+    if (!queued) return;
+    clearTimeout(queued.expiry);
+    pending.delete(id);
+  };
+  let feed;
+  let ownership;
+  const flushPending = () => {
+    if (disposed || !feed || !ownership) return;
+    for (const [id, queued] of pending) {
+      if (!ownership.belongs(id)) continue;
+      clearTimeout(queued.expiry);
+      pending.delete(id);
+      for (const event of queued.events.values()) {
+        void handleEvent(ctx, ownership, feed, event, environment, {
+          cancel: cancelPending,
+          enqueue: enqueueSessionStart,
+        }).catch((error) => reportError(ctx, error));
+      }
+    }
+  };
+  ownership = createOwnership(ctx, flushPending);
+  feed = await CMUXFeed(ctx, {
     tui: true,
     ownsSession: ownership.belongs,
     locationForSession: () => ctx?.location,
     environment,
   });
+  function enqueueSessionStart(event, id) {
+    if (disposed) return;
+    let queued = pending.get(id);
+    if (!queued) {
+      queued = { events: new Map(), expiry: undefined };
+      queued.expiry = setTimeout(() => {
+        if (pending.get(id) === queued) pending.delete(id);
+      }, SESSION_START_QUEUE_TTL_MS);
+      pending.set(id, queued);
+    }
+    if (!queued.events.has(event.type)) queued.events.set(event.type, event);
+  };
   const onEvent = ({ details, event }) => {
-    void handleEvent(ctx, ownership, feed, details || event, environment).catch((error) => reportError(ctx, error));
+    const incoming = details || event;
+    const incomingID = sessionID(incoming);
+    if (sessionEventName(incoming) === "session-end") cancelPending(incomingID);
+    // OpenCode v2 exposes route/tab state as reactive reads rather than a
+    // stable callback. Re-check queued starts at every event boundary too, so
+    // a restored route that commits between lifecycle events is admitted
+    // without a wall-clock retry or a dropped final attempt.
+    flushPending();
+    void handleEvent(ctx, ownership, feed, incoming, environment, {
+      cancel: cancelPending,
+      enqueue: enqueueSessionStart,
+    }).catch((error) => reportError(ctx, error));
   };
   const stop = ctx.data.listen(onEvent);
+  const disposeReactive = createRoot((dispose) => {
+    createEffect(() => {
+      // current() and list() are reactive reads in OpenCode v2. A route/tab
+      // commit therefore flushes queued lifecycle events even when idle.
+      ownership.refresh();
+      flushPending();
+    });
+    return dispose;
+  });
+  flushPending();
   return () => {
+    disposed = true;
+    disposeReactive?.();
+    for (const queued of pending.values()) clearTimeout(queued.expiry);
+    pending.clear();
     stop?.();
     feed.dispose?.();
     ownership.dispose();

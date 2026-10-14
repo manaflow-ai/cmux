@@ -163,8 +163,6 @@ extension ContentView {
 /// runs the same shared AppDelegate path as the keyboard shortcut.
 enum ShortcutParityPaletteCommand: String, CaseIterable {
     case toggleTerminalCopyMode = "palette.toggleTerminalCopyMode"
-    case previousAgentTurn = "palette.previousAgentTurn"
-    case nextAgentTurn = "palette.nextAgentTurn"
     case increaseWorkspaceTerminalFontSize = "palette.increaseWorkspaceTerminalFontSize"
     case decreaseWorkspaceTerminalFontSize = "palette.decreaseWorkspaceTerminalFontSize"
     case resetWorkspaceTerminalFontSize = "palette.resetWorkspaceTerminalFontSize"
@@ -180,8 +178,6 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
 
     enum Scope {
         case terminal
-        /// The focused terminal shows an agent turn rail.
-        case agentTurns
         case workspace
         case splits
         case browser
@@ -190,8 +186,6 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
     var shortcutAction: KeyboardShortcutSettings.Action {
         switch self {
         case .toggleTerminalCopyMode: return .toggleTerminalCopyMode
-        case .previousAgentTurn: return .previousAgentTurn
-        case .nextAgentTurn: return .nextAgentTurn
         case .increaseWorkspaceTerminalFontSize: return .increaseWorkspaceTerminalFontSize
         case .decreaseWorkspaceTerminalFontSize: return .decreaseWorkspaceTerminalFontSize
         case .resetWorkspaceTerminalFontSize: return .resetWorkspaceTerminalFontSize
@@ -224,8 +218,6 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
         switch self {
         case .toggleTerminalCopyMode:
             return .terminal
-        case .previousAgentTurn, .nextAgentTurn:
-            return .agentTurns
         case .increaseWorkspaceTerminalFontSize, .decreaseWorkspaceTerminalFontSize,
              .resetWorkspaceTerminalFontSize, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed:
@@ -242,10 +234,6 @@ enum ShortcutParityPaletteCommand: String, CaseIterable {
         switch self {
         case .toggleTerminalCopyMode:
             return ["terminal", "copy", "mode", "select", "vi", "keyboard", "scrollback"]
-        case .previousAgentTurn:
-            return ["agent", "turn", "prompt", "previous", "up", "claude", "codex", "outline", "jump", "scrollback"]
-        case .nextAgentTurn:
-            return ["agent", "turn", "prompt", "next", "down", "claude", "codex", "outline", "jump", "scrollback"]
         case .increaseWorkspaceTerminalFontSize:
             return ["terminal", "font", "size", "zoom", "bigger", "increase", "workspace"]
         case .decreaseWorkspaceTerminalFontSize:
@@ -282,12 +270,6 @@ extension ContentView {
         rawValue: "shortcut.terminalFocused"
     )
 
-    /// Palette context key: the focused main-area terminal shows an agent
-    /// turn rail, so the previous/next agent turn commands have a target.
-    static let commandPaletteAgentTurnsAvailableKey = CommandPaletteContextKeys(
-        rawValue: "terminal.hasAgentTurns"
-    )
-
     static func commandPaletteShortcutTerminalFocused(
         focusedDockPanelIsTerminal: Bool?,
         mainAreaPanelIsTerminal: Bool
@@ -315,9 +297,6 @@ extension ContentView {
             case .terminal:
                 subtitle = terminalSubtitle
                 when = { $0.bool(Self.commandPaletteShortcutTerminalFocusedKey) }
-            case .agentTurns:
-                subtitle = terminalSubtitle
-                when = { $0.bool(Self.commandPaletteAgentTurnsAvailableKey) }
             case .workspace:
                 subtitle = workspaceSubtitle
                 when = { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
@@ -372,16 +351,6 @@ extension ContentView {
         switch command {
         case .toggleTerminalCopyMode:
             return AppDelegate.shared?.performToggleTerminalCopyModeShortcut(
-                preferredWindow: preferredWindow
-            ) ?? false
-        case .previousAgentTurn:
-            return AppDelegate.shared?.performAgentTurnNavigation(
-                .previous,
-                preferredWindow: preferredWindow
-            ) ?? false
-        case .nextAgentTurn:
-            return AppDelegate.shared?.performAgentTurnNavigation(
-                .next,
                 preferredWindow: preferredWindow
             ) ?? false
         case .increaseWorkspaceTerminalFontSize, .decreaseWorkspaceTerminalFontSize,

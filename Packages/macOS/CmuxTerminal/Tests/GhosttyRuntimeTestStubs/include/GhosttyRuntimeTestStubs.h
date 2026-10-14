@@ -167,5 +167,8 @@ bool cmux_test_ghostty_surface_key_was_called(void);
 int cmux_test_ghostty_surface_key_mods(void);
 uint32_t cmux_test_ghostty_surface_key_unshifted_codepoint(void);
 const char* cmux_test_ghostty_surface_key_text(void);
+void cmux_test_ghostty_input_events_reset(void);
+uint32_t cmux_test_ghostty_input_event_count(void);
+int cmux_test_ghostty_input_event_kind(uint32_t index);
 
 #endif
