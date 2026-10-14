@@ -2820,7 +2820,12 @@ impl WorkspaceRegistry {
         crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
         crate::state::window_record_store::migrate_window_projection(&connection)?;
         // sidebar-doc-v1: once, from the old sidebar stores (which stay).
-        crate::state::sidebar_doc_store::migrate_at_open(&connection)?;
+        // One transaction: a failure rolls it back and is retried at the
+        // next open; it never stops the registry from opening (the old
+        // stores and verbs keep working without the document).
+        if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
+            eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
+        }
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {

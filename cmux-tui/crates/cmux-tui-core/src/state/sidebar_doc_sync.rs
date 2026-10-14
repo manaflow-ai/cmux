@@ -4,7 +4,8 @@
 //! Old -> document, incremental: SQLite triggers record each changed old
 //! row in `sidebar_doc_dirty` (a personal row inserted, regrouped or
 //! renamed; a group created, changed, reslotted or deleted; a pin flag
-//! changed), and a row move records its row ([`mark_moved`]). Every old write
+//! changed: only a set flag is followed, see `sync_flag`), and a row move
+//! records its row ([`mark_moved`]). Every old write
 //! path then calls [`sync_from_legacy`] in its transaction, which reads only
 //! the dirty rows (and, per row, its neighbor by an indexed query), applies
 //! the matching document ops, and queues the changes into the commit's
@@ -20,8 +21,9 @@
 //! item gets its personal group row (name, color, icon, collapse, room,
 //! `pinned` = in Pinned) and a slot before its next loose workspace; a
 //! removed group item deletes its group row. Approximate where the old model
-//! has no place: items in Pinned and custom sections are loose rows at their
-//! document position (Pinned first), with no pin flag written; url, app and
+//! has no place: a loose workspace in Pinned or a custom section keeps its
+//! old row (group and place, as a pinned tile did), with no pin flag
+//! written, and is no anchor for the machine order; url, app and
 //! other non-workspace items, sections, and a group's place among other
 //! groups at the same slot are not written. The rows it writes are not
 //! synced back (the dirty marks are cleared at the end).
@@ -400,8 +402,10 @@ fn group_row(connection: &Connection, id: &str) -> anyhow::Result<Option<GroupRo
              FROM personal_groups WHERE group_id = ?1",
             [id],
             |r| {
+                // Old names may be longer than the document allows.
+                let name = reduce::fit_title(&r.get::<_, String>(0)?);
                 Ok(GroupRow {
-                    name: r.get(0)?,
+                    name: if name.is_empty() { "Group".into() } else { name },
                     color: r.get(1)?,
                     icon: r.get(2)?,
                     collapsed: r.get::<_, i64>(3)? != 0,
@@ -534,20 +538,22 @@ fn sync_flag(connection: &Connection, doc: &mut Doc, local: &str, key: &str) -> 
         .optional()?
         .unwrap_or(0)
         != 0;
+    // Only a set flag is followed. The current app clears the flag as its
+    // "moved into a pinned tile" mark (after it shows the tile), so a
+    // cleared flag is not an unpin: following it would undo every pin the
+    // TUI or iOS makes. Unpin goes through `sidebar.unpin` or the tiles.
+    if !pinned {
+        return Ok(());
+    }
     let reference = WorkspaceRef::new(local, &id);
-    if pinned {
-        if doc.workspace_item(&reference).is_none() {
-            try_apply(doc, Op::Adopt { refs: vec![reference.clone()], to: None });
-        }
-        if let Some(item) = doc.workspace_item(&reference) {
-            let id = item.id.clone();
-            try_apply(doc, Op::Pin { items: vec![id] });
-        }
-    } else if let Some(item) = doc.workspace_item(&reference)
-        && item.section == PINNED_SECTION_ID
+    if doc.workspace_item(&reference).is_none() {
+        try_apply(doc, Op::Adopt { refs: vec![reference.clone()], to: None });
+    }
+    if let Some(item) = doc.workspace_item(&reference)
+        && item.section != PINNED_SECTION_ID
     {
         let id = item.id.clone();
-        try_apply(doc, Op::Unpin { items: vec![id] });
+        try_apply(doc, Op::Pin { items: vec![id] });
     }
     Ok(())
 }
@@ -652,6 +658,10 @@ fn position_of(connection: &Connection, session: &str, key: &str) -> anyhow::Res
         .optional()?)
 }
 
+fn in_machine_section(doc: &Doc, item: &Item) -> bool {
+    doc.section(&item.section).is_some_and(|section| section.kind.machine().is_some())
+}
+
 /// The personal row of the nearest workspace before `index` in document
 /// order, as `(session, key, position)`.
 fn previous_row(
@@ -661,6 +671,11 @@ fn previous_row(
     index: usize,
 ) -> anyhow::Result<Option<(String, String, i64)>> {
     for item in doc.items[..index].iter().rev() {
+        // Rows of items outside machine sections stay where they were, so
+        // they are no anchor for the machine order.
+        if !in_machine_section(doc, item) {
+            continue;
+        }
         let Some(reference) = item.body.workspace() else { continue };
         let Some(key) = item_key(connection, local, reference)? else { continue };
         if let Some(position) = position_of(connection, &reference.session_id, &key)? {
@@ -738,6 +753,13 @@ pub(crate) fn write_back(
                  VALUES(?1, ?2, (SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces))",
                 params![session, key],
             )?;
+            wrote = true;
+        }
+        // A loose workspace in Pinned or a custom section keeps its old row
+        // (group and place), as a pinned tile did: the old model has no
+        // place for it, and unpin then finds the row where it was.
+        if item.parent.is_none() && !in_machine_section(after, item) {
+            continue;
         }
         transaction.execute(
             "UPDATE personal_workspaces SET group_id = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
@@ -764,6 +786,9 @@ pub(crate) fn write_back(
     // Group slots: before the next loose workspace of the group's section.
     for item in after.items.iter().filter(|item| touched.contains(item.id.as_str())) {
         if !item.body.is_group() || item.parent.is_some() {
+            continue;
+        }
+        if !in_machine_section(after, item) {
             continue;
         }
         let siblings = after.children(&item.section, None);

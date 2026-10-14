@@ -80,6 +80,12 @@ impl Mux {
             |transaction, _| {
                 // Old writes first (normally none are pending).
                 crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+                // A migration that failed at open (logged, retried at the
+                // next open) leaves no document to change.
+                anyhow::ensure!(
+                    store::is_migrated(transaction)?,
+                    "sidebar document unavailable: its migration did not complete"
+                );
                 let before = store::read_doc(transaction)?;
                 let mut mint = mint_item_id;
                 let outcome = reduce::apply(&before, &ops, &mut mint)
