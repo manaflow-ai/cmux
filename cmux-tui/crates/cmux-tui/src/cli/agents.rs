@@ -20,7 +20,7 @@ pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
 pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|runtimes|workspace|tab|terminal|palette|dialog>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents runtimes   coding-agent processes of this user, with who launched them\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -94,6 +94,7 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     match command(args) {
         Ok(AgentCommand::Snapshot) => run_snapshot(&global),
+        Ok(AgentCommand::Read { args }) => run_read(&global, &args),
         Ok(AgentCommand::Resource { action, args }) => run_resource(&global, &action, &args),
         Ok(AgentCommand::App { action, args }) => run_app(&global, &action, &args),
         Err(error) => wire::print_local_error(
@@ -111,14 +112,27 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
 
 enum AgentCommand {
     Snapshot,
-    Resource { action: String, args: Vec<String> },
-    App { action: String, args: Vec<String> },
+    /// A daemon read printed as it comes back, without a topology receipt.
+    Read {
+        args: Vec<String>,
+    },
+    Resource {
+        action: String,
+        args: Vec<String>,
+    },
+    App {
+        action: String,
+        args: Vec<String>,
+    },
 }
 
 fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
         [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
+        ["runtimes"] | ["runtimes", "--json"] => Ok(AgentCommand::Read {
+            args: ["agent", "runtime", "list"].into_iter().map(str::to_owned).collect(),
+        }),
         ["workspace", "select", target] => Ok(resource(
             "workspace.select",
             vec!["workspace".into(), (*target).into(), "focus".into()],
@@ -241,6 +255,20 @@ fn run_resource(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
     };
     let value = receipt(global, action, result);
     wire::print_local_success(&value, global.output)
+}
+
+fn run_read(global: &GlobalArgs, args: &[String]) -> i32 {
+    let plan = match super::command::parse(args, Surface::CmuxTui) {
+        Ok(CommandPlan::Protocol(plan)) => *plan,
+        Ok(_) => {
+            return print_usage(global, "agents read command did not produce a daemon request");
+        }
+        Err(error) => return print_usage(global, &error.0),
+    };
+    match mcp::agent_resource(global, plan) {
+        Ok(result) => wire::print_local_success(&result, global.output),
+        Err(error) => wire::print_local_error(&error, global.output, 3),
+    }
 }
 
 fn follow_app_focus(global: &GlobalArgs, action: &str, result: Value) -> Result<Value, i32> {

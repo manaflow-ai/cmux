@@ -469,6 +469,7 @@ session <selector> window title set|clear
 session <selector> terminal defaults set
 
 agent list
+agent runtime list          (also `cmux agents runtimes`)
 agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
 agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
@@ -558,7 +559,7 @@ conversation <conv_id> send --text <text> | --parts-json <json> [--reply-to <msg
 conversation <conv_id> events [--tail <0..500>] [--cursor-rev <rev>]
 chief [-p <text>] [--timeout <seconds>] [--history <n>]   (also `cmux chief`)
 chief engine [--harness <h>] [--model <m>] [--effort <e>] [--speed <s>] [--compactor-speed <s>] | chief stop [<subagent>]
-agent list|message|inbox|report
+agent list|runtime|message|inbox|report
 agent plugin list|install|use|update|remove
 pairing request list
 pairing request <selector> respond <accept|reject>   (accept: only from the verified cmux app; other callers may reject)

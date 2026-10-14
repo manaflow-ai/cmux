@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "fdaf52f061db52a19ad4c7faef45dc040219cae6e7c6e4d627739344dc14d138",
+  "catalog_sha256": "6d918e41273a2e2598847b67fdda4d87b9cf66a7ff9f8cdb7600cbf375be2470",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -15,6 +15,9 @@
     },
     "agent.report": {
       "class": "mutation"
+    },
+    "agent.runtime.list": {
+      "class": "read"
     },
     "browser.activate": {
       "class": "mutation"
