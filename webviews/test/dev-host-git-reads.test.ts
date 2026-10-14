@@ -9,7 +9,7 @@
 // - a repository's own config never runs a program (fsmonitor, filter drivers, a driver named
 //   with "=", a lazy fetch from a promisor remote, a submodule's diff driver), and the dev's
 //   GIT_* environment never redirects a read;
-// - the repository's orderfile and global attributes file are never read.
+// - the repository's orderfile and global attributes file are never read, and its hooks never run.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -331,6 +331,33 @@ describe("untrusted repository", () => {
       git("config", "--unset", "diff.orderFile");
       git("config", "--unset", "core.attributesFile");
       write("docs/readme.md", "# Readme\n\nMore.\n");
+    }
+  });
+
+  test("the repository's hooks never run, even when a read refreshes the index", async () => {
+    // `git diff` against the working tree rewrites a stale index despite GIT_OPTIONAL_LOCKS=0,
+    // and each index write runs post-index-change from .git/hooks or core.hooksPath.
+    const defaultMarker = path.join(root, "hook-ran");
+    const configuredMarker = path.join(root, "configured-hook-ran");
+    const hook = path.join(repo, ".git", "hooks", "post-index-change");
+    const hooksDir = path.join(root, "hostile-hooks");
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch ${defaultMarker}\n`, { mode: 0o755 });
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, "post-index-change"), `#!/bin/sh\ntouch ${configuredMarker}\n`, { mode: 0o755 });
+    const stale = new Date("2001-01-01T00:00:00Z");
+    try {
+      // A clean tracked file with a new mtime: git rereads it, finds it unchanged and rewrites
+      // the index entry, which is the write that runs the hook.
+      fs.utimesSync(path.join(repo, "src/new-name.ts"), stale, stale);
+      expect((await read("git.diff", { scope: "unstaged", include_patch: true })).body.ok).toBe(true);
+      git("config", "core.hooksPath", hooksDir);
+      fs.utimesSync(path.join(repo, "src/new-name.ts"), stale, new Date("2002-01-01T00:00:00Z"));
+      expect((await read("git.diff", { scope: "uncommitted" })).body.ok).toBe(true);
+      expect(fs.existsSync(defaultMarker)).toBe(false);
+      expect(fs.existsSync(configuredMarker)).toBe(false);
+    } finally {
+      git("config", "--unset", "core.hooksPath");
+      fs.rmSync(hook, { force: true });
     }
   });
 
