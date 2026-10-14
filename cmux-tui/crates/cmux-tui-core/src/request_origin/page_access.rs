@@ -300,7 +300,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
         | Op::WorkspaceAgentFolderSet
-        // A page opens a web link only on the person's click (page-router.json).
+        // Page home-channels opens a clicked web link (page-router.json).
         | Op::WorkspaceOpenUrl
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete

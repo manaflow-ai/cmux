@@ -312,3 +312,77 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(tab_count(&last), tab_count(&after), "the second link made a tab: {last}");
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
 }
+
+/// One line connection that stays open (a page relay keeps its page id).
+struct Line {
+    writer: Box<dyn Write>,
+    reader: Box<dyn BufRead>,
+}
+
+impl Line {
+    fn open(server: &HeadlessServer) -> Self {
+        let stream = transport::connect(&server.socket).unwrap();
+        let writer = stream.try_clone_box().unwrap();
+        Self { writer: Box::new(writer), reader: Box::new(BufReader::new(stream)) }
+    }
+
+    fn send(&mut self, request: &Value) -> Value {
+        writeln!(self.writer, "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("event").is_none() && value["id"] == request["id"] {
+                return value;
+            }
+        }
+    }
+}
+
+/// The Channels page (Home) opens a clicked link with `workspace.open_url`
+/// through its page connection; the page may call nothing else.
+#[test]
+fn the_home_channels_page_may_open_a_link_and_nothing_else() {
+    let server = HeadlessServer::start("open-url-page");
+    let home = v2(&server, "workspace.ensure_home", json!({}), Some("open-url-page-home"));
+    let home = value(&home)["workspace_id"].as_str().unwrap().to_string();
+    value(&v2(&server, "tab.create_terminal", json!({"workspace": home}), Some("open-url-page-t")));
+
+    let mut page = Line::open(&server);
+    let hello = page.send(
+        &json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "home-channels"}),
+    );
+    assert_eq!(hello["ok"], true, "{hello}");
+    let request = |id: &str, operation: &str, params: Value, key: Option<&str>| {
+        let mut params = params;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                                 "operation": operation, "params": params});
+        if let Some(key) = key {
+            request["idempotency_key"] = json!(key);
+        }
+        request
+    };
+    let listed = page.send(&request("list", "workspace.list", json!({}), None));
+    assert_eq!(error(&listed)["code"], "origin.forbidden", "{listed}");
+    assert_eq!(error(&listed)["details"]["reason"], "page_not_allowed", "{listed}");
+
+    let bad = page.send(&request(
+        "bad",
+        "workspace.open_url",
+        json!({"url": "javascript:alert(1)"}),
+        Some("open-url-page-bad"),
+    ));
+    assert_eq!(error(&bad)["code"], "validation.invalid", "{bad}");
+    assert_eq!(error(&bad)["details"]["field"], "url", "{bad}");
+    let opened = page.send(&request(
+        "open",
+        "workspace.open_url",
+        json!({"url": "https://example.com/from-chat"}),
+        Some("open-url-page-open"),
+    ));
+    let refusal = error(&opened);
+    assert_eq!(refusal["code"], "operation.failed", "{opened}");
+    assert_eq!(refusal["details"]["extra"]["code"], "engine_unavailable", "{opened}");
+}
