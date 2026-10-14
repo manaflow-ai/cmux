@@ -361,7 +361,7 @@ impl Home {
         );
         let foot = match self.right.iter().find(|p| p.focused).or(self.right.first()) {
             Some(pane) => format!(
-                "Open tabs on the right in a pane above, for example {id}: `cmux tab create browser --pane {id} --url URL`, `cmux tab create terminal --pane {id}`; `cmux browser <browser_…> navigate --url URL` reuses a browser above.\n</{TAG}>",
+                "Open tabs on the right in a pane above, for example {id}: `cmux tab create browser --pane {id} --url URL`, `cmux tab create terminal --pane {id}`; `cmux browser <browser_…> navigate --url URL` reuses a browser above. When the person asks, type into any terminal (`cmux terminal <term_…> write --text …`) and name in your reply the terminal you typed into (its tab id and title).\n</{TAG}>",
                 id = pane.id
             ),
             None => format!(
