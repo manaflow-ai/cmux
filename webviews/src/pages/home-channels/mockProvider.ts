@@ -11,6 +11,8 @@ import {
   type HomeEventBatch,
   type HomeMessage,
   type HomeParticipant,
+  type HomeRun,
+  type HomeRunStep,
   type HomeThreadStats,
 } from "./types";
 
@@ -180,17 +182,188 @@ export type MockDraft = "growing" | "posted";
 const DRAFT_TURN = "turn-draft-1";
 const DRAFT_TEXT = ["Checking the release: ", "Builder's fix is merged, ", "Reviewer approved it. ", "Docs is next."];
 
+/** Sample agent runs (`MockRuns`): none, the Chief's finished run on its last DM reply, or that
+ * plus a run that works now and streams its steps. */
+export type MockRuns = "none" | "done" | "live";
+
+const RUN_TURN = "turn:mock:c-chief-m4";
+const LIVE_TURN = "turn:mock:c-chief-m6";
+const SESSION = { kind: "acpmux", id: "01a139a8-f91e-7be2-86aa-516bf4c7e5e5" };
+
+function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
+  const at = BASE + 2 * MINUTE + 4_000;
+  const tool = (
+    seq: number,
+    id: string,
+    name: string,
+    kind: string,
+    title: string,
+    input: Record<string, unknown>,
+    output: string,
+    extra: Partial<NonNullable<HomeRunStep["tool"]>> = {},
+  ): HomeRunStep => ({
+    id: `tool:${id}`,
+    seq,
+    at: at + seq * 6_000,
+    rev: seq,
+    kind: "tool",
+    status: "done",
+    tool: { name, kind, title, input, output, files: [], ...extra },
+    attachments: [],
+    links: [],
+  });
+  const steps: HomeRunStep[] = [
+    tool(
+      1,
+      "t1",
+      "Bash",
+      "execute",
+      "gh pr list --label release",
+      { command: "gh pr list --label release" },
+      "#20412  sidebar fix   Builder\n#20418  changelog     Docs",
+    ),
+    tool(
+      2,
+      "t2",
+      "Read",
+      "read",
+      "Read CHANGELOG.md",
+      { file_path: "CHANGELOG.md" },
+      "## 0.66.0 (unreleased)\n- Sidebar fix",
+    ),
+    tool(3, "t3", "Edit", "edit", "Edit release/checklist.md", { file_path: "release/checklist.md" }, "", {
+      files: [
+        {
+          path: "release/checklist.md",
+          oldText: "- [ ] sidebar fix\n- [ ] review\n",
+          newText: "- [x] sidebar fix\n- [ ] review\n- [ ] changelog\n",
+          added: 2,
+          removed: 1,
+        },
+      ],
+    }),
+    {
+      id: "talk:0",
+      seq: 4,
+      at: at + 50_000,
+      rev: 4,
+      kind: "talk",
+      text: "Started. I post in #release when each one lands.",
+      attachments: [],
+      links: [{ label: "Agent session", url: `cmux://chief/5176e030/session/${SESSION.id}` }],
+    },
+  ];
+  return {
+    run: {
+      id: RUN_TURN,
+      conversation: "c-chief",
+      author: chief.id,
+      status: "done",
+      startedAt: at,
+      endedAt: BASE + 3 * MINUTE,
+      updatedAt: BASE + 3 * MINUTE,
+      rev: 5,
+      stepCount: steps.length,
+      turn: RUN_TURN,
+      answers: ["c-chief-m3"],
+      title: "Start the three release items",
+      usage: { input: 1_840, output: 612, cacheRead: 46_200 },
+      costUsd: 0.0421,
+      model: "claude-opus-5-5",
+      harness: "claude",
+      session: SESSION,
+    },
+    steps,
+  };
+}
+
 export class MockHomeProvider implements PageClient {
   readonly page = new MockPageStreams();
   private readonly data = sampleHome();
   private readonly listeners = new Set<(batch: HomeEventBatch, seq: number) => void>();
   private seq = 0;
 
+  private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
+
   constructor(
     private readonly draft?: MockDraft,
     longThread = false,
+    private readonly runMode: MockRuns = "none",
+    /** The owner refuses pins and marks (the page puts the row back and says why). */
+    private readonly refuseInbox = false,
   ) {
     if (longThread) addLongThread(this.data);
+    if (runMode !== "none") {
+      const done = sampleRun();
+      this.runs.set(done.run.id, done);
+      const list = this.data.messages.get("c-chief") ?? [];
+      const reply = list.find((m) => m.id === "c-chief-m4");
+      if (reply) reply.clientMessageId = RUN_TURN;
+    }
+  }
+
+  /** A run that works now: a new question, then the Chief's steps one by one. */
+  private playRun(): void {
+    if (this.runMode !== "live") return;
+    const list = this.data.messages.get("c-chief") ?? [];
+    const asked = text("c-chief", list.length + 1, me, Date.now() - 20_000, "Is CI green on the release branch?");
+    asked.id = "c-chief-m5";
+    list.push(asked);
+    const started = Date.now() - 18_000;
+    const run: HomeRun = {
+      id: LIVE_TURN,
+      conversation: "c-chief",
+      author: chief.id,
+      status: "running",
+      startedAt: started,
+      updatedAt: started,
+      rev: 2,
+      stepCount: 2,
+      turn: LIVE_TURN,
+      answers: [asked.id],
+      title: "Check CI on the release branch",
+      harness: "claude",
+      session: SESSION,
+    };
+    const steps: HomeRunStep[] = [
+      {
+        id: "tool:c1",
+        seq: 1,
+        at: started + 2_000,
+        rev: 1,
+        kind: "tool",
+        status: "done",
+        tool: {
+          name: "Bash",
+          kind: "execute",
+          title: "gh run list --branch release",
+          input: { command: "gh run list --branch release --limit 3" },
+          output: "completed  success  CI  release  2m",
+          files: [],
+        },
+        attachments: [],
+        links: [],
+      },
+      {
+        id: "tool:c2",
+        seq: 2,
+        at: started + 9_000,
+        rev: 2,
+        kind: "tool",
+        status: "running",
+        tool: {
+          name: "Bash",
+          kind: "execute",
+          title: "gh run view --log-failed",
+          input: { command: "gh run view 38544550381 --log-failed" },
+          files: [],
+        },
+        attachments: [],
+        links: [],
+      },
+    ];
+    this.runs.set(run.id, { run, steps });
+    this.emit({ messages: [asked], runs: [{ run, steps }] });
   }
 
   /** The Chief writes its reply after the page subscribes: one fresh item, then appends. */
@@ -225,7 +398,7 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1 } as R;
+        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -253,6 +426,25 @@ export class MockHomeProvider implements PageClient {
           hasMore: replies.length > limit,
           thread: thread ?? { root: root.id, replyCount: 0, authors: [] },
         } as R;
+      }
+      case HomeOps.pin:
+      case HomeOps.markUnread: {
+        if (this.refuseInbox) throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
+        const index = this.data.conversations.findIndex((c) => c.id === id);
+        if (index < 0) throw pageError("cmux.home.not_found", id);
+        const current = this.data.conversations[index]!;
+        const pinned = op === HomeOps.pin ? params.pinned === true : current.pinned;
+        const markedUnread = op === HomeOps.markUnread ? params.unread === true : current.markedUnread === true;
+        const change = {
+          conversation: id,
+          pinned,
+          markedUnread,
+          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+        };
+        const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
+        this.data.conversations[index] = updated;
+        this.emit({ inbox: [change] });
+        return { conversation: id } as R;
       }
       case HomeOps.read: {
         const index = this.data.conversations.findIndex((c) => c.id === id);
@@ -336,6 +528,20 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.search:
         return { hits: [] } as R;
+      case HomeOps.runs: {
+        const turns = (params.turns as string[] | undefined) ?? [];
+        const all = [...this.runs.values()].filter((entry) => entry.run.conversation === id);
+        const runs = (turns.length ? all.filter((entry) => turns.includes(entry.run.turn ?? "")) : all).map(
+          (entry) => entry.run,
+        );
+        return { runs, hasMore: false } as R;
+      }
+      case HomeOps.run: {
+        const entry = this.runs.get(String(params.run ?? ""));
+        if (!entry) throw pageError("cmux.home.run_rejected", "unknown_run");
+        const after = Number(params.afterRev ?? 0);
+        return { run: entry.run, steps: entry.steps.filter((step) => step.rev > after), hasMore: false } as R;
+      }
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
@@ -348,6 +554,7 @@ export class MockHomeProvider implements PageClient {
     const listener = onEvent as (batch: HomeEventBatch, seq: number) => void;
     this.listeners.add(listener);
     this.playDraft();
+    this.playRun();
     return () => void this.listeners.delete(listener);
   }
 

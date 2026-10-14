@@ -102,10 +102,18 @@ export type HostLists = {
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
   /**
-   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
-   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
+   * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
+   * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `video`) and its
+   * localized title. `video: true` marks a moving wallpaper.
    */
-  backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
+  backdrops?: Array<{
+    id: string;
+    title: string;
+    attribution: string;
+    collection?: string;
+    collection_title?: string;
+    video?: boolean;
+  }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
 };

@@ -71,7 +71,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   switch (op.kind) {
     case "message.send": {
       if (op.client_msg_id !== request.idempotency_key || !validToken(op.client_msg_id)) fail("invalid_client_msg_id")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
@@ -136,7 +136,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const message = target(head, request, op.message_id)
       if (message.author !== request.actor) fail("not_author")
       if (message.retracted_at !== undefined) fail("retracted")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       checkQuestionEdit(message.parts, parts)
       return updated(next, {
         ...message,

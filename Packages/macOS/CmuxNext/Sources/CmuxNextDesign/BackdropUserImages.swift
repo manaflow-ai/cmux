@@ -4,8 +4,9 @@ public import Foundation
 /// downloaded art. Choosing or dropping an image copies it there, so the background keeps working
 /// after the original moves, and the picker lists it under "Your images".
 public nonisolated struct BackdropUserImages: Sendable {
-    /// The image types the picker and the window backdrop read.
-    public static let extensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "avif", "webp", "tif", "tiff", "gif"]
+    /// The image and video types the picker and the window backdrop read; a video loops (cx-14vdf).
+    public static let extensions = Set(["jpg", "jpeg", "png", "heic", "heif", "avif", "webp", "tif", "tiff", "gif"])
+        .union(AppleWallpapers.videoExtensions)
 
     /// The picker collection the images are listed under.
     public static let collection = "yours"

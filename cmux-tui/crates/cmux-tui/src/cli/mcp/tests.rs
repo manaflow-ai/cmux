@@ -1080,3 +1080,34 @@ fn agents_palette_open_over_mcp_carries_the_mcp_origin() {
     assert_eq!(run["params"]["origin"], "mcp", "{run}");
     assert_eq!(run["params"]["focus"], true);
 }
+
+#[test]
+fn render_shows_a_page_in_the_chat_without_reaching_an_owner() {
+    let mut server = Server::new(Fake::default(), None);
+    let tools = server.list();
+    let tool = tools.iter().find(|tool| tool["name"] == "render").expect("render is listed");
+    assert_eq!(tool["inputSchema"]["required"], json!(["html"]));
+    let sent = server.backend.sent.borrow().len();
+
+    let page = "<title>Desk clamp</title><canvas></canvas>";
+    let result = call(&mut server, "render", json!({"html": page, "title": "Desk clamp"}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["rendered"], true);
+    assert_eq!(result["structuredContent"]["bytes"], page.len());
+    assert_eq!(
+        server.backend.sent.borrow().len(),
+        sent,
+        "the chat draws the call; no owner is asked"
+    );
+
+    for arguments in [
+        json!({"html": "  "}),
+        json!({}),
+        json!({"html": page, "url": "x"}),
+        json!({"html": page, "title": "t".repeat(201)}),
+    ] {
+        let refused = call(&mut server, "render", arguments.clone());
+        assert_eq!(refused["isError"], true, "{arguments}");
+        assert_eq!(refused["structuredContent"]["state"], "not_run");
+    }
+}

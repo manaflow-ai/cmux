@@ -24,9 +24,13 @@ use sha2::{Digest, Sha256};
 
 #[path = "conversation_import.rs"]
 mod import;
+#[path = "conversation_inbox.rs"]
+pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
 #[path = "conversation_links.rs"]
 pub(crate) mod links;
+#[path = "conversation_runs.rs"]
+pub(crate) mod runs;
 #[path = "conversation_threads.rs"]
 pub(crate) mod threads;
 
@@ -208,6 +212,8 @@ impl ConversationStore {
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
         transaction.execute_batch(threads::SCHEMA)?;
+        transaction.execute_batch(inbox::SCHEMA)?;
+        transaction.execute_batch(runs::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -724,6 +730,24 @@ pub enum ConversationEvent {
     /// `conversation.events` item, delivered only on that stream (never on
     /// the raw subscribe stream or the remote relay). Never stored.
     Draft { conversation: String, participant: String, item: Value },
+    /// A participant's own list state of one conversation changed (a pin, a
+    /// "marked unread"; `conversation-inbox-state-v1`). Not conversation
+    /// state: no rev, and `subscribe` delivers it only to connections whose
+    /// principal is `participant` (never the remote relay or
+    /// `conversation.events`).
+    Inbox {
+        conversation: String,
+        participant: String,
+        pinned: bool,
+        pin_position: Option<u64>,
+        marked_unread: bool,
+    },
+    /// An agent's run changed (`conversation-run-append`,
+    /// `conversation-runs-v1`): the run after the append and the steps it
+    /// wrote. Not a conversation change (no rev); `subscribe` delivers it
+    /// only to a connection that echoed `conversation-runs-v1` in
+    /// `set-client-info` (never the remote relay or `conversation.events`).
+    Run { conversation: String, run: Value, steps: Vec<Value> },
 }
 
 impl ConversationEvent {
@@ -744,7 +768,31 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
+            Self::Inbox { conversation, participant, pinned, pin_position, marked_unread } => {
+                let mut value = json!({
+                    "event": "conversation-inbox-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                    "pinned": pinned,
+                    "marked_unread": marked_unread,
+                });
+                if let Some(position) = pin_position {
+                    value["pin_position"] = json!(position);
+                }
+                value
+            }
+            Self::Run { conversation, run, steps } => json!({
+                "event": "conversation-run-changed",
+                "conversation": conversation,
+                "run": run,
+                "steps": steps,
+            }),
         }
+    }
+
+    /// Run events go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_run(&self) -> bool {
+        matches!(self, Self::Run { .. })
     }
 
     /// Drafts travel on `conversation.events`, and on `subscribe` only to a

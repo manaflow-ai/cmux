@@ -3,11 +3,12 @@
 cx-sv425), on a running tagged cmux-next build.
 
 Classic shows the latest unread notification's text under its workspace's row
-(`sidebar.showNotificationMessage`, on by default) and moves the workspace to the top of the
+(`sidebar.showNotificationMessage`, on by default; in cmux NEXT `sidebar.workspaceRow.notification`,
+off by default, so the row stays one line and the hover card says the text) and moves the workspace to the top of the
 unpinned rows (`app.reorderOnNotification`, on by default). The script makes two workspaces,
 leaves the one it selects alone, posts a notification to the other (the bottom row) through the
 daemon, as `cmux notify` does, and reads the rows back from `debug.sidebar_rows`: the notified
-workspace is the top row and its row draws the notification's text. A notification for the
+workspace is the top row and its row stays one line. A notification for the
 workspace the user is looking at moves nothing.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
@@ -148,10 +149,11 @@ def main():
     after = titles(rows)
     check("the notified workspace moves to the top row", after[:1] == [target],
           f"before={before.index(target)} after={after.index(target) if target in after else None} rows={after}")
-    row = next((row for row in rows if row.get("title") == target), {})
-    rows, _ = wait_rows(lambda rows: body in str(next((r for r in rows if r.get("title") == target), {}).get("detail")))
+    # The row stays one line by default (Leo 2026-10-14); the text reads in its hover card, and
+    # `sidebar.workspaceRow.notification` draws it under the row as classic did.
     row = next((r for r in rows if r.get("title") == target), {})
-    check("its row shows the notification's text", body in str(row.get("detail")), f"detail={row.get('detail')!r}")
+    check("its row stays one line, without the notification's text", body not in str(row.get("detail")),
+          f"detail={row.get('detail')!r}")
 
     # A notification for the selected workspace (the one in view) leaves the order alone.
     _, selection = sidebar()
