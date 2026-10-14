@@ -195,5 +195,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         composer_draft: None,
         bookmarks: Default::default(),
+        tools: Default::default(),
     }
 }

@@ -188,6 +188,138 @@
       },
       "extra": false
     },
+    "AvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarImage": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        },
+        "data": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "base64"
+          },
+          "description": "The picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarPage": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ParticipantAvatarImage"
+            }
+          },
+          "description": "null when the participant has no picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarResult": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "AvatarRef"
+            }
+          },
+          "description": "The stored reference, null after clear."
+        }
+      },
+      "extra": false
+    },
     "ChiefAvatarRef": {
       "kind": "object",
       "fields": {
@@ -14844,6 +14976,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
@@ -21299,6 +21449,120 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "participant.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ParticipantAvatarPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the person's own clients of the local conversations (a Unix connection, or an authenticated WebSocket: the Channels page reads it through its page allow list). A relayed or remote connection is refused with origin.forbidden.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "avatar is null when the participant has no picture (also for an id that is no person or live Chief)."
+      ]
+    },
+    "participant.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          },
+          "bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The picture, at most 1048576 bytes; its type comes from its signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no bytes)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ParticipantAvatarResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A person sets only their own picture: the connection's principal is that person (user_local on the owner's Unix or authenticated WebSocket connection, or a person bound with a person credential). Nobody sets another person's: operation.failed details.reason avatar_not_yours.",
+        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief only its own and only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
       ]
     },
     "project.add": {

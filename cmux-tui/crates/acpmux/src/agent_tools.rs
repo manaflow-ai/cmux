@@ -366,6 +366,27 @@ impl AgentTools {
         self
     }
 
+    /// The chat's tool list rows for these tools (`hub/tools.rs`): each MCP
+    /// server, which `toggles` says the harness turns on or off mid-session,
+    /// and for Claude Code (`claude`) each skill of the plugin.
+    pub fn tool_rows(&self, claude: bool, toggles: bool) -> Vec<crate::store::ToolRow> {
+        let row = |id: String, name: &str, can_toggle: bool| crate::store::ToolRow {
+            id,
+            name: name.to_owned(),
+            kind: "cmux".into(),
+            source: "cmux".into(),
+            enabled: true,
+            can_toggle,
+        };
+        let mut rows: Vec<_> =
+            self.servers.iter().map(|s| row(format!("mcp:{}", s.name), &s.name, toggles)).collect();
+        if claude && self.plugin_dir.is_some() {
+            let skills = SKILL_FILES.iter().filter_map(|(p, _)| p.strip_suffix("/SKILL.md"));
+            rows.extend(skills.map(|n| row(format!("skill:{PLUGIN_NAME}:{n}"), n, false)));
+        }
+        rows
+    }
+
     /// `mcpServers` for an ACP `session/new`, `session/load` or `session/fork`.
     pub fn acp_servers(&self) -> Value {
         Value::Array(

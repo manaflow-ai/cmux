@@ -47,6 +47,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `conversation-inbox-changed` | subscribe | `conversation`, `participant` | protocol 12 additive extension; capability `conversation-inbox-state-v1` |
 | `conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `conversation-runs-v1` |
+| `participant-avatar-changed` | subscribe | `participant` | protocol 12 additive extension; capability `participant-avatars-v1` |
 | `cloud-conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
@@ -564,6 +565,22 @@ published after a `conversation-run-append` commit (the run after the append
 and the steps it wrote; see `commands.md`), only to trusted local connections
 that echoed `conversation-runs-v1` in `set-client-info`. Not a conversation
 change: it carries no conversation `rev` and never reaches
+`conversation.events` or the remote relay.
+
+### participant-avatar-changed
+
+| Field | Value |
+| --- | --- |
+| event | `participant-avatar-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `participant-avatars-v1` |
+
+`object{event:"participant-avatar-changed", participant:string, avatar:AvatarRef|null}`
+(`AvatarRef = object{sha256, media_type, bytes}`), published after a committed
+`participant.avatar.set` or `chief.profile.avatar.set` change, only to trusted
+local connections that echoed `participant-avatars-v1` in `set-client-info`.
+A client reads the bytes with `participant.avatar.get` (once per `sha256`). Not
+a conversation change: it carries no conversation or `rev` and never reaches
 `conversation.events` or the remote relay.
 
 ### cloud-conversation-run-changed

@@ -29,7 +29,10 @@ final class SidebarTunablesWatch {
         return values
     }
 
-    private func changed() {
+    /// Drops the cached values and redraws the live rows. The observation
+    /// runs this one main-actor hop after a change; a test that sets a
+    /// tunable and draws a row in the same turn calls it right after the set.
+    func changed() {
         current = nil
         for row in rows.allObjects { row.redrawLastConfiguration() }
     }

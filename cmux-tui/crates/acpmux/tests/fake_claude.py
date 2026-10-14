@@ -22,6 +22,10 @@ then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
+FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
+`skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
+control request is appended to that file, one per line. Any plain prompt
+replies with the process's argv (spawn flags such as `--disallowedTools`).
 """
 import json
 import os
@@ -78,6 +82,7 @@ def init():
     if SKILLS:
         line["slash_commands"] = [c["name"] for c in COMMANDS]
         line["skills"] = ["demo-skill"]
+    line.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
     return line
 
 
@@ -130,6 +135,9 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
+        if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
+            with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
+                f.write(str(request.get("subtype")) + "\n")
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}

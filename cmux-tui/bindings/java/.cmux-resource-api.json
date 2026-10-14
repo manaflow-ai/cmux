@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "dcb19d47ac22218142d6ef1cbb671599b9f079848962235c61ed47feee389be9",
+  "catalog_sha256": "4d1c950dabc463fce29f0f20817a69e341dab884c6de5c350589ff5458ef8b27",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -362,6 +362,12 @@
       "class": "mutation"
     },
     "pane.zoom": {
+      "class": "mutation"
+    },
+    "participant.avatar.get": {
+      "class": "read"
+    },
+    "participant.avatar.set": {
       "class": "mutation"
     },
     "project.add": {
