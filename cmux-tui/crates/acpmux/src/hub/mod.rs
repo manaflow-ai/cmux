@@ -49,6 +49,7 @@ pub(crate) mod start_mode;
 mod steer_end;
 mod stream;
 mod tap;
+mod tools;
 pub use lifecycle::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };

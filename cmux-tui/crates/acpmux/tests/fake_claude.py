@@ -21,6 +21,10 @@ environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
+FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
+`skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
+control request is appended to that file, one per line. Any plain prompt
+replies with the process's argv (spawn flags such as `--disallowedTools`).
 """
 import json
 import os
@@ -109,10 +113,15 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
+        if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
+            with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
+                f.write(str(request.get("subtype")) + "\n")
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
-            send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
-                  "permissionMode": MODE, "tools": [], "mcp_servers": []})
+            init = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
+                    "permissionMode": MODE, "tools": [], "mcp_servers": []}
+            init.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
+            send(init)
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
         home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")

@@ -144,6 +144,11 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
+            tools: crate::store::ToolInventory {
+                off: parent_meta.tools.off.clone(),
+                ..Default::default()
+            },
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
