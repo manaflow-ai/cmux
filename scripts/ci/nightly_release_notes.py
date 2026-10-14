@@ -86,7 +86,10 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
                 raise RuntimeError("A commit has more than ten associated PRs; inspect its associations before retrying")
             for pr in associated["nodes"]:
                 merged = pr.get("mergeCommit") or {}
-                if pr["mergedAt"] and pr["baseRefName"] == branch and merged.get("oid") in members:
+                # An RC branch is cut from main and gets picks, so its notes
+                # include PRs merged to main in the compared range.
+                bases = {branch, "main"} if branch.startswith("rc/") else {branch}
+                if pr["mergedAt"] and pr["baseRefName"] in bases and merged.get("oid") in members:
                     prs[pr["number"]] = pr
     return list(prs.values())
 

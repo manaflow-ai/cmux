@@ -892,13 +892,18 @@ jobs:
               git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
               if [ "$CHANNEL" = rc ]; then
                 marketing_version() {
-                  git show "$1:cmux.xcodeproj/project.pbxproj" |
-                    sed -n '/MARKETING_VERSION = [0-9.]*;/{s/.*MARKETING_VERSION = \([0-9.]*\);.*/\1/p;q;}'
+                  local project versions
+                  project="$(git show "$1:cmux.xcodeproj/project.pbxproj")"
+                  versions="$(sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);.*/\1/p' <<< "$project")"
+                  printf '%s\n' "${versions%%$'\n'*}"
                 }
                 published_version="$(marketing_version "$published_sha")"
                 source_version="$(marketing_version "$SOURCE_HEAD_SHA")"
                 python3 - "$published_version" "$source_version" <<'PY' || {
           import sys
+          if not all(sys.argv[1:]):
+              print("could not read MARKETING_VERSION from the published or source commit", file=sys.stderr)
+              raise SystemExit(1)
           published, source = (tuple(int(p) for p in v.split(".")) for v in sys.argv[1:])
           raise SystemExit(0 if source >= published else 1)
           PY
