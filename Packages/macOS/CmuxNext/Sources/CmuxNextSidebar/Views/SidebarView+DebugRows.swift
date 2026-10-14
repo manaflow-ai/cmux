@@ -20,7 +20,7 @@ public struct SidebarDebugRow: Sendable {
     /// `success` for an unseen done, nil for other rows.
     public var activity: String? = nil
     /// The icon the row's view draws (`symbol`, `swatch`, `emoji`, `favicon`; workspace and
-    /// tab rows), nil when it draws none (`SidebarRowView.debugIcon`).
+    /// tab rows), nil when it draws none or has no live view, e.g. scrolled off (`SidebarRowView.debugIcon`).
     public var icon: String? = nil
     /// The view's frame as drawn now (its presentation, mid-animation), and
     /// whether it clips its content (an opening or closing row).

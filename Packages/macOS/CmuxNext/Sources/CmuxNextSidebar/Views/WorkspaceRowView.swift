@@ -115,7 +115,7 @@ final class WorkspaceRowView: SidebarRowView {
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
     override var debugIcon: String? {
         switch iconKind {
-        case nil: nil
+        case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
         case .symbol?: "symbol"
         case .swatch?: "swatch"
         case .emoji?: "emoji"

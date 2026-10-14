@@ -8,8 +8,8 @@ never opens Home or the Chief pane) on a GUI host and builds one sidebar:
 
   terminal     a plain terminal workspace
   agent        a terminal whose agent (claude) reports working
-  web          a browser tab on a local page with a favicon
-  mixed        a terminal tab and a browser tab, listed as tab rows
+  web          a terminal tab, then a browser tab in front on a local page with a favicon
+  mixed        the same, plus a second terminal tab: three tab rows
   custom icon  a workspace the user gave an icon (`workspace update --icon`)
   group        two workspaces in a group, collapsed while it holds the active workspace
 
@@ -169,9 +169,17 @@ def new_workspace(name):
     return made
 
 
-def open_page():
+def tab_rows(workspace):
+    return [r for r in rows("tab") if workspace and workspace in str(r.get("key"))]
+
+
+def open_page(workspace):
+    """A browser tab on the test page in `workspace`; on this branch, waits for its favicon."""
+    count = len(tab_rows(workspace))
     action("openBrowser.webkit", {"url": ORIGIN + "/"})
-    return wait(lambda: any(r.get("icon") == "favicon" or "Docs page" in str(r.get("title")) for r in rows()), 20)
+    if not opts.expect:
+        return wait(lambda: len(tab_rows(workspace)) > count, 20)
+    return wait(lambda: any(r.get("icon") == "favicon" for r in tab_rows(workspace)), 20)
 
 
 app = None
@@ -194,13 +202,19 @@ try:
 
     new_workspace("agent")
     terminal = focused_terminal()
-    cli("agent", "report", "--terminal", terminal or "", "--state", "working", "--source", "claude")
+    check(bool(terminal), "the agent workspace has a terminal")
+    # A Claude Code session starts in the terminal (its hook), so the row has an agent brand.
+    cli("agent", "hook", "emit", "--source", "claude", "--event", "SessionStart", "--terminal", terminal or "")
 
-    new_workspace("web")
-    check(bool(open_page()), "the browser workspace shows its page")
+    web = new_workspace("web")
+    if not rows("tab"):
+        action("sidebar.workspaceTabs.toggle")
+    wait(lambda: rows("tab"), 10)
+    check(bool(open_page(web)), "the web workspace shows its page (and its favicon on this branch)")
 
-    new_workspace("mixed")
-    check(bool(open_page()), "the mixed workspace has a browser tab")
+    mixed = new_workspace("mixed")
+    action("newSurface")
+    check(bool(open_page(mixed)), "the mixed workspace has a browser tab (and its favicon on this branch)")
 
     new_workspace("custom icon")
     cli("workspace", "current", "update", "--icon", "\U0001F680")
@@ -211,9 +225,6 @@ try:
     action("workspace.newBelow", target=f"workspace:{group_first}")
     wait(lambda: sum(1 for r in rows("workspace") if r.get("group") == group) >= 2, 15)
     cli("workspace", "current", "rename", "group member B")
-    if not rows("tab"):
-        action("sidebar.workspaceTabs.toggle")
-    wait(lambda: rows("tab"), 10)
     # The active workspace is a group member; collapsing hides it under the header.
     action("workspaceGroup.collapse", target=f"workspace-group:{group}")
     header = wait(lambda: next((r for r in rows("group") if group and group in str(r.get("key"))), None), 5)
@@ -238,6 +249,7 @@ try:
         state = sidebar()
         drawn = [(r.get("title") or r.get("key"), r.get("icon")) for r in state.get("rows") or [] if str(r.get("key")).startswith(("workspace(", "tab("))]
         print("drawn icons:", drawn, flush=True)
+        check(any(d == ("agent", None) for d in drawn), "the agent workspace draws no agent mark")
         allowed = {None, "favicon"}
         stray = [d for d in drawn if d[1] not in allowed and d[0] != "custom icon"]
         check(not stray, f"no row draws a default glyph (stray {stray})")
