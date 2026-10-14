@@ -50,6 +50,12 @@ enum WorkspaceGroupHandlers {
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
+        // The menu's group section shows a row only where it applies (Lawrence 2026-10-14).
+        ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { invocation in
+            guard let workspace = try? context.workspace(invocation).model else { return false }
+            return (try? WorkspaceVerbHandlers.group(of: workspace, context)) == nil
+        }
+        ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             newPersonalWorkspace(in: try context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
