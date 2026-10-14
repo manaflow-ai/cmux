@@ -406,11 +406,34 @@ try:
             record("link member row draws the open tab's favicon", ok,
                    f"tab favicon={tab_icon} sidebar.get icon_url={doc_icon_url('https://github.com')} row icon_address="
                    f"{next((r.get('icon_address') for r in window().get('rows', []) if r.get('key') == key), None)}")
+            # Step 5 left github.com open, so "a github.com surface exists" proves nothing: move focus to a workspace
+            # row first, then the click must change the github.com surfaces (a new one, or one newly focused).
+            def github_state():
+                found = []
+                def walk(node):
+                    if isinstance(node, dict):
+                        if "github.com" in json.dumps(node) and "workspace" in node:
+                            found.append((node.get("workspace"), bool(node.get("focused"))))
+                        else:
+                            for value in node.values():
+                                walk(value)
+                    elif isinstance(node, list):
+                        for value in node:
+                            walk(value)
+                walk(rpc("debug.surfaces") or {})
+                return sorted(found)
+            away = next((r for r in window().get("rows", []) if r.get("in_list") and str(r.get("key", "")).startswith("workspace")
+                         and not r.get("group")), None)
+            if away:
+                rpc("debug.mouse", {"x": center(away["window_frame"])[0], "y": center(away["window_frame"])[1], "action": "click"})
+                time.sleep(0.5)  # test harness: let the focus move to that workspace
+            before = github_state()
             member = member_link(group_id) or member
             rpc("debug.mouse", {"x": center(member["window_frame"])[0], "y": center(member["window_frame"])[1], "action": "click"})
-            opened = wait(lambda: "github.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
+            opened = wait(lambda: (lambda now: now if now != before and any(f for _, f in now) else None)(github_state()), 15)
             shot("v2-5b-link-member-opened")
-            record("link member row opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
+            record("link member row opens its page", bool(opened),
+                   f"github.com surfaces before={before} after={github_state()}")
             undo("link onto a Pinned group", lambda: member_link(group_id) is None)
     else:
         record("link onto a Pinned group lists as its member row", False, f"link source={source} Grp header={grp_header} group_id={group_id}")
