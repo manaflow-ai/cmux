@@ -7,6 +7,9 @@ import QuartzCore
 // its first sync: same slot, same width, no grow-in, no slide, no shrink, so
 // the swap is one step of chrome while the content paints once.
 //
+// The same holds for the App's provisional stand-in of a tab the store is
+// still creating (`TabItem.isProvisional`): the store's tab takes its cell.
+//
 // A tab opened after the current one (`tabs.newTabPosition: afterCurrent`,
 // New Tab to the Right) is made at the end of the pane and then moved into
 // its slot (NewTabSlot). The strip shows it in that slot from its first
@@ -78,6 +81,17 @@ extension TabStripView {
                 adopted[newcomer.id] = page
                 fresh[newcomer.id] = page
             }
+        }
+        // The store's tab confirming a provisional one takes its cell in place (DESIGN P5). The store
+        // lists the two side by side for a few ms until its reply drops the stand-in; a strip that
+        // showed both closed the stand-in a sync later, on the spring: with ui.animations.newTab
+        // off that close was the only motion of a Cmd-T or + (hq-1d phase 3).
+        for provisional in ordered where provisional.isProvisional && cells[provisional.id] != nil
+            && !adopted.values.contains(provisional.id) {
+            guard let newcomer = ordered.first(where: { cells[$0.id] == nil && !$0.isProvisional && adopted[$0.id] == nil })
+            else { break }
+            adopted[newcomer.id] = provisional.id
+            fresh[newcomer.id] = provisional.id
         }
         for (newcomer, page) in adopted {
             // The page left the model: the model's order (the newcomer in its slot) rules again.
