@@ -32,7 +32,8 @@ EPS = 0.75  # points: a value this close to its start or end counts as there
 # Per scenario: `min_intermediate` frames strictly between the start and end values,
 # `max_step` the largest share of the travel one frame may carry, `p95_frames` and
 # `max_frames` the frame interval budget during the motion in refresh periods. Reduce
-# Motion scenarios instead allow at most `max_intermediate` frames between the ends.
+# Motion scenarios instead allow at most `max_intermediate` frames between the ends, over a
+# trace of at least `min_frames` frames (two frames would pass by having no room to move).
 THRESHOLDS: dict[str, dict[str, float]] = {
     "new_tab_cold": {"min_intermediate": 8, "max_step": 0.5, "p95_frames": 2.5, "max_frames": 8},
     "new_tab_warm": {"min_intermediate": 8, "max_step": 0.5, "p95_frames": 2.5, "max_frames": 8},
@@ -40,9 +41,9 @@ THRESHOLDS: dict[str, dict[str, float]] = {
     "sidebar_expand": {"min_intermediate": 8, "max_step": 0.4, "p95_frames": 2.5, "max_frames": 8},
     "transcript_follow": {"min_intermediate": 60, "max_step": 0.2, "p95_frames": 2.5, "max_frames": 12, "max_trail": 0.9, "end_trail": 0.2},
     "window_resize": {"min_intermediate": 20, "max_step": 0.25, "p95_frames": 3, "max_frames": 12},
-    "reduce_new_tab": {"max_intermediate": 1},
-    "reduce_sidebar_collapse": {"max_intermediate": 1},
-    "reduce_sidebar_expand": {"max_intermediate": 1},
+    "reduce_new_tab": {"max_intermediate": 1, "min_frames": 20},
+    "reduce_sidebar_collapse": {"max_intermediate": 1, "min_frames": 20},
+    "reduce_sidebar_expand": {"max_intermediate": 1, "min_frames": 20},
 }
 SCENARIOS = list(THRESHOLDS)
 
@@ -88,6 +89,9 @@ class Driver:
         return result
 
     def save(self, name: str, data: dict) -> None:
+        if name.startswith("reduce_") and name in THRESHOLDS:
+            # What the app said when Reduce Motion was set: a scenario run without it is not one.
+            data = {**data, "reduce_motion": getattr(self, "reduce_on", False)}
         (self.out / f"{name}.json").write_text(json.dumps(data, separators=(",", ":")) + "\n")
 
     def trace(self, targets: list[str], act, seconds: float) -> dict:
@@ -125,10 +129,14 @@ class Driver:
         trace = self.trace(["tabs"], lambda: self.key("t", ["command"]), 0.9)
         openings = self.call("debug.new_tab", {"action": "state"}).get("openings") or []
         trace["opening"] = openings[-1] if len(openings) > before else None
+        if not cold:
+            trace["spare_ready"] = ready
         self.save(name, trace)
-        # Close it again, so every opening starts from the same strip.
-        self.key("w", ["command"])
-        time.sleep(0.6)
+        # Close it again, so every opening starts from the same strip; with no opening, Cmd-W
+        # would close a tab that was there before.
+        if trace["opening"] is not None:
+            self.key("w", ["command"])
+            time.sleep(0.6)
 
     def sidebar(self, prefix: str) -> None:
         for name in ("collapse", "expand"):
@@ -210,7 +218,9 @@ class Driver:
         self.save("drive_log", {"log": self.log})
 
     def reduced(self) -> None:
-        self.call("debug.motion", {"action": "reduce", "value": True})
+        self.reduce_on = self.call("debug.motion", {"action": "reduce", "value": True}).get("reduce_motion") is True
+        if not self.reduce_on:
+            self.log.append("reduce: the app did not report Reduce Motion on")
         self.call("debug.motion", {"action": "start"})
         try:
             self.sidebar("reduce_")
@@ -305,6 +315,8 @@ def judge_motion(name: str, result: dict, refresh: float) -> dict:
     if "max_intermediate" in limits:
         if result["travel"] <= EPS:
             problems.append("nothing changed")
+        if result["frames"] < limits["min_frames"]:
+            problems.append(f"only {result['frames']} frames traced (< {limits['min_frames']:g})")
         if result["intermediate"] > limits["max_intermediate"]:
             problems.append(f"{result['intermediate']} intermediate frames under Reduce Motion (> {limits['max_intermediate']:g})")
         return {"ok": not problems, "problems": problems, **result}
@@ -356,18 +368,24 @@ def judge(out: Path) -> dict[str, dict]:
                 verdict["problems"].append("a neighbor animated under Reduce Motion")
                 verdict["ok"] = False
             verdict["opening"] = data.get("opening")
-            if name.startswith("reduce"):
-                looping = data.get("looping") or []
-                verdict["looping"] = looping
-                if looping:
-                    verdict["problems"].append(f"{len(looping)} repeating animation(s) under Reduce Motion")
-                    verdict["ok"] = False
+            if data.get("spare_ready") is False:
+                verdict["problems"].append("not measured: no ready spare, so the opening was cold")
+                verdict["ok"] = False
         elif "sidebar" in name:
             verdict = judge_motion(name, sidebar_series(data), refresh)
         elif name == "transcript_follow":
             verdict = judge_transcript(data, refresh)
         else:
             verdict = judge_resize(data, refresh)
+        if name.startswith("reduce_"):
+            if data.get("reduce_motion") is not True:
+                verdict["problems"].append("not measured: Reduce Motion was not on")
+                verdict["ok"] = False
+            looping = data.get("looping") or []
+            verdict["looping"] = looping
+            if looping:
+                verdict["problems"].append(f"{len(looping)} repeating animation(s) under Reduce Motion")
+                verdict["ok"] = False
         verdicts[name] = verdict
     return verdicts
 
