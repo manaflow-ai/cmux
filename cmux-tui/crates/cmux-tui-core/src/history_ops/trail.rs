@@ -298,9 +298,6 @@ fn change<T>(
         if !changed {
             return Ok(answer);
         }
-        if revision == 0 && adopted > 0 {
-            log(mux, format!("adopts the app's older history.trail ({adopted} entries)"));
-        }
         let mutation =
             WorkspaceMutation::new(format!("trail-{revision}-{key_hash}"), ORIGIN, actor.clone())?;
         let value = serde_json::to_value(&document)?;
@@ -313,7 +310,12 @@ fn change<T>(
             Some(revision),
             &value,
         ) {
-            Ok(_) => return Ok(answer),
+            Ok(_) => {
+                if revision == 0 && adopted > 0 {
+                    log(mux, format!("adopted the app's older history.trail ({adopted} entries)"));
+                }
+                return Ok(answer);
+            }
             Err(error) if error.to_string().contains("projection revision conflict") => {
                 last_error = Some(error);
             }

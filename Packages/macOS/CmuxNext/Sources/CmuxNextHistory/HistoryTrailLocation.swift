@@ -72,13 +72,22 @@ public nonisolated struct HistoryTrailDocument: Decodable, Sendable {
         }
     }
 
+    /// One entry, or nil when it does not decode (that entry is left out, not the document).
+    nonisolated struct Lossy: Decodable, Sendable {
+        var entry: Entry?
+
+        init(from decoder: any Decoder) throws {
+            entry = try? Entry(from: decoder)
+        }
+    }
+
     var entries: [Entry]
 
-    /// The document in `data` (nil: not a schema 1 trail document).
-    public init?(data: Data, schemaVersion: UInt32) {
-        guard schemaVersion == Self.schemaVersion,
-              let document = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
-        self = document
+    enum CodingKeys: String, CodingKey { case entries }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        entries = try c.decode([Lossy].self, forKey: .entries).compactMap(\.entry)
     }
 
     /// Every step, oldest first, with its time on the app's clock.

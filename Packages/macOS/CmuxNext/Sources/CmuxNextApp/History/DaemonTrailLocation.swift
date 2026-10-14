@@ -27,8 +27,8 @@ extension DaemonHistoryClient {
     /// there is no document; the rows then show the app's older trail, adopted.
     func trail() async throws -> [(location: HistoryLocation, time: Date)] {
         let stored = try await connection.frontendProjection(subject: HistoryTrailDocument.subject)
-        if stored.projection != .null, let document = HistoryTrailDocument(
-            data: try JSONEncoder().encode(stored.projection), schemaVersion: stored.schemaVersion) {
+        if stored.projection != .null, stored.schemaVersion == HistoryTrailDocument.schemaVersion,
+           let document = try? await Self.decode(HistoryTrailDocument.self, from: stored.projection) {
             return document.steps
         }
         let rows = try await list(kinds: [.location], text: "", range: .all, limit: 5_000)
