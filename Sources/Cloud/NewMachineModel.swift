@@ -13,13 +13,10 @@ struct MachineSizeOption: Equatable, Sendable {
     /// Creates a legacy ladder option for compatibility with direct callers that
     /// predate server-owned size metadata.
     init?(memoryMb: Int) {
-        self.init(
-            memoryMb: memoryMb,
-            servedVcpus: nil,
-            servedDiskMb: nil,
-            fallbackDiskMb: nil,
-            useLegacyLadderFallback: true
-        )
+        guard let resolved = CloudMachineSizeResolver().resolve(memoryMb: memoryMb, useLegacyLadderFallback: true) else {
+            return nil
+        }
+        self.init(resolved)
     }
 
     /// `servedVcpus` and `servedDiskMb` are the server's per-size metadata entries for this
@@ -28,44 +25,20 @@ struct MachineSizeOption: Equatable, Sendable {
     /// legacy ladders must be explicitly enabled only when both server maps
     /// are absent; a missing entry in either map is not an old response.
     init?(memoryMb: Int, servedVcpus: Int?, servedDiskMb: Int?, fallbackDiskMb: Int?, useLegacyLadderFallback: Bool) {
-        guard memoryMb > 0 else { return nil }
-        let vcpus = servedVcpus.flatMap { $0 > 0 ? $0 : nil }
-        let disk = servedDiskMb.flatMap { $0 > 0 ? $0 : nil }
-        let legacyDisk: Int?
-        if useLegacyLadderFallback {
-            legacyDisk = switch memoryMb {
-            case 4096: 16384
-            case 8192: 32768
-            case 16384: 65536
-            case 24576: 98304
-            case 32768, 65536: 131072
-            default: nil
-            }
-        } else {
-            legacyDisk = nil
-        }
-        let resolvedDisk = disk ?? (useLegacyLadderFallback ? legacyDisk : nil) ?? fallbackDiskMb ?? memoryMb
-        let legacyVcpus: Int?
-        if useLegacyLadderFallback {
-            legacyVcpus = switch memoryMb {
-            case 4096: 2
-            case 8192: 4
-            case 16384: 8
-            case 24576: 12
-            case 32768: 16
-            case 65536: 32
-            default: nil
-            }
-        } else {
-            legacyVcpus = nil
-        }
-        self.init(memoryMb: memoryMb, diskMb: resolvedDisk, vcpus: vcpus ?? legacyVcpus ?? 0)
+        guard let resolved = CloudMachineSizeResolver().resolve(
+            memoryMb: memoryMb,
+            servedVcpus: servedVcpus,
+            servedDiskMb: servedDiskMb,
+            fallbackDiskMb: fallbackDiskMb,
+            useLegacyLadderFallback: useLegacyLadderFallback
+        ) else { return nil }
+        self.init(resolved)
     }
 
-    private init(memoryMb: Int, diskMb: Int, vcpus: Int) {
-        self.memoryMb = memoryMb
-        self.diskMb = diskMb
-        self.vcpus = vcpus
+    private init(_ resolved: CloudMachineSizeOption) {
+        memoryMb = resolved.memoryMb
+        diskMb = resolved.diskMb
+        vcpus = resolved.vcpus
     }
 
     /// The localized RAM value shown as the selected picker title.

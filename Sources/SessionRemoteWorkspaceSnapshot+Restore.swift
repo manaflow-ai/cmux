@@ -561,7 +561,7 @@ extension SessionRemoteWorkspaceSnapshot {
             return nil
         }
         let vmID = String(destination.dropLast(ManagedCloudVMConstants.legacySSHDestinationSuffix.count))
-        guard vmID.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
+        guard vmID.range(of: #"^[A-Za-z0-9._-]+\z"#, options: .regularExpression) != nil else {
             return nil
         }
         return vmID
