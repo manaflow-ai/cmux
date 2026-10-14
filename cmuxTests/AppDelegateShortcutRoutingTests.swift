@@ -12518,6 +12518,43 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(harness.panel.isBrowserFocusModeActive)
     }
 
+    func testBrowserFocusModeReturnDoesNotRouteWebInspectorResponderToPage() {
+        guard let harness = makeBrowserFocusModeHarness() else { return }
+        defer { closeWindow(withId: harness.windowId) }
+
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === harness.webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+        defer { cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil }
+
+        XCTAssertTrue(
+            harness.panel.setBrowserFocusModeActive(true, reason: "unit.inspectorReturn", focusWebView: false)
+        )
+        let inspectorView = FakeWKInspectorContainerView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        inspectorView.addSubview(FocusableTestView(frame: inspectorView.bounds))
+        harness.webView.addSubview(inspectorView)
+        XCTAssertTrue(harness.window.makeFirstResponder(inspectorView.subviews[0]))
+
+        guard let event = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [.command],
+            keyCode: 36,
+            windowNumber: harness.window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        _ = harness.window.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(forwardedEvents.isEmpty)
+        XCTAssertTrue(harness.window.firstResponder === inspectorView.subviews[0])
+    }
+
     func testShowNotificationsShortcutYieldsToFocusedBrowserPane() {
         // With a browser pane focused, app shortcut routing must yield Cmd+I (a
         // browser document-editing command) so the keystroke reaches the focused
