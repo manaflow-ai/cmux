@@ -29,12 +29,18 @@ pub async fn resolve_session(client: &Client, key: &str) -> Result<(String, Stri
 
 /// Queue `text` as a prompt of `session` under `prompt_id` and return once
 /// the daemon accepted it: started now, or queued behind a running turn.
+/// `steer` sends it into a running turn of an agent that steers
+/// (`_meta.acpmux.steer`); `provenance` names the agent that sent it
+/// (`_meta.acpmux.provenance`, `prompt_provenance.rs`), so the receiver's
+/// transcript shows it as that agent's message.
 pub async fn deliver(
     client: Arc<Client>,
     session: &str,
     text: &str,
     prompt_id: &str,
+    steer: bool,
+    provenance: Option<&Value>,
 ) -> Result<Value> {
     let prompt = PromptId { id: prompt_id.to_owned(), resend: true };
-    queue_prompt(client, session, text, false, &prompt).await
+    queue_prompt(client, session, text, steer, provenance, &prompt).await
 }
