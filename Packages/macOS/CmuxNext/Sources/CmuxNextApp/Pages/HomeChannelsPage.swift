@@ -14,10 +14,11 @@ extension PageDescriptor {
     /// its loopback WebSocket, the same protocol a plain browser uses (cmux-tui spec/transports.md
     /// "App listener and page files"). No Swift serves Home data; the host only hands the page the
     /// endpoint and the daemon's credential (`cmux.host.credential.load`, a host verb). The daemon
-    /// admits this page's origin (`DaemonService.pageOrigins`).
+    /// admits this page's origin (`DaemonService.pageOrigins`). A video attachment plays from the
+    /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential."],
-        csp: PageCSP(connect: ["ws://127.0.0.1:*"]))
+        csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]))
 }
 
 extension PageFactory {
