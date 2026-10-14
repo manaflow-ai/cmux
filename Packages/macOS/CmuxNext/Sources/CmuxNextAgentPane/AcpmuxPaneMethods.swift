@@ -61,6 +61,9 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
+        // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
+        // which a pending chat's access chip names. Read only.
+        "_acpmux/start_mode",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.

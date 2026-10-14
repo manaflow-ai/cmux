@@ -17,6 +17,7 @@ import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
+import { useStartMode } from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -432,12 +433,14 @@ export function ComposerPickers({
         : effortChoice.name
       : undefined;
   const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
-  // The access chip names the mode acpmux will start the chat in, not the mode this harness's last
-  // chat showed (harnessProfiles.ts `startMode`); nothing when the pane cannot know.
-  const startMode = awaiting && chipHarness ? harnessProfiles.startMode(chipHarness) : undefined;
+  // Before a chat reports its modes, the access chip names the mode acpmux answers it will start
+  // the chat in (`_acpmux/start_mode`), never the mode this harness's last chat showed; nothing
+  // until it answers, or when it sets none.
+  const startMode = useStartMode(chipHarness, folder ?? summary?.cwd, awaiting && modes.length === 0);
   const startModeName = startMode
-    ? harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode)?.name ||
-      startMode
+    ? (startMode.name ??
+      harnessProfiles.get(chipHarness)?.modes?.availableModes.find((choice) => choice.id === startMode.modeId)?.name ??
+      startMode.modeId)
     : undefined;
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortLabel)
@@ -602,16 +605,17 @@ function AccessMenu({
     if (optimistic?.sessionId === sessionId && optimistic?.modeId === current) setOptimistic(undefined);
   }, [current, optimistic, sessionId]);
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
-  const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
-  // A chat that has not reported its mode (one acpmux has not started) names none, not the first.
-  const currentMode = modes.find((choice) => choice.id === (optimisticMode ?? current));
+  // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
+  // and every mode, the first included, is a pick.
+  const value = optimisticMode ?? current ?? "";
+  const currentMode = modes.find((choice) => choice.id === value);
   const pick = (next: string) => {
     setOptimistic({ sessionId, modeId: next });
     onMode(next);
     setOpen(false);
   };
   return (
-    <span className={`acpmux-mode acpmux-access${unrestricted(currentMode?.id ?? "") ? " acpmux-unrestricted" : ""}`}>
+    <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button acpmux-access-trigger" label={label} aria-haspopup="menu">
           <LockIcon />
