@@ -5,6 +5,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AddChannel } from "./AddChannel";
+import { AttachmentContext } from "./AttachmentViews";
 import { Avatar, ChannelMark } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConversationList, useStamp } from "./ConversationList";
@@ -15,7 +16,9 @@ import {
   chiefState,
   chronological,
   conversationName,
+  isUnread,
   lastEditable,
+  listOrder,
   mergeMessages,
   messageLink,
   others,
@@ -65,6 +68,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   const asked = useRef(new Map<string, "open" | "resolved">());
   const { t, format } = strings;
   const stamp = useStamp(strings.language);
+  const column = useRef<HTMLDivElement | null>(null);
   const me = snap.me?.id;
   const open = snap.selected ? snap.conversations.get(snap.selected) : undefined;
   const pendingByKey = useMemo(() => new Map(snap.pending.map((entry) => [entry.key, entry])), [snap.pending]);
@@ -144,13 +148,21 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
-  const copyLink = (message?: HomeMessage) => {
-    if (!snap.selected || !navigator.clipboard) return;
+  const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
+    if (!conversation || !navigator.clipboard) return;
     // The notice only when the copy happened.
-    navigator.clipboard.writeText(messageLink(snap.selected, message?.id)).then(
+    navigator.clipboard.writeText(messageLink(conversation, message?.id)).then(
       () => say(t("notice.linkCopied")),
       () => undefined,
     );
+  };
+  // A list row's menu (right-click, Shift-F10): my pin, my unread mark, the conversation's link.
+  const rowActions = {
+    canPin: snap.inboxState,
+    onPin: (id: string, pinned: boolean) => void store.setPinned(id, pinned),
+    onMarkUnread: (id: string) => void store.setMarkedUnread(id, true),
+    onMarkRead: (id: string) => store.markConversationRead(id),
+    onCopyLink: (id: string) => copyLink(undefined, id),
   };
   const select = (id: string) => {
     setEditing(undefined);
@@ -185,13 +197,15 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   };
   const focusedMessage = focused ? walk.find((m) => m.id === focused) : undefined;
   const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
-    const order = chronological(snap.conversations.values());
+    // The order the list shows: my pins first, then newest activity.
+    const { pinned, rest } = listOrder(snap.conversations.values());
+    const order = [...pinned, ...rest];
     const n = order.length;
     const start = order.findIndex((c) => c.id === snap.selected);
     const base = start < 0 ? (delta > 0 ? -1 : n) : start;
     for (let step = 1; step <= n; step += 1) {
       const next = order[(((base + delta * step) % n) + n) % n];
-      if (next && (!unreadOnly || next.unread > 0)) {
+      if (next && (!unreadOnly || isUnread(next))) {
         select(next.id);
         return;
       }
@@ -297,6 +311,16 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         mark: <HomeIcon name="check" size={16} />,
         run: () => snap.thread && setOwner(snap.thread, me),
       });
+    const openRow = snap.selected ? snap.conversations.get(snap.selected) : undefined;
+    if (openRow && snap.inboxState)
+      items.push({
+        id: "a:pin",
+        group: "actions",
+        title: t(openRow.pinned ? "action.unpinConversation" : "action.pinConversation"),
+        keywords: ["pin"],
+        mark: <HomeIcon name="pin" size={16} />,
+        run: () => void store.setPinned(openRow.id, !openRow.pinned),
+      });
     if (snap.selected)
       items.push({
         id: "a:copy-conversation",
@@ -325,13 +349,21 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     everyone,
     snap.thread,
     snap.selected,
+    snap.inboxState,
     sheetThread?.status,
     sheetThread?.owner,
     stamp,
   ]);
 
   const empty = snap.conversations.size === 0 && !snap.loading;
+  // Files go to the open conversation when its owner takes them through this host.
+  const takesFiles = open && snap.fileSupport && (open.owner === "cloud" ? snap.fileSupport.cloud : snap.fileSupport.local);
+  const uploads = useMemo(
+    () => (store.attachments && takesFiles && open ? { service: store.attachments, conversation: open.id } : undefined),
+    [store.attachments, takesFiles, open?.id],
+  );
   return (
+    <AttachmentContext.Provider value={store.attachments}>
     <div className="lg-page">
       <ConversationList
         conversations={snap.conversations}
@@ -344,6 +376,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
         onSelect={select}
         onOpenPalette={() => setPalette(true)}
         onAddChannel={online && everyone.length > 0 ? (anchor) => setAddChannel(anchor) : undefined}
+        actions={rowActions}
       />
       <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
         {snap.loading ? null : empty || !open ? (
@@ -413,7 +446,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
               </output>
             )}
             <RunsContext.Provider value={runs}>
-              <div className="lg-stage">
+              <div className="lg-stage" ref={column} data-drop-zone>
                 <Timeline
                   conversation={snap.selected}
                   rows={rows}
@@ -455,7 +488,9 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                       const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
                       if (last) setEditing({ id: last.id, surface: "main" });
                     }}
-                    onSend={(text) => store.send(text)}
+                    attachments={uploads}
+                    dropZone={column}
+                    onSend={(text, files) => store.send(text, undefined, undefined, files)}
                   />
                 </div>
                 {snap.thread && (
@@ -482,7 +517,8 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                     onRename={(title) =>
                       sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
                     }
-                    onSend={(text, parent) => store.send(text, snap.thread, parent)}
+                    onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
+                    attachments={uploads}
                     onCopyLink={(message) => copyLink(message)}
                     onReact={(message, value) => void store.react(message, value)}
                     pendingState={pendingState}
@@ -519,6 +555,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
       )}
       {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
     </div>
+    </AttachmentContext.Provider>
   );
 }
 
