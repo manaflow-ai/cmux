@@ -19,7 +19,8 @@ import CmuxNextSidebar
 enum WorkspaceBulkClose {
     typealias Member = (WorkspaceModel, DaemonService)
     static let ids: [ActionID] = ["palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
-                                  "workspace.closeOthersInGroup", "workspace.closeAll", "workspace.closeAllInAllWindows"]
+                                  "workspace.closeOthersInGroup", "workspace.closeAll", "workspace.closeAllInAllWindows",
+                                  "sidebar.section.closeWorkspaces", "workspaceGroup.closeOthers"]
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in ids { registry.bind(id, run: { invocation in try close(id, invocation, context) }) }
@@ -37,6 +38,10 @@ enum WorkspaceBulkClose {
             closing = try windows.registry.members(of: owner ?? context.window(invocation).state.id)
         case "workspace.closeAllInAllWindows":
             closing = windows.controllers.flatMap { windows.registry.members(of: $0.state.id) }
+        case "sidebar.section.closeWorkspaces":
+            closing = try sectionWorkspaces(invocation, context)
+        case "workspaceGroup.closeOthers":
+            closing = try otherGroups(invocation, context).flatMap(\.workspaces).map(\.id.rawValue)
         case "workspace.closeOthersInGroup":
             let workspace = try context.workspace(invocation).model
             guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
@@ -72,9 +77,43 @@ enum WorkspaceBulkClose {
         let services = context.services
         let names = members.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
-        close(members)
+        if id == "workspaceGroup.closeOthers" {
+            // Each group closes as Close All Workspaces in Group does (an unpinned group goes).
+            let sidebar = try context.sidebar()
+            for group in try otherGroups(invocation, context) { sidebar.handle(.closeGroup(group.id)) }
+        } else {
+            close(members)
+        }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), group: nil, names: names, after: seen, in: window, services)
+    }
+
+    /// The open workspaces a sidebar section lists: its workspace items (Pinned
+    /// too), or the window's workspace list for the workspaces section.
+    static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
+        let layout = context.services.sidebarLayout
+        if let reason = layout.unavailableReason { throw ActionFailure(message: reason) }
+        let section = try SidebarSectionResolve.section(invocation.target, in: layout.document)
+        switch section.content {
+        case .items:
+            let refs = WorkspaceLayoutRefs(machines: context.services.machines)
+            return section.items.compactMap { refs.workspace(for: $0.ref)?.0.id }
+        case .workspaces:
+            guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
+            return window.sidebar.model.selectableWorkspaces.map(\.id.rawValue)
+        case .app:
+            throw ActionFailure(message: RefusalStrings.sectionTakesNoWorkspaces)
+        }
+    }
+
+    /// The other groups of the window that shows the target group.
+    static func otherGroups(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [SidebarGroup] {
+        let group = try context.group(invocation)
+        let sidebar = try context.sidebar()
+        return sidebar.model.sections.flatMap(\.nodes).compactMap { node in
+            if case .group(let other) = node, other.id.rawValue != group.id.rawValue { return other }
+            return nil
+        }
     }
 
     /// The one close path for each workspace, on the daemon that owns it.
@@ -89,19 +128,25 @@ enum WorkspaceBulkClose {
     /// The question before a person's run of `id`, or nil to close at once.
     static func prompt(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext, warn: Bool) async -> DestructiveConfirmation.Prompt? {
         guard let (members, window) = try? plan(id, invocation, context) else { return nil }
-        return await prompt(members, warn: warn, askWithoutUndo: window == nil)
+        let incognito = members.contains { context.services.windows.isIncognito(workspace: $0.0.id) }
+        return await prompt(members, warn: warn, askWithoutUndo: window == nil, incognito: incognito)
     }
 
     /// Asks when a terminal in `members` runs a program (`warn`), or when two
     /// or more close and nothing can undo it (`askWithoutUndo`).
-    static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, title: String? = nil) async -> DestructiveConfirmation.Prompt? {
+    static func prompt(_ members: [Member], warn: Bool, askWithoutUndo: Bool = false, incognito: Bool = false,
+                       title: String? = nil) async -> DestructiveConfirmation.Prompt? {
         var programs: [String] = []
         if warn { for (workspace, daemon) in members { programs += await DestructiveConfirmation.runningPrograms(in: workspace, on: daemon) } }
         guard let first = members.first, !programs.isEmpty || (askWithoutUndo && members.count > 1) else { return nil }
         let count = String(localized: "confirm.closeWorkspaces.title", defaultValue: "Close \(members.count) workspaces?", table: "Handlers", bundle: .module)
-        let noUndo = String(localized: "confirm.closeWorkspaces.noUndo",
-                            defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
-                            table: "Handlers", bundle: .module)
+        // Incognito workspaces are never saved: nothing brings them back (WindowRegistry).
+        let noUndo = incognito
+            ? String(localized: "confirm.closeWorkspaces.noUndoIncognito",
+                     defaultValue: "No window stays open to undo this. Incognito workspaces cannot be reopened.", table: "Handlers", bundle: .module)
+            : String(localized: "confirm.closeWorkspaces.noUndo",
+                     defaultValue: "No window stays open to undo this. Reopen Closed Workspace and History bring them back.",
+                     table: "Handlers", bundle: .module)
         return DestructiveConfirmation.Prompt(
             title: title ?? (members.count == 1 ? ConfirmationStrings.closeWorkspaceTitle(first.0.displayName) : count),
             body: programs.isEmpty ? noUndo : ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),

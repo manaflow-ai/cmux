@@ -13,7 +13,8 @@ actions through the real product boundaries:
   script    action.run without confirm is refused ("is destructive").
   cli       `cmux workspace close-all` without --confirm is refused; `close-other --confirm` and
             `close-all-in-all-windows --confirm` close.
-  mcp       `cmux mcp serve` lists app_workspace_close_all and app_workspace_close_all_in_all_windows,
+  windows   `cmux app close-other-windows` leaves one window.
+  mcp       `cmux mcp serve` lists app_workspace_close_all, the window, group, section and agent archive verbs, and app_workspace_close_all_in_all_windows,
             and tools/call app_workspace_close_all (confirm) closes the active window's workspaces.
   undo      a person's Close All Workspaces of window 1, confirmed, closes its four workspaces and
             shows "Closed 4 workspaces" with Undo in a window that stays open; Undo reopens all four.
@@ -220,6 +221,9 @@ try:
     json.dump(tools, open(os.path.join(opts.out, "mcp-tools.json"), "w"), indent=1)
     check("app_workspace_close_all" in tools, "MCP lists app_workspace_close_all", tools[:20])
     check("app_workspace_close_all_in_all_windows" in tools, "MCP lists app_workspace_close_all_in_all_windows")
+    for name in ["app_close_other_windows", "app_close_all_windows", "app_workspace_group_close_others", "app_workspace_group_duplicate",
+                 "app_sidebar_close_section_workspaces", "app_sidebar_new_section_workspace", "app_agent_archive_chat"]:
+        check(name in tools, f"MCP lists {name}", [t for t in tools if t.startswith(name[:14])][:6])
 
     # undo: window 2 stays, so a person's close runs at once with a toast --------------------------
     first = window_ids()[0] if window_ids() else None
@@ -257,6 +261,12 @@ try:
     check(not ((replies.get(3) or {}).get("result") or {}).get("isError", True), "MCP app_workspace_close_all runs", replies.get(3))
     check(bool(made) and bool(wait(lambda: made not in window_ids(), 15)), "MCP close-all closes the active window's workspaces (and the window)",
           (made, window_ids()))
+    action("newWindow")
+    wait(lambda: len(window_ids()) >= 2, 30)
+    keep = len(window_ids())
+    done = cli("app", "close-other-windows")
+    check(done.returncode == 0 and bool(wait(lambda: len(window_ids()) == 1, 15)), "`cmux app close-other-windows` leaves one window",
+          (keep, window_ids()))
     done = cli("workspace", "close-all-in-all-windows", "--confirm")
     check(done.returncode == 0 and bool(wait(lambda: not workspace_titles(), 15)),
           "`cmux workspace close-all-in-all-windows --confirm` closes every listed workspace", workspace_titles())

@@ -32,6 +32,10 @@ public final class ActionRegistry {
     /// Focus and session facts published by the App. Drives availability and
     /// which of several actions sharing a default shortcut runs.
     public var context: ActionContext = []
+    /// The facts an explicit target brings to a run (`--target pane:…` of an agent
+    /// chat's pane: agentPaneFocused), so a script's run of a focus-gated action
+    /// does not depend on what the person focuses. Published by the App.
+    @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
@@ -261,7 +265,8 @@ public final class ActionRegistry {
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)))
+        let facts = invocation.target == nil ? [] : targetContext?(invocation) ?? []
+        return isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)).union(facts))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
