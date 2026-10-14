@@ -302,6 +302,8 @@ export type SessionSummary = {
   turnCount: number;
   unread: boolean;
   updatedAt: number;
+  /** The cmux workspace its agent works in (`CMUX_WORKSPACE_ID`); null for none. */
+  workspace?: (string | null);
 } & Record<string, unknown>;
 
 export type SessionsParams = Record<string, never>;

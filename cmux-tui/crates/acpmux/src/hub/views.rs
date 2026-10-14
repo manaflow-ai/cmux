@@ -169,6 +169,8 @@ impl Hub {
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
+            // The cmux workspace its agent works in (`session_env.rs`), or null.
+            workspace: m.session_env.get("CMUX_WORKSPACE_ID").cloned(),
             status: m.status.to_string(),
             agent_session_id: m.agent_session_id.clone(),
             created_at: m.created_at,

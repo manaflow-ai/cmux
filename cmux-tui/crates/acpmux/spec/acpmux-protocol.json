@@ -1731,6 +1731,13 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "workspace": {
+          "description": "The cmux workspace its agent works in (`CMUX_WORKSPACE_ID`); null for none.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

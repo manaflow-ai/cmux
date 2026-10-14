@@ -21,6 +21,8 @@ pub struct SessionSummary {
     pub family: Option<String>,
     /// Lossy when the path is not UTF-8.
     pub cwd: String,
+    /// The cmux workspace its agent works in (`CMUX_WORKSPACE_ID`); null for none.
+    pub workspace: Option<String>,
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,

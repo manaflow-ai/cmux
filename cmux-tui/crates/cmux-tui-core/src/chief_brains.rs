@@ -71,7 +71,8 @@ pub struct AppValues {
     pub bin_dir: Option<PathBuf>,
     /// The person's name (`MUX_USER_NAME`).
     pub user_name: Option<String>,
-    /// The localized Chief title (`MUX_CHIEF_TITLE`).
+    /// The localized Chief title (`MUX_CHIEF_TITLE` when the record has no
+    /// display_name; a Chief's own name comes first, `brain_environment`).
     pub chief_title: Option<String>,
     pub mcp_command: Option<String>,
     pub bundled_cli: Option<PathBuf>,
@@ -140,9 +141,14 @@ fn sockets_fit(mux_home: &Path) -> bool {
 /// The brain's whole environment (the brain starts from an empty one): the
 /// one list of what a Chief brain needs, from the Chief home, the brain's
 /// own directory, the app's values and a few user variables of the daemon.
+/// `title` is the Chief's own name (its record's display_name): the brain's
+/// `MUX_CHIEF_TITLE`, which titles its conversation, so each Chief's DM
+/// shows its name, not the app's "Chief" (hq-6d 2026-10-14); `None` or
+/// empty keeps the app's title.
 pub fn brain_environment(
     config: &BrainsConfig,
     chief: &str,
+    title: Option<&str>,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> BTreeMap<String, String> {
     let mux_home = brain_home(&config.home, chief);
@@ -180,7 +186,13 @@ pub fn brain_environment(
     put("OPTCHAT_GROUP_WAKE", "every".into());
     let optional = [
         ("MUX_USER_NAME", app.user_name.clone()),
-        ("MUX_CHIEF_TITLE", app.chief_title.clone()),
+        (
+            "MUX_CHIEF_TITLE",
+            title
+                .filter(|t| !t.trim().is_empty())
+                .map(str::to_owned)
+                .or_else(|| app.chief_title.clone()),
+        ),
         ("CMUX_MCP_COMMAND", app.mcp_command.clone()),
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
@@ -715,7 +727,12 @@ impl Supervisor {
             .arg("--mux-home")
             .arg(&mux_home)
             .env_clear()
-            .envs(brain_environment(&self.config, &record.id, &inherited))
+            .envs(brain_environment(
+                &self.config,
+                &record.id,
+                Some(&record.display_name),
+                &inherited,
+            ))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -751,7 +768,7 @@ impl Supervisor {
     fn end_acpmux(&self, mux_home: &Path) {
         let acpmux = self.config.app.acpmux_bin.clone().unwrap_or_else(|| "acpmux".into());
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
-        let env = brain_environment(&self.config, "", &inherited);
+        let env = brain_environment(&self.config, "", None, &inherited);
         let spawned = std::process::Command::new(acpmux)
             .args(["daemon", "shutdown"])
             .env_clear()
