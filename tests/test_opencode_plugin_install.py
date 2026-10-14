@@ -297,7 +297,7 @@ await v1Hooks.event({
             return 1
 
         args_log = wait_for_log(fake_args_log, "hooks enqueue opencode session-start")
-        stdin_log = wait_for_log(fake_stdin_log, '"session_id":"opencode-session-test"')
+        stdin_log = wait_for_log(fake_stdin_log, '"hook_event_name":"StopFailure"')
         env_log = wait_for_log(fake_env_log, "kind=opencode")
         if "hooks enqueue opencode session-start" not in args_log:
             print(f"FAIL: plugin did not invoke hooks opencode session-start, got {args_log!r}")
