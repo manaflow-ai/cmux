@@ -5,6 +5,7 @@
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
+import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
@@ -285,16 +286,15 @@ function Lightbox({
       className="hc-lightbox"
       backdropClassName="hc-lightbox-backdrop"
       initialFocus={closeButton}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowRight" && images.length > 1) {
-          event.preventDefault();
-          step(1);
-        } else if (event.key === "ArrowLeft" && images.length > 1) {
-          event.preventDefault();
-          step(-1);
-        }
-      }}
     >
+      <KeyboardScope
+        className="hc-lightbox-body"
+        handleKeyDown={(event) => {
+          if (images.length < 2 || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+          event.preventDefault();
+          step(event.key === "ArrowRight" ? 1 : -1);
+        }}
+      >
       <header className="hc-lightbox-bar">
         <span className="hc-att-name">{part.name}</span>
         <span className="hc-att-meta">
@@ -319,6 +319,7 @@ function Lightbox({
           </button>
         )}
       </div>
+      </KeyboardScope>
     </Dialog>
   );
 }
