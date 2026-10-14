@@ -20,8 +20,7 @@ import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
-import { HideableChrome } from "../../ui/HideableChrome";
-import { useComposerChrome } from "./composerChrome";
+import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
@@ -126,20 +125,17 @@ type Props = {
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
   showPlan?: boolean;
-  /// Runs the agent's compact command from the context popover; offered only when set and the
-  /// agent lists a `compact` command.
-  onCompact?(): void;
   /** Host-backed catalog refresh; transport stays outside the picker UI. */
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
 };
 
-/// The composer bar's controls: the
-/// permission mode (in the warning color when it skips approvals) and a
-/// Plan/Build toggle after the attach button, then at the right the context
-/// ring and one model chip that names the effort beside the model (its menu
-/// holds both). Each control shows only when the agent offers it.
+/// The composer bar's controls after the + button: the model chip (its tooltip says how much of
+/// the context window the chat has used), effort, the permission mode (in the warning color when
+/// it skips approvals) and a Plan/Build toggle. Each control shows only when the agent offers it.
+/// The row draws no context ring (hq#1957 item 15 compact row): the running state shows on
+/// Send/Stop alone.
 export function ComposerPickers({
   snapshot,
   onModel,
@@ -154,13 +150,12 @@ export function ComposerPickers({
   settleTimer = browserSettleTimer,
   measurePickerRoom,
   showPlan = true,
-  onCompact,
   catalogRefresh,
   pickerCatalog,
 }: Props) {
   const t = useT();
-  // The ring hides from its right-click; the composer's button row shows it again (composerChrome.tsx).
-  const chrome = useComposerChrome();
+  // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
+  const { showContextUsage } = useComposerSettings();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
@@ -445,7 +440,10 @@ export function ComposerPickers({
       rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel, modeId });
   }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel, modeId]);
   const usage = summary?.usage;
-  const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
+  const usageNote =
+    showContextUsage && usage && usage.size > 0
+      ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
+      : undefined;
 
   const chips = (
     <div className="acpmux-chips">
@@ -477,19 +475,8 @@ export function ComposerPickers({
               : undefined
           }
           measureRoom={measurePickerRoom}
+          usage={usageNote}
         />
-      )}
-      {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || snapshot.isWorking) && (
-        <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
-          <ContextRing
-            used={usage?.used}
-            size={usage?.size}
-            setup={setupTokens(summary?.sessionId, summary?.turnCount, usage?.used)}
-            onCompact={compact}
-            working={snapshot.isWorking}
-          />
-        </HideableChrome>
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
@@ -511,7 +498,6 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && pendingEffort && <PendingChip kind="effort" label={pendingEffort} />}
-      <span className="acpmux-chips-spacer" aria-hidden="true" />
       {modes.length === 0 && lastChips?.mode && (
         <PendingChip kind="mode" label={lastChips.mode} modeId={lastChips.modeId} />
       )}
@@ -665,16 +651,6 @@ function AccessMenu({
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
-}
-
-/// A new chat's first usage reading, per session: the agent's system prompt, tools and
-/// instructions, plus the first message. No harness reports that split over ACP, so this is the
-/// closest the pane can tell. A chat first seen past its first turn (resumed) has none.
-const firstReadings = new Map<string, number | null>();
-function setupTokens(sessionId?: string, turnCount?: number, used?: number): number | undefined {
-  if (!sessionId || used === undefined || used <= 0) return undefined;
-  if (!firstReadings.has(sessionId)) firstReadings.set(sessionId, (turnCount ?? 0) <= 1 ? used : null);
-  return firstReadings.get(sessionId) ?? undefined;
 }
 
 /// How much of the context window the session has used, as a pie that fills. A click opens
@@ -1147,13 +1123,6 @@ export const MicIcon = () => (
   <Icon>
     <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
-  </Icon>
-);
-/// The context usage ring, as its Hide and Show menu items draw it.
-export const RingIcon = () => (
-  <Icon>
-    <circle cx="8" cy="8" r="5.5" opacity="0.35" />
-    <path d="M8 8V4a4 4 0 0 1 4 4Z" fill="currentColor" stroke="none" />
   </Icon>
 );
 export const SlashIcon = () => (
