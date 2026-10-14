@@ -17,7 +17,7 @@ public struct ChildWindowPolicy {
     /// Panel classes allowed until their presenter moves onto the host (by class name).
     /// `NSPanel`: the restart notice uses a plain panel; `_NSPopoverWindow`: AppKit popovers.
     public static var legacyPanels: Set<String> = [
-        "DividerMousePanel", "PalettePanel", "PageInfoPanel",
+        "DividerMousePanel", "PalettePanel", "PageInfoPanel", "NativePopupPanel",
         "TabGroupEditorPanel", "HoverCardPanel", "NSPanel", "FeedPanel",
         "BrowserPopupPanel", "NotificationsPanel", "_NSPopoverWindow",
     ]
