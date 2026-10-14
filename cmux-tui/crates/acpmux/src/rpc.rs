@@ -237,6 +237,9 @@ pub mod method {
     /// The harness the pane is about to switch to: a hidden session for it
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
+    /// The permission mode a plain new chat on a harness would start in
+    /// (`hub/start_mode.rs`), for the pane's pending chat. Read only.
+    pub const MUX_START_MODE: &str = "_acpmux/start_mode";
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
