@@ -926,6 +926,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let maxRows = Int(floor(8192 / (cellHeight * scale)))
         let rows = min(Int(ceil(bounds.height / cellHeight)) + 2 * Self.marginRows, maxRows)
         if rows != surfaceRows {
+            sizingLog.notice("mirror rows \(self.surfaceRows, privacy: .public) -> \(rows, privacy: .public) cause=layout page \(Int(bounds.height), privacy: .public)pt")
             surfaceRows = rows
             viewportTop = -1
         }

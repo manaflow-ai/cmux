@@ -428,3 +428,29 @@ def lifecycle(tag):
     rec_stop()
     res["motion"] = motion_stats(v, start=1.5)
     return res
+
+
+def grid_garble(tag, trips=3):
+    """Verifier R2 defect 1: a Codex turn, grid round trips mid-stream, then the phone's last rows vs the Mac's."""
+    s, m, j = ctx()
+    if not s.find(ident="terminal.composer.field"):
+        j.open_seed_workspace()
+    paste_composer("Explain in about 60 numbered short paragraphs how terminal emulators handle scroll regions. No tools.")
+    time.sleep(1); j.hide_keyboard(); time.sleep(4)
+    rec_start(tag)
+    for _ in range(trips):
+        s.tap_q(label="Tabs", kind="Button"); time.sleep(2)
+        c = [e for e in s.find(kind="Button") if (e.label or "").startswith("e2e-t1")]
+        if c:
+            s.tap_el(c[0])
+        time.sleep(4)
+    # Wait for Codex to finish, then compare.
+    for _ in range(60):
+        if "Worked for" in mac_screen()[-600:] or "done" in mac_screen()[-300:]:
+            break
+        time.sleep(2)
+    time.sleep(3)
+    shot(tag)
+    rec_stop()
+    p, mm = compare_bottom(6)
+    return p, mm
