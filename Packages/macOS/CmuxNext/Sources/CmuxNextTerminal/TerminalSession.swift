@@ -200,6 +200,13 @@ public final class TerminalSession {
         surfaceView.applyAction(.openURL(text))
     }
 
+    /// Sends bytes as typed, in order with this terminal's keys (they join the same queue to
+    /// `io.write`): input the daemon gave back from a creation that did not take it.
+    public func sendBytes(_ data: Data) {
+        guard !data.isEmpty else { return }
+        input.send(data)
+    }
+
     /// Sends text as if pasted (Ghostty applies bracketed paste when the
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {

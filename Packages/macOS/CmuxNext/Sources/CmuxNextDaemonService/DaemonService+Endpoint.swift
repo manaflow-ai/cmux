@@ -14,3 +14,13 @@ extension DaemonService {
         return endpoint
     }
 }
+
+extension DaemonService {
+    /// The input of a view whose terminal `terminalID` is still being created goes to this daemon
+    /// by that id until `targetKnown` (cx-wb5.78); nil when the daemon does not queue such input.
+    public func creatingInput(_ terminalID: TerminalID?, targetKnown: @escaping @Sendable () -> Bool) -> CreatingTerminalInput? {
+        guard let id = terminalID?.rawValue, let connection,
+              supports(DaemonCapabilities.shared.terminalInputWhileCreating) else { return nil }
+        return CreatingTerminalInput(terminalID: id, connection: connection, targetKnown: targetKnown)
+    }
+}
