@@ -106,6 +106,7 @@ export class HomeSheets {
       this.set({ route });
     } else if (this.fromHash) {
       this.fromHash = false;
+      this.back = "#/";
       this.set({ route: undefined });
     }
     return route !== undefined;
@@ -116,9 +117,15 @@ export class HomeSheets {
     this.set({ route });
   }
 
+  /** Where the page goes when the open sheet closes: the hash it was opened from. */
+  private back = "#/";
+
   /** Opens a route: the page URL's hash says it, so a reload and the host see the same. */
   open(route: HomeRoute): void {
     const hash = routeHash(route);
+    // Back to the conversation the sheet opened over (never a message link: that would open it again).
+    if (typeof window !== "undefined" && !parseRoute(window.location.hash))
+      this.back = /^#\/conversation\/[A-Za-z0-9_]+/.exec(window.location.hash)?.[0] ?? "#/";
     if (typeof window !== "undefined" && window.location.hash !== hash) window.location.hash = hash;
     else this.set({ route });
   }
@@ -126,8 +133,13 @@ export class HomeSheets {
   close(): void {
     this.fromHash = false;
     this.set({ route: undefined });
-    if (typeof window !== "undefined" && parseRoute(window.location.hash))
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+    const back = this.back;
+    this.back = "#/";
+    if (typeof window !== "undefined" && parseRoute(window.location.hash)) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${back}`);
+      // The page's panes follow the hash (panes.ts); a replaced hash fires no event of its own.
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
   }
 
   async loadChiefs(): Promise<void> {
