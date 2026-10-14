@@ -60,21 +60,41 @@ impl App {
             return None;
         }
         let body = geometry.body;
-        let visible = usize::from(y.clamp(body.y, body.y.saturating_add(body.height)) - body.y);
-        let logical = geometry.body_offset + visible;
-        let (row, within) = (logical / geometry.stride, logical % geometry.stride);
-        let (index, below_row) = if row >= geometry.len {
-            (geometry.len, geometry.len > 0)
-        } else if within < geometry.height.div_ceil(2) {
-            (row, false)
+        let body_end = body.y.saturating_add(body.height);
+        let (index, below_row) = if y < body.y {
+            // Above a scrolled body the slot would be off screen: none.
+            if geometry.body_offset > 0 {
+                return None;
+            }
+            (0, false)
+        } else if y >= body_end {
+            // Below the body: after the last fully drawn row.
+            let shown = geometry.body_offset + usize::from(body.height);
+            let rows = shown.saturating_sub(geometry.height) / geometry.stride + 1;
+            let index = rows.min(geometry.len);
+            (index, index > 0)
         } else {
-            (row + 1, true)
+            let logical = geometry.body_offset + usize::from(y - body.y);
+            let (row, within) = (logical / geometry.stride, logical % geometry.stride);
+            if row >= geometry.len {
+                (geometry.len, geometry.len > 0)
+            } else if within < geometry.height.div_ceil(2) {
+                (row, false)
+            } else {
+                (row + 1, true)
+            }
         };
-        let border = self.workspace_slot_neighbors(workspace, index).and_then(|(after, before)| {
-            let above = self.session.sidebar_workspace_container(&after)?;
-            let below = self.session.sidebar_workspace_container(&before)?;
-            (above != below).then_some(below_row)
-        });
+        // The dragged row's own slot changes nothing, so it joins no section.
+        let own = self.tree.workspaces().iter().position(|view| view.id == workspace);
+        let border = if own.is_some_and(|own| index == own || index == own + 1) {
+            None
+        } else {
+            self.workspace_slot_neighbors(workspace, index).and_then(|(after, before)| {
+                let above = self.session.sidebar_workspace_container(&after)?;
+                let below = self.session.sidebar_workspace_container(&before)?;
+                (above != below).then_some(below_row)
+            })
+        };
         Some(WorkspaceDropSlot { index, below_row, border })
     }
 

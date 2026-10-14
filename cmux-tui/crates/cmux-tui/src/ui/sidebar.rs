@@ -71,6 +71,8 @@ fn workspace_unread_color(
 }
 
 pub fn draw(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
+    // Set again below only when the workspace rows are drawn.
+    app.workspace_drop_geometry = None;
     app.workspace_sidebar_area(frame.area().height)?;
     if app.config.sidebar.plugin.is_some() {
         draw_plugin(app, frame);
