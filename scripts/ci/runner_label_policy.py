@@ -162,6 +162,24 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
+FAST_LANE_PREFIX = "glaeda-fast-"
+
+
+def fast_lane_reason(label: str) -> str | None:
+    """Why CI_FAST_LANE_RUNNER is not allowed, or None when it is fine.
+
+    cmux-next.yml's fast tier reads it after its fork clause, for its own
+    reserved runner on each owned mini, glaeda-fast-<class>-xcode-<version>.
+    Anything else is held to the workflow policy. Empty is fine (off).
+    """
+    if label.startswith(FAST_LANE_PREFIX):
+        candidate = "glaeda-" + label[len(FAST_LANE_PREFIX):]
+        if _owned_pattern().fullmatch(candidate):
+            return None
+    return forbidden_reason(label)
+
+
 AWS_SIDE_VARIABLE = "CI_AWS_SIDE_RUNNER"
 AWS_SIDE_PREFIX = "glaeda-aws-"
 
@@ -267,6 +285,8 @@ def drifted_runner_variables(
             reason = pool_order_reason(value.strip())
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == FAST_LANE_VARIABLE:
+            reason = fast_lane_reason(value.strip())
         elif name == AWS_SIDE_VARIABLE:
             reason = aws_side_reason(value.strip())
         elif name == TRUSTED_POOL_VARIABLE:

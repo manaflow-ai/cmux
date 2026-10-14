@@ -171,6 +171,10 @@ fn run(
     }
     match route.owner {
         "apps.store" => apps_store(mux, client, operation, Value::Object(params), origin),
+        #[cfg(unix)]
+        "agent_session.trust" => {
+            super::agent_session_attach::routed_trust(mux, client, operation, params)
+        }
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",

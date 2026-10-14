@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
-    self, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
-    read_body, read_value, require_conversation, snapshot_data,
+    self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
+    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -22,6 +22,16 @@ use super::stream::{CloudEvent, StreamAction, StreamState};
 pub struct HttpReply {
     pub status: u16,
     pub body: Value,
+}
+
+/// One ranged read of a signed attachment URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeReply {
+    pub status: u16,
+    pub content_type: Option<String>,
+    /// The whole object's size (from `Content-Range`, else `Content-Length` of a 200).
+    pub total: Option<u64>,
+    pub body: Vec<u8>,
 }
 
 /// A transport failure before a reply arrived.
@@ -67,6 +77,35 @@ pub trait CloudBackend: Send + Sync {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
+    /// `GET url` with the bearer (the Chief brain's run reads, plain HTTP
+    /// routes outside the op catalog). A backend without it answers that it
+    /// cannot.
+    fn get(
+        &self,
+        url: &str,
+        bearer: &str,
+        client_version: Option<&str>,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (url, bearer, client_version);
+        Err(TransportError("this cloud backend sends no GET requests".into()))
+    }
+    /// `PUT url` with `headers` and the raw `body`, no bearer: an attachment
+    /// upload slot or a presigned object URL is its own credential.
+    fn put(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
+    /// a signed attachment URL is its own credential.
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let _ = (url, offset, length);
+        Err(TransportError("this cloud backend reads no byte ranges".into()))
+    }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
     /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
     fn connect(
@@ -485,13 +524,105 @@ impl CloudConversations {
         mutation_data(self.post("/v1/ops", &body)?)
     }
 
+    /// `cloud-inbox-op`: the person's own pin or "marked unread" of one
+    /// conversation (UserDO `inbox.pin`, `inbox.mark_unread`); the reply's
+    /// `value` is the inbox entry. Never retried here.
+    pub fn inbox_op(&self, request: &InboxOpRequest) -> Result<Value, CloudError> {
+        let body = contract::inbox_op_body(request)?;
+        mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// Validates a `cloud-inbox-op` before it leaves the request loop.
+    pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
+        contract::inbox_op_body(request).map(|_| ())
+    }
+
     /// Validates a command before it leaves the request loop, so shape
     /// errors answer at once and only network work runs elsewhere.
     pub fn check_op(&self, request: &OpRequest) -> Result<(), CloudError> {
         contract::op_body(request).map(|_| ())
     }
 
-    fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
+    /// `cloud-conversation-runs`: a Chief's runs in a conversation, newest
+    /// first (`GET /v1/chiefs/<agent>/runs`, members only), the owner's value
+    /// unchanged (`runs`, `has_more`).
+    pub fn chief_runs(
+        &self,
+        agent: &str,
+        conversation: &str,
+        before: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        require_agent(agent)?;
+        let mut path = format!("/v1/chiefs/{agent}/runs?conversation={conversation}");
+        if let Some(before) = before {
+            path.push_str(&format!("&before={before}"));
+        }
+        if let Some(limit) = limit {
+            if !(1..=100).contains(&limit) {
+                return Err(CloudError::BadRequest("limit must be 1-100".into()));
+            }
+            path.push_str(&format!("&limit={limit}"));
+        }
+        let (value, _) = read_value(self.get(&path)?)?;
+        Ok(value)
+    }
+
+    /// `cloud-conversation-run`: one run of a Chief and its steps after
+    /// `after_seq` (`GET /v1/chiefs/<agent>/runs/<run>`), the owner's value
+    /// unchanged (`run`, `steps`, `has_more`).
+    pub fn chief_run(
+        &self,
+        agent: &str,
+        conversation: &str,
+        run: &str,
+        after_seq: Option<u64>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        require_agent(agent)?;
+        // The brain's run ids (`run_<n>`, CHIEF_BRAIN_PATH): never a dot segment in the path.
+        let valid_run = run
+            .strip_prefix("run_")
+            .is_some_and(|n| (1..=15).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()));
+        if !valid_run {
+            return Err(CloudError::BadRequest("run must be a run id".into()));
+        }
+        let mut path = format!("/v1/chiefs/{agent}/runs/{run}?conversation={conversation}");
+        if let Some(after_seq) = after_seq {
+            path.push_str(&format!("&after_seq={after_seq}"));
+        }
+        let (value, _) = read_value(self.get(&path)?)?;
+        Ok(value)
+    }
+
+    fn get(&self, path: &str) -> Result<HttpReply, CloudError> {
+        let session = self.inner.usable_session()?;
+        let reply = self
+            .inner
+            .backend
+            .get(&session.http_url(path), session.bearer(), session.client_version.as_deref())
+            .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        if reply.status == 401 {
+            self.inner.emit(CloudEvent::SessionNeeded {
+                reason: "unauthenticated",
+                expires_at: Some(session.expires_at),
+            });
+            return Err(CloudError::Unauthenticated);
+        }
+        Ok(reply)
+    }
+
+    /// The lease's API origin (`https://host[:port]`), for checking URLs the owner returns.
+    pub(crate) fn api_origin(&self) -> Result<String, CloudError> {
+        Ok(self.inner.usable_session()?.http_url(""))
+    }
+
+    pub(crate) fn backend(&self) -> &Arc<dyn CloudBackend> {
+        &self.inner.backend
+    }
+
+    pub(crate) fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
         let session = self.inner.usable_session()?;
         let reply = self
             .inner

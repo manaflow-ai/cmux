@@ -9,10 +9,11 @@
 //! - a reply of exactly NO_REPLY posts nothing;
 //! - an agent that is not a Chief never wakes it.
 //!
-//! And the loop guard (cmux_chief::rules::chief_streak, owner_agent_streak):
-//! two Chiefs in one channel wake each other, stop at the budget (the lower
-//! of CHIEF_TURN_BUDGET per thread and the owner's MAX_AGENT_TURNS per
-//! conversation), and a person's post in the thread starts them again.
+//! And the loop guard (the owner's per-thread budget,
+//! cmux_conversation::MAX_AGENT_TURNS): two Chiefs in one channel wake each
+//! other and stop at the budget of their thread; a person's post in another
+//! thread starts a new budget there and leaves the spent thread quiet; a
+//! person's post in the spent thread starts them again.
 //!
 //! Run: `CMUX_TUI_BIN=<cmux-tui target>/debug/cmux-tui cargo test --test
 //! channels_daemon -- --ignored`.
@@ -505,11 +506,9 @@ fn chief_replies(me: &mut Conn, conversation: &str, root: &str) -> Vec<Value> {
 
 #[test]
 #[ignore = "needs CMUX_TUI_BIN"]
-fn two_chiefs_wake_each_other_stop_at_the_budget_and_a_person_resumes_them() {
-    use cmux_chief::rules::CHIEF_TURN_BUDGET;
-    // The lower of the Chiefs' thread budget and the owner's own guard (per
-    // conversation, cmux_conversation::MAX_AGENT_TURNS).
-    let cap = CHIEF_TURN_BUDGET.min(cmux_conversation::MAX_AGENT_TURNS);
+fn two_chiefs_wake_each_other_stop_at_the_thread_budget_and_a_person_resumes_them() {
+    // The owner's per-thread budget (cmux_conversation::MAX_AGENT_TURNS).
+    let cap = cmux_conversation::MAX_AGENT_TURNS;
     let daemon = Daemon::start();
     let mut me = Conn::open(&daemon.socket);
     for (key, id, name) in [
@@ -560,12 +559,8 @@ fn two_chiefs_wake_each_other_stop_at_the_budget_and_a_person_resumes_them() {
     pump_all(&mut chiefs, Duration::from_secs(5), || false);
     let after = chief_replies(&mut me, &channel_id, &root).len();
     assert_eq!(paused, after, "the Chiefs kept talking after the budget");
-    // Both Chiefs answer the person at once, so one reply may be in flight
-    // when the budget is reached: at most one over it per other Chief.
-    assert!(
-        (cap..cap + chiefs.len()).contains(&after),
-        "{after} Chief messages in the thread"
-    );
+    // The owner refuses a reply past the budget, so never more than it.
+    assert_eq!(after, cap, "Chief messages in the thread");
     assert!(
         chiefs.iter().any(|c| c
             .lines
@@ -576,8 +571,36 @@ fn two_chiefs_wake_each_other_stop_at_the_budget_and_a_person_resumes_them() {
         "no Chief logged the pause"
     );
 
-    // A person's message in the thread resets the budget: they talk again,
-    // and stop again.
+    // The budget is per thread: a person's new top-level message gets the
+    // Chiefs talking in its own thread, up to its own budget, while the spent
+    // thread stays quiet (a person's text elsewhere does not reset it).
+    let other = send(
+        &mut me,
+        &channel_id,
+        "ops-3",
+        "and the cache bucket is full",
+    );
+    let other_full = pump_all(&mut chiefs, Duration::from_secs(60), || {
+        chief_replies(&mut me, &channel_id, &other).len() >= cap
+    });
+    assert!(
+        other_full,
+        "the Chiefs did not use the second thread's budget"
+    );
+    pump_all(&mut chiefs, Duration::from_secs(5), || false);
+    assert_eq!(
+        chief_replies(&mut me, &channel_id, &other).len(),
+        cap,
+        "second thread"
+    );
+    assert_eq!(
+        chief_replies(&mut me, &channel_id, &root).len(),
+        after,
+        "the spent thread stayed quiet after a person wrote elsewhere"
+    );
+
+    // A person's message in the spent thread resets it: they talk again
+    // there, and stop again.
     let nudge = me.req(json!({"cmd": "conversation-op", "conversation": channel_id,
         "idempotency_key": "ops-2",
         "op": {"kind": "message.send", "client_msg_id": "ops-2", "thread_root": root,
@@ -599,8 +622,5 @@ fn two_chiefs_wake_each_other_stop_at_the_budget_and_a_person_resumes_them() {
         chief_replies(&mut me, &channel_id, &root).len(),
         "no second stop"
     );
-    assert!(
-        settled < after + cap + chiefs.len(),
-        "{settled} after the nudge"
-    );
+    assert_eq!(settled, after + cap, "after the nudge");
 }

@@ -18,8 +18,14 @@ use super::*;
 mod agent_chat_notices;
 #[path = "agent_home_reopen.rs"]
 mod agent_home_reopen;
+#[path = "agents_cli_receipt.rs"]
+mod agents_cli_receipt;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
+/// The app's install key, so one connection can prove itself the verified
+/// cmux app (it mints a page's gesture confirmations).
+const KEY_HEX: &str = "7e0d1c2b3a4958677665544332211000ffeeddccbbaa99887766554433221101";
+const INSTALL_ID: &str = "inst_agent_trust";
 
 struct Daemon {
     dir: PathBuf,
@@ -56,7 +62,17 @@ impl Daemon {
         }
         let daemon =
             Self { socket: dir.join("mux.sock"), session: format!("asx-{name}"), dir, host_kind };
-        let output = daemon.server("ensure").output().unwrap();
+        let mut child = daemon
+            .server("ensure")
+            .arg("--install-key-stdin")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let key = format!("cmuxik1 {INSTALL_ID} {KEY_HEX}\n");
+        child.stdin.take().unwrap().write_all(key.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         assert!(
             output.status.success(),
             "ensure failed: {}",
@@ -81,6 +97,35 @@ impl Daemon {
             command.env("CMUX_AGENT_START_HOST", kind);
         }
         command
+    }
+
+    /// A connection that stays open (hello state lives on it).
+    fn client(&self) -> Conn {
+        let stream = UnixStream::connect(&self.socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        Conn { reader: BufReader::new(stream), next: 100 }
+    }
+
+    /// The verified cmux app connection (install-key hello).
+    fn verified_app(&self) -> Conn {
+        use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
+        let mut app = self.client();
+        let challenge =
+            app.rpc(json!({"cmd": "client-hello", "role": "main", "install_id": INSTALL_ID}));
+        let nonce = unhex::<NONCE_LEN>(challenge["data"]["nonce"].as_str().unwrap()).unwrap();
+        let proof = hello_proof(&unhex::<32>(KEY_HEX).unwrap(), INSTALL_ID, &nonce);
+        let proved =
+            app.rpc(json!({"cmd": "client-hello", "install_id": INSTALL_ID, "proof": proof}));
+        assert_eq!(proved["data"]["verified"], true, "{proved}");
+        app
+    }
+
+    /// A page relay of `page` and its connection id.
+    fn page_relay(&self, page: &str) -> (Conn, String) {
+        let mut relay = self.client();
+        let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": page}));
+        let id = hello["data"]["connection_id"].as_str().unwrap().to_owned();
+        (relay, id)
     }
 
     fn rpc(&self, request: Value) -> Value {
@@ -160,6 +205,55 @@ impl Daemon {
             }
         }
     }
+}
+
+struct Conn {
+    reader: BufReader<UnixStream>,
+    next: u64,
+}
+
+impl Conn {
+    /// Sends `request` with a fresh id and returns the reply with that id.
+    fn rpc(&mut self, mut request: Value) -> Value {
+        self.next += 1;
+        request["id"] = json!(self.next);
+        self.send(&request, json!(self.next))
+    }
+
+    /// A `cmux.protocol/2` request as a page host sends it (selectors
+    /// `current`); `extra` adds envelope members.
+    fn v2(&mut self, operation: &str, params: &Value, extra: Value) -> Value {
+        self.next += 1;
+        let id = format!("v2-{}", self.next);
+        let mut request = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                                 "operation": operation, "params": params});
+        for (key, value) in extra.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        self.send(&request, json!(id))
+    }
+
+    fn send(&mut self, request: &Value, id: Value) -> Value {
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == id {
+                return reply;
+            }
+        }
+    }
+}
+
+/// The SHA-256 of `params` in canonical JSON (keys sorted), as the daemon
+/// hashes a confirmed request.
+fn params_digest(params: &Value) -> String {
+    use sha2::Digest;
+    let sorted: std::collections::BTreeMap<String, Value> =
+        params.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let digest = sha2::Sha256::digest(serde_json::to_string(&sorted).unwrap().as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 impl Drop for Daemon {
@@ -282,4 +376,137 @@ fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
     assert_eq!(started["ok"], true, "{started}");
     assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// The person answers the folder trust question of a chat of this machine
+/// from the app (cx-1bhjj): `agent-session-trust` reads the folder's trust
+/// on this machine and records the person's Trust in its acpmux, and the
+/// start that was refused for the untrusted folder then runs. Only an agent
+/// tab of this store and only acpmux's three levels are taken.
+#[test]
+fn agent_session_trust_records_the_persons_answer_and_the_start_runs() {
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("trust", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let identity = daemon.rpc(json!({"id": 10, "cmd": "identify"}));
+    assert!(identity["data"]["capabilities"].to_string().contains("agent-session-trust-v1"));
+    let untrusted = daemon.start_chat_with(surface, "sample");
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    let work = daemon.dir.join("work");
+    let cwd = work.to_str().unwrap();
+    let trust = |id: u64, extra: Value| {
+        let mut request = json!({"id": id, "cmd": "agent-session-trust", "surface": surface,
+                                 "cwd": cwd});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        daemon.rpc(request)
+    };
+    let read = trust(11, json!({}));
+    assert_eq!(read["ok"], true, "{read}");
+    assert_ne!(read["data"]["level"], "trusted", "{read}");
+    let bad = trust(12, json!({"level": "always"}));
+    assert_eq!(bad["error_code"], "agent_session.bad_request", "{bad}");
+    let other = daemon.rpc(json!({"id": 13, "cmd": "agent-session-trust", "surface": 999_999,
+                                  "cwd": cwd, "level": "trusted"}));
+    assert_eq!(other["error_code"], "agent_session.unknown_tab", "{other}");
+    // One click never trusts a whole home folder: `/` and the folders above the home folder
+    // never, the home folder only once the person chose it as the chat's folder.
+    let home = daemon.dir.join("home");
+    let above = daemon.rpc(json!({"id": 16, "cmd": "agent-session-trust", "surface": surface,
+                                  "cwd": "/", "level": "trusted"}));
+    assert_eq!(above["error_code"], "agent_session.above_home", "{above}");
+    let home_click = daemon.rpc(json!({"id": 17, "cmd": "agent-session-trust", "surface": surface,
+                                       "cwd": home, "level": "trusted"}));
+    assert_eq!(home_click["error_code"], "agent_session.home_unconfirmed", "{home_click}");
+    let home_chosen = daemon
+        .rpc(json!({"id": 18, "cmd": "agent-session-trust", "surface": surface,
+                                        "cwd": home, "level": "trusted", "home_confirmed": true}));
+    assert_eq!(home_chosen["ok"], true, "{home_chosen}");
+    // A chat starts in the home folder only with the person's choice of it, trusted or not.
+    let home_start = daemon.rpc(json!({"id": 19, "cmd": "agent-session-start", "surface": surface,
+                                       "harness": "sample", "cwd": home}));
+    assert_eq!(home_start["error_code"], "agent_session.home_unconfirmed", "{home_start}");
+    let set = trust(14, json!({"level": "trusted"}));
+    assert_eq!(set["ok"], true, "{set}");
+    let again = trust(15, json!({}));
+    assert_eq!(again["data"]["level"], "trusted", "{again}");
+    let started = daemon.start_chat_with(surface, "sample");
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// hq-6d: pages reach the folder trust only as the routed operations of
+/// page `agent` (the agent pane and its New Tab page). Another page is
+/// refused even the read (the trust state tells a page which folders the
+/// person works in), a page relay cannot send the legacy line, and the
+/// answer needs the person's gesture, a confirmation the DAEMON checks for
+/// exactly that request; it is spent once.
+#[test]
+fn only_the_agent_page_reads_folder_trust_and_its_answer_needs_the_persons_gesture() {
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("page", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let cwd = daemon.dir.join("work").to_str().unwrap().to_owned();
+    let read = json!({"surface": surface, "cwd": cwd, "machine": "current", "session": "current"});
+    let (mut history, _) = daemon.page_relay("history");
+    let refused = history.v2("agent_session.trust.get", &read, json!({}));
+    assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+    assert_eq!(refused["error"]["details"]["reason"], "page_not_allowed", "{refused}");
+    let (mut page, relay_id) = daemon.page_relay("agent");
+    let legacy = page.rpc(json!({"cmd": "agent-session-trust", "surface": surface, "cwd": cwd}));
+    assert_eq!(legacy["error_code"], "origin.forbidden", "{legacy}");
+    let got = page.v2("agent_session.trust.get", &read, json!({}));
+    assert_eq!(got["ok"], true, "{got}");
+    assert_ne!(got["result"]["level"], "trusted", "{got}");
+    let mut set = read.clone();
+    set["level"] = json!("trusted");
+    let bare = page.v2("agent_session.trust.set", &set, json!({"idempotency_key": "t1"}));
+    assert_eq!(bare["error"]["details"]["reason"], "gesture_required", "{bare}");
+    // Forgetting the answer (`unknown`) is an answer too: it needs the gesture.
+    let mut forget = read.clone();
+    forget["level"] = json!("unknown");
+    let forget = page.v2("agent_session.trust.set", &forget, json!({"idempotency_key": "t0"}));
+    assert_eq!(forget["error"]["details"]["reason"], "gesture_required", "{forget}");
+    // A page cannot prove the person chose the home folder: it never sends home_confirmed.
+    let mut home = set.clone();
+    home["home_confirmed"] = json!(true);
+    let home = page.v2("agent_session.trust.get", &home, json!({}));
+    assert_eq!(home["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{home}");
+    let mut read_level = read.clone();
+    read_level["level"] = json!("trusted");
+    let bad = page.v2("agent_session.trust.get", &read_level, json!({}));
+    assert_eq!(bad["error"]["details"]["extra"]["code"], "agent_session.bad_request", "{bad}");
+    // The person's gesture: the verified app mints a confirmation for exactly this request.
+    let mut app = daemon.verified_app();
+    let issued = app.v2(
+        "origin.confirmation.issue",
+        &json!({"operation": "agent_session.trust.set", "params_sha256": params_digest(&set),
+                "relay_connection_id": relay_id, "machine": "current", "session": "current"}),
+        json!({}),
+    );
+    assert_eq!(issued["ok"], true, "{issued}");
+    let token = issued["result"]["token"].as_str().unwrap().to_owned();
+    let confirmed =
+        json!({"idempotency_key": "t2", "origin": {"claim": "user", "confirmation": token}});
+    let answered = page.v2("agent_session.trust.set", &set, confirmed.clone());
+    assert_eq!(answered["ok"], true, "{answered}");
+    assert_eq!(answered["result"]["level"], "trusted", "{answered}");
+    let replayed = page.v2("agent_session.trust.set", &set, confirmed);
+    assert_eq!(replayed["error"]["code"], "origin.forbidden", "{replayed}");
+    let mut other = read.clone();
+    other["surface"] = json!(999_999);
+    let unknown = page.v2("agent_session.trust.get", &other, json!({}));
+    assert_eq!(
+        unknown["error"]["details"]["extra"]["code"], "agent_session.unknown_tab",
+        "{unknown}"
+    );
 }

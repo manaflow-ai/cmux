@@ -197,12 +197,14 @@ pub(crate) fn queue_change(transaction: &Transaction<'_>, change: &Value) -> any
 }
 
 /// Move queued state changes into `changes` (a journal batch array).
+/// Returns the placement shift the queued markers name
+/// ([`super::placement_shift`]); markers are not changes.
 pub(crate) fn drain_pending_changes(
     transaction: &Transaction<'_>,
     changes: &mut Value,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<super::placement_shift::PlacementShift>> {
     if !super::store::state_tables_ready(transaction)? {
-        return Ok(());
+        return Ok(None);
     }
     let queued = {
         let mut statement = transaction
@@ -210,17 +212,28 @@ pub(crate) fn drain_pending_changes(
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     if queued.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     transaction.execute("DELETE FROM state_pending_changes", [])?;
+    let mut shift = None;
     if let Some(array) = changes.as_array_mut() {
         for change in queued {
-            let mut change: Value = serde_json::from_str(&change)?;
-            change["sequence"] = json!(array.len());
-            array.push(change);
+            let queued: Value = serde_json::from_str(&change)?;
+            let batch = match queued {
+                Value::Array(batch) => batch,
+                change => vec![change],
+            };
+            for mut change in batch {
+                if let Some(marker) = super::placement_shift::marker(&change) {
+                    super::placement_shift::merge(&mut shift, marker);
+                    continue;
+                }
+                change["sequence"] = json!(array.len());
+                array.push(change);
+            }
         }
     }
-    Ok(())
+    Ok(shift)
 }
 
 pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
