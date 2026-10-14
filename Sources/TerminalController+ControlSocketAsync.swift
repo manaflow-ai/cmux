@@ -89,6 +89,19 @@ extension TerminalController {
         }
     }
 
+    /// A `feed.push` whose event carries a request id and a wait timeout holds
+    /// its connection until the user decides (up to 120 s), so it parks
+    /// outside the running slots.
+    private nonisolated static func feedPushWaitsForDecision(_ request: ControlRequest) -> Bool {
+        guard request.method == "feed.push",
+              case .object(let event)? = request.params["event"],
+              case .string? = event["_opencode_request_id"] else {
+            return false
+        }
+        let params = request.params.mapValues(\.foundationObject)
+        return (feedPushWaitTimeoutSeconds(params: params) ?? 0) > 0
+    }
+
     private nonisolated func processV2CommandUsingSocketExecutionPolicyAsync(
         _ request: ControlRequest
     ) async throws -> String? {
@@ -112,6 +125,18 @@ extension TerminalController {
             return v2Result(
                 id: authorizedRequest.id?.foundationObject,
                 workspaceParamError
+            )
+        }
+
+        if Self.feedPushWaitsForDecision(authorizedRequest),
+           await socketClientWorkerPool.parkCurrentJob() == .parkedJobsFull {
+            return v2Error(
+                id: authorizedRequest.id?.foundationObject,
+                code: ControlOverloadResponder.errorCode,
+                message: String(
+                    localized: "socket.overloaded.message",
+                    defaultValue: "cmux is handling too many control-socket requests right now, so this one was not run. Retry in a moment."
+                )
             )
         }
 

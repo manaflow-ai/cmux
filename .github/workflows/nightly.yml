@@ -1047,7 +1047,10 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+
+      - name: Initialize Ghostty source submodule
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty
 
       - name: Install Zig
         run: ./scripts/install-zig-ci.sh
@@ -1758,7 +1761,6 @@ jobs:
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
             "$APP/Contents/Resources/bin/cmux-tui" \
-            "$APP/Contents/Resources/bin/cmux-cua" \
             "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
             "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
           do

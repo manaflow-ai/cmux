@@ -235,6 +235,9 @@
          location = "group:CmuxLiveEval">
       </FileRef>
       <FileRef
+         location = "group:CmuxMemoryPressure">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobileHost">
       </FileRef>
       <FileRef

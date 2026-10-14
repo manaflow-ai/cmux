@@ -63,12 +63,15 @@ CMUX_FILE_TOOL="$TMP_DIR/tools/file" \
 CMUX_STRIP_TOOL="$TMP_DIR/tools/strip" \
   "$ROOT/scripts/strip-release-bundle.sh" "$APP"
 
+# cmux's own executables lose every symbol dyld doesn't need (plain strip
+# keeps undefined and dynamically referenced ones): crashes symbolicate from the
+# uploaded dSYMs. Plug-ins, libraries and extensions keep their global symbols.
 expected="$TMP_DIR/expected.log"
 printf '%s\n' \
-  "-S -x $APP/Contents/MacOS/cmux" \
-  "-S -x $APP/Contents/Resources/bin/cmux" \
-  "-S -x $APP/Contents/Resources/bin/cmux-tui" \
-  "-S -x $APP/Contents/Resources/bin/cmux-diff-sidecar" \
+  "$APP/Contents/MacOS/cmux" \
+  "$APP/Contents/Resources/bin/cmux" \
+  "$APP/Contents/Resources/bin/cmux-tui" \
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "-S -x $APP/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-aarch64-apple-darwin" \
   "-S -x $APP/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-x86_64-apple-darwin" \
   "-S -x $APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \

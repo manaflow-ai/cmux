@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Hint mode (Show Hints, Cmd-J; cx-zjtn.5, ported from cmux-next): every
 /// clickable control in the window gets a one or two letter label and
@@ -6,7 +7,9 @@ import AppKit
 /// Typing a label's last letter with Shift right-clicks the control instead,
 /// so context menus open from the keyboard. The shortcut router hands this
 /// controller every key while labels show; Escape, a chord, any other key, a
-/// click or a second Cmd-J ends it. Behind `window-hints-release` until styled.
+/// click or a second Cmd-J ends it. Shown web pages are asked for their
+/// elements first (``WindowHintPages``); keys typed meanwhile wait for the
+/// labels. Behind `window-hints-release` until styled.
 @MainActor
 final class WindowHintController {
     static let shared = WindowHintController()
@@ -24,9 +27,17 @@ final class WindowHintController {
         let mouseMonitor: Any?
     }
 
-    private var session: Session?
+    /// Asking the pages for their targets; the keys typed meanwhile.
+    private struct Pending {
+        let task: Task<Void, Never>
+        weak var window: NSWindow?
+        var keys: [NSEvent] = []
+    }
 
-    var isActive: Bool { session != nil }
+    private var session: Session?
+    private var pending: Pending?
+
+    var isActive: Bool { session != nil || pending != nil }
 
     /// Labels `window`'s controls, or ends a session that shows (the action
     /// toggles). Returns false when nothing is clickable.
@@ -38,6 +49,22 @@ final class WindowHintController {
         }
         guard let content = window.contentView else { return false }
         let targets = WindowHintTargets.collect(in: content)
+        let root = content.superview ?? content
+        let pages = WindowHintPages.webViews(in: root)
+        guard !pages.isEmpty else { return show(targets, in: window) }
+        let clip = root.convert(root.bounds, to: nil)
+        let task = Task { [weak self, weak window] in
+            let found = await WindowHintPages.targets(of: pages, clip: clip)
+            guard !Task.isCancelled, let self, let window, let waiting = self.pending else { return }
+            self.pending = nil
+            guard self.show(Array((targets + found).prefix(WindowHintTargets.limit)), in: window) else { return }
+            for event in waiting.keys where self.session != nil { _ = self.interceptKeyDown(event, in: waiting.window) }
+        }
+        pending = Pending(task: task, window: window)
+        return true
+    }
+
+    private func show(_ targets: [WindowHintTargets.Target], in window: NSWindow) -> Bool {
         let keys = WindowHintKeys(count: targets.count)
         guard !keys.labels.isEmpty else { return false }
         let hints = zip(keys.labels, targets).map { Hint(label: $0.0, target: $0.1) }
@@ -57,6 +84,15 @@ final class WindowHintController {
     /// Returns whether the key was consumed; a key that ends the session
     /// without being a hint key goes on to the focused view.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if pending != nil, session == nil {
+            // Escape or another window ends the wait; anything else waits for the labels.
+            guard event.keyCode != 53, window === pending?.window else {
+                cancel()
+                return event.keyCode == 53
+            }
+            pending?.keys.append(event)
+            return true
+        }
         guard var current = session, let home = current.window, window === home else {
             cancel()
             return false
@@ -83,12 +119,19 @@ final class WindowHintController {
         case .pick(let index):
             let hint = current.hints[index]
             cancel()
-            Self.click(at: hint.target.center, in: home, menu: event.modifierFlags.contains(.shift))
+            let menu = event.modifierFlags.contains(.shift)
+            if let page = hint.target.page {
+                page.click(menu: menu)
+            } else {
+                Self.click(at: hint.target.center, in: home, menu: menu)
+            }
         }
         return true
     }
 
     func cancel() {
+        pending?.task.cancel()
+        pending = nil
         guard let current = session else { return }
         session = nil
         if let monitor = current.mouseMonitor { NSEvent.removeMonitor(monitor) }
@@ -99,6 +142,7 @@ final class WindowHintController {
     /// The labels that start with `prefix`, in the overlay.
     private func draw(prefix: String) {
         guard let current = session, let view = current.overlay.contentView as? WindowHintOverlayView else { return }
+        view.typed = prefix
         view.hints = current.hints.filter { $0.label.hasPrefix(prefix) }
     }
 
@@ -142,12 +186,20 @@ private final class WindowHintOverlayWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-/// One small chip per label at its control's top-left corner.
+/// One small chip per label at its control's top-left corner, in the
+/// Cmd-hold shortcut hints' palette (``ShortcutHintPalette``) for the
+/// window's light or dark appearance. The typed part of a label is dimmed.
 private final class WindowHintOverlayView: NSView {
-    private static let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+    private static let font: NSFont = {
+        let base = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        return base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 10) } ?? base
+    }()
 
     var hints: [WindowHintController.Hint] = [] {
         didSet { if hints != oldValue { needsDisplay = true } }
+    }
+    var typed = "" {
+        didSet { if typed != oldValue { needsDisplay = true } }
     }
 
     override var isFlipped: Bool { false }
@@ -155,17 +207,32 @@ private final class WindowHintOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: NSColor.black]
+        let appearance = window?.parent?.effectiveAppearance ?? effectiveAppearance
+        let scheme: ColorScheme = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        let foreground = ShortcutHintPalette.foreground(for: scheme)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.22)
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
         for hint in hints {
-            let text = hint.label.uppercased() as NSString
-            let size = text.size(withAttributes: attributes)
-            let chip = NSRect(x: hint.target.rect.minX, y: hint.target.rect.maxY - size.height - 2,
-                              width: size.width + 8, height: size.height + 2).integral
-            NSColor.systemYellow.setFill()
-            NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3).fill()
-            NSColor.black.withAlphaComponent(0.35).setStroke()
-            NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: 3, yRadius: 3).stroke()
-            text.draw(at: NSPoint(x: chip.minX + 4, y: chip.minY + 1), withAttributes: attributes)
+            let label = hint.label.uppercased()
+            let done = min(typed.count, label.count)
+            let text = NSMutableAttributedString(string: label, attributes: [.font: Self.font, .foregroundColor: foreground])
+            text.addAttribute(.foregroundColor, value: foreground.withAlphaComponent(0.4), range: NSRange(location: 0, length: done))
+            let size = text.size()
+            let chip = NSRect(x: hint.target.rect.minX, y: hint.target.rect.maxY - size.height - 3,
+                              width: size.width + 8, height: size.height + 3).integral
+            let shape = NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3)
+            NSGraphicsContext.saveGraphicsState()
+            shadow.set()
+            ShortcutHintPalette.background(for: scheme).setFill()
+            shape.fill()
+            NSGraphicsContext.restoreGraphicsState()
+            ShortcutHintPalette.border(for: scheme).setStroke()
+            let rim = NSBezierPath(roundedRect: chip.insetBy(dx: 0.5, dy: 0.5), xRadius: 2.5, yRadius: 2.5)
+            rim.lineWidth = 1
+            rim.stroke()
+            text.draw(at: NSPoint(x: chip.minX + 4, y: chip.minY + 1.5))
         }
     }
 }

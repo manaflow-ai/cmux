@@ -337,8 +337,12 @@
   // Editable one-line text field. `value` is the initial text (string or
   // binding); opts: placeholder, onSubmit(text), onCancel(), onEdit(text)
   // (fires per keystroke - live search), autofocus (default true; pass
-  // false for persistent fields so mounting never steals focus). The host
-  // focuses autofocus fields on appear; Return submits, Escape cancels.
+  // false for persistent fields that should wait for a click). The host
+  // focuses an autofocus field on appear only when the user gave the sidebar
+  // focus: its click handler just created it and focus hasn't moved since
+  // (rename editors), or focus is already in one of its fields. A field mounted any other way, such as by a data update while
+  // the user types in a terminal, stays unfocused. Return submits, Escape
+  // cancels.
   g.TextField = (value, opts) => {
     const node = makeNode("textfield", {});
     setProp(node.__nodeId, "text", value);

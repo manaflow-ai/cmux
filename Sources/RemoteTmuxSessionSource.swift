@@ -21,6 +21,7 @@ struct RemoteTmuxSessionObservers {
     var onPaneTitleChanged: ((_ paneId: Int) -> Void)?
     var onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?
     var onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?
+    var onPaneAgent: ((_ paneId: Int, _ rawValue: String) -> Void)?
     var onTopologyChanged: (() -> Void)?
     /// Fires after reconnect attach drainage and reseeding, when observers may
     /// safely schedule commands against fresh topology.
@@ -50,6 +51,7 @@ struct RemoteTmuxSessionObservers {
         onPaneTitleChanged: ((_ paneId: Int) -> Void)?,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)?,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)?,
+        onPaneAgent: ((_ paneId: Int, _ rawValue: String) -> Void)?,
         onTopologyChanged: (() -> Void)?,
         onReconnectReady: (() -> Void)?,
         onExit: (() -> Void)?,
@@ -63,6 +65,7 @@ struct RemoteTmuxSessionObservers {
         self.onPaneTitleChanged = onPaneTitleChanged
         self.onActivePaneChanged = onActivePaneChanged
         self.onSessionChanged = onSessionChanged
+        self.onPaneAgent = onPaneAgent
         self.onTopologyChanged = onTopologyChanged
         self.onReconnectReady = onReconnectReady
         self.onExit = onExit
@@ -107,6 +110,8 @@ protocol RemoteTmuxSessionSource: AnyObject {
     var activePaneByWindow: [Int: Int] { get }
     /// Cached foreground state per pane (drives close-confirmation / activity).
     var paneForegroundStates: [Int: RemoteTmuxPaneForegroundState] { get }
+    /// Hook status scoped to this session, including values received before attachment.
+    var paneAgentStatuses: [Int: RemoteTmuxAgentStatus] { get }
     /// Pane identities whose ownership is temporarily undecidable after their
     /// source window closes, retained until `list-windows` supplies a snapshot.
     var paneIDsRetainedUntilWindowList: Set<Int> { get }
@@ -200,6 +205,7 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func unsubscribePanePath(paneId: Int)
     func unsubscribePaneReflow(paneId: Int)
     func unsubscribePaneHeader(paneId: Int)
+    func unsubscribePaneAgent(paneId: Int)
     /// Sizes one window's grid (per-window `refresh-client -C`, with fallback).
     func setWindowSize(windowId: Int, columns: Int, rows: Int)
     /// Updates the cached session name (after a confirmed rename).
@@ -241,6 +247,7 @@ extension RemoteTmuxControlConnection: RemoteTmuxSessionSource {
             onPaneTitleChanged: observers.onPaneTitleChanged,
             onActivePaneChanged: observers.onActivePaneChanged,
             onSessionChanged: observers.onSessionChanged,
+            onPaneAgent: observers.onPaneAgent,
             onTopologyChanged: observers.onTopologyChanged,
             onReconnectReady: observers.onReconnectReady,
             onExit: observers.onExit,

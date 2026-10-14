@@ -5,7 +5,7 @@ extension ShortcutAction {
         case .openSettings, .openTeamPicker, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .focusSidebar, .showWindowHints, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .focusSidebar, .showWindowHints, .newTab, .newLocalWorkspace, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .agentInbox, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .jumpToLastPrompt, .toggleUnread, .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
@@ -27,7 +27,7 @@ extension ShortcutAction {
              .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
-             .newSurface, .toggleTerminalCopyMode, .previousAgentTurn, .nextAgentTurn, .focusTextBoxInput,
+             .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
              .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal, .pasteLastScreenshot, .sizeTerminalToMyWindow,
              .clearScreenKeepScrollback:
             return .navigation

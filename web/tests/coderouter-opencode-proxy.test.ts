@@ -439,12 +439,12 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
 
 describe("coderouter OpenCode with no account configured", () => {
   const TOKEN = "crt_no-account";
-  function noAccountDependencies(configured: boolean) {
+  function noAccountDependencies(configured: boolean, vmId: string | null = null) {
     const checks: string[] = [];
     return {
       checks,
       dependencies: {
-        authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+        authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId, poolId: vmId ? "pool-1" : null }),
         select: async () => null,
         credential: async (): Promise<never> => {
           throw new Error("no account should be read");
@@ -490,6 +490,22 @@ describe("coderouter OpenCode with no account configured", () => {
     expect(response.status).toBe(403);
     expect(response.headers.get("retry-after")).toBeNull();
     expect(await response.json()).toEqual(terminalBody);
+  });
+
+  test("tells a Cloud machine that private OpenCode accounts must be shared with its team", async () => {
+    const vmRequest = configRequest();
+    vmRequest.headers.set("x-cmux-vm-id", "vm-1");
+    const response = await openCodeClientConfig(vmRequest, noAccountDependencies(false, "vm-1").dependencies);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team). Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).");
+  });
+
+  test("the provider proxy gives a Cloud machine the same sharing advice", async () => {
+    const vmRequest = proxyRequest();
+    vmRequest.headers.set("x-cmux-vm-id", "vm-1");
+    const response = await proxyOpenCodeRequest(vmRequest, "go", ["chat"], noAccountDependencies(false, "vm-1").dependencies);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.message).toBe("No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team). Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).");
   });
 
   test("a caller whose accounts are all unavailable keeps a retryable 503 on both surfaces", async () => {

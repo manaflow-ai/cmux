@@ -108,6 +108,20 @@ extension CMUXCLI {
             }
         }
 
+        if claudeRestoreTranscriptIsMissing(
+            record: record,
+            processEnvironment: processEnvironment
+        ) {
+            try handleMissingClaudeRestoreTranscript(
+                record: record,
+                bindingPayload: bindingPayload,
+                surfaceID: surfaceID,
+                workspaceID: payload["workspace_id"] as? String
+                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                client: client
+            )
+        }
+
         let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
@@ -189,6 +203,87 @@ extension CMUXCLI {
             surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
             effectiveWorkingDirectory: effectiveWorkingDirectory,
             workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+        )
+    }
+
+    /// Whether a Claude resume record names a session Claude never wrote a
+    /// transcript for. Claude writes it only after the first message, so a
+    /// session quit before any prompt fails with "No conversation found".
+    ///
+    /// The check runs only when the session says where its transcript lives:
+    /// the `transcript_path` Claude reported to the hook store, or a captured
+    /// `CLAUDE_CONFIG_DIR`. Without either, Claude may write to a root this
+    /// lookup cannot see, so the restore proceeds unchanged.
+    func claudeRestoreTranscriptIsMissing(
+        record: RestoreRecord,
+        processEnvironment: [String: String]
+    ) -> Bool {
+        guard record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
+              record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "claude",
+              let sessionID = normalizedHookValue(record.checkpointID) else {
+            return false
+        }
+        let hookRecord = try? ClaudeHookSessionStore(processEnv: processEnvironment).lookup(
+            sessionId: sessionID,
+            deadline: Date().addingTimeInterval(1)
+        )
+        let reportedTranscriptPath = normalizedHookValue(hookRecord?.transcriptPath)
+            .map { ($0 as NSString).expandingTildeInPath }
+        let capturedConfigDirectories = [
+            record.environment["CLAUDE_CONFIG_DIR"],
+            record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+            hookRecord?.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+        ].compactMap { normalizedHookValue($0) }
+        guard reportedTranscriptPath != nil || !capturedConfigDirectories.isEmpty else {
+            return false
+        }
+        if let reportedTranscriptPath,
+           let size = (try? FileManager.default.attributesOfItem(atPath: reportedTranscriptPath))?[.size] as? NSNumber,
+           size.intValue > 0 {
+            return false
+        }
+        let configuredDirectories = capturedConfigDirectories
+            + [processEnvironment["CLAUDE_CONFIG_DIR"]].compactMap { normalizedHookValue($0) }
+        return !ClaudeResumeTranscriptLocator().transcriptExists(
+            sessionId: sessionID,
+            configuredDirectories: configuredDirectories
+        )
+    }
+
+    /// Leaves the shell in the saved directory, retires the binding that named
+    /// the empty session, and fails before anything is launched.
+    private func handleMissingClaudeRestoreTranscript(
+        record: RestoreRecord,
+        bindingPayload: [String: Any]?,
+        surfaceID: String,
+        workspaceID: String?,
+        client: SocketClient
+    ) throws {
+        _ = try? applyRestoreWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
+        let bindingCheckpointID = normalizedHookValue(
+            (bindingPayload?["checkpoint_id"] as? String)
+                ?? (bindingPayload?["checkpointId"] as? String)
+        )
+        if normalizedHookValue(bindingPayload?["source"] as? String)?.lowercased() == "agent-hook",
+           normalizedHookValue(bindingPayload?["kind"] as? String)?.lowercased() == "claude",
+           let checkpointID = normalizedHookValue(record.checkpointID),
+           bindingCheckpointID == checkpointID {
+            // Guarded by checkpoint: a session started since keeps its binding.
+            _ = clearAgentSurfaceResumeBindingOutcome(
+                client: client,
+                workspaceId: workspaceID ?? "",
+                surfaceId: surfaceID,
+                sessionId: checkpointID,
+                updatedAt: (bindingPayload?["updated_at"] as? NSNumber)?.doubleValue,
+                sessionDidEnd: true
+            )
+        }
+        throw loggedRestoreError(
+            stage: "claude.restore.transcript-missing",
+            message: String(
+                localized: "cli.restore.error.conversationNotFound",
+                defaultValue: "restore: this session has no saved conversation to resume. Start the agent again in this terminal."
+            )
         )
     }
 

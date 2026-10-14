@@ -170,9 +170,10 @@ extension AppDelegate {
         }
         let didExecute: Bool
         if case .builtIn(.newWorkspace) = box.action.action {
-            didExecute = performNewLocalWorkspaceAction(
+            didExecute = performNewWorkspaceAction(
                 tabManager: context.tabManager,
-                debugSource: "newWorkspace.contextMenu"
+                debugSource: "newWorkspace.contextMenu",
+                skipConfiguredAction: true
             )
         } else {
             didExecute = executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window)
