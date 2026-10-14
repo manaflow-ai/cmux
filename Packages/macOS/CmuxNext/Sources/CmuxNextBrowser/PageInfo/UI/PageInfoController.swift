@@ -22,6 +22,8 @@ public final class PageInfoController {
     private var panel: PageInfoPanel? { popup.panel as? PageInfoPanel }
     /// The omnibar button on screen, where the bubble grows from and shrinks to.
     private var anchorRect = CGRect.zero
+    /// The side the bubble opened on; a new page keeps it (no flip while open).
+    private var side = PopupPlacement.Side.below
     private let card = PageInfoCardView()
     var observation: ObservationLoop?
     var loadTask: Task<Void, Never>?
@@ -134,7 +136,8 @@ public final class PageInfoController {
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).offsetBy(dx: -PageInfoStyle.rowInset, dy: 0)
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
-        guard popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: .below, makeKey: true) != nil else { return }
+        guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: .below, makeKey: true) else { return }
+        side = placed.side
         panel.makeFirstResponder(card)
     }
 
@@ -146,7 +149,7 @@ public final class PageInfoController {
         // An open bubble takes the new page's size at its place (the host keeps it open).
         if size != cardSize, isShown, let window = panel?.parent {
             cardSize = size
-            popup.show(size: size, anchor: anchorRect, in: window, preferred: .below)
+            popup.show(size: size, anchor: anchorRect, in: window, preferred: side)
         }
         cardSize = size
         if let focused, let row = Self.find(focused, in: content) { panel?.makeFirstResponder(row) }

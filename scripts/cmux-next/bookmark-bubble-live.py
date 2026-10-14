@@ -208,14 +208,16 @@ try:
     quiet_wait(lambda: not [w for w in windows() if w.get("kind") == "bookmarks.edit" and w.get("visible")], 5)
     rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": "https://example.org/"}, "focus": True})
     # The star needs the page's URL; press it as soon as the tab has one, before the title loads.
-    quiet_wait(lambda: "error" not in (rpc("action.run", {"action": "bookmark.addPage", "focus": True}) or {}) and bubbles(), 20)
+    # Press again only while the star refuses (no URL yet): a second accepted press would close it.
+    quiet_wait(lambda: "error" not in (rpc("action.run", {"action": "bookmark.addPage", "focus": True}) or {"error": 1}), 20)
     org = lambda: [r.get("title") for r in (rpc("bookmark.list", {"text": "example.org"}) or {}).get("bookmarks") or []]
-    print("example.org bookmark right after the star", org(), flush=True)
-    check(bool(bubbles()), "the star opens the bubble on a page still loading")
-    check(bool(quiet_wait(lambda: "example.org" in (omnibar().get("text") or "") and
-                          (rpc("debug.browser", {"window": WINDOW}) or {}).get("title") not in (None, ""), 30)) or True,
-          "the page title arrives")
-    time.sleep(1.0)  # the title's observation hop into the bubble
+    early = org()
+    print("example.org bookmark right after the star", early, flush=True)
+    check(bool(quiet_wait(bubbles, 5)), "the star opens the bubble on a page still loading")
+    late = not any(t and "Example" in t for t in early)
+    print("late title tested" if late else "NOTE late title not tested: the page had its title before the star", flush=True)
+    quiet_wait(lambda: "example.org" in (omnibar().get("text") or ""), 30)
+    time.sleep(3.0)  # proof only: the page title loads and hops into the open bubble
     rpc("action.run", {"action": "bookmark.addPage", "focus": True})
     quiet_wait(lambda: not bubbles(), 5)
     titles = quiet_wait(lambda: [t for t in org() if t], 10) or org()

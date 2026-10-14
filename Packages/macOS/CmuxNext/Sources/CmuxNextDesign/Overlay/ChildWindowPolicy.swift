@@ -17,7 +17,7 @@ public struct ChildWindowPolicy {
     /// Panel classes allowed until their presenter moves onto the host (by class name).
     /// `NSPanel`: the restart notice uses a plain panel; `_NSPopoverWindow`: AppKit popovers.
     public static var legacyPanels: Set<String> = [
-        "DividerMousePanel", "PalettePanel", "PageInfoPanel", "NativePopupPanel",
+        "DividerMousePanel", "PalettePanel", "PageInfoPanel",
         "TabGroupEditorPanel", "HoverCardPanel", "NSPanel", "FeedPanel",
         "BrowserPopupPanel", "NotificationsPanel", "_NSPopoverWindow",
     ]
@@ -31,6 +31,8 @@ public struct ChildWindowPolicy {
         if WindowOverlayHost.isPageWindow(child) { return true }
         if let host = WindowOverlayHost.existingHost(for: parent), child === host.panel { return true }
         if child is OverlayHostPanel { return true }
+        // The shared native popups (omnibar and toolbar) are child panels above the page by design.
+        if child is NativePopupPanel { return true }
         return legacyPanels.contains(String(describing: type(of: child)))
     }
 
