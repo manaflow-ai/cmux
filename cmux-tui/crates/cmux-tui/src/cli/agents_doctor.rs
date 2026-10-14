@@ -493,7 +493,7 @@ fn grants_from_app(reply: Result<Value, Value>, messages: &AgentsDoctorMessages)
                     Status::Unknown,
                     "app_no_report",
                     messages.app_no_report,
-                    Some(messages.update_cmux),
+                    Some(messages.setup_command),
                     messages,
                 ),
             };
@@ -505,15 +505,15 @@ fn grants_from_app(reply: Result<Value, Value>, messages: &AgentsDoctorMessages)
         "off" => ("computer_use_off", messages.computer_use_off, Some(messages.open_setup)),
         "disabled_by_policy" => ("disabled_by_policy", messages.disabled_by_policy, None),
         "unavailable" => {
-            ("helper_unavailable", messages.helper_unavailable, Some(messages.update_cmux))
+            ("helper_unavailable", messages.helper_unavailable, Some(messages.setup_command))
         }
         "starting" => ("helper_starting", messages.helper_starting, Some(messages.run_again)),
         "version_mismatch" => (
             "helper_version_mismatch",
             messages.helper_version_mismatch,
-            Some(messages.update_cmux),
+            Some(messages.setup_command),
         ),
-        _ => ("app_no_report", messages.app_no_report, Some(messages.update_cmux)),
+        _ => ("app_no_report", messages.app_no_report, Some(messages.setup_command)),
     };
     grants_unknown(Status::Unknown, reason, detail, fix, messages)
 }
@@ -534,7 +534,7 @@ fn ready_grants(status: &Value, messages: &AgentsDoctorMessages) -> Vec<Check> {
             }
             None => Check::new(id, label, Status::Unknown, "app_no_report")
                 .detail(messages.app_no_report)
-                .fix(messages.update_cmux),
+                .fix(messages.setup_command),
         }
     };
     vec![
