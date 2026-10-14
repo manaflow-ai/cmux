@@ -58,6 +58,12 @@ final class CloudVMSyncSubscriber {
         @escaping @Sendable () async throws -> DevicePresenceSubscriber.Credentials?
     ) -> DevicePresenceSubscriber
 
+    /// The production subscriber. The machine list lives on the team's
+    /// presence object, which the worker publishes into.
+    nonisolated static let defaultSubscriber: SubscriberFactory = { url, collections, credentials in
+        DevicePresenceSubscriber(serviceBaseURL: url, collections: collections, credentials: credentials)
+    }
+
     nonisolated static let reconnectDelays: [Duration] = DeviceDirectory.reconnectDelays
 
     private(set) var state: State = .stopped
@@ -77,9 +83,7 @@ final class CloudVMSyncSubscriber {
     init(
         auth: AuthCoordinator,
         serviceURL: @escaping @MainActor @Sendable () -> URL? = { PresenceHeartbeatClient.resolvedServiceURL() },
-        makeSubscriber: @escaping SubscriberFactory = { url, collections, credentials in
-            DevicePresenceSubscriber(serviceBaseURL: url, collections: collections, credentials: credentials)
-        },
+        makeSubscriber: @escaping SubscriberFactory = CloudVMSyncSubscriber.defaultSubscriber,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.auth = auth

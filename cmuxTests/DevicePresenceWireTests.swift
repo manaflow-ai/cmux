@@ -45,6 +45,17 @@ struct DevicePresenceWireTests {
         #expect(comps.queryItems == [URLQueryItem(name: "scope", value: "account")])
     }
 
+    @Test("The Cloud machines stream subscribes to the selected team's object, where vms is published")
+    func cloudMachinesStreamSubscribesToTeamPresence() throws {
+        let serviceBaseURL = try #require(URL(string: "https://presence.example.test/base/"))
+        let subscriber = CloudVMSyncSubscriber.defaultSubscriber(serviceBaseURL, [], { nil })
+        #expect(subscriber.stream == .team)
+        let url = try #require(DevicePresenceSubscriber.subscribeURL(serviceBaseURL: serviceBaseURL, stream: .team))
+        let comps = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(comps.path == "/base/v1/presence/subscribe")
+        #expect(comps.queryItems == nil, "no scope=account: the team stream is the worker default")
+    }
+
     @Test("A snapshot lists every instance and drops only the route entries this build cannot decode")
     func snapshotKeepsInstancesWithUnknownRoutes() throws {
         let parsed = try frame([
