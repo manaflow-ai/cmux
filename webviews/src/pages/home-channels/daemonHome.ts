@@ -25,6 +25,8 @@ import {
 type Json = Record<string, unknown>;
 
 const LOCAL_USER = "user_local";
+/** `thread.update`, `Message.thread` and the thread object fields of the stats. */
+const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
@@ -195,9 +197,10 @@ export class DaemonHomeClient implements PageClient {
   private streamStarted: Promise<void> | null = null;
   /** Conversations whose page the page read (refetched after a lost event). */
   private readonly opened = new Set<string>();
-  /** The cloud owners through this daemon; `cloudCapable` once `identify` names the capability. */
+  /** The cloud owners through this daemon (when `identify` names the capability). */
   private readonly cloud: CloudHome;
-  private cloudCapable: Promise<boolean> | null = null;
+  /** The daemon's `identify` capabilities, read once. */
+  private capabilities: Promise<string[]> | null = null;
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
   private readonly cloudListeners = new Set<(conversation: HomeConversation) => void>();
 
@@ -222,13 +225,17 @@ export class DaemonHomeClient implements PageClient {
     });
   }
 
+  private capable(capability: string): Promise<boolean> {
+    this.capabilities ??= this.daemon
+      .request<{ capabilities?: string[] }>("identify")
+      .then((identity) => identity.capabilities ?? [])
+      .catch(() => []);
+    return this.capabilities.then((list) => list.includes(capability));
+  }
+
   /** Whether this daemon serves the cloud owners to a page (an older one does not: local only). */
   private cloudReady(): Promise<boolean> {
-    this.cloudCapable ??= this.daemon
-      .request<{ capabilities?: string[] }>("identify")
-      .then((identity) => identity.capabilities?.includes(WS_CLOUD_CAPABILITY) === true)
-      .catch(() => false);
-    return this.cloudCapable;
+    return this.capable(WS_CLOUD_CAPABILITY);
   }
 
   async call<R>(op: string, rawParams: unknown, options?: PageCallOptions): Promise<R> {
@@ -407,6 +414,9 @@ export class DaemonHomeClient implements PageClient {
         if (params.status === "open" || params.status === "resolved") update.status = params.status;
         if (typeof params.owner === "string") update.owner = params.owner;
         if (Object.keys(update).length === 2) throw pageError("cmux.page.invalid_params", "thread");
+        // An older daemon has no thread objects: say so instead of a malformed-op error.
+        if (!(await this.capable(THREAD_OBJECTS_CAPABILITY)))
+          throw pageError("cmux.page.unavailable", "this cmux instance has no thread objects");
         return this.submit(str(params, "conversation"), this.key(params, options), update);
       }
       case HomeOps.createGroup:

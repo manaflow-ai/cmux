@@ -219,7 +219,10 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
         else state.title = title
       }
       if (owner !== undefined) {
-        if (typeof owner !== "string" || (owner !== "" && !currentParticipant(head, owner))) fail("invalid_thread_owner")
+        // A current participant who can act: a person, a device or an agent (a Chief), never a
+        // pending invited address.
+        const holder = owner === "" ? undefined : currentParticipant(head, owner as string)
+        if (typeof owner !== "string" || (owner !== "" && (!holder || holder.kind === "address"))) fail("invalid_thread_owner")
         if (owner === "") delete state.owner
         else state.owner = owner
       }

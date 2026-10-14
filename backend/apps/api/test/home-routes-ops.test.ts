@@ -214,6 +214,8 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
     expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
     expect(readRefused(await thread(carol.token, id, root))).toEqual([400, "unknown_message"])
+    // The same root is hidden from thread.update: no probe, no change.
+    expect(refused(await op(carol.token, "thread.update", { conversation: id, root, title: "x" }))).toBe("unknown_message")
     const fresh = (await send(alice.token, id, "tr-fresh")).json.value.message_id as string
     const freshReply = (await send(carol.token, id, "tr-fresh-1", { thread_root: fresh })).json.value.message_id as string
     expect((await thread(carol.token, id, fresh)).json.value.replies.map((m: Message) => m.id)).toEqual([freshReply])

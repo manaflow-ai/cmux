@@ -46,6 +46,7 @@ export const cloudCases = (c: Corpus): void => {
   c.op(host, "participants.add: the chief's owner re-adds it", ALICE, "p7", { kind: "participants.add", participant: agent(CHIEF, ALICE) }, "commit")
   c.op(host, "invite.create: email to a new address", BOB, "i1", inviteOp(), "commit")
   c.op(host, "send: a address cannot act", ADDRESS, "m3", send("m3", "hi"), "address_cannot_act")
+  c.op(host, "thread.update: an invited address cannot own a thread", BOB, "o2", { kind: "thread.update", root: firstMessage, owner: ADDRESS }, "invalid_thread_owner")
   c.op(host, "invite.create: a chief cannot invite", CHIEF, "i2", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: tokenHash("s2") }), "forbidden")
   c.op(host, "invite.create: the address already has an open invite", ALICE, "i3", inviteOp({ invite_id: INV2, token_hash: tokenHash("s2") }), "duplicate_invite")
   c.op(host, "invite.create: malformed token hash", ALICE, "i4", inviteOp({ invite_id: INV2, address: ADDRESS2, token_hash: "short" }), "invalid_invite")

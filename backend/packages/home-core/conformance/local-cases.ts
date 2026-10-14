@@ -153,6 +153,8 @@ export const localCases = (c: Corpus): void => {
   // the status (a later live reply reopens the thread), so the reducer never writes on a reply.
   const objects = new CoreHost()
   const top = objects.send(ALICE, "o0", "root")
+  // Later than the send, so a commit that moved updated_at would differ from the head's.
+  objects.advance(60_000)
   const update = (fields: Record<string, unknown>, root = top.id): Op => ({ kind: "thread.update", root, ...fields }) as never
   c.op(objects, "thread.update: a message with no replies becomes a titled thread", ALICE, "o1", update({ title: "Ship 1.0" }), "commit")
   c.op(objects, "thread.update: the Chief replies in the thread", MUX, "o2", send("o2", parts("on it"), undefined, top.id), "commit")
@@ -174,9 +176,10 @@ export const localCases = (c: Corpus): void => {
   c.op(objects, "thread.update: a 201 character title", ALICE, "o11", update({ title: "x".repeat(201) }), "invalid_title")
   c.op(objects, "thread.update: a control character in the title", ALICE, "o11", update({ title: "a\u0007" }), "invalid_title")
   c.op(objects, "thread.update: an outsider is refused before the root", EVE, "o11", update({ title: "x" }, "msg_nope"), "not_participant")
-  c.op(objects, "thread.update: retract the root", ALICE, "o12", { kind: "message.retract", message_id: top.id }, "commit")
-  c.op(objects, "thread.update: a retracted root may still be resolved", MUX, "o13", update({ status: "resolved" }), "commit")
-  c.op(objects, "thread.update: an edit keeps the thread object", MUX, "o14", { kind: "message.edit", message_id: inThread.id, parts: parts("done") }, "commit")
+  c.op(objects, "thread.update: title the root again", ALICE, "o12", update({ title: "Ship 1.0" }), "commit")
+  c.op(objects, "thread.update: an edit of the root keeps the thread object", ALICE, "o13", { kind: "message.edit", message_id: top.id, parts: parts("root, edited") }, "commit")
+  c.op(objects, "thread.update: retract the root", ALICE, "o14", { kind: "message.retract", message_id: top.id }, "commit")
+  c.op(objects, "thread.update: a retracted root may still be resolved", MUX, "o15", update({ status: "resolved" }), "commit")
 
   // Agent budget: the head's counters (agent_text_streak, last_agent_text_at), no row window.
   const budget = new CoreHost()

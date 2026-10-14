@@ -116,13 +116,17 @@ fn a_thread_has_a_title_an_owner_and_a_status_that_a_chief_resolves_and_a_reply_
     assert_eq!(fresh["status"], "open", "{fresh}");
     assert!(fresh.get("title").is_none() && fresh.get("owner").is_none(), "{fresh}");
 
-    // The page titles the thread and hands it to the Builder agent.
+    // The page titles the thread and hands it to the Builder agent. It is not
+    // a new message: the conversation keeps its place in the list.
+    let updated_at = snapshot_of(&mut page, &channel)["conversation"]["updated_at"].clone();
     let title_op = json!({"root": root_id, "title": "Ship 1.0", "owner": "agent_builder"});
     let titled = page.request("conversation-op", update(&channel, "t1", title_op.clone()));
     assert_eq!(titled["change"]["kind"], "message-updated", "{titled}");
     let event = updated_event(&mut page, &root_id);
     assert_eq!(event["thread"], json!({"title": "Ship 1.0", "owner": "agent_builder"}), "{event}");
     assert!(event.get("edited_at").is_none(), "a thread update is not an edit: {event}");
+    let summary = snapshot_of(&mut page, &channel)["conversation"].clone();
+    assert_eq!(summary["updated_at"], updated_at, "{summary}");
     // The same key and op replays; the same key with another op conflicts.
     let replay = page.request("conversation-op", update(&channel, "t1", title_op));
     assert_eq!(replay["replayed"], true, "{replay}");
