@@ -6,12 +6,12 @@ import Testing
 /// its page is built). Its card shows its saved frame or the static placeholder instead.
 @Suite struct TerminalTabCardTests {
     @Test func aNeverOpenedTabShowsNoSpinner() {
-        #expect(!TerminalTabCard.showsConnecting(state: .connecting(mac: "Mac"), sessionStarted: false))
+        #expect(!TerminalConnectionState.connecting(mac: "Mac").cardShowsConnecting(sessionStarted: false))
     }
 
     @Test func anOpenedTabStillShowsItsConnectionState() {
-        #expect(TerminalTabCard.showsConnecting(state: .connecting(mac: "Mac"), sessionStarted: true))
-        #expect(TerminalTabCard.showsConnecting(state: .reattaching(mac: nil), sessionStarted: true))
-        #expect(!TerminalTabCard.showsConnecting(state: .attached, sessionStarted: true))
+        #expect(TerminalConnectionState.connecting(mac: "Mac").cardShowsConnecting(sessionStarted: true))
+        #expect(TerminalConnectionState.reattaching(mac: nil).cardShowsConnecting(sessionStarted: true))
+        #expect(!TerminalConnectionState.attached.cardShowsConnecting(sessionStarted: true))
     }
 }

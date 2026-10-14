@@ -40,6 +40,15 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// Whether a tab's grid card shows the connecting placeholder (spinner
+    /// and label): only once its session was started (its page was laid
+    /// out). A tab not opened in this launch has no session yet, so a spinner
+    /// there never ends (D5, T-TABS-02): it shows its saved frame, or the
+    /// static placeholder.
+    public func cardShowsConnecting(sessionStarted: Bool) -> Bool {
+        !isAttached && sessionStarted
+    }
+
     /// The placeholder's label ("Connecting to Aziz's Mac Studio…", "Reattaching…").
     public var label: String? {
         switch self {
