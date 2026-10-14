@@ -595,7 +595,9 @@ async fn auto_start_an_approved_preset_edited_then_respawned_leaves_its_no_ask_m
     tokio::time::sleep(Duration::from_millis(1500)).await;
     // The next prompt respawns the harness from the changed preset.
     cli.ok("session/prompt", prompt("hello")).await;
-    assert_eq!(mode(&mut cli, json!(id)).await, "normal");
+    // The harness's own mode, not the approved one replayed (the fake's
+    // session/load reports none, so acpmux knows no mode).
+    assert_ne!(mode(&mut cli, json!(id)).await, "bypass");
 }
 
 /// An approved preset starts exactly what the person approved: a request
