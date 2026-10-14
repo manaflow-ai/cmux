@@ -43,8 +43,8 @@ enum BrowserDeviceHandlers {
                     registry.refuse(RefusalStrings.describe(error))
                     return
                 }
-                let menu = BrowserDeviceMenu(devices: .devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
-                                             current: .current(record: current.flatMap { try? JSONEncoder().encode($0) })) { device, orientation in
+                let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
+                                             current: BrowserDeviceMenu.current(record: current.flatMap { try? JSONEncoder().encode($0) })) { device, orientation in
                     if let device {
                         daemon.send("browser.tab.emulate") { try await $0.state.emulateTab(resource, device: device, orientation: orientation) }
                     } else {
