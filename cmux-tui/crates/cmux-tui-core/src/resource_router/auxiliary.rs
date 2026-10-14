@@ -5,6 +5,7 @@ use std::sync::Arc;
 use base64::Engine;
 use serde_json::{Value, json};
 
+use super::agent_runtimes;
 use super::effects::{self, EffectPreparation, PreparedEffect};
 use super::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name, required_string,
@@ -21,6 +22,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::AgentList
+            | ResourceOperation::AgentRuntimeList
             | ResourceOperation::AgentReport
             | ResourceOperation::FrontendProjectionGet
             | ResourceOperation::FrontendProjectionPut
@@ -39,6 +41,7 @@ pub(super) fn dispatch(
     debug_assert!(handles(request.envelope.operation));
     match request.envelope.operation {
         ResourceOperation::AgentList => list_agents(mux, &request),
+        ResourceOperation::AgentRuntimeList => agent_runtimes::list_runtimes(mux, &request),
         ResourceOperation::AgentReport => report_agent(mux, request),
         ResourceOperation::FrontendProjectionGet => get_frontend_projection(mux, &request),
         ResourceOperation::FrontendProjectionPut => put_frontend_projection(mux, request),
@@ -539,7 +542,7 @@ fn intent_u16(operation: &str, intent: &Value, field: &str) -> Result<u16, Resou
     })
 }
 
-fn resolve_session(
+pub(super) fn resolve_session(
     mux: &Mux,
     selectors: &ResourceSelectors,
 ) -> Result<SessionPublicId, ResourceError> {

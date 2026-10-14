@@ -176,6 +176,7 @@ impl ResourceOperation {
             Self::NotificationAck => "notification.ack",
             Self::NotificationClear => "notification.clear",
             Self::AgentList => "agent.list",
+            Self::AgentRuntimeList => "agent.runtime.list",
             Self::AgentReport => "agent.report",
             Self::AgentMessageSend => "agent.message.send",
             Self::AgentMessageList => "agent.message.list",

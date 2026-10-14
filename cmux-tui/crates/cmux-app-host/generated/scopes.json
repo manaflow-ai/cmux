@@ -1806,6 +1806,7 @@
     "agent.message.list",
     "agent.message.mark",
     "agent.message.send",
+    "agent.runtime.list",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",

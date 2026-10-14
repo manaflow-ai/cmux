@@ -1377,6 +1377,9 @@ fn parse_agent(
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
         }
+        ["runtime", "list"] => {
+            request(ResourceOperation::AgentRuntimeList, &selectors, flags, Map::new())
+        }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;

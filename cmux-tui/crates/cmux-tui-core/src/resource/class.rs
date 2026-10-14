@@ -94,6 +94,7 @@ impl ResourceOperation {
                 | Self::BrowserGet
                 | Self::NotificationList
                 | Self::AgentList
+                | Self::AgentRuntimeList
                 | Self::AgentMessageList
                 | Self::SidebarViewGet
                 | Self::ClosedList
