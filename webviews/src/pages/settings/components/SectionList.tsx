@@ -1,5 +1,5 @@
 import { useSettingsState } from "../context";
-import { categories, categoryRows } from "../categories";
+import { categoryRows, shownCategories } from "../categories";
 import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import type { SettingsState } from "../store";
@@ -26,7 +26,7 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
   const state = useSettingsState();
   return (
     <nav className="section-list" aria-label={t("settingsPage.sections")}>
-      {categories.map((category) => {
+      {shownCategories(state.host?.dev_build === true).map((category) => {
         const mark = badge(state, category.id);
         return (
           <button

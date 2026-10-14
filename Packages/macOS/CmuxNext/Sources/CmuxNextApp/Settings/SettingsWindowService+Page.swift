@@ -14,6 +14,8 @@ extension SettingsWindowService {
         // host-lists watch re-send the Ghostty config preview after a config edit.
         _ = ThemeStore.shared.generation
         return [
+            // The Development category (dev_only) shows only in DEV builds.
+            "dev_build": .bool(DevTools.isDebugBuild),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map(Self.listRow)),
             "browser_profiles": .array(browserProfiles.map { profile in

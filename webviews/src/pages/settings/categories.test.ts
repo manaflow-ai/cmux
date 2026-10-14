@@ -3,7 +3,7 @@
 import { expect, test } from "bun:test";
 import exported from "../../../../schemas/settings/settings-schema.json";
 import "./testCatalog";
-import { CATEGORY_CARDS, categories, categoryOf, homes } from "./categories";
+import { CATEGORY_CARDS, categories, categoryOf, homes, shownCategories } from "./categories";
 import strings from "./generated/strings.json";
 import { parseLocation } from "./router";
 import { schema, sections } from "./schema";
@@ -29,7 +29,15 @@ test("the categories are the approved ones, in order", () => {
     "accounts",
     "advanced",
     "experimental",
+    "development",
   ]);
+});
+
+test("the Development category shows only in DEV builds", () => {
+  const ids = (devBuild: boolean) => shownCategories(devBuild).map((category) => category.id);
+  expect(ids(false)).not.toContain("development");
+  expect(ids(true)).toContain("development");
+  expect(categories.filter((category) => category.devOnly).map((category) => category.id)).toEqual(["development"]);
 });
 
 test("old section routes and focused keys open the category that holds the row", () => {

@@ -37,6 +37,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var actions: [SettingsSection] = []
         /// The section ids (`cmux settings open --section`, old links) that open this category.
         public var aliases: [SettingsSection] = []
+        /// Shown only in DEV builds: the page hides it when the host says it is not one.
+        public var devOnly = false
     }
 
     /// A resolved group card: its rows in display order.
@@ -177,5 +179,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
                 group("settings.group.appearanceTuning"),
             ]),
+        CategorySpec(
+            id: "development", title: section(.development), symbol: "hammer",
+            groups: [group("settings.group.macScreen")], aliases: [.development], devOnly: true),
     ]
 }

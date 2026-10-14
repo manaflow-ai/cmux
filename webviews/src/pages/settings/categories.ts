@@ -37,6 +37,8 @@ export type Category = {
   lead: CategoryCard[];
   trail: CategoryCard[];
   actions: string[];
+  /** Shown only in DEV builds (`dev_only` in the schema). */
+  devOnly: boolean;
 };
 
 function build(): { categories: Category[]; homes: Map<string, { category: string; group: string }> } {
@@ -56,6 +58,7 @@ function build(): { categories: Category[]; homes: Map<string, { category: strin
       lead: category.lead.filter(isCard),
       trail: category.trail.filter(isCard),
       actions: category.actions,
+      devOnly: category.dev_only === true,
     };
   });
   return { categories, homes };
@@ -64,6 +67,11 @@ function build(): { categories: Category[]; homes: Map<string, { category: strin
 const built = build();
 
 export const categories: readonly Category[] = built.categories;
+
+/** The categories this build shows: DEV-only ones (Development) only when `devBuild`. */
+export function shownCategories(devBuild: boolean): readonly Category[] {
+  return devBuild ? categories : categories.filter((category) => !category.devOnly);
+}
 
 /** Where each row lives: its category and group. */
 export const homes: ReadonlyMap<string, { category: string; group: string }> = built.homes;

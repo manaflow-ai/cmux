@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextControl
+import CmuxNextCompat
 import CmuxNextMacScreen
+import CmuxNextSettings
 import Foundation
 
 /// The app's side of Mac Screen tabs (`MacScreenPages` owns the rest).
@@ -9,6 +11,17 @@ extension AppServices {
         let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID))
         pages.useShortcuts(of: services.registry)
         return pages
+    }
+
+    /// DEV builds: Settings > Development > Relay Only drives every Mac Screen session.
+    func followMacScreenSettings(_ settings: SettingsController) {
+        #if DEBUG
+        Task { [weak self] in
+            for await relayOnly in ObservationStream({ settings.snapshot.macScreenDebug.relayOnly }) {
+                self?.macScreenPages.relayOnly = relayOnly
+            }
+        }
+        #endif
     }
 
     /// New Mac Screen Tab: the home page in the pane the action ran on, else the active window's focused pane.

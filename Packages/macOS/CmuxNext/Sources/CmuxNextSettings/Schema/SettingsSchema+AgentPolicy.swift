@@ -208,6 +208,8 @@ extension SettingsSchema {
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         "computerUse.enabled": .userOnly,
         "computerUse.driver": .userOnly,
+        // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
+        "macScreen.debug.relayOnly": .userOnly,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

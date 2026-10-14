@@ -80,6 +80,8 @@ export type BrowserProfile = {
 
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** The app is a DEV build: the Development category shows (Settings > Development). */
+  dev_build?: boolean;
   rooms: HostListRow[] | null;
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];

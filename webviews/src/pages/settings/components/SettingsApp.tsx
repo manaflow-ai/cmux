@@ -72,7 +72,7 @@ export function SettingsApp() {
     [router, store, reveal],
   );
   const submit = () => {
-    const first = filterRows({ query, changedOnly, valueOf: (key) => valueOf(state, key), isChanged })[0]?.rows[0];
+    const first = filterRows({ query, changedOnly, valueOf: (key) => valueOf(state, key), isChanged, devBuild: state.host?.dev_build === true })[0]?.rows[0];
     if (first) reveal(first.key);
   };
 

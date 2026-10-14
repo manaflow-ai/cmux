@@ -47,8 +47,6 @@ final class MacScreenChromeActions {
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}
     var refresh: () -> Void = {}
-    /// DEV builds: switches the session to the TURN relay only.
-    var setRelayOnly: (Bool) -> Void = { _ in }
     var sendKeys: (MacScreenShortcut) -> Void = { _ in }
     var focusScreen: () -> Void = {}
 }
@@ -157,14 +155,6 @@ struct MacScreenToolbar: View {
             .pickerStyle(.inline)
             Divider()
             Toggle(L.t("macScreen.toolbar.showStats", "Show Stats"), isOn: Binding(get: { session.preferences.showStats }, set: { _ in actions.toggleStats() }))
-            #if DEBUG
-            Divider()
-            // DEV builds only, never translated: a developer check of the TURN path.
-            Toggle(isOn: Binding(get: { model.relayOnly }, set: { actions.setRelayOnly($0) })) {
-                Text(verbatim: "Relay Only (DEV)")
-            }
-            .accessibilityIdentifier("macScreen.relayOnly")
-            #endif
         } label: {
             Image(systemName: "slider.horizontal.3")
         }

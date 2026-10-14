@@ -4,7 +4,7 @@ import Foundation
 /// The Settings window's sections, in sidebar order. The raw value is the
 /// `section` argument of Settings… (`cmux settings open --section keyboard`).
 public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterable, Identifiable {
-    case general, appearance, terminal, browser, home, keyboard, notifications, accounts, rooms, machines, advanced
+    case general, appearance, terminal, browser, home, keyboard, notifications, accounts, rooms, machines, advanced, development
 
     public var id: String { rawValue }
 
@@ -24,6 +24,7 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
         case .rooms: SettingsText.text("settings.section.rooms", "Spaces & Profiles")
         case .machines: SettingsText.text("settings.section.machines", "Machines")
         case .advanced: SettingsText.text("settings.section.advanced", "Advanced")
+        case .development: SettingsText.text("settings.section.development", "Development")
         }
     }
 
@@ -41,6 +42,7 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
         case .rooms: "square.stack"
         case .machines: "server.rack"
         case .advanced: "curlybraces"
+        case .development: "hammer"
         }
     }
 }

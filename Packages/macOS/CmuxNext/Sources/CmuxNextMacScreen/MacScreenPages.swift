@@ -15,6 +15,17 @@ public final class MacScreenPages {
     public let host: MacScreenShareHost
     /// The app's shortcut matcher: true keeps a key down in cmux.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// Settings > Development > Relay Only (`macScreen.debug.relayOnly`):
+    /// sessions use the TURN relay only. Only DEV builds apply it; the app
+    /// feeds it from the setting there.
+    public var relayOnly = false {
+        didSet {
+            #if DEBUG
+            guard relayOnly != oldValue else { return }
+            for tab in tabs.allObjects { tab.pane?.setRelayOnly(relayOnly) }
+            #endif
+        }
+    }
     /// Tab key -> the record URL a person opened in it.
     private var confirmed: [String: String] = [:]
     /// Records a person asked to open in a new tab, until that tab's page is
@@ -120,6 +131,9 @@ public final class MacScreenPages {
             let person = isLocal && (person || confirmed[key] == url.absoluteString)
             pane = MacScreenPane(name: mac.name, pairing: pairing, preferences: mac.preferences, confirmed: person)
             pane.session?.hostID = macID
+            #if DEBUG
+            if relayOnly { pane.setRelayOnly(true) }
+            #endif
             pane.handlers.confirm = { [weak self] in self?.confirmed[key] = url.absoluteString }
             pane.handlers.connected = { [weak self] preferences in self?.store.connected(macID, preferences: preferences) }
             pane.handlers.preferencesChanged = { [weak self] preferences in self?.store.update(macID, preferences: preferences) }
