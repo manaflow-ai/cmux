@@ -370,12 +370,14 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   return out;
 }
 
-// Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a paragraph,
-// `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
-// "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
-// escape (`\$`, `\*`) that draws its character, and a footnote reference (`[^id]`).
+// Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
+// paragraph (not plain words beside a space, so the shell's "echo $$ and $$" stays text while
+// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space inside either dollar and no digit
+// after the closer, so "$5 and $10" stays text; a `$` never ends one, so "$10 and echo $$" does
+// too; no backtick inside, so "$5 or `$PATH`" does too), a backslash escape (`\$`, `\*`) that
+// draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s]*\$\$|[A-Za-z\s]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {

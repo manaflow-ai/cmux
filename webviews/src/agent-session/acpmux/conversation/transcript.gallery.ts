@@ -179,6 +179,18 @@ const MATH = [
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
 ].join("\n");
 
+const MATH_DELIMITERS = [
+  "Every delimiter typesets: $\\lambda = 1/\\bar{d}$ and \\(p = 1 - e^{-\\lambda t}\\) inline,",
+  "",
+  "\\[",
+  "P(T \\le t) = \\int_0^t \\lambda e^{-\\lambda s}\\,ds",
+  "\\]",
+  "",
+  "and $$\\textstyle\\sum_i p_i = 1$$ inside a sentence.",
+  "",
+  "Prices and shell text stay text: the runner costs $5 and $10 an hour, $5-$10 on spot, US$40 a month, and echo $$ and $$ print the shell's PID.",
+].join("\n");
+
 const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
 const WEB_VIDEO_REPLY = [
   "Yes. The recording attached to the PR shows all six login tests passing:",
@@ -964,6 +976,14 @@ export default agentPaneEntry({
     math: {
       note: "Inline and display math (KaTeX).",
       snapshot: chat([user("What is the expected wait?", 4), assistant(MATH, 3.9), summary(3.9)]),
+    },
+    "math-delimiters": {
+      note: "Math in all four delimiters ($…$, \\(…\\), \\[…\\], $$…$$) beside prices and shell $$ that stay text.",
+      snapshot: chat([
+        user("How likely is a retry inside t seconds?", 4),
+        assistant(MATH_DELIMITERS, 3.9),
+        summary(3.9),
+      ]),
     },
     permission: {
       note: "A tool call waiting for the user's permission.",

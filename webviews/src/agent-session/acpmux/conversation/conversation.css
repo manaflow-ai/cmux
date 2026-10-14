@@ -654,8 +654,8 @@
   color: var(--cv-text);
 }
 
-/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. The
-   katex stylesheet ships beside these rules (build-agent-pane-web.sh). */
+/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
+   stylesheet loads with KaTeX, after these rules; each rule here has two classes, so it wins. */
 .cv-math .katex {
   white-space: nowrap;
 }
