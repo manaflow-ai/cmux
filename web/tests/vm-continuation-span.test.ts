@@ -13,8 +13,9 @@ import { createBackgroundContinuations, withVmAnswerDeadline } from "../services
 // continuation result is now its own span, queryable by outcome.
 const exporter = new InMemorySpanExporter();
 const provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+trace.disable();
 trace.setGlobalTracerProvider(provider);
-afterAll(async () => { await provider.shutdown(); });
+afterAll(async () => { await provider.shutdown(); trace.disable(); });
 
 describe("continuation result spans", () => {
   test.each([

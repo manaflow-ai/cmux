@@ -98,6 +98,14 @@ describe("other provider failures keep their answers", () => {
     expect(payload.error).toBe("vm_cloud_service_unavailable");
   });
 
+  test("a 409 about another resource is neither capacity nor a machine-state conflict", async () => {
+    const provider = providerWith({ exec: async () => { throw new FreestyleApiError(409, { code: "CONFLICT", message: "conflict: network policy for vpc-1 changed concurrently" }); } });
+    const cause = await failure(() => provider.exec("vm-1", "true", { timeoutMs: 1_000 }));
+    const { response, payload } = await answer("exec", cause);
+    expect(response.status).toBe(502);
+    expect(payload.error).toBe("vm_cloud_service_unavailable");
+  });
+
   test("a full private network is still the network-full refusal, not capacity", async () => {
     const provider = providerWith({ create: async () => { throw new FreestyleApiError(409, { code: "CONFLICT", message: "conflict: vpc vpc-1 has no free addresses in 10.40.0.0/24" }); } });
     const cause = await failure(() => provider.create({ image: "snapshot", network: { id: "vpc-1" } }));

@@ -236,20 +236,21 @@ export function createBackgroundContinuations(cap: number = VM_MAX_BACKGROUND_CO
 export const backgroundContinuations: BackgroundContinuations = createBackgroundContinuations();
 
 /** One structured line per continuation outcome: route, outcome, and its cause or limit. */
-export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): void {
+export function logContinuationResult(label: string, outcome: string, detail: Record<string, unknown> = {}): Promise<void> {
   const line = JSON.stringify({ route: label, outcome, ...detail });
   if (outcome === "completed" || outcome === "superseded") console.info("[vm-route-deadline] continuation", line);
   else console.error("[vm-route-deadline] continuation", line);
-  recordContinuationSpan(label, outcome, detail);
+  return recordContinuationSpan(label, outcome, detail);
 }
 
 /**
  * The continuation's result as its own (priority-sampled) span, so outcomes
  * and stops at maxDuration are queryable: the route's request span has
  * already ended when a continuation finishes, and console lines are not
- * shipped to the trace store. Flushed past the response, inside after().
+ * shipped to the trace store. The background path awaits the returned flush
+ * inside after(), so a serverless freeze cannot drop the span; it never rejects.
  */
-function recordContinuationSpan(label: string, outcome: string, detail: Record<string, unknown>): void {
+function recordContinuationSpan(label: string, outcome: string, detail: Record<string, unknown>): Promise<void> {
   const attributes: MaybeAttributes = {
     "cmux.vm.continuation.route": label,
     "cmux.vm.continuation.outcome": outcome,
@@ -259,7 +260,7 @@ function recordContinuationSpan(label: string, outcome: string, detail: Record<s
       attributes[`cmux.vm.continuation.${key}`] = value;
     }
   }
-  void withPrioritySpan("cmux-vm", "cmux.vm.continuation", attributes, () => undefined)
+  return withPrioritySpan("cmux-vm", "cmux.vm.continuation", attributes, () => undefined)
     .then(() => forceFlushTraces())
     .catch(() => undefined);
 }
@@ -326,7 +327,7 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     if (options.continuationKey !== undefined && continuations.hasKey(options.continuationKey)) {
       // The same re-entrant operation on the same machine is already running
       // in the background: this retry adds no second continuation.
-      logContinuationResult(options.label, "superseded", log);
+      void logContinuationResult(options.label, "superseded", log);
       yield* Fiber.interruptFork(fiber);
       return yield* options.onDeadline();
     }
@@ -336,11 +337,11 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
       // time the work would have had in the background.
       const inline = yield* Fiber.await(fiber).pipe(Effect.timeout(options.continueForMs), Effect.option);
       if (Option.isNone(inline)) {
-        logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS });
+        void logContinuationResult(options.label, "inline_stopped_at_max_duration", { ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS });
         yield* Fiber.interruptFork(fiber);
         return yield* options.onDeadline();
       }
-      logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
+      void logContinuationResult(options.label, inline.value._tag === "Success" ? "inline_completed" : "inline_failed", {
         ...log, cap: VM_MAX_BACKGROUND_CONTINUATIONS,
         ...(inline.value._tag === "Failure" ? { cause: summarizeCause(inline.value.cause) } : {}),
       });
@@ -354,11 +355,11 @@ export function withVmAnswerDeadline<A, E, R, A2 = A, E2 = E, R2 = never>(
     const bounded = Fiber.await(fiber).pipe(
       Effect.timeout(options.continueForMs),
       Effect.matchCauseEffect({
-        onSuccess: (finished) => Effect.sync(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
+        onSuccess: (finished) => Effect.promise(() => logContinuationResult(options.label, finished._tag === "Success" ? "completed" : "failed", {
           ...log,
           ...(finished._tag === "Failure" ? { cause: summarizeCause(finished.cause) } : {}),
         })),
-        onFailure: () => Effect.sync(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
+        onFailure: () => Effect.promise(() => logContinuationResult(options.label, "stopped_at_max_duration", { ...log, continueForMs: options.continueForMs }))
           .pipe(Effect.andThen(Fiber.interruptFork(fiber))),
       }),
       Effect.ensuring(Effect.sync(() => continuations.release(key))),

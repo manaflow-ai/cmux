@@ -1387,12 +1387,6 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 }
 
 /**
- * The guest did not run or finish a command the operation needed, so the
- * provider's exec channel to that machine is stuck. A retry usually meets the
- * same stuck guest, so the answer is non-retryable with a pause and resume
- * action that restarts it. Provider diagnostics stay in server traces.
- */
-/**
  * The provider has no room for the machine right now (Freestyle 409
  * capacity / placement refusal). Nothing was created or changed, and the
  * same request can succeed once capacity frees up: a retryable 503 with
@@ -1440,6 +1434,12 @@ async function vmStateConflictResponse(error: VmProviderOperationError, locale: 
 /** Seconds a client waits before retrying a capacity refusal. */
 const VM_PROVIDER_CAPACITY_RETRY_AFTER_SECONDS = 30;
 
+/**
+ * The guest did not run or finish a command the operation needed, so the
+ * provider's exec channel to that machine is stuck. A retry usually meets the
+ * same stuck guest, so the answer is non-retryable with a pause and resume
+ * action that restarts it. Provider diagnostics stay in server traces.
+ */
 async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmGuestUnresponsiveCopy(locale);
   return vmErrorResponse({

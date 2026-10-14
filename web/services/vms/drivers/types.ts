@@ -718,12 +718,6 @@ export class ProviderMachineRecreateRequiredError extends ProviderError {
 }
 
 /**
- * A guest command the server needed never ran or never exited: the provider's
- * exec channel failed, or the command outlived its timeout. Nothing about the
- * service the command would have checked is known, so routes name the machine
- * as unresponsive and give a restart action, never a generic outage.
- */
-/**
  * The machine is in a state the operation cannot run in (still starting,
  * pausing, or not running). Routes answer 409 vm_state_conflict with a
  * wait-and-retry action, never a generic outage.
@@ -744,8 +738,15 @@ export type ProviderConflictKind = "capacity" | "state" | "unresponsive";
  * answers capacity as `CONFLICT` "no manager has enough capacity" or
  * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, and a
  * machine in the wrong state (still starting, not running) as `CONFLICT`.
- * Every other status, and a 409 that never reached the provider, is null.
+ * Every other status, any other 409, and a 409 that never reached the
+ * provider is null.
  */
+/** Freestyle's placement refusal: "no manager has enough capacity for vm". */
+const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b/i;
+
+/** Freestyle 409 messages about the machine's lifecycle state. */
+const PROVIDER_STATE_CONFLICT_MESSAGE = /\b(?:is )?still (?:starting|stopping|pausing|resuming|suspending|booting)\b|\bis not running\b|\bis (?:paused|pausing|suspended|suspending|stopped|stopping|starting|resuming)\b|\bresuming state\b/i;
+
 export function providerConflictKind(err: unknown): ProviderConflictKind | null {
   let current = err;
   for (let depth = 0; depth < 8 && current; depth += 1) {
@@ -756,15 +757,24 @@ export function providerConflictKind(err: unknown): ProviderConflictKind | null 
       if (record.status !== 409) return null;
       const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
       const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
-      if (code === "PLACEMENT_REJECTED" || /\bcapacity\b/i.test(message)) return "capacity";
+      if (code === "PLACEMENT_REJECTED" || PROVIDER_CAPACITY_MESSAGE.test(message)) return "capacity";
       if (code === "VM_NON_RESPONSIVE") return "unresponsive";
-      return "state";
+      // Only a message that names the machine's state is a state conflict.
+      // Every other 409 (network policy, slug, tunnel, port, snapshot in use,
+      // quota) is a real resource conflict and keeps the generic answer.
+      return PROVIDER_STATE_CONFLICT_MESSAGE.test(message) ? "state" : null;
     }
     current = record.cause;
   }
   return null;
 }
 
+/**
+ * A guest command the server needed never ran or never exited: the provider's
+ * exec channel failed, or the command outlived its timeout. Nothing about the
+ * service the command would have checked is known, so routes name the machine
+ * as unresponsive and give a restart action, never a generic outage.
+ */
 export class ProviderGuestUnresponsiveError extends ProviderError {
   constructor(provider: ProviderId, message: string, cause?: unknown) {
     super(provider, message, cause);
