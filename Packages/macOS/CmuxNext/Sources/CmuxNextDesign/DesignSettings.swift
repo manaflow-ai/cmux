@@ -98,6 +98,9 @@ public final class DesignSettings {
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade
+    /// The Ghostty config's `unfocused-split-opacity` and
+    /// `unfocused-split-fill`; no dim unless the config sets one.
+    public var unfocusedPaneDim = UnfocusedPaneDim()
 
     /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
