@@ -34,6 +34,7 @@ extension AgentPaneNavigation {
 /// The modifiers of the link click being opened: `AgentPaneView.openURL` runs inside the click, so
 /// the open can tell a Command-click from a plain one (ChatBeside). Nil outside a click (Open Link,
 /// a page's own open).
+// lint:allow namespace: the click's context, set and cleared around one open, read across modules.
 @MainActor public enum AgentPaneLinkClick {
     public internal(set) static var modifiers: NSEvent.ModifierFlags?
 }
