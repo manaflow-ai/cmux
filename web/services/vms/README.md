@@ -556,8 +556,8 @@ running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.t
 published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
 build reaches new machines through a rebake and promotion. Config: `FREESTYLE_API_KEY` (or
 `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`); optionally `FREESTYLE_API_URL` to point
-at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL` is read only by the bake, verify and
-fleet-upgrade scripts, to pin one commit's
+at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL` is read only by the bake, verify,
+reachability-check and BusyBox-probe scripts, to pin one commit's
 `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling `latest`; a
 deployment ignores it.
 

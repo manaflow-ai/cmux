@@ -6,17 +6,23 @@ per-terminal hooks and their trust as `-c` overrides. Codex draws its composer
 before it shows "Hooks need review", so a screen probe cannot see a wrapper
 whose trust codex ignores. This records the exact argv the wrapper passes,
 then asks codex itself: `codex <argv> app-server`, `hooks/list` for the work
-home, and every listed hook must report trustStatus "trusted".
+home. Every hook the wrapper injected must be listed (its key names codex's
+session-flags layer), and every listed hook must report trustStatus
+"trusted".
 """
 
 import argparse
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+
+SESSION_FLAGS_KEY = "/<session-flags>/"
 
 FAKE_CODEX = """#!/bin/sh
 for arg in "$@"; do printf '%s\\0' "$arg"; done > "$CMUX_HOOK_TRUST_ARGV"
@@ -25,7 +31,9 @@ for arg in "$@"; do printf '%s\\0' "$arg"; done > "$CMUX_HOOK_TRUST_ARGV"
 
 def wrapper_argv(wrapper, socket, terminal):
     """The arguments the wrapper hands the codex it finds first on PATH."""
-    scratch = tempfile.mkdtemp(prefix="cmux-hook-trust-")
+    # Under HOME, not /tmp: the wrapper skips a codex it cannot execute, and
+    # /tmp may be mounted noexec.
+    scratch = tempfile.mkdtemp(prefix=".cmux-hook-trust-", dir=os.environ.get("HOME") or None)
     try:
         fake = os.path.join(scratch, "codex")
         with open(fake, "w") as handle:
@@ -63,17 +71,36 @@ def list_hooks(codex, argv, cwd, timeout):
         process.stdin.write(json.dumps(message) + "\n")
         process.stdin.flush()
 
+    # readline blocks, so a reader thread feeds a queue and the deadline is
+    # enforced on the queue.
+    lines = queue.Queue()
+
+    def pump():
+        for line in process.stdout:
+            lines.put(line)
+        lines.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
+
     def reply(request_id):
-        while time.monotonic() < deadline:
-            line = process.stdout.readline()
-            if not line:
+        while True:
+            try:
+                line = lines.get(timeout=max(deadline - time.monotonic(), 0.001))
+            except queue.Empty:
+                raise RuntimeError("codex app-server did not answer within %ss" % timeout) from None
+            if line is None:
                 raise RuntimeError("codex app-server exited before answering")
-            message = json.loads(line)
-            if message.get("id") == request_id:
-                if "error" in message:
-                    raise RuntimeError("codex app-server: %s" % message["error"])
-                return message.get("result")
-        raise RuntimeError("codex app-server did not answer within %ss" % timeout)
+            try:
+                message = json.loads(line)
+            except ValueError:
+                continue
+            # A server request or notification carries a method; only a
+            # response answers ours.
+            if "method" in message or message.get("id") != request_id:
+                continue
+            if "error" in message:
+                raise RuntimeError("codex app-server: %s" % message["error"])
+            return message.get("result")
 
     try:
         send({"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "cmux-verify", "version": "0"}}})
@@ -113,7 +140,18 @@ def main():
     if argv[:2] != ["--enable", "hooks"]:
         print("%s: the wrapper injected no hooks: %r" % (args.label, argv[:4]), file=sys.stderr)
         return 1
-    hooks = list_hooks(args.codex, argv, args.cwd, args.timeout)
+    injected = sum(1 for arg in argv if arg.startswith("hooks.") and not arg.startswith("hooks.state"))
+    try:
+        hooks = list_hooks(args.codex, argv, args.cwd, args.timeout)
+    except RuntimeError as error:
+        print("%s: %s" % (args.label, error), file=sys.stderr)
+        return 1
+    listed = sum(1 for hook in hooks if SESSION_FLAGS_KEY in str(hook.get("key", "")))
+    if injected == 0 or listed < injected:
+        # Trust is moot for hooks codex never loaded: the wrapper's hooks
+        # did not reach codex, so a pane's codex runs without them.
+        print("%s: the wrapper injected %d hooks, codex lists %d" % (args.label, injected, listed), file=sys.stderr)
+        return 1
     untrusted = [hook for hook in hooks if hook.get("trustStatus") != "trusted"]
     if not hooks or untrusted:
         print("%s: %d of %d hooks need review" % (args.label, len(untrusted), len(hooks)), file=sys.stderr)
