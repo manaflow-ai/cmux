@@ -1,16 +1,23 @@
 public import Foundation
 
-/// UPDATE-CARD-CLOSE: the update cards' x (the staged "Update Ready" card and the found-update
-/// notice) and its menu (``UpdateCardCloseOption``). Closing never skips the update in Sparkle:
+/// UPDATE-CARD-CLOSE: the update cards' "Hide" button (the staged "Update Ready" card and the
+/// found-update notice; one click hides this version until a newer one, Lawrence 2026-10-14) and
+/// their right-click menu (``UpdateCardCloseOption``). Hiding never skips the update in Sparkle:
 /// it still downloads and stages, a quit still installs it, and Check for Updates shows it.
 extension UpdaterService {
-    /// The x's menu, in order: (action id, title).
+    /// The right-click menu, in order: (action id, title).
     public static var updateCloseMenu: [(id: String, title: String)] {
         UpdateCardCloseOption.allCases.map { ($0.rawValue, $0.title) }
     }
 
-    /// The x's tooltip and VoiceOver label (it opens ``updateCloseMenu``).
-    public static var updateCloseLabel: String { UpdaterStrings.text("updater.close.options", "Close or Remind Me Later") }
+    /// The Hide button's text. "Hide" says what one click does and fits beside "Update Ready" at
+    /// the default sidebar width; "Skip This Version" would promise Sparkle's skip, which this is
+    /// not (the update still installs on quit).
+    public static var updateHideTitle: String { UpdaterStrings.text("updater.close.hide", "Hide") }
+    /// The Hide button's tooltip and VoiceOver label: how long it hides.
+    public static var updateCloseLabel: String { UpdateCardCloseOption.hideVersion.title }
+    /// The Hide button's action id.
+    public static var updateHideAction: String { UpdateCardCloseOption.hideVersion.rawValue }
 
     /// The update version a card shows now: the staged one, else the found one.
     var shownUpdateVersion: String? {
