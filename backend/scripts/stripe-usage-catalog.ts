@@ -5,21 +5,22 @@
  *
  *   STRIPE_USAGE_KEY=<sk_test_...> bun backend/scripts/stripe-usage-catalog.ts [--check]
  *
- * - Meter `cmux_ai_usage`, aggregation `last`: the reconcile worker sends the period's billable
- *   level (USD above the plan's included amount), never deltas.
- * - Product `cmux_ai_usage` ("cmux AI usage") and one graduated metered price per plan, lookup key
- *   `cmux-ai-usage-<plan>-incl<N>-v1`: the first N units at 0, then 1.00 USD per unit; one unit =
- *   one USD of AI usage at our cost (pass-through, Lawrence 2026-10-13). The meter value is the
- *   period's whole AI usage level; the tier applies the plan's included amount. N are test-mode
- *   placeholders (Lawrence sets the real ones before live). Team's N is per team, not per seat.
+ * - Meters, aggregation `last` (the reconcile worker sends levels, never deltas):
+ *   `cmux_ai_usage` (the period's whole AI usage level, per-team prices) and
+ *   `cmux_ai_usage_above_included` (the level above included x seats, per-seat prices).
+ * - Product `cmux_ai_usage` ("cmux AI usage") and one metered price per plan in the plan's included
+ *   mode it can bill in (billing-catalog.ts usageModesOf: Team both, the others per team):
+ *   per team: graduated, lookup key `cmux-ai-usage-<plan>-incl<N>-<set>`, the first N units at 0,
+ *   then 1.00 USD per unit; per seat: flat 1.00 USD per unit, lookup key
+ *   `cmux-ai-usage-<plan>-seat<N>-<set>` (the sync subtracts N x seats). One unit = one USD of AI
+ *   usage at our cost (pass-through, Lawrence 2026-10-13).
  *
  * Refuses any live key: live objects are Lawrence's step. Prints object ids and settings only.
  */
-import { USAGE_METER_EVENT as METER_EVENT, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usagePriceLookupKey, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
+import { INCLUDED_MODES, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usageMeterEvent, usageModesOf, usagePriceLookupKey, type IncludedMode, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
 // --set e2e: the end-to-end price set (1 USD included), test mode only like everything here.
 const SET: UsagePriceSet = process.argv.includes("--set=e2e") ? "e2e" : "v1"
 const INCLUDED_USD = USAGE_PRICE_SETS[SET]
-const priceLookupKey = (plan: keyof typeof INCLUDED_USD) => usagePriceLookupKey(plan, SET)
 const key = process.env.STRIPE_USAGE_KEY ?? ""
 const check = process.argv.includes("--check")
 if (!/^(sk|rk)_test_/.test(key)) {
@@ -38,59 +39,69 @@ const api = async (method: "GET" | "POST", path: string, form?: Record<string, s
   return res.ok ? body : null
 }
 
-const findMeter = async () => {
+const findMeter = async (eventName: string) => {
   let after: string | undefined
   for (;;) {
     const page = await api("GET", `/v1/billing/meters?status=active&limit=100${after ? `&starting_after=${after}` : ""}`)
-    const hit = page.data.find((m: any) => m.event_name === METER_EVENT)
+    const hit = page.data.find((m: any) => m.event_name === eventName)
     if (hit || !page.has_more) return hit ?? null
     after = page.data.at(-1).id
   }
 }
 
-let meter = await findMeter()
-if (!meter && !check) {
-  meter = await api("POST", "/v1/billing/meters", {
-    display_name: "cmux AI usage",
-    event_name: METER_EVENT,
-    "default_aggregation[formula]": "last",
-    "customer_mapping[type]": "by_id",
-    "customer_mapping[event_payload_key]": "stripe_customer_id",
-    "value_settings[event_payload_key]": "value"
-  }, `meter-${METER_EVENT}-v1`)
+const meters = {} as Record<IncludedMode, any>
+for (const mode of INCLUDED_MODES) {
+  const eventName = usageMeterEvent(mode)
+  let meter = await findMeter(eventName)
+  if (!meter && !check) {
+    meter = await api("POST", "/v1/billing/meters", {
+      display_name: mode === "per_seat" ? "cmux AI usage above included" : "cmux AI usage",
+      event_name: eventName,
+      "default_aggregation[formula]": "last",
+      "customer_mapping[type]": "by_id",
+      "customer_mapping[event_payload_key]": "stripe_customer_id",
+      "value_settings[event_payload_key]": "value"
+    }, `meter-${eventName}-v1`)
+  }
+  if (meter && meter.default_aggregation?.formula !== "last") throw new Error(`meter ${meter.id} aggregates ${meter.default_aggregation?.formula}, expected last`)
+  meters[mode] = meter
 }
-if (meter && meter.default_aggregation?.formula !== "last") throw new Error(`meter ${meter.id} aggregates ${meter.default_aggregation?.formula}, expected last`)
 
 let product = await api("GET", `/v1/products/${PRODUCT_ID}`)
 if (!product && !check) product = await api("POST", "/v1/products", { id: PRODUCT_ID, name: "cmux AI usage", description: "AI model usage above your plan's included amount, at cost." }, `product-${PRODUCT_ID}-v1`)
 
 const prices: Record<string, any> = {}
-for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) {
-  const lookup = priceLookupKey(plan)
+for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) for (const mode of usageModesOf(plan)) {
+  const meter = meters[mode]
+  const lookup = usagePriceLookupKey(plan, SET, mode)
+  // A graduated tier ends at a whole unit (Stripe): a fractional amount has the per-seat price only.
+  if (mode === "per_team" && !Number.isInteger(INCLUDED_USD[plan])) {
+    prices[`${plan}:${mode}`] = { skipped: `${INCLUDED_USD[plan]} USD is not a whole unit; per seat only` }
+    continue
+  }
   let price = (await api("GET", `/v1/prices?lookup_keys[]=${lookup}&active=true&expand[]=data.tiers`)).data[0] ?? null
   if (!price && !check && meter && product) {
-    price = await api("POST", "/v1/prices?expand[]=tiers", {
+    const common = {
       product: PRODUCT_ID,
       currency: "usd",
       lookup_key: lookup,
-      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included, pass-through ${SET}`,
-      billing_scheme: "tiered",
-      tiers_mode: "graduated",
-      "tiers[0][up_to]": String(INCLUDED_USD[plan]),
-      "tiers[0][unit_amount_decimal]": "0",
-      "tiers[1][up_to]": "inf",
-      "tiers[1][unit_amount_decimal]": "100",
+      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included ${mode === "per_seat" ? "per seat" : "per team"}, pass-through ${SET}`,
       "recurring[interval]": "month",
       "recurring[usage_type]": "metered",
       "recurring[meter]": meter.id,
       "metadata[plan]": plan,
+      "metadata[included_mode]": mode,
       "metadata[price_version]": `ai-passthrough-${SET}`
-    }, `price-${lookup}`)
+    }
+    price = mode === "per_seat"
+      ? await api("POST", "/v1/prices", { ...common, billing_scheme: "per_unit", unit_amount_decimal: "100" }, `price-${lookup}`)
+      : await api("POST", "/v1/prices?expand[]=tiers", { ...common, billing_scheme: "tiered", tiers_mode: "graduated", "tiers[0][up_to]": String(INCLUDED_USD[plan]), "tiers[0][unit_amount_decimal]": "0", "tiers[1][up_to]": "inf", "tiers[1][unit_amount_decimal]": "100" }, `price-${lookup}`)
   }
   const tiers = price?.tiers ?? []
-  if (price && (price.recurring?.usage_type !== "metered" || price.recurring?.meter !== meter?.id || price.tiers_mode !== "graduated" || tiers[0]?.up_to !== INCLUDED_USD[plan] || tiers[1]?.unit_amount_decimal !== "100")) throw new Error(`price ${price.id} (${lookup}) does not match the catalog`)
-  prices[plan] = price && { id: price.id, lookup_key: price.lookup_key, included_usd: tiers[0]?.up_to, then_cents_per_usd: tiers[1]?.unit_amount_decimal }
+  const matches = !price || (price.recurring?.usage_type === "metered" && price.recurring?.meter === meter?.id && (mode === "per_seat" ? price.billing_scheme === "per_unit" && price.unit_amount_decimal === "100" : price.tiers_mode === "graduated" && tiers[0]?.up_to === INCLUDED_USD[plan] && tiers[1]?.unit_amount_decimal === "100"))
+  if (!matches) throw new Error(`price ${price.id} (${lookup}) does not match the catalog`)
+  prices[`${plan}:${mode}`] = price && { id: price.id, lookup_key: price.lookup_key, mode, included_usd: INCLUDED_USD[plan], then_cents_per_usd: mode === "per_seat" ? price.unit_amount_decimal : tiers[1]?.unit_amount_decimal }
 }
 
-console.log(JSON.stringify({ livemode: false, meter: meter && { id: meter.id, event_name: meter.event_name, formula: meter.default_aggregation?.formula }, product: product && { id: product.id, name: product.name }, prices }, null, 2))
-if (check && (!meter || !product || Object.values(prices).some((p) => !p))) process.exit(1)
+console.log(JSON.stringify({ livemode: false, meters: Object.fromEntries(INCLUDED_MODES.map((m) => [m, meters[m] && { id: meters[m].id, event_name: meters[m].event_name, formula: meters[m].default_aggregation?.formula }])), product: product && { id: product.id, name: product.name }, prices }, null, 2))
+if (check && (INCLUDED_MODES.some((m) => !meters[m]) || !product || Object.values(prices).some((p) => !p))) process.exit(1)
