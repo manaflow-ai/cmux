@@ -140,6 +140,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MARK_UNREAD, Request),
         untyped(method::MUX_WATCH, Request),
         untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_OFFER_SESSION, Request),
+        untyped(method::MUX_OFFER_RESPOND, Request),
         untyped(method::MUX_KILL, Request),
         untyped(method::MUX_ARCHIVE, Request),
         untyped(method::MUX_SIDE, Request),

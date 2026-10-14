@@ -30,6 +30,8 @@ export interface AcpmuxRequests {
   "_acpmux/markUnread": { params: unknown; result: unknown };
   "_acpmux/watch": { params: unknown; result: unknown };
   "_acpmux/rename": { params: unknown; result: unknown };
+  "_acpmux/offer_session": { params: unknown; result: unknown };
+  "_acpmux/offer_respond": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
@@ -178,6 +180,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/markUnread", kind: "request", acp: false, typed: false },
   { name: "_acpmux/watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },

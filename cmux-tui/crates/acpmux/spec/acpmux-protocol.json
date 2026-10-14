@@ -205,6 +205,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/offer_session",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/offer_respond",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/kill",
       "params": true,
       "result": true
