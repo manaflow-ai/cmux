@@ -73,14 +73,13 @@
   outline-offset: 2px;
 }
 
-/* Send and Stop: the one filled control, in the accent (the terminal theme's text color, or its own
-   hue with appearance.accent; never the ANSI blue); it steps toward the base on hover and further on press. */
-.acpmux-send.acpmux-send-ready:hover,
-.acpmux-send.acpmux-cancel:hover {
+/* Send with a draft: filled in the accent (the terminal theme's text color, or its own hue with
+   appearance.accent; never the ANSI blue); it steps toward the base on hover and further on press.
+   Stop is a solid disc in the text color and steps the same way (composerLocation.css). */
+.acpmux-send.acpmux-send-ready:hover {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 88%, var(--acpmux-base));
 }
-.acpmux-send.acpmux-send-ready:active,
-.acpmux-send.acpmux-cancel:active {
+.acpmux-send.acpmux-send-ready:active {
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--acpmux-base));
 }
 

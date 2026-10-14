@@ -7,7 +7,7 @@
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     8 to 12 px apart, evenly (within 1 px); no context ring or spinner in the row; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of at
-//     most 12 px;
+//     most 12 px, centred in a solid text-colored disc;
 //   - no label is cut while the row has free space, and a short row cuts by priority: the
 //     permission labels go to icons first, then effort shortens, the model last;
 //   - the folder and computer controls sit whole inside the location strip on the card's top edge
@@ -41,8 +41,12 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill, whichever shows. */
+  /** Send's or Stop's fill and ink, whichever shows. */
   fill: string;
+  ink: string;
+  /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
+  text: string;
+  base: string;
 };
 
 await requireBrowserLane("composer-row-layout.test.ts", async () => {
@@ -126,6 +130,16 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
       fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
+      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      ...(() => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--agent-text)";
+        probe.style.backgroundColor = "var(--acpmux-base)";
+        bar.appendChild(probe);
+        const { color, backgroundColor } = getComputedStyle(probe);
+        probe.remove();
+        return { text: color, base: backgroundColor };
+      })(),
     };
   }
 
@@ -251,7 +265,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box and circle`, async () => {
+    test(`at ${width} px Stop takes Send's box as a solid disc`, async () => {
       const idle = await row("claude-auto", width);
       const running = await row("queued", width);
       const send = idle.send!;
@@ -261,7 +275,15 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         (side) => Math.abs(send[side] - stop[side]) > 0.5,
       );
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // The same circle as Send (its resting fill), not a disc of its own.
-      expect(running.fill).toBe(idle.fill);
+      // A solid disc in the text color with a base-colored square (design panel, 4-0), not
+      // Send's faint resting circle.
+      expect(running.fill).not.toBe(idle.fill);
+      expect(running.fill).toBe(running.text);
+      expect(running.ink).toBe(running.base);
+      // The square sits in the disc's centre.
+      const glyph = running.stopGlyph!;
+      const centre = (low: number, high: number) => (low + high) / 2;
+      expect(Math.abs(centre(glyph.left, glyph.right) - centre(stop.left, stop.right))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(centre(glyph.top, glyph.bottom) - centre(stop.top, stop.bottom))).toBeLessThanOrEqual(0.5);
     });
 });

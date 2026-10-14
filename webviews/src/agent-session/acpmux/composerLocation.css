@@ -372,19 +372,20 @@
   background: var(--agent-accent, var(--agent-text));
   color: var(--agent-on-accent, var(--acpmux-base));
 }
-/* Stop is Send's circle at rest (styles.css: the faint disc of an empty draft), never a disc of its
-   own, with a small square in the text color so it reads in light and dark themes; hover and
-   press step the circle as the bar's other controls do. Send and Stop are the bar's 28 px. */
+/* Stop is a solid disc in the text color with a base-colored square: while a turn runs it is the
+   bar's one high-contrast control, so it reads at a glance in light and dark themes (design panel,
+   4-0). It takes Send's 28 px box; hover and press step the disc toward the base, as Send's
+   accent fill does. Focus keeps Send's ring (styles.css), offset clear of the disc. */
 .acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel {
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  color: var(--agent-text);
+  background: var(--agent-text);
+  color: var(--acpmux-base);
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:hover {
-  background: color-mix(in srgb, var(--agent-text) 13%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base));
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
-  background: color-mix(in srgb, var(--agent-text) 17%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
 }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,
