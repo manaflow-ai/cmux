@@ -1,5 +1,5 @@
 import CmuxNextDaemon
-import Foundation
+package import Foundation
 
 /// The daemon's location trail (cx-hnmbt.12): the app reports each step and reads the rows back.
 extension DaemonHistoryClient {
