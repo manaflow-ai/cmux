@@ -100,6 +100,13 @@ public struct CnxColors: Sendable {
         dark: CnxRGBA(hex: "#EBEBF5", alpha: 0.3), light: CnxRGBA(hex: "#3C3C43", alpha: 0.3),
         darkHighContrast: CnxRGBA(hex: "#EBEBF5", alpha: 0.42), lightHighContrast: CnxRGBA(hex: "#3C3C43", alpha: 0.45)
     )
+    /// Small print that must still read (the welcome's legal line): `label2`
+    /// in dark (6.4:1 on black); darker in light, where `label2` is 3.5:1 on
+    /// white and fails WCAG AA. 5.6:1 on white.
+    public var legal = CnxColorToken(
+        dark: CnxRGBA(hex: "#EBEBF5", alpha: 0.6), light: CnxRGBA(hex: "#3C3C43", alpha: 0.78),
+        darkHighContrast: CnxRGBA(hex: "#EBEBF5", alpha: 0.7), lightHighContrast: CnxRGBA(hex: "#3C3C43", alpha: 0.85)
+    )
     public var accent = token("#FFFFFF", "#000000")
     public var onAccent = token("#000000", "#FFFFFF")
     public var success = token("#30D158", "#34C759")

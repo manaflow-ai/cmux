@@ -138,8 +138,11 @@ public struct CnxCapsuleStyle: ButtonStyle {
             .font(theme.type.cta)
             .foregroundStyle(foreground)
             .frame(maxWidth: size.fullWidth ? .infinity : nil)
+            .multilineTextAlignment(.center)
             .padding(.horizontal, theme.metrics.ctaInlinePadding)
-            .frame(height: size.height)
+            // Grows with Dynamic Type instead of clipping its label.
+            .padding(.vertical, size.fullWidth ? 12 : 8)
+            .frame(minHeight: size.height)
             .background(background, in: .capsule)
             .contentShape(.capsule)
             .opacity(pressed ? 0.85 : 1)
