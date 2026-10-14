@@ -68,7 +68,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
         acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+                             acpmux: AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
     /// This build's Chief home's mux home (`ChiefHome`); the engine bar,

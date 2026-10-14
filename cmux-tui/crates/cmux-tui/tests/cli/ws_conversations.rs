@@ -12,16 +12,24 @@ use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 
 use super::*;
 
-const TOKEN: &str = "ws-conversations-test-credential";
+/// Attachments from a browser page over the same WebSocket (`ws-attachments-v1`).
+#[path = "ws_attachments.rs"]
+mod attachments;
 
-struct Ws {
+/// Chiefs from the person's page over the same WebSocket (`chief-profile-ws-v1`).
+#[path = "ws_chief_profiles.rs"]
+mod chief_profiles;
+
+pub(super) const TOKEN: &str = "ws-conversations-test-credential";
+
+pub(super) struct Ws {
     socket: WebSocket<TcpStream>,
     next: u64,
     events: VecDeque<Value>,
 }
 
 impl Ws {
-    fn open(addr: &str) -> Self {
+    pub(super) fn open(addr: &str) -> Self {
         let stream = TcpStream::connect(addr).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
         let (mut socket, _) = tungstenite::client(format!("ws://{addr}/"), stream).unwrap();
@@ -40,7 +48,7 @@ impl Ws {
     }
 
     /// The whole reply, `ok` true or false; events read meanwhile are kept.
-    fn reply(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn reply(&mut self, cmd: &str, params: Value) -> Value {
         let id = self.next;
         self.next += 1;
         let mut body = params.as_object().cloned().unwrap_or_default();
@@ -59,14 +67,14 @@ impl Ws {
         }
     }
 
-    fn request(&mut self, cmd: &str, params: Value) -> Value {
+    pub(super) fn request(&mut self, cmd: &str, params: Value) -> Value {
         let value = self.reply(cmd, params);
         assert_eq!(value["ok"], true, "{cmd} failed over WebSocket: {value}");
         value["data"].clone()
     }
 
     /// The next `conversation-changed` message event.
-    fn message_event(&mut self) -> Value {
+    pub(super) fn message_event(&mut self) -> Value {
         loop {
             let event = self.events.pop_front().unwrap_or_else(|| self.read());
             if event["event"] == "conversation-changed" && event["change"]["kind"] == "message" {
@@ -77,7 +85,7 @@ impl Ws {
 }
 
 /// The address the daemon bound (`--ws` port 0), from its startup log.
-fn ws_addr(server: &HeadlessServer) -> String {
+pub(super) fn ws_addr(server: &HeadlessServer) -> String {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let tail = server.stderr_tail();

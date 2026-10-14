@@ -59,6 +59,9 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// `[A-Za-z0-9._-]`), plus `--<tag>` when the bundle ships a tag its id
     /// does not end in; `unbundled` outside any bundle.
     public let key: String
+    /// The app names this build keeps from before per-build isolation
+    /// (``appSession``); nil: names of its key.
+    let kept: KeptNames?
 
     /// The build of `bundleID` (`CFBundleIdentifier`) with the tag its bundle
     /// ships (`LSEnvironment` `CMUX_TAG`), if any. A suffix after the kind's
@@ -70,6 +73,7 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
             tag = nil
             kind = .unbundled
             key = Self.unbundledKey
+            kept = nil
             return
         }
         // Byte comparisons, as in Rust: `hasPrefix` and `==` on String
@@ -110,6 +114,7 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         self.tag = tag
         self.kind = kind
         self.key = key
+        kept = KeptNames.of(bundleID: bundleID, suffix: suffix, shipped: shipped)
     }
 
     /// The running app: its bundle id and the `CMUX_TAG` its Info.plist
@@ -153,8 +158,12 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// The acpmux home (`ACPMUX_HOME`): `~/.acpmux` for NIGHTLY and a
     /// standalone process, else `~/.acpmux/builds/<key>`.
     public func acpmuxHome(userHome: URL) -> URL {
-        let base = userHome.appendingPathComponent(".acpmux", isDirectory: true)
-        return ownsRoots ? base.appendingPathComponent("builds/\(key)", isDirectory: true) : base
+        acpmuxHome(root: userHome.appendingPathComponent(".acpmux", isDirectory: true))
+    }
+
+    /// ``acpmuxHome(userHome:)`` with `root` standing for `~/.acpmux` (a test root).
+    public func acpmuxHome(root: URL) -> URL {
+        ownsRoots ? root.appendingPathComponent("builds/\(key)", isDirectory: true) : root
     }
 
     /// This build's directory under `~/Library/Application Support/cmux`

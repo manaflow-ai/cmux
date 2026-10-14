@@ -26,13 +26,12 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 6] = [
+const PASSTHROUGH: [&str; 5] = [
     "CMUX_SOCKET_PATH",
     crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
-    "CMUX_MCP_COMMAND",
 ];
 
 /// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
@@ -233,9 +232,18 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top,
-/// loaded with the turn (no ToolSearch, `session_dir::TURN_SETTINGS_ENV`).
-pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
+/// Claude Code adds is not offered). On top, the Chief's own MCP tools load
+/// with the turn and the cmux MCP tools wait behind ToolSearch
+/// (`session_dir::TURN_SETTINGS_ENV`).
+pub const TURN_TOOLS: [&str; 7] = [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "WebFetch",
+    "WebSearch",
+    "ToolSearch",
+];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
@@ -518,8 +526,11 @@ fn start(
     let pinned = crate::cmux_env::pinned_subset(&session_env);
     // Each turn reads the person's Home workspace with the CLI the turns use (home_view).
     let home_view = crate::home_view::HomeView {
-        cli: crate::cmux_env::bundled_bin(&exe)
-            .map_or_else(|| std::path::PathBuf::from("cmux"), |bin| bin.join("cmux")),
+        cli: crate::home_view::HomeView::cli_for(
+            pinned
+                .get(crate::cmux_env::BUNDLED_CLI_KEY)
+                .map(std::path::Path::new),
+        ),
         env: pinned.clone(),
     };
     // One setting picks the harness of turns and compactor alike.
@@ -716,8 +727,8 @@ fn start(
     };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
-    // directory; acpmux gives any other harness no MCP server, so its memory
-    // tools are the launcher's commands.
+    // directory; acpmux gives no other harness the optchat server (only its
+    // own agent tools), so its memory tools are the launcher's commands.
     let tools = if claude {
         crate::prompt::Tools::Mcp
     } else {
@@ -725,7 +736,6 @@ fn start(
     };
     let setup = SessionSetup {
         exe: exe.display().to_string(),
-        cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
         tools,

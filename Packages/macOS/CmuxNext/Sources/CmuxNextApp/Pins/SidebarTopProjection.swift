@@ -27,9 +27,9 @@ enum SidebarTopProjection: Equatable {
         switch self {
         case .legacy:
             let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-            return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
+            return SidebarRowSection.pinnedFirst(filtered, pinned: pinned)
         case .layout(let hidden):
-            return SidebarMembership.hiding(filtered, workspaces: hidden)
+            return SidebarRowSection.hiding(filtered, workspaces: hidden)
         }
     }
 }

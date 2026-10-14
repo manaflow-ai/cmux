@@ -156,7 +156,7 @@ final class WorkspaceHoverCardView: NSView {
     static var minCardWidth: CGFloat { 180 }
     private static var iconSize: CGFloat { 13 }
     /// The body font with digits of one width, for lines whose running time ticks.
-    private static var liveFont: NSFont { NSFont.monospacedDigitSystemFont(ofSize: Typography.body.pointSize, weight: .regular) }
+    private static var liveFont: NSFont { Typography.system(.monospacedDigit, size: Typography.body.pointSize, weight: .regular) }
 
     /// When the card's running times next change their text: every second under an hour, then
     /// every minute ("1h 3m"); nil when nothing runs.
@@ -364,7 +364,7 @@ final class WorkspaceHoverCardView: NSView {
         if let symbol = NSImage(systemSymbolName: mark, accessibilityDescription: nil) { return symbol }
         guard !mark.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         return NSImage(size: size, flipped: false) { rect in
-            (mark as NSString).draw(in: rect, withAttributes: [.font: NSFont.systemFont(ofSize: rect.height * 0.8)])
+            (mark as NSString).draw(in: rect, withAttributes: [.font: Typography.system(size: rect.height * 0.8)])
             return true
         }
     }
