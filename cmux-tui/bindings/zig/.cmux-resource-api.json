@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "0218d7cb3429e0aeb9093ada4184d045f5c97fb4a13afd506f31c11f61d8615a",
+  "catalog_sha256": "7f4f7c579399204c2901aa935d0c01aafcfe7419088e4686ad2f933b36793c06",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -14,6 +14,9 @@
       "class": "mutation"
     },
     "agent.message.send": {
+      "class": "mutation"
+    },
+    "agent.message.unsend": {
       "class": "mutation"
     },
     "agent.report": {

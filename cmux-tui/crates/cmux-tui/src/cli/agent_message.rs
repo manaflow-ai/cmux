@@ -2,8 +2,9 @@
 //!
 //! A message is stored by the daemon first (`agent.message.send`), so it
 //! survives a restart. Then the CLI delivers it to every acpmux recipient as
-//! a prompt whose id is the message id; acpmux runs a prompt id once, so a
-//! retry never delivers twice. A terminal agent takes its messages from the
+//! a prompt whose id is the message id, as the daemon's delivery pump does
+//! (the same prompt, `agent_message_prompt.rs`); acpmux runs a prompt id
+//! once, so a retry, or both, never deliver twice. A terminal agent takes its messages from the
 //! daemon through its hooks. Messages reach agents as their own input or
 //! context, never as keystrokes typed into a terminal.
 
@@ -557,7 +558,8 @@ fn deliver_queued(
         let id = message["id"].as_str().unwrap_or_default().to_owned();
         let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
         let mut fields = json!({"ids": [id], "recipient": recipient, "via": "acp.prompt"});
-        match deliver(&text, &id, provenance(&message, recipient).as_ref()) {
+        let provenance = cmux_tui_core::agent_message_prompt::provenance(&message, recipient);
+        match deliver(&text, &id, provenance.as_ref()) {
             Ok(()) => fields["state"] = json!("delivered"),
             Err(error) => {
                 sent.problems.push(format!(
@@ -570,42 +572,6 @@ fn deliver_queued(
         }
         record_mark(mark(fields), recipient, &id, sent);
     }
-}
-
-/// Who sent `message`, for its prompt's `_meta.acpmux.provenance` (acpmux
-/// `prompt_provenance.rs`): the receiving chat shows it as that agent's
-/// message. `None` when a required field would not pass acpmux's check, so
-/// the message still goes out, as plain text; a name that would not pass is
-/// left out.
-fn provenance(message: &Value, recipient: &str) -> Option<Value> {
-    let fits =
-        |value: &&str| !value.trim().is_empty() && value.len() <= 256 && !value.contains(unshown);
-    let field = |key: &str| message[key].as_str().filter(fits);
-    let mut provenance = json!({
-        "kind": "agent_message",
-        "from": field("sender")?,
-        "to": Some(recipient).filter(fits)?,
-        "msgId": field("id")?,
-        "threadId": field("thread_id")?,
-    });
-    if let Some(name) = field("sender_name").filter(|name| name.chars().count() <= 64) {
-        provenance["fromName"] = json!(name);
-    }
-    if let Some(parent) = field("in_reply_to") {
-        provenance["replyTo"] = json!(parent);
-    }
-    Some(provenance)
-}
-
-/// What acpmux refuses in a provenance field: a control, a line or paragraph
-/// separator, or a bidi or zero-width format mark.
-fn unshown(c: char) -> bool {
-    c.is_control()
-        || (c.is_whitespace() && c != ' ')
-        || matches!(
-            c,
-            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
-        )
 }
 
 fn failure_text(failure: &Failure) -> String {
