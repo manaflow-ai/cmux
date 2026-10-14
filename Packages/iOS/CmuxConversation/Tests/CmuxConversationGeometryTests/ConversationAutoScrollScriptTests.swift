@@ -67,3 +67,53 @@ import Testing
         #expect(step.progress(at: 2).finished)
     }
 }
+
+/// The driver moves the transcript as a finger or a deceleration does: by
+/// each frame's delta from where the content is now.
+@Suite struct ConversationAutoScrollMotionTests {
+    @Test func movesByEachFramesDelta() {
+        var motion = ConversationAutoScrollMotion(startOffset: 1000)
+        #expect(motion.frame(distance: 40, currentOffsetY: 1000, top: -100, bottom: 2000).offsetY == 960)
+        #expect(motion.frame(distance: 100, currentOffsetY: 960, top: -100, bottom: 2000).offsetY == 900)
+    }
+
+    /// An older page lands above and the anchor restore shifts the offset
+    /// down by the page's height: the next frame carries on from the
+    /// restored offset rather than writing the stale coordinate back (which
+    /// swapped the rows on screen and landed page after page).
+    @Test func carriesOnFromAnAnchorRestore() {
+        var motion = ConversationAutoScrollMotion(startOffset: 1000)
+        _ = motion.frame(distance: 100, currentOffsetY: 1000, top: -100, bottom: 9000)
+        // A 6000-pt page lands: the restore moves 900 to 6900.
+        let next = motion.frame(distance: 130, currentOffsetY: 6900, top: -100, bottom: 9000)
+        #expect(next.offsetY == 6870)
+        #expect(!next.reachedEdge)
+    }
+
+    /// A content change between frames that the reader did not cause (a
+    /// row's height settling) is kept too.
+    @Test func keepsAnOffsetWrittenBetweenFrames() {
+        var motion = ConversationAutoScrollMotion(startOffset: 500)
+        _ = motion.frame(distance: 10, currentOffsetY: 500, top: 0, bottom: 2000)
+        #expect(motion.frame(distance: 10, currentOffsetY: 520, top: 0, bottom: 2000).offsetY == 520)
+    }
+
+    /// The motion stops at either end of the content and says so.
+    @Test func stopsAtTheEdges() {
+        var up = ConversationAutoScrollMotion(startOffset: 50)
+        let top = up.frame(distance: 80, currentOffsetY: 50, top: 0, bottom: 2000)
+        #expect(top.offsetY == 0)
+        #expect(top.reachedEdge)
+        var down = ConversationAutoScrollMotion(startOffset: 1950)
+        let bottom = down.frame(distance: -80, currentOffsetY: 1950, top: 0, bottom: 2000)
+        #expect(bottom.offsetY == 2000)
+        #expect(bottom.reachedEdge)
+    }
+
+    /// No delta, no movement and no edge, even when resting on an edge.
+    @Test func restingOnAnEdgeIsNotReachingIt() {
+        var motion = ConversationAutoScrollMotion(startOffset: 2000)
+        let frame = motion.frame(distance: 0, currentOffsetY: 2000, top: 0, bottom: 2000)
+        #expect(frame == .init(offsetY: 2000, reachedEdge: false))
+    }
+}

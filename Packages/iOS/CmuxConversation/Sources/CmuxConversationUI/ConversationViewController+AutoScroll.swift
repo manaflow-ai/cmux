@@ -21,7 +21,7 @@ final class ConversationAutoScrollDriver {
     private var link: CADisplayLink?
     private var index = 0
     private var stepStart: CFTimeInterval = 0
-    private var startOffset: CGFloat = 0
+    private var motion = ConversationAutoScrollMotion(startOffset: 0)
     private var interval: OSSignpostIntervalState?
     private let signposter = OSSignposter(subsystem: "com.cmux.conversation", category: "AutoScroll")
 
@@ -60,15 +60,17 @@ final class ConversationAutoScrollDriver {
         let step = script.steps[index]
         let progress = step.progress(at: link.timestamp - stepStart)
         if case .hold = step {} else {
-            let inset = scrollView.adjustedContentInset
-            let top = -inset.top
-            let bottom = controller.bottomOffset.y
-            let y = min(bottom, max(top, startOffset - progress.distance))
-            scrollView.contentOffset.y = y
+            let frame = motion.frame(
+                distance: progress.distance,
+                currentOffsetY: scrollView.contentOffset.y,
+                top: -scrollView.adjustedContentInset.top,
+                bottom: controller.bottomOffset.y
+            )
+            scrollView.contentOffset.y = frame.offsetY
             // A finger's drag updates the pin as it moves (isTracking or
             // isDecelerating in scrollViewDidScroll); the driver has neither.
             controller.isPinnedToBottom = controller.isNearBottom(tolerance: 44)
-            if y == top || y == bottom, case .flick = step, progress.distance != 0 {
+            if frame.reachedEdge, case .flick = step {
                 return finish(step: step, at: link.timestamp, in: controller, scrollView: scrollView)
             }
         }
@@ -92,7 +94,7 @@ final class ConversationAutoScrollDriver {
         endInterval()
         index = next
         stepStart = time
-        startOffset = scrollView.contentOffset.y
+        motion = ConversationAutoScrollMotion(startOffset: scrollView.contentOffset.y)
         guard index < script.steps.count else { return stop() }
         let step = script.steps[index]
         switch step {

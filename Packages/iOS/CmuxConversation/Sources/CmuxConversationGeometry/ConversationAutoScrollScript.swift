@@ -114,3 +114,37 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
         self.steps = Array(repeating: steps, count: repeats).flatMap { $0 }
     }
 }
+
+/// Moves the transcript for one scripted step, frame by frame. A finger and
+/// UIScrollView's deceleration move the content by a delta from wherever it
+/// is now, so an offset written between frames (an older page landing above
+/// restores the reader's anchor, shifting the offset by the page's height)
+/// carries on from there instead of being undone.
+public struct ConversationAutoScrollMotion: Equatable, Sendable {
+    /// The offset when the step began.
+    private var startOffset: CGFloat
+
+    public init(startOffset: CGFloat) {
+        self.startOffset = startOffset
+    }
+
+    public struct Frame: Equatable, Sendable {
+        /// The content offset to show this frame.
+        public var offsetY: CGFloat
+        /// Whether the motion ran into `top` or `bottom` this frame.
+        public var reachedEdge: Bool
+
+        public init(offsetY: CGFloat, reachedEdge: Bool) {
+            self.offsetY = offsetY
+            self.reachedEdge = reachedEdge
+        }
+    }
+
+    /// The offset for this frame, `distance` points into the step (positive
+    /// into history), from the transcript's `currentOffsetY`, kept within
+    /// `top...bottom`.
+    public mutating func frame(distance: CGFloat, currentOffsetY: CGFloat, top: CGFloat, bottom: CGFloat) -> Frame {
+        let y = min(bottom, max(top, startOffset - distance))
+        return Frame(offsetY: y, reachedEdge: distance != 0 && (y == top || y == bottom))
+    }
+}
