@@ -347,6 +347,7 @@ async fn splice(
     let mut bridge = crate::browser_track::TrackBridge::new();
     let epoch = Instant::now();
     let now_us = || u64::try_from(epoch.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let mut last_report_us = 0u64;
     if claim.is_some() {
         tracing::info!("browser: video on the link's media lane");
     }
@@ -460,6 +461,24 @@ async fn splice(
         }
         if let Some(c) = claim.as_ref() {
             let now = now_us();
+            if now.saturating_sub(last_report_us) >= 5_000_000 {
+                last_report_us = now;
+                let state = c.state();
+                tracing::info!(
+                    frames = bridge.frames,
+                    held_acks = bridge.held_acks,
+                    host_datagrams = bridge.datagrams,
+                    target_kbps = state.target_bps / 1000,
+                    in_flight = state.in_flight_bytes,
+                    congested = state.congested,
+                    feedback_delay_ms = state.feedback_delay_us / 1000,
+                    loss = state.loss,
+                    packets = state.packets_sent,
+                    nacks = state.nacks_received,
+                    keyframe_requests = state.keyframe_requests,
+                    "browser: media lane"
+                );
+            }
             for frame in bridge.tick(now) {
                 let outgoing = cnx_link::media::OutgoingFrame {
                     access_unit: Bytes::from(frame.body.access_unit),

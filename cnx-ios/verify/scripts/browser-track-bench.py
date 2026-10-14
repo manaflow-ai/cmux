@@ -115,8 +115,22 @@ class Bench:
 
     # ---- phone side --------------------------------------------------------------
     def open_bench(self, j, sim):
-        j.back_to_list()
-        row = sim.wait(prefix="bench", kind="Button", timeout=40)
+        if j is not None:
+            j.back_to_list()
+        else:
+            # Remote Mac: dismiss an "offline" note about a cached Mac, then pick
+            # the remote Mac in the list's Filter (its device id).
+            ok = sim.find(label="OK", kind="Button")
+            if ok:
+                sim.tap_el(ok[0]); time.sleep(0.8)
+            f = sim.wait(ident="workspaces.filter", timeout=15)
+            if f:
+                sim.press(*f.center, hold=0.1)
+                item = sim.wait(ident=f"workspaces.filter.{self.a.mac_device}", timeout=8)
+                if item:
+                    sim.press(*item.center, hold=0.1)
+                    time.sleep(2)
+        row = sim.wait(prefix="bench", kind="Button", timeout=60)
         if not row:
             raise RuntimeError("workspace bench not on the phone")
         sim.tap_el(row)
@@ -134,14 +148,22 @@ class Bench:
         m = re.search(r"loss(\d+)", name)
         drop = int(m.group(1)) if m else 0
         self.log(f"=== {name}: carrier {carrier}, relay only {relay}, drop {drop}/1000")
-        if self.mac_env(mac, drop) or not mac.main_pids():
-            mac.quit()
-            mac.launch()
-            mac.wait_hostd(120)
-            time.sleep(3)
-        env = self.hostd_env(mac)
         args = ["-cnx.dev.relayOnly", "YES" if relay else "NO",
                 "-cnx.dev.browserVideoOnChannel", "YES" if carrier == "channel" else "NO"]
+        if self.a.remote:
+            # The Mac app runs on a fleet Mac (browser-track-mac.sh); hostd reads the
+            # drop share from its state folder at each new link.
+            subprocess.run(["ssh", self.a.remote, f"echo {drop} > \"$HOME/Library/Application Support/{self.a.remote_bundle}/cnx-host/video-drop-permille\""],
+                           check=True, timeout=60)
+            env = {"CNX_VIDEO_DROP_PERMILLE(file)": str(drop)}
+            args += [f"-cnx.live.mac.{self.a.team}", self.a.mac_device, "-cnx-tab", "workspaces"]
+        else:
+            if self.mac_env(mac, drop) or not mac.main_pids():
+                mac.quit()
+                mac.launch()
+                mac.wait_hostd(120)
+                time.sleep(3)
+            env = self.hostd_env(mac)
         sim.launch(BUNDLE, args=args)
         time.sleep(4)
         shown = self.open_bench(j, sim)
@@ -151,7 +173,7 @@ class Bench:
                 and not re.search(rf"\b{carrier}\b", shown):
             time.sleep(1)
             shown = " ".join(o[4] for o in sim.ocr())
-        status = j.link_status() if hasattr(j, "link_status") else ""
+        status = j.link_status() if j is not None else ""
         cfg_dir = os.path.join(out, name)
         os.makedirs(cfg_dir, exist_ok=True)
         video = os.path.join(cfg_dir, "screen.mp4")
@@ -170,6 +192,9 @@ class Bench:
         result = {"config": name, "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
                   "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot}
+        json.dump(result, open(os.path.join(cfg_dir, "capture.json"), "w"), indent=2)
+        if self.a.record_only:
+            return result
         result.update(self.analyze(video, cfg_dir, rec_t0, taps))
         json.dump(result, open(os.path.join(cfg_dir, "result.json"), "w"), indent=2)
         self.log(f"    {name}: {json.dumps({k: result.get(k) for k in ('carrier_seen', 'g2g_ms', 'pacing', 'input_to_frame_ms', 'mac_input_to_frame_ms')})}")
@@ -204,7 +229,7 @@ class Bench:
                 if re.search(rf"\b{c}\b", text):
                     carriers[c] = carriers.get(c, 0) + 1
             if mac and phone:
-                d = wrap(ms_of(phone) - ms_of(mac))
+                d = wrap(ms_of(phone) - ms_of(mac) - self.a.offset_ms)
                 if -50 < d < 5000 and t <= self.a.seconds:
                     g2g.append(d)
             tap = re.search(r"taps\s+(\d+)\s+at\s+" + CLOCK, text)
@@ -228,6 +253,7 @@ class Bench:
                 if 0 < d < 5000:
                     inputs.append(d)
                 if mac_ms is not None:
+                    mac_ms = (mac_ms - self.a.offset_ms) % 3_600_000
                     v = wrap(phone_ms - mac_ms)
                     if 0 < v < 5000:
                         mac_inputs.append(v)
@@ -242,18 +268,59 @@ class Bench:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mac-app", required=True)
+    ap.add_argument("--mac-app")
     ap.add_argument("--configs", default="track,channel,track-relay,channel-relay,track-loss30")
     ap.add_argument("--seconds", type=float, default=12)
     ap.add_argument("--taps", type=int, default=10)
     ap.add_argument("--sim-name", default="cnx-rbvideo-bench")
     ap.add_argument("--no-build", action="store_true")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--skip-setup", action="store_true", help="the phone is signed in and the bench tab exists (a --keep run)")
+    ap.add_argument("--record-only", action="store_true", help="record now, analyze later with --analyze")
+    ap.add_argument("--out", help="evidence directory (default: a new one)")
+    ap.add_argument("--analyze", help="analyze every configuration recorded in this directory")
+    ap.add_argument("--remote", help="ssh host whose GUI session runs the Mac app (browser-track-mac.sh)")
+    ap.add_argument("--team", help="remote mode: the phone's team id (personal-...)")
+    ap.add_argument("--mac-device", help="remote mode: the Mac's cnx-hostd device id")
+    ap.add_argument("--remote-bundle", default="com.cmuxterm.app.debug.cnx.rbvideo.b")
+    ap.add_argument("--offset-ms", type=float, default=0.0, help="Mac clock minus this Mac's clock (clock-offset.py)")
     a = ap.parse_args()
+    if a.remote:
+        out = a.out or os.path.join(CNX, "verify/evidence", datetime.date.today().isoformat(), "browser-video-track",
+                                    datetime.datetime.now().strftime("%H%M%S"))
+        os.makedirs(out, exist_ok=True)
+        udid = e2e.ensure_sim(a.sim_name, e2e.RUNTIMES["26"], print)
+        sim = Sim(udid, os.path.join(out, "shots"))
+        bench = Bench(a, print)
+        results = []
+        for name in a.configs.split(","):
+            try:
+                results.append(bench.run_config(name, None, sim, None, out))
+            except Exception as e:
+                print(f"    {name} FAILED: {e}")
+                results.append({"config": name, "error": str(e)[:400]})
+        json.dump(results, open(os.path.join(out, f"run-{datetime.datetime.now().strftime('%H%M%S')}.json"), "w"), indent=2)
+        return
+    if a.analyze:
+        bench = Bench(a, print)
+        results = []
+        for name in sorted(os.listdir(a.analyze)):
+            cap = os.path.join(a.analyze, name, "capture.json")
+            if not os.path.exists(cap):
+                continue
+            result = json.load(open(cap))
+            result.update(bench.analyze(os.path.join(a.analyze, name, "screen.mp4"), os.path.join(a.analyze, name),
+                                        result["recording_started_host"], result["taps_host"]))
+            json.dump(result, open(os.path.join(a.analyze, name, "result.json"), "w"), indent=2)
+            print(json.dumps({k: result.get(k) for k in ("config", "carrier_seen", "g2g_ms", "pacing", "input_to_frame_ms",
+                                                         "mac_input_to_frame_ms", "tap_to_mac_ms")}))
+            results.append(result)
+        json.dump(results, open(os.path.join(a.analyze, "results.json"), "w"), indent=2)
+        return
     mac_app = os.path.abspath(a.mac_app)
     refuse_other_rigs(pb(os.path.join(mac_app, "Contents/Info.plist"), "Print :CFBundleIdentifier"))
-    out = os.path.join(CNX, "verify/evidence", datetime.date.today().isoformat(), "browser-video-track",
-                       datetime.datetime.now().strftime("%H%M%S"))
+    out = a.out or os.path.join(CNX, "verify/evidence", datetime.date.today().isoformat(), "browser-video-track",
+                                datetime.datetime.now().strftime("%H%M%S"))
     os.makedirs(out, exist_ok=True)
     logf = open(os.path.join(out, "run.log"), "a")
 
@@ -264,8 +331,10 @@ def main():
 
     app_path = os.path.join(CNX, "build/dd/Build/Products/Demo-iphonesimulator/CnxApp.app") if a.no_build else e2e.build_ios(log, "Demo")
     rig = os.path.expanduser(f"~/cnx-ios-e2e/{os.path.basename(mac_app)[len('cmux DEV '):-4]}")
-    mac = Mac(rig, mac_app).prepare()
-    mac.seed_pairing(names=[a.sim_name])
+    mac = Mac(rig, mac_app)
+    if not a.skip_setup:
+        mac.prepare()
+        mac.seed_pairing(names=[a.sim_name])
     page_dir = os.path.join(HERE, "bench-page")
     server = subprocess.Popen([sys.executable, "-m", "http.server", str(PORT), "--bind", "127.0.0.1"], cwd=page_dir,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -277,6 +346,19 @@ def main():
         mac.launch()
         log(f"Mac app up (pid {mac.pid}); cnx-hostd {'running' if mac.wait_hostd(120) else 'NOT running'}")
         j = Journey(sim, mac, out, app_path, log)
+        if a.skip_setup:
+            j.ws_name = "bench"
+        for name in ([] if a.skip_setup else a.configs.split(",")[:0]):
+            pass
+        if a.skip_setup:
+            bench = Bench(a, log)
+            for name in a.configs.split(","):
+                try:
+                    results.append(bench.run_config(name, mac, sim, j, out))
+                except Exception as e:
+                    log(f"    {name} FAILED: {e}")
+                    results.append({"config": name, "error": str(e)[:400]})
+            return
         j.seed_mac()
         ws = mac.cmux("workspace", "create", "--name", "bench", json_out=True)["value"]
         url = f"http://127.0.0.1:{PORT}/bench.html?scroll=6"
@@ -296,7 +378,8 @@ def main():
                 log(f"    {name} FAILED: {e}")
                 results.append({"config": name, "error": str(e)[:400]})
     finally:
-        json.dump({"mac_app": os.path.basename(mac_app), "results": results}, open(os.path.join(out, "results.json"), "w"), indent=2)
+        json.dump({"mac_app": os.path.basename(mac_app), "results": results},
+                  open(os.path.join(out, f"run-{datetime.datetime.now().strftime('%H%M%S')}.json"), "w"), indent=2)
         server.terminate()
         if not a.keep:
             log(f"quitting the rig Mac app: {mac.quit()}")

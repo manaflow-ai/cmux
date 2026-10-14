@@ -53,6 +53,8 @@ pub struct TrackBridge {
     last_feedback_us: u64,
     pub frames: u64,
     pub held_acks: u64,
+    /// Host datagrams the bridge took.
+    pub datagrams: u64,
 }
 
 impl Default for TrackBridge {
@@ -74,6 +76,7 @@ impl TrackBridge {
             last_feedback_us: 0,
             frames: 0,
             held_acks: 0,
+            datagrams: 0,
         }
     }
 
@@ -94,6 +97,7 @@ impl TrackBridge {
         target_bps: u64,
         now_us: u64,
     ) -> Vec<CompleteFrame> {
+        self.datagrams += 1;
         let now = now_us as f64;
         self.queue_free_us = self.queue_free_us.max(now) + size as f64 * 8e6 / target_bps.max(1) as f64;
         if self.arrivals.len() >= 8 * MAX_ARRIVALS {

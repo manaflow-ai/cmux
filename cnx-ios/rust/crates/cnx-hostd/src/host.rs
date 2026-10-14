@@ -280,6 +280,22 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
     }
 }
 
+/// Measurement support: drop this many of every 1000 outgoing video RTP
+/// packets (below the NACK responder, as a lossy path would), from
+/// `CNX_VIDEO_DROP_PERMILLE` or the file `$CNX_STATE_DIR/video-drop-permille`
+/// (the app starts hostd with its own environment; the file applies to the
+/// next link without a restart).
+fn video_drop_permille() -> u32 {
+    let from_file = std::env::var_os("CNX_STATE_DIR")
+        .and_then(|dir| std::fs::read_to_string(std::path::Path::new(&dir).join("video-drop-permille")).ok());
+    std::env::var("CNX_VIDEO_DROP_PERMILLE")
+        .ok()
+        .or(from_file)
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(0)
+        .min(500)
+}
+
 /// v1 admission (PROTOCOL.md): the dialing phone belongs to the Mac's own
 /// Stack user, as stamped by the backend in `fromUserId`. Missing means deny.
 pub fn admitted(envelope: &SignalEnvelope, owner_user_id: &str) -> bool {
@@ -310,10 +326,7 @@ async fn answer_session(
         // Browser video as a WebRTC track (CNX_VIDEO_LANE=0 turns it off;
         // CNX_VIDEO_DROP_PERMILLE simulates a lossy path).
         video_lane: std::env::var("CNX_VIDEO_LANE").map_or(true, |v| v != "0"),
-        video_drop_permille: std::env::var("CNX_VIDEO_DROP_PERMILLE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0),
+        video_drop_permille: video_drop_permille(),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {

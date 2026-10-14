@@ -180,3 +180,91 @@ async fn browser_stream_over_wireguard_with_the_lane_offered_falls_back_to_the_c
 async fn browser_stream_over_wireguard() {
     stream_over(Transport::WireGuard, false).await;
 }
+
+/// The real CEF browser host (`CNX_RB_HOST_EXE`, e.g. a DEV app's
+/// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
+/// the WebRTC video track, with a page from `CNX_RB_URL`. Measurement support,
+/// not part of the suite: `cargo test -p cnx-ffi --test browser real_host -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs a real browser host"]
+async fn real_host_over_the_track() {
+    let Ok(exe) = std::env::var("CNX_RB_HOST_EXE") else { return };
+    let url = std::env::var("CNX_RB_URL").unwrap_or_else(|_| "about:blank".into());
+    let video_lane = std::env::var("CNX_RB_CHANNEL").is_err();
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let sockets = tempfile::tempdir().unwrap();
+    let services = ServiceConfig {
+        tui_socket_dir: sockets.path().to_path_buf(),
+        default_session: "main".into(),
+        default_socket: None,
+        file_roots: Vec::new(),
+        acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+        browser: cnx_hostd::browser::BrowserConfig::process(
+            exe.into(),
+            std::env::var("CNX_RB_CACHE").map_or_else(|_| sockets.path().join("rb"), Into::into),
+            2,
+        ),
+        chief_socket: None,
+        agent_tab_host: None,
+        uploads_dir: sockets.path().join("uploads"),
+        upload_max_bytes: 1024 * 1024,
+        pairing: None,
+    };
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(serve_signaling(
+        mac,
+        AnswerContext {
+            owner_user_id: "alice".into(),
+            services: Arc::new(services),
+            ice: IceSource::Fixed(Vec::new()),
+            include_loopback: true,
+            exclude_cgnat: false,
+        },
+    ));
+    let handle = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WebRtc,
+            include_loopback: true,
+            relay_only: false,
+            video_lane,
+        },
+        None,
+    )
+    .await
+    .expect("connect");
+    let recorder = Arc::new(Recorder::default());
+    let stream = handle
+        .open_browser(serde_json::json!({"tab": "real", "url": url}).to_string(), recorder.clone())
+        .await
+        .unwrap();
+    recorder.until("welcome", |r| r.messages.lock().unwrap().iter().any(|m| m["t"] == "welcome")).await;
+    stream
+        .send_message(
+            serde_json::json!({"t": "rb.open", "tab": "real", "profile": "default", "viewer": "phone",
+                "screen": {"css_width": 402, "css_height": 722, "scale": 2.0, "refresh_hz": 60, "color_space": "srgb"},
+                "caps": {"codecs": ["h264"], "tile_codecs": [], "max_fps": 60}})
+            .to_string(),
+        )
+        .unwrap();
+    for second in 0..8 {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let frames = recorder.frames.lock().unwrap();
+        let keyframes = frames.iter().filter(|f| f.keyframe).count();
+        let first = frames.first().map(|f| f.access_unit.iter().take(12).copied().collect::<Vec<_>>());
+        println!(
+            "t={second}s frames={} keyframes={keyframes} stats={:?} first={first:?}",
+            frames.len(),
+            stream.stats()
+        );
+    }
+    let msgs: Vec<String> = recorder.messages.lock().unwrap().iter().map(|m| m["t"].to_string()).collect();
+    println!("messages: {msgs:?}");
+    assert!(recorder.frames.lock().unwrap().len() > 30);
+    stream.close();
+}

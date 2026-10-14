@@ -271,6 +271,66 @@ The seam is in place for any of the three, and
 - Phone, Settings → Transport → Developer → "Browser video on channel"
   (`-cnx.dev.browserVideoOnChannel YES`) is the baseline with no lane.
 
-## Live results
+## Live verification (2026-10-14): blocked by the Mac's browser host
 
-See "Live verification" below.
+The comparison did not run. The tools are ready, but the browser host
+produced no video on either machine, on either carrier.
+
+### What ran
+
+- Mac: the fleet DEV build `cnx-e2e-1bd377aa` (job `da84189e`), which is
+  `feat-cnx-ios-mactry` `fe736b45` with this branch's `cnx-ios/rust`. The
+  linux-pool fleet route does not bundle `cnx-hostd`, so this branch's
+  `cnx-hostd`, built locally, was placed in `Contents/Resources/bin`.
+- Phone: the Demo build of this branch, in one simulator.
+
+### What worked
+
+- The E2E rig signed in, paired with the DEBUG seed and connected over
+  WebRTC direct.
+- hostd logged `link up ... video=true`, so the lane was negotiated live
+  through the TeamHub signaling.
+- The `browser` channel opened, and hostd logged `browser: video on the
+  link's media lane`.
+
+### What failed
+
+The app-launched `cmux-remote-browser-host` sent no media datagrams. hostd's
+5-second report stayed at `host_datagrams=0 frames=0`, and the phone showed
+0 fps. It is the host, not the track:
+
+- **Rig on this Mac** (macOS 27.0.1): the `track` configuration showed
+  0 fps.
+- **mini-cmuxs-mac-mini-2 GUI session** (macOS 27.0.1, as in
+  browser-stream.md): `track` again gave `host_datagrams=0`.
+- **Offline harness** (`cnx-ffi/tests/browser.rs real_host_over_the_track`,
+  ignored, `CNX_RB_HOST_EXE`): hostd started the host binary itself. Both
+  this build's host and the 2026-10-13 known-good `cnx-br-2` host (job
+  `8c3a903d`) gave 0 frames, on the track and on the channel
+  (`CNX_RB_CHANNEL=1`). The host answered `welcome`, `started`,
+  `rb.opened`, `rb.screen_applied` and `rb.page`, but sent no frame and no
+  clock pong.
+
+Every host log shows `CVDisplayLinkCreateWithCGDisplay failed. CVReturn:
+-6670`. The likely cause is the 27.0.1 update, which postdates the
+2026-10-13 run. That is unconfirmed, and it is outside cnx-ios.
+
+The mini also ran out of disk (100%, under 2 GB free), so the known-good app
+could not be installed there.
+
+### Ready to rerun once the host streams again
+
+- `verify/scripts/browser-track-bench.py`:
+  - rig mode, or `--remote HOST --team --mac-device --offset-ms` with
+    `verify/scripts/browser-track-mac.sh` on a fleet Mac;
+  - configurations `track`, `channel`, `track-relay`, `channel-relay` and
+    `track-loss30`;
+  - `--record-only`, then `--analyze DIR`.
+- It measures:
+  - glass to glass, by OCR of the page clock against the phone overlay's
+    clock in each recorded frame;
+  - frame pacing, from page-area changes per video frame;
+  - input to frame, split at the page's own receipt time;
+  - the carrier, from the overlay's `· track` or `· channel`.
+- Loss: hostd reads `$CNX_STATE_DIR/video-drop-permille` at each new link.
+  The app passes no other environment to hostd.
