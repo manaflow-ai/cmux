@@ -113,6 +113,15 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
+    override var debugIcon: String? {
+        switch iconKind {
+        case nil: nil
+        case .symbol?: "symbol"
+        case .swatch?: "swatch"
+        case .emoji?: "emoji"
+        case .favicon?: "favicon"
+        }
+    }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }

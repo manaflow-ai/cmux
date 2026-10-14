@@ -25,6 +25,8 @@ final class SidebarTabRowView: SidebarRowView {
         [icon, title].forEach(addSubview)
     }
 
+    override var debugIcon: String? { icon.isHidden ? nil : "favicon" }
+
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         unread = false
