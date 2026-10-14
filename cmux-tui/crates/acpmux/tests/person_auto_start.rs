@@ -175,6 +175,7 @@ impl Daemon {
                     "fake": {"argv": ["python3", FAKE]},
                     "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
                     "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
+                    "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
                     "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
                 },
                 "defaultHarness": "fake",
@@ -628,4 +629,50 @@ async fn auto_start_an_approved_preset_with_request_overrides_needs_the_person()
     // Its own folder is fine.
     let s = cli.ok("session/new", new_params(&d, json!({"preset": "lane"}))).await;
     assert_eq!(current_mode(&s), "bypass", "{s}");
+}
+
+/// An approved preset's start counts only the contents its own harness was
+/// spawned with. Another request on the session while that harness starts
+/// (after any client edited the preset) spawns nothing and records nothing,
+/// so the start, which spawned the approved contents, keeps its mode.
+#[tokio::test]
+async fn auto_start_a_request_during_the_start_never_rebinds_the_approval() {
+    let d = Daemon::start("race");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    let mut cli = Rpc::plain(&d.socket).await;
+    app.ok(
+        "_acpmux/presets",
+        json!({"name": "lane", "set": {"harness": "gated", "mode": "bypass"}, "approveMode": true}),
+    )
+    .await;
+    // The harness waits at its gate, so the start holds the session's spawn.
+    let mut starter = Rpc::plain(&d.socket).await;
+    let rid = starter
+        .send("session/new", new_params(&d, json!({"preset": "lane", "name": "racing"})))
+        .await;
+    let id = loop {
+        let list = cli.ok("_acpmux/sessions", json!({})).await;
+        let found = list["sessions"]
+            .as_array()
+            .and_then(|a| a.iter().find(|s| s["name"] == "racing").map(|s| s["sessionId"].clone()));
+        if let Some(id) = found {
+            break id;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // Meanwhile a client edits the preset and asks the starting session for something.
+    cli.ok("_acpmux/presets", json!({"name": "lane", "set": {"model": "m2"}})).await;
+    let mut other = Rpc::plain(&d.socket).await;
+    other
+        .send(
+            "session/set_config_option",
+            json!({"sessionId": id, "configId": "effort", "value": "high"}),
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    std::fs::write(d.dir.join("gate"), "").unwrap();
+    let s = starter.reply(rid).await;
+    assert!(s.get("error").is_none(), "{s}");
+    assert_eq!(current_mode(&s["result"]), "bypass", "{s}");
 }
