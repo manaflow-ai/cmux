@@ -183,10 +183,10 @@ export default componentEntry<Props>({
       props: { select: "c-media", media: true },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelectorAll(".hc-att-grid img").length === 3);
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster"));
-        // A file row shows its download action on hover.
-        await ctx.hover({ selector: ".hc-att-file" });
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-att-file:hover .hc-att-download"));
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".hc-att-video video")?.getAttribute("poster")));
+        // The message's card shows on hover, above its files.
+        await ctx.hover({ selector: ".lg-main .hc-msg.head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-msg:hover .hc-msg-actions"));
       },
     },
     "attachments-lightbox": {
