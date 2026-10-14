@@ -162,4 +162,34 @@ import Testing
         try await Self.settle()
         #expect(presenter.shown == nil, "hovering the button titled Reload showed \(presenter.shown?.text ?? "")")
     }
+
+    /// AppKit can report a view's visible rect past its bounds (the sidebar's bottom Default item,
+    /// whose area then covered the whole sidebar), so the pointer "entered" a deeper tooltip far
+    /// from it: the sidebar toggle showed "Default", by the window's bottom edge. Only a tooltip
+    /// whose view is under the pointer competes.
+    @Test func aDeeperTooltipAwayFromThePointerDoesNotWin() async throws {
+        let clock = ManualClock()
+        let (window, buttons, presenter) = Self.toolbar(clock: clock)
+        defer {
+            presenter.dismiss()
+            PointerHover.setDebugPointer(nil, in: window)
+            window.orderOut(nil)
+        }
+        let outer = NSView(frame: NSRect(x: 160, y: 0, width: 140, height: 60))
+        let inner = NSView(frame: NSRect(x: 10, y: 5, width: 120, height: 50))
+        let deep = ChromeIconButton(icon: .navPreviousMatch, label: "Default", action: nil, target: nil)
+        deep.frame = NSRect(x: 90, y: 13, width: 24, height: 24)
+        window.contentView?.addSubview(outer)
+        outer.addSubview(inner)
+        inner.addSubview(deep)
+        let back = buttons[0]
+        PointerHover.setDebugPointer(back.convert(NSPoint(x: back.bounds.midX, y: back.bounds.midY), to: nil), in: window)
+        presenter.enter(try Self.tracker(deep))
+        presenter.enter(try Self.tracker(back))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(500))
+        try await Self.settle(until: { presenter.shown != nil })
+        #expect(presenter.shown?.text == "Back", "the pointer over Back showed \(presenter.shown?.text ?? "nothing")")
+    }
 }
+
