@@ -201,7 +201,12 @@ async fn a_page_cursor_holds_its_place_while_chats_move() {
     let mut c = Client(in_tx, out_rx, 0);
     let key = |i: usize| format!("claude-code:{}", session_id(i));
     let keys = |page: &Value| -> Vec<String> {
-        page["chats"].as_array().unwrap().iter().map(|c| c["key"].as_str().unwrap().to_owned()).collect()
+        page["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["key"].as_str().unwrap().to_owned())
+            .collect()
     };
 
     // Newest first: chats 29 to 20.
