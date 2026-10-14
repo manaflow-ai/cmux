@@ -11,9 +11,10 @@ import CmuxNextWakeups
 /// that was skipped shows as one jump.
 ///
 /// `action` (after `trace_`): `start` (`window`, an index into the main windows, default 0; `targets`, any of
-/// `tabs`, `sidebar` and `window`, default all), `stop` (the samples, then idle) or `read`.
+/// `tabs`, `strip`, `sidebar` and `window`, default all but `strip`), `stop` (the samples, then idle) or `read`.
 /// Each sample has `t` (ms since the first tick) and, per target: `tabs` (each tab cell of the
-/// focused pane's strip as `[id, x, width, opacity]`, by x), `sidebar` (`[width, presented
+/// focused pane's strip as `[id, x, width, opacity]`, by x), `strip` (`[strip width, width its
+/// tabs get, selected tab id]`), `sidebar` (`[width, presented
 /// width]` of the sidebar container) and `window` (`[window width, height, focused pane
 /// content width, height]`). `stop` also lists `looping`: animations in the window's own
 /// layer tree that repeat (Reduce Motion should leave none). A run ends by itself after
@@ -79,6 +80,10 @@ final class DebugTraceFrames {
             sample["tabs"] = .array(TabStripDebug.tabFrames(in: strip).map {
                 .array([.string($0.id), Self.number($0.frame.minX), Self.number($0.frame.width), Self.number(Double($0.opacity))])
             })
+        }
+        if targets.contains("strip"), let strip = pane?.view.stripView {
+            let row = TabStripDebug.row(in: strip)
+            sample["strip"] = .array([Self.number(row.width), Self.number(row.viewport), row.selected.map(JSONValue.string) ?? .null])
         }
         if targets.contains("sidebar") {
             let container = controller.sidebar.container

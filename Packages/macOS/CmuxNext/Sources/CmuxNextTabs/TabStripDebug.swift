@@ -21,6 +21,11 @@ public struct TabStripDebug {
         strip.cells.map { (id: $0.key.rawValue, frame: $0.value.frame, opacity: $0.value.layer.opacity) }.sorted { $0.frame.minX < $1.frame.minX }
     }
 
+    /// The strip's width, the width its tabs get and the selected tab (`debug.motion` `trace_start`).
+    public static func row(in strip: TabStripView) -> (width: CGFloat, viewport: CGFloat, selected: String?) {
+        (strip.bounds.width, strip.viewportWidth, strip.model.selectedID?.rawValue)
+    }
+
     /// The image the strip's hover card shows now (nil: placeholder).
     public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
 }

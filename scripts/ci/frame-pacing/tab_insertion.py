@@ -22,7 +22,10 @@ from golden import Driver
 
 COUNTS = (3, 10, 20)
 SCENARIOS = tuple(f"tab_insert_{count}_{kind}" for count in COUNTS for kind in ("cold", "warm"))
-EPS = 0.51  # one rendered half-point pixel, plus trace serialization rounding
+# One rendered pixel, plus trace serialization rounding. Frames snap each edge to the device
+# pixel grid on its own, so a width can step one pixel back while both edges keep moving one way.
+EPS_2X = 0.51
+EPS_1X = 1.01
 
 
 class InsertionDriver(Driver):
@@ -70,7 +73,7 @@ class InsertionDriver(Driver):
                         elif not self.wait_spare():
                             raise RuntimeError("warm case has no ready spare")
                         prior_openings = self.checked("debug.new_tab", {"action": "state"}).get("openings") or []
-                        trace = self.trace(["tabs", "window"], lambda: self.key("t", ["command"]), 1.2)
+                        trace = self.trace(["tabs", "strip", "window"], lambda: self.key("t", ["command"]), 1.2)
                         trace["initial_count"] = count
                         state = self.checked("debug.new_tab", {"action": "state"})
                         openings = state.get("openings") or []
@@ -107,6 +110,9 @@ def judge_trace(trace: dict, count: int, kind: str) -> dict:
         return {"ok": False, "problems": ["not measured: malformed tab frames"]}
     if len(rows) < 12 or len(rows[0]) != count or len(rows[-1]) != count + 1:
         return {"ok": False, "problems": [f"not measured: {trace.get('error', 'missing frames or wrong tab count')}"]}
+    # A 1x display draws whole points: every edge in the trace is a whole number.
+    whole = all(float(value).is_integer() for row in rows for tab in row.values() for value in tab[1:3])
+    eps = EPS_1X if whole else EPS_2X
     old = set(rows[0])
     times = [sample.get("t") for sample in samples]
     if any(not isinstance(t, (int, float)) or not math.isfinite(t) for t in times):
@@ -119,18 +125,18 @@ def judge_trace(trace: dict, count: int, kind: str) -> dict:
         problems.append("an existing tab disappeared")
     widths = [sum(float(tab[2]) for id_, tab in row.items() if id_ not in old) for row in rows]
     final = widths[-1]
-    if final <= EPS:
+    if final <= eps:
         problems.append("no new tab width")
     peak = 0.0
     reverses = False
     for width in widths:
-        reverses |= width < peak - EPS
+        reverses |= width < peak - eps
         peak = max(peak, width)
     if reverses:
         problems.append("new tab width reverses")
-    if max(widths) > final + EPS:
+    if max(widths) > final + eps:
         problems.append(f"new tab overshoots {max(widths) - final:.2f} pt")
-    intermediate = sum(EPS < width < final - EPS for width in widths)
+    intermediate = sum(eps < width < final - eps for width in widths)
     if intermediate < 4:
         problems.append(f"only {intermediate} intermediate grow frames")
     if any(len(set(row) - old) > 1 for row in rows):
@@ -138,36 +144,41 @@ def judge_trace(trace: dict, count: int, kind: str) -> dict:
 
     totals = [sum(float(tab[2]) for tab in row.values()) for row in rows]
     lo, hi = sorted((totals[0], totals[-1]))
-    if any(total < lo - EPS or total > hi + EPS for total in totals):
+    if any(total < lo - eps or total > hi + eps for total in totals):
         problems.append("strip total leaves its endpoint range")
     # An underfull strip consumes its empty space, and an overflowing strip may
     # grow. A compressed strip fills the same width before and after insertion.
-    if abs(totals[-1] - totals[0]) <= EPS and max(totals) - min(totals) > EPS:
+    if abs(totals[-1] - totals[0]) <= eps and max(totals) - min(totals) > eps:
         problems.append("compressed strip total is not constant")
-    visible = [sorted((tab for tab in row.values() if float(tab[2]) > EPS), key=lambda t: t[1]) for row in rows]
+    visible = [sorted((tab for tab in row.values() if float(tab[2]) > eps), key=lambda t: t[1]) for row in rows]
     seam = max((abs(float(b[1]) - float(a[1]) - float(a[2]))
                 for tabs in visible for a, b in zip(tabs, tabs[1:])), default=0)
-    if seam > EPS:
+    if seam > eps:
         problems.append(f"adjacent tab frames separate or overlap by {seam:.2f} pt")
     for id_ in old:
         if any(id_ not in row for row in rows):
             problems.append("an existing tab disappeared mid-animation")
             continue
         neighbor = [float(row[id_][2]) for row in rows]
-        if neighbor[-1] < neighbor[0] - EPS:
+        if neighbor[-1] < neighbor[0] - eps:
             low = neighbor[0]
             reverses = False
             for width in neighbor:
-                reverses |= width > low + EPS
+                reverses |= width > low + eps
                 low = min(low, width)
             if reverses:
                 problems.append("neighbor width reverses")
             # The same interpolation progress must shrink neighbors while the
             # inserted tab grows. Allow one rendered pixel in each cell.
             error = max(abs(width - (neighbor[0] + (neighbor[-1] - neighbor[0]) * inserted / final))
-                        for width, inserted in zip(neighbor, widths)) if final > EPS else 0
-            if error > 2 * EPS:
+                        for width, inserted in zip(neighbor, widths)) if final > eps else 0
+            if error > 2 * eps:
                 problems.append(f"neighbor shrink is out of phase ({error:.2f} pt)")
+    # The pane toolbar's "…" gives the tabs its width back while the selected tab is unknown: a
+    # row that changes width mid-insertion lays every tab out again at once (10 tabs, cx-codh2).
+    viewports = [sample["strip"][1] for sample in samples if sample.get("strip")]
+    if viewports and max(viewports) - min(viewports) > eps:
+        problems.append(f"the tab row changed width during insertion ({min(viewports)}–{max(viewports)} pt)")
     windows = [sample.get("window") for sample in samples if sample.get("window")]
     if windows and any(window != windows[0] for window in windows):
         problems.append("window or pane resized during insertion")
