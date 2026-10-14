@@ -244,6 +244,10 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// True after a top-level prompt has ended and remains set through later
+    /// helper notifications until the next accepted UserPromptSubmit.
+    /// Optional so records written by older builds continue to decode.
+    var turnSettled: Bool? = nil
     /// The hook event that most recently established the persisted lifecycle.
     /// Optional so records written by older builds continue to decode.
     var hookEventName: String? = nil
@@ -1176,6 +1180,11 @@ final class ClaudeHookSessionStore {
                terminalPromptTurnSet(from: record).contains(normalizedTurnId) {
                 return (staleTerminalTurn: true, nested: false)
             }
+            // UserPromptSubmit is the lifecycle boundary that starts a new
+            // parent turn. Clear the settled-turn fence while holding the
+            // store lock so a concurrent helper PreToolUse cannot reopen the
+            // old turn between the prompt and its running update.
+            record.turnSettled = false
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1285,6 +1294,7 @@ final class ClaudeHookSessionStore {
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
             let depthAfterStop = max(0, depthBeforeStop - 1)
             let settlesTurn = depthAfterStop == 0
+            record.turnSettled = settlesTurn
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -32274,12 +32284,7 @@ struct CMUXCLI {
             // the parent session as Running. A new parent turn always passes
             // through UserPromptSubmit first, which replaces this settled
             // lifecycle and clears the guard.
-            let previousHookEvent = mappedSession?.hookEventName?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            let parentTurnAlreadyEnded = mappedSession?.agentLifecycle != .running
-                && (previousHookEvent == "stop"
-                    || ClaudeStopFailure.isStopFailureEvent(mappedSession?.hookEventName))
+            let parentTurnAlreadyEnded = mappedSession?.turnSettled == true
             guard !parentTurnAlreadyEnded else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
                 printClaudeHookAck()
