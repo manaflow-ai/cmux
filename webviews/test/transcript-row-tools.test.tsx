@@ -136,9 +136,7 @@ test("a summary never claims what the command did not do", async () => {
     expect([command, commandSummary(command, t)]).toEqual([command, undefined]);
   // Two different reads stay two; only a repeat of the same step folds.
   expect(commandSummary("cat a.ts && cat b.ts", t)).toBe("Read a.ts and read b.ts");
-  expect(commandSummary("git status | head -20 && tail -n 5 log.txt", t)).toBe(
-    "Checked git status and read log.txt",
-  );
+  expect(commandSummary("git status | head -20 && tail -n 5 log.txt", t)).toBe("Checked git status and read log.txt");
 });
 
 test("a joined summary keeps a file name's case in every language", async () => {
