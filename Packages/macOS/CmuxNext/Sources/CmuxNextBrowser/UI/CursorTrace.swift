@@ -1,12 +1,12 @@
 #if DEBUG
-public import AppKit
+import AppKit
 import ObjectiveC
 
 /// DEBUG only, with `CMUX_NEXT_CURSOR_TRACE=1`: every `NSCursor.set` (with
 /// the pointer and the calling frames) and every pointer event the app
 /// dispatches (with its window and that window's first responder), written to
 /// stderr. It tells which code set the cursor last over the browser toolbar.
-public enum CursorTrace {
+enum CursorTrace {
     nonisolated static let enabled = ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_TRACE"] == "1"
     nonisolated(unsafe) private static var original: IMP?
 
@@ -36,7 +36,7 @@ public enum CursorTrace {
     }
 
     /// One pointer event before the app dispatches it. Reads no tracking area.
-    @MainActor public static func event(_ event: NSEvent) {
+    @MainActor static func event(_ event: NSEvent) {
         guard enabled else { return }
         let kind: String
         switch event.type {

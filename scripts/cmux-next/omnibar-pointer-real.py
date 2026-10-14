@@ -16,11 +16,17 @@ tab and a New Tab page:
   3. Back, Forward and Reload show no tooltip (no visible TooltipPanel); the More button shows one
      (printed, the control);
   4. a real click on the omnibar focuses it, and the I-beam stays over the text area;
-  5. the app answers after every step (it does not crash on pointer moves).
+  5. the app answers after every step (it does not crash on pointer moves);
+  6. a page link under the real pointer shows its hover, and the hover clears when the pointer moves
+     up into the toolbar (the page gets its exit, the toolbar its I-beam);
+  7. a real drag that starts in the page text and ends over the omnibar keeps selecting (the
+     selection reaches the text above the press).
+
+The page is a local test page (link at the top, two lines of text), served here.
 
 Exits 1 when a check fails.
 """
-import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, time
+import argparse, base64, functools, glob, http.server, json, os, plistlib, socket, struct, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -179,6 +185,97 @@ def center(rect, dy=0.0):
     return (x + w / 2, y + h / 2 + dy)
 
 
+PAGE_HTML = """<!doctype html><title>pointer</title>
+<style>body{margin:0;font:18px -apple-system,sans-serif} a{display:block;padding:8px 14px} a:hover{background:#fd0} p{margin:14px}</style>
+<a id=lnk href="#x">TOPLINK hover target</a>
+<p id=t1>TOPLINE alpha beta gamma delta</p>
+<p id=t2>SECOND line epsilon zeta eta theta iota kappa lambda mu</p>
+<div style="height:1600px"></div>
+<script>window.lastMove=null;addEventListener('mousemove',e=>{lastMove=[e.clientX,e.clientY]},true)</script>"""
+
+
+def serve():
+    root = tempfile.mkdtemp(prefix="omnibar-page-")
+    with open(os.path.join(root, "index.html"), "w") as f:
+        f.write(PAGE_HTML)
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
+    handler.log_message = lambda *args: None
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{server.server_address[1]}/index.html"
+
+
+def page_eval(script):
+    reply = call("browser.page.eval", {"script": script})
+    return (reply.get("result") or {}).get("value") if reply.get("ok") else {"error": reply.get("error")}
+
+
+def page_origin(page_point):
+    """The page viewport's origin in window points: a real move into the page, then the page's own
+    record of that move's client point."""
+    page_eval("lastMove=null")
+    move(page_point)
+    got = quiet_wait(lambda: (lambda v: v if isinstance(v, list) else None)(page_eval("lastMove")), 3)
+    return (page_point[0] - got[0], page_point[1] - got[1]) if got else None
+
+
+def element_center(origin, element_id):
+    rect = page_eval(f"(r=>[r.x,r.y,r.width,r.height])(document.getElementById('{element_id}').getBoundingClientRect())")
+    if not isinstance(rect, list):
+        return None
+    return (origin[0] + rect[0] + min(rect[2], 160) / 2, origin[1] + rect[1] + rect[3] / 2)
+
+
+def png_width(b64):
+    data = base64.b64decode(b64[:200] + "=" * (-len(b64[:200]) % 4))
+    return struct.unpack(">I", data[16:20])[0] if data[:8] == b"\x89PNG\r\n\x1a\n" else None
+
+
+def real_drag(start, end):
+    """cua-driver's drag (window-local screenshot pixels; foreground: a background drag is not
+    possible on macOS)."""
+    found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or [])
+             if (w.get("bounds") or {}).get("width", 0) > 600]
+    if not found:
+        return print("cua-driver lists no cmux window", flush=True)
+    window_id = found[0]["window_id"]
+    state = cua("get_window_state", {"pid": app.pid, "window_id": window_id, "include_screenshot": True})
+    width = png_width(state.get("screenshot_png_b64") or "")
+    frame = (main_window() or {}).get("frame") or {}
+    scale = (width / frame["width"]) if width and frame.get("width") else SCALE
+    params = {"pid": app.pid, "window_id": window_id, "from_x": round(start[0] * scale), "from_y": round(start[1] * scale),
+              "to_x": round(end[0] * scale), "to_y": round(end[1] * scale), "delivery_mode": "foreground", "steps": 30,
+              "duration_ms": 900}
+    print("   cua drag", params, json.dumps(cua("drag", params))[:200], flush=True)
+
+
+def page_checks(engine, frames, page):
+    """Hover of a page link and a drag-select that leaves the page into the toolbar."""
+    bar, text = frames["bar"], frames["text"]
+    origin = page_origin(page)
+    print(f"{engine}: page viewport origin in the window {origin}", flush=True)
+    if not origin:
+        return check(False, f"{engine}: the page reports a real pointer move (viewport origin)")
+    link = element_center(origin, "lnk")
+    move(link)
+    check(bool(quiet_wait(lambda: page_eval("lnk.matches(':hover')") is True, 3)),
+          f"{engine}: the page link shows its hover under the real pointer")
+    got = cursor_at(center(text), "iBeam")
+    check(got == "iBeam", f"{engine}: I-beam over the text after the pointer leaves a hovered link (screen shows {got})")
+    check(bool(quiet_wait(lambda: page_eval("lnk.matches(':hover')") is False, 3)),
+          f"{engine}: the link hover clears when the pointer moves up into the toolbar")
+    page_eval("getSelection().removeAllRanges()")
+    second = element_center(origin, "t2")
+    real_drag(second, (text[0] + text[2] / 2, bar[1] + bar[3] / 2))
+    selected = page_eval("getSelection().toString()") or ""
+    print(f"{engine}: selection after the drag: {str(selected)[:120]!r}", flush=True)
+    check(isinstance(selected, str) and "TOPLINE" in selected and "SECOND" in selected,
+          f"{engine}: a drag from the page text up over the omnibar keeps selecting")
+    page_eval("getSelection().removeAllRanges()")
+    click(page)
+    quiet_wait(lambda: not omnibar().get("has_focus"), 3)
+
+
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
@@ -209,8 +306,9 @@ try:
     WINDOW = ((quiet_wait(lambda: (rpc("debug.focus") or {}).get("windows"), 60) or [{}])[0]).get("id")
     activate()
     print("app active:", app_active(), "main window:", (main_window() or {}).get("frame"), flush=True)
+    PAGE_URL = serve()
     for engine in ("chromium", "webkit"):
-        print(f"--- {engine} tab", rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": "https://example.com/"},
+        print(f"--- {engine} tab", rpc("action.run", {"action": f"openBrowser.{engine}", "args": {"url": PAGE_URL},
                                                     "focus": True}), flush=True)
         def laid_out():  # the toolbar laid out at the window's top (not a zero frame at the origin)
             got = (omnibar().get("pointer") or {}).get("frames") or {}
@@ -241,6 +339,8 @@ try:
             got = cursor_at(point, want)
             check(got == want, f"{engine} at rest, page has the keyboard: {want} over {name} (screen shows {got})")
         check(alive(), f"{engine}: the app answers after the pointer moves")
+        page_checks(engine, frames, page)
+        check(alive(), f"{engine}: the app answers after the hover and drag checks")
         # The after-move hook's cost (DEBUG `move_hook`, ArrowCursorView.pointerDidMove past its
         # first check): a sweep of real moves across the toolbar and the page.
         before = (omnibar().get("pointer") or {}).get("move_hook") or {}
