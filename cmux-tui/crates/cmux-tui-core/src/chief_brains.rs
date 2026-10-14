@@ -353,7 +353,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
                 &supervisor.config.home,
                 supervisor.config.app.acpmux_bin.as_deref(),
             );
-            supervisor.run(&inbox)
+            supervisor.run(&inbox);
         })
         .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
