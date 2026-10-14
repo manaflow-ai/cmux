@@ -123,12 +123,12 @@ struct Joystick: View {
         ZStack {
             Circle()
                 .fill(Color.primary.opacity(engine.gear > 0 ? 0.16 : 0.08))
-                .frame(width: 36, height: 36)
+                .frame(width: 32, height: 32)
             ForEach(Array(["chevron.up", "chevron.right", "chevron.down", "chevron.left"].enumerated()), id: \.offset) { index, name in
                 Image(systemName: name)
                     .font(.system(size: 6, weight: .bold))
                     .foregroundStyle(Color.primary.opacity(0.3))
-                    .offset(x: [0, 12, 0, -12][index], y: [-12, 0, 12, 0][index])
+                    .offset(x: [0, 11, 0, -11][index], y: [-11, 0, 11, 0][index])
             }
             Circle()
                 .fill(Color.secondary)
@@ -138,8 +138,8 @@ struct Joystick: View {
                 .animation(engine.gear == 0 ? .spring(response: 0.3, dampingFraction: 0.6) : nil, value: engine.thumb)
                 .animation(.spring(response: 0.2, dampingFraction: 0.7), value: touching)
         }
-        .frame(width: 40, height: 40)
-        .contentShape(.circle)
+        .frame(width: 34, height: 40)
+        .contentShape(.rect)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in

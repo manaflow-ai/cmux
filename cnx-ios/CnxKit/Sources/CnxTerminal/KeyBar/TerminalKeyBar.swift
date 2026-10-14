@@ -41,16 +41,20 @@ struct TerminalKeyBar: View {
                 edges = new
             }
             .mask {
-                HStack(spacing: 0) {
-                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: KeyBarScrollEdges.fade)
-                        .opacity(edges.fadesLeading ? 1 : 0)
-                        .background(Color.black.opacity(edges.fadesLeading ? 0 : 1))
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: KeyBarScrollEdges.fade)
-                        .opacity(edges.fadesTrailing ? 1 : 0)
-                        .background(Color.black.opacity(edges.fadesTrailing ? 0 : 1))
+                // One gradient over the whole row (strips side by side left
+                // a hairline seam at rest, R1-3): opaque at the leading edge
+                // until the row is scrolled; the trailing fade is wide enough
+                // that a key cut at rest reads as fading, not as half a key (R1-4).
+                GeometryReader { proxy in
+                    let width = max(1, proxy.size.width)
+                    let lead = edges.fadesLeading ? KeyBarScrollEdges.fade / width : 0
+                    let trail = edges.fadesTrailing ? KeyBarScrollEdges.trailingFade / width : 0
+                    LinearGradient(stops: [
+                        .init(color: edges.fadesLeading ? .clear : .black, location: 0),
+                        .init(color: .black, location: lead),
+                        .init(color: .black, location: 1 - trail),
+                        .init(color: edges.fadesTrailing ? .clear : .black, location: 1),
+                    ], startPoint: .leading, endPoint: .trailing)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -67,17 +71,17 @@ struct TerminalKeyBar: View {
             } label: {
                 Image(systemName: "keyboard.chevron.compact.down")
                     .font(.system(size: 15, weight: .medium))
-                    .frame(width: 36, height: 34)
+                    .frame(width: 30, height: 34)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Hide Keyboard")
         }
-        .padding(.horizontal, 5)
+        .padding(.horizontal, 4)
         .frame(height: 44)
         .background(Color(uiColor: CnxGhosttyApp.background).opacity(0.85), in: .capsule)
         .glassEffect(.regular, in: .capsule)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .tint(.primary)
     }
 }
@@ -116,6 +120,7 @@ struct KeyCap: View {
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
         .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
+        .accessibilityIdentifier("terminal.key.\(key.identifier)")
     }
 }
 

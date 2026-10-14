@@ -55,8 +55,11 @@ struct ArtifactsSheet: View {
     var body: some View {
         NavigationStack(path: $model.artifactPath) {
             VStack(spacing: 0) {
+                // 8 pt under the navigation bar (R1-7): the bar's own bottom
+                // margin is part of it, so no extra padding here.
                 chips
-                    .padding(.top, 8)
+                    .padding(.top, 0)
+                    .padding(.bottom, 4)
                 List {
                     ForEach(shown) { artifact in
                         NavigationLink(value: artifact) { ArtifactRow(artifact: artifact) }
@@ -70,7 +73,7 @@ struct ArtifactsSheet: View {
                     }
                 }
             }
-            .navigationTitle("Files and links")
+            .navigationTitle("Files and Links")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: TerminalArtifact.self) { artifact in
                 ArtifactPreview(artifact: artifact, source: model.artifactSource, showSource: $model.previewShowsSource)
