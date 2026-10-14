@@ -24,6 +24,8 @@ final class TopPageHost {
         let view: NSView
         switch route {
         case .home:
+            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
+            guard HomeDock.classic else { return nil }
             view = TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" })
         case .page(let id):
             guard let provider = TopPages.provider(id, services: services) else { return nil }

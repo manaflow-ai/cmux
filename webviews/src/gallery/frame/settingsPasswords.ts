@@ -138,7 +138,8 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
         const src = img.getAttribute("src") ?? "";
         const id = src.startsWith("museum/")
           ? decodeURIComponent(src)
-          : decodeURIComponent(src.split("backdrop/")[1] ?? "");
+          : // HostCards encodes a wallpaper id twice (the app decodes the path, then the segment).
+            decodeURIComponent(decodeURIComponent(src.split("backdrop/")[1] ?? ""));
         if (images[id]) img.src = images[id]!;
       }
     };
