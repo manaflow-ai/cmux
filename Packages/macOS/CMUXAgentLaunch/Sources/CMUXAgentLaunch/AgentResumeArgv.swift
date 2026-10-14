@@ -318,7 +318,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
             ? parts[executableIndex]
             : nil
         let wrapperToken = descriptor.wrapperShellExecutableToken(
-            fallbackExecutable: fallbackExecutable == descriptor.executableName ? nil : fallbackExecutable
+            fallbackExecutable: fallbackExecutable.flatMap { descriptor.isBareExecutable($0) ? nil : $0 }
         )
         guard rendered.contains(wrapperToken) else { return joined }
         return descriptor.portableShellCommand(posixCommand: joined)
@@ -339,8 +339,8 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ) -> [String: String] {
         guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind),
               let executable = normalizedManagedExecutable(executablePath ?? arguments.first),
-              (executable as NSString).lastPathComponent == descriptor.executableName,
-              executable != descriptor.executableName else {
+              descriptor.matchesCapturedExecutable(executable),
+              !descriptor.isBareExecutable(executable) else {
             return [:]
         }
         return [descriptor.customExecutablePathEnvironmentKey: executable]
@@ -356,12 +356,10 @@ public struct AgentResumeArgv: Sendable, Equatable {
         // `sr codex resume` is not the managed executable and stays quoted.
         let executableIndex = Self.managedExecutableIndex(in: parts)
         return parts.enumerated().map { index, part in
-            let matchesExecutable = part == descriptor.executableName
-                || (descriptor.supportsCapturedExecutableFallback
-                    && (part as NSString).lastPathComponent == descriptor.executableName)
+            let matchesExecutable = descriptor.matchesExecutable(part)
             return index == executableIndex && matchesExecutable
                 ? descriptor.wrapperShellExecutableToken(
-                    fallbackExecutable: descriptor.supportsCapturedExecutableFallback && part != descriptor.executableName
+                    fallbackExecutable: descriptor.supportsCapturedExecutableFallback && !descriptor.isBareExecutable(part)
                         ? part
                         : nil
                 )

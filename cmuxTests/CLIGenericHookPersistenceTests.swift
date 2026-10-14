@@ -5188,7 +5188,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertTrue(resumeCommand.contains("/bin/sh -c"), resumeCommand)
             XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
             XCTAssertTrue(resumeCommand.contains(scenario.executable), resumeCommand)
-            var expectedResumeEnvironment = scenario.expectedEnvironment
+            var expectedResumeEnvironment = scenario.expectedEnvironment ?? [:]
             expectedResumeEnvironment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = scenario.executable
             XCTAssertEqual(params["environment"] as? [String: String], expectedResumeEnvironment)
             XCTAssertFalse(

@@ -76,7 +76,11 @@ struct AntigravityHookSessionSnapshotRestoreTests {
         // the user launched with (https://github.com/manaflow-ai/cmux/issues/5473).
         let resumeCommand = try #require(snapshot.resumeCommand)
         #expect(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"))
-        #expect(resumeCommand.contains("'--conversation' 'antigravity-conversation-5473'"))
-        #expect(resumeCommand.contains("'--dangerously-skip-permissions'"))
+        let escapedConversation = "'--conversation' 'antigravity-conversation-5473'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedPermissionFlag = "'--dangerously-skip-permissions'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        #expect(resumeCommand.contains(escapedConversation))
+        #expect(resumeCommand.contains(escapedPermissionFlag))
     }
 }

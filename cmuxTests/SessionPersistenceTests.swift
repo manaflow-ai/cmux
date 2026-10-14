@@ -1725,8 +1725,12 @@ final class SessionPersistenceTests: XCTestCase {
         let resumeCommand = try XCTUnwrap(agent.resumeCommand)
         XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("/usr/local/bin/agy"), resumeCommand)
-        XCTAssertTrue(resumeCommand.contains("'--conversation' 'antigravity-conversation-123'"), resumeCommand)
-        XCTAssertTrue(resumeCommand.contains("'--sandbox' 'danger-full-access'"), resumeCommand)
+        let escapedConversation = "'--conversation' 'antigravity-conversation-123'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedSandbox = "'--sandbox' 'danger-full-access'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(resumeCommand.contains(escapedConversation), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains(escapedSandbox), resumeCommand)
     }
 
     @MainActor

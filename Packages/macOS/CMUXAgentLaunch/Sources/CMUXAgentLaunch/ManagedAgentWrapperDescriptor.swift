@@ -4,6 +4,7 @@ import Foundation
 struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     let kind: String
     let executableName: String
+    let acceptedExecutableNames: Set<String>
     let wrapperShimEnvironmentKey: String
     let customExecutablePathEnvironmentKey: String
     let supportsCapturedExecutableFallback: Bool
@@ -19,6 +20,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     static let claude = Self(
         kind: "claude",
         executableName: "claude",
+        acceptedExecutableNames: ["claude"],
         wrapperShimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_CLAUDE_PATH",
         supportsCapturedExecutableFallback: false,
@@ -28,6 +30,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     static let codex = Self(
         kind: "codex",
         executableName: "codex",
+        acceptedExecutableNames: ["codex"],
         wrapperShimEnvironmentKey: "CMUX_CODEX_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_CODEX_PATH",
         supportsCapturedExecutableFallback: false,
@@ -37,6 +40,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     static let amp = Self(
         kind: "amp",
         executableName: "amp",
+        acceptedExecutableNames: ["amp"],
         wrapperShimEnvironmentKey: "CMUX_AMP_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_AMP_PATH",
         supportsCapturedExecutableFallback: false,
@@ -46,6 +50,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     static let hermesAgent = Self(
         kind: "hermes-agent",
         executableName: "hermes",
+        acceptedExecutableNames: ["hermes"],
         wrapperShimEnvironmentKey: "CMUX_HERMES_AGENT_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_HERMES_AGENT_PATH",
         supportsCapturedExecutableFallback: false,
@@ -55,6 +60,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     static let antigravity = Self(
         kind: "antigravity",
         executableName: "agy",
+        acceptedExecutableNames: ["agy", "antigravity"],
         wrapperShimEnvironmentKey: "CMUX_AGY_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         supportsCapturedExecutableFallback: true,
@@ -80,6 +86,20 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         let fallback = fallbackExecutable.map(Self.posixSingleQuoted) ?? executableName
         let fallbackPrintf = fallbackExecutable == nil ? "printf \(fallback)" : "printf '%s' \(fallback)"
         return "\"$([ -x \"${\(wrapperShimEnvironmentKey):-}\" ] && printf '%s' \"$\(wrapperShimEnvironmentKey)\" || \(fallbackPrintf))\""
+    }
+
+    func matchesExecutable(_ value: String) -> Bool {
+        acceptedExecutableNames.contains(value)
+            || (supportsCapturedExecutableFallback
+                && acceptedExecutableNames.contains((value as NSString).lastPathComponent))
+    }
+
+    func matchesCapturedExecutable(_ value: String) -> Bool {
+        acceptedExecutableNames.contains((value as NSString).lastPathComponent)
+    }
+
+    func isBareExecutable(_ value: String) -> Bool {
+        acceptedExecutableNames.contains(value)
     }
 
     func portableShellCommand(posixCommand: String) -> String {

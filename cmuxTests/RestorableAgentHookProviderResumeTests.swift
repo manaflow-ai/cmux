@@ -76,8 +76,12 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("GEMINI_CLI_HOME=/tmp/gemini home"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("/Users/example/.local/bin/agy"), resumeCommand)
-        XCTAssertTrue(resumeCommand.contains("'--conversation' 'antigravity-conversation-123'"), resumeCommand)
-        XCTAssertTrue(resumeCommand.contains("'--add-dir' '/tmp/extra repo'"), resumeCommand)
+        let escapedConversation = "'--conversation' 'antigravity-conversation-123'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        let escapedAddDir = "'--add-dir' '/tmp/extra repo'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(resumeCommand.contains(escapedConversation), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains(escapedAddDir), resumeCommand)
     }
 
     func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {

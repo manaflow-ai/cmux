@@ -106,7 +106,9 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
         let copyResumeCommand = try XCTUnwrap(entry.copyResumeCommand)
         XCTAssertTrue(copyResumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), copyResumeCommand)
-        XCTAssertTrue(copyResumeCommand.contains("'--conversation' 'antigravity-conversation-123'"), copyResumeCommand)
+        let escapedConversation = "'--conversation' 'antigravity-conversation-123'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(copyResumeCommand.contains(escapedConversation), copyResumeCommand)
     }
 
     func testBuiltInAntigravityRegistrationIndexesEachHistoryConversation() async throws {
@@ -147,7 +149,9 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(filtered.map(\.sessionId), ["conversation-b"])
         let filteredCopyResumeCommand = try XCTUnwrap(filtered.first?.copyResumeCommand)
         XCTAssertTrue(filteredCopyResumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), filteredCopyResumeCommand)
-        XCTAssertTrue(filteredCopyResumeCommand.contains("'--conversation' 'conversation-b'"), filteredCopyResumeCommand)
+        let escapedConversation = "'--conversation' 'conversation-b'"
+            .replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(filteredCopyResumeCommand.contains(escapedConversation), filteredCopyResumeCommand)
     }
 
     func testRegisteredAgentJSONLWorkspaceKeyIsSharedCWDMetadata() async throws {

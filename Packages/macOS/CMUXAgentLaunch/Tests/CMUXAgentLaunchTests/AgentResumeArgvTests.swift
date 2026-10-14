@@ -114,6 +114,33 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Antigravity alias executable names use the managed wrapper")
+    func antigravityAliasExecutableUsesWrapper() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/antigravity"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        #expect(rendered.contains("CMUX_AGY_WRAPPER_SHIM"))
+        #expect(rendered.contains("/opt/Antigravity Preview/bin/antigravity"))
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
+        )
+    }
+
     @Test("OpenCode resume drops internal TUI settings selector")
     func opencodeResumeDropsInternalTUISettingsSelector() {
         #expect(
