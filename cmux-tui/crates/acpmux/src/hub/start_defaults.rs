@@ -8,8 +8,11 @@
 //!    carries to the next new chat and across restarts;
 //! 2. the harness CLI's own config (`harness_config`, cx-uq9xi; Leo
 //!    2026-10-14): Codex's config.toml `model` and `model_reasoning_effort`,
-//!    Claude Code's settings.json `model`, when the catalog lists that model
-//!    (an alias names its id) and that effort fits it;
+//!    Claude Code's settings.json `model` (a `[1m]` variant suffix dropped),
+//!    when the catalog lists that model (an alias names its id); the effort
+//!    when it fits the running model and the config names no model or one the
+//!    catalog lists. The file is read only when the saved default leaves a
+//!    value open;
 //! 3. the curated catalog's `defaultModel` for the harness and that model's
 //!    `defaultEffort` (Claude Code: Opus 5.5, Codex: GPT-6.1 Sol, both
 //!    medium). acpmux sets the start value on every new chat, so what a cmux
@@ -236,19 +239,28 @@ impl Hub {
         model: Option<&str>,
     ) -> (Option<StartValue>, Option<StartValue>) {
         let curated = super::models_view::curated_for(&self.catalog, agent, profile);
-        let own = crate::harness_config::read(
-            &crate::config::derive_family(agent, profile),
-            &[&profile.env, &saved.env],
-        );
+        // The harness's own config, read (blocking file IO) only when the request and the saved
+        // pick leave a value open.
+        let read = std::cell::OnceCell::new();
+        let own = || {
+            read.get_or_init(|| {
+                crate::harness_config::read(
+                    &crate::config::derive_family(agent, profile),
+                    &[&profile.env, &saved.env],
+                )
+            })
+        };
         // The config's model as the catalog names it; one the catalog does not list (a retired
         // model, a typo) gives way to the catalog default.
-        let own_model = own.model.as_deref().and_then(|m| {
-            curated
-                .as_ref()?
-                .models
-                .iter()
-                .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
-        });
+        let own_model = || {
+            own().model.as_deref().and_then(|m| {
+                curated
+                    .as_ref()?
+                    .models
+                    .iter()
+                    .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
+            })
+        };
         let start_model = match model {
             Some(_) => None,
             None => saved
@@ -256,7 +268,7 @@ impl Hub {
                 .clone()
                 .map(|value| StartValue { value, source: StartSource::Saved })
                 .or_else(|| {
-                    own_model
+                    own_model()
                         .map(|m| StartValue { value: m.id.clone(), source: StartSource::Harness })
                 })
                 .or_else(|| {
@@ -280,9 +292,14 @@ impl Hub {
             .filter(fits)
             .map(|value| StartValue { value, source: StartSource::Saved })
             .or_else(|| {
-                own.effort
+                // Codex applies its effort to whatever model runs, so an effort with no model
+                // in the config is taken; one paired with a model the catalog refused was
+                // chosen for that model, not the catalog default, and is not.
+                let paired = own().model.is_none() || own_model().is_some();
+                own()
+                    .effort
                     .clone()
-                    .filter(fits)
+                    .filter(|e| paired && fits(e))
                     .map(|value| StartValue { value, source: StartSource::Harness })
             })
             .or_else(|| {
