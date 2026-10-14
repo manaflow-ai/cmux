@@ -5784,3 +5784,6 @@ mod personal_tests;
 
 #[cfg(test)]
 mod actor_migration_tests;
+
+#[cfg(test)]
+mod workspace_name_tests;

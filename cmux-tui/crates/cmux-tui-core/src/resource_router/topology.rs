@@ -13,6 +13,8 @@ use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, Worksp
 
 mod workspace_mutations;
 mod workspace_order;
+#[cfg(test)]
+mod workspace_name_tests;
 use workspace_mutations::{move_workspace, rename_workspace};
 use workspace_order::list_workspaces;
 

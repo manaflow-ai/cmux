@@ -84,3 +84,7 @@ impl TabNameUpdate {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "resource_name_tests.rs"]
+mod tests;

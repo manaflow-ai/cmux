@@ -3431,43 +3431,49 @@ mod tests {
     #[test]
     fn cloud_rename_authority_validates_name_source_and_revision() {
         const TAB: &str = "tab_00000000000000000000000000000007";
-        for source in ["user", "auto"] {
-            for revision in ["0", "18446744073709551615"] {
-                let plan = protocol(&[
-                    "tab",
-                    TAB,
-                    "rename",
-                    "--name",
-                    "logs",
-                    "--source",
-                    source,
-                    "--expected-generation",
-                    "daemon",
-                    "--expected-name-revision",
-                    revision,
-                ]);
-                assert_eq!(operation(&plan), "tab.rename");
-                assert_eq!(plan.params["source"], source);
-                assert_eq!(plan.params["expected_generation"], "daemon");
-                assert_eq!(plan.params["expected_name_revision"], revision);
+        const WORKSPACE: &str = "ws_00000000000000000000000000000007";
+        // Workspaces take the tab flags exactly (hq#1957).
+        for (resource, id, expected) in
+            [("tab", TAB, "tab.rename"), ("workspace", WORKSPACE, "workspace.rename")]
+        {
+            for source in ["user", "auto"] {
+                for revision in ["0", "18446744073709551615"] {
+                    let plan = protocol(&[
+                        resource,
+                        id,
+                        "rename",
+                        "--name",
+                        "logs",
+                        "--source",
+                        source,
+                        "--expected-generation",
+                        "daemon",
+                        "--expected-name-revision",
+                        revision,
+                    ]);
+                    assert_eq!(operation(&plan), expected);
+                    assert_eq!(plan.params["source"], source);
+                    assert_eq!(plan.params["expected_generation"], "daemon");
+                    assert_eq!(plan.params["expected_name_revision"], revision);
+                }
             }
-        }
 
-        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
-            let args =
-                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
-            assert!(
-                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
-                "accepted invalid revision {invalid:?}"
-            );
-        }
+            for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+                let args =
+                    [resource, id, "rename", "--name", "logs", "--expected-name-revision", invalid];
+                assert!(
+                    parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                    "accepted invalid {resource} revision {invalid:?}"
+                );
+            }
 
-        for invalid in ["", "process", "USER"] {
-            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
-            assert!(
-                parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
-                "accepted invalid source {invalid:?}"
-            );
+            for invalid in ["", "process", "USER"] {
+                let args = [resource, id, "rename", "--name", "logs", "--source", invalid];
+                assert!(
+                    parse(&strings(&args), super::super::Surface::CmuxTui).is_err(),
+                    "accepted invalid {resource} source {invalid:?}"
+                );
+            }
         }
     }
 
