@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// Labs (hq#1980): new looks and behaviors ship behind a flag a person turns on, not in the
 /// defaults. The flags are rows of schemas/settings/source/labs.json (``LabsFlag``, generated);
