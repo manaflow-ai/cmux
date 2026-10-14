@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -9,6 +10,9 @@ import Testing
 /// window's parked workspace) open a new workspace with the chat, as Cmd-I
 /// does from any workspace. Before, both waited for a pane the parked
 /// workspace never shows and were refused ("No pane is focused").
+/// Since cx-ebm.59.5 Home is the home workspace with its left dock, where a chat
+/// opens in a pane as from any workspace; Home is a top page only as classic Home
+/// (`labs.classicHome`), which these tests turn on.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatFromHomeTests {
     /// A script without focus gets the workspace but leaves the window on Home.
@@ -19,6 +23,9 @@ struct AgentChatFromHomeTests {
         ("palette.addHarness", ActionOrigin.user, true),
     ])
     func fromHomeTheActionOpensANewWorkspace(_ action: String, _ origin: ActionOrigin, _ focus: Bool) async throws {
+        let classic = DesignSettings.shared.classicHome
+        DesignSettings.shared.classicHome = true
+        defer { DesignSettings.shared.classicHome = classic }
         try await PasswordManagerRouteTests.withApp { services, _ in
             let window = try #require(services.windows.active)
             #expect(TopPages.show(.home, services: services) != nil)
