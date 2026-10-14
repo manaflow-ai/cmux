@@ -15,6 +15,16 @@ ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "Resources/bin/cmux-tmux-agent.py"
 
 
+def codex_override_paths(argv):
+    """Key paths of the -c overrides as Codex applies them: the key is split
+    on every '.', ignoring TOML quoting."""
+    return [
+        (setting.split("=", 1)[0].strip().split("."), setting.split("=", 1)[1])
+        for flag, setting in zip(argv, argv[1:])
+        if flag == "-c"
+    ]
+
+
 class RemoteTmuxAgentHelperTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -98,6 +108,17 @@ with open(os.environ['PROVIDER_LOG'], 'w') as f: json.dump(sys.argv[1:], f)
         self.assertEqual(argv[0:2], ["--enable", "hooks"])
         self.assertIn("hooks.SessionStart", " ".join(argv))
         self.assertIn("/<session-flags>/config.toml:session_start:0:0", " ".join(argv))
+        # Every trust entry must land under hooks.state with its whole key:
+        # a dotted override such as hooks.state."/<session-flags>/config.toml:..."
+        # is split inside the quotes and never trusts the hook.
+        state = [value for path, value in codex_override_paths(argv) if path[:2] == ["hooks", "state"]]
+        self.assertEqual(len(state), 1, state)
+        self.assertEqual(
+            [path for path, _ in codex_override_paths(argv) if path[:2] == ["hooks", "state"]],
+            [["hooks", "state"]],
+        )
+        for label in ("session_start", "user_prompt_submit", "stop"):
+            self.assertIn(f'"/<session-flags>/config.toml:{label}:0:0"={{trusted_hash="sha256:', state[0])
         self.assertEqual(argv[-2:], ["exec", "hello"])
         calls = self._tmux_calls()
         self.assertTrue(any("@cmux_agent_owner" in call for call in calls))
