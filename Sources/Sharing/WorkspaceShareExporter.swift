@@ -640,7 +640,9 @@ final class WorkspaceShareExporter {
                     )
                 }
                 let kind = Self.sceneSurfaceKind(for: panel, isShareableTextBox: isShareableTextBox)
-                let docID = (kind == .textbox) ? surfaceID.uuidString : nil
+                let docID = kind.rawValue == WorkspaceShareScene.Surface.Kind.textbox.rawValue
+                    ? surfaceID.uuidString
+                    : nil
                 return WorkspaceShareScene.Surface(
                     id: surfaceID.uuidString,
                     title: Self.boundedTitle(
