@@ -529,6 +529,15 @@ public final class LiveCoordinator {
         }
         removedMacs.removed(id)
         forgetMac(id)
+        // Its identity pin goes too: a re-added Mac pins its key again.
+        (pairing?.pins ?? .standard).forget(id)
+    }
+
+    /// Signs Chief question answers for the linked Mac with this phone's
+    /// approval key (Face ID); nil without pairing keys or a paired Mac.
+    public func chiefAnswerSigner() -> ChiefAnswerSigner? {
+        guard let pairing, let macID = link.target?.macID, pairingState == .paired else { return nil }
+        return ChiefAnswerSigner(keys: pairing.keys, macDevice: macID, phoneID: pairing.phoneID)
     }
 
     /// Account deletion, first step: the service forgets the account's

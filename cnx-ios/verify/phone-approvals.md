@@ -95,6 +95,34 @@ passes.
 Unsupervised hostd (tests, `run-host.sh`) has no app to approve and serves
 links as before. The app always runs hostd supervised.
 
+**The Mac proves its own key (trust on first use).** The phone adds
+`macNonce` (its own random nonce) to `auth`. The Mac app keeps a long-lived
+P-256 identity key in its Keychain and hands it to hostd over stdin
+(`mac_identity`). The challenge then also carries `macKey` (X9.63 hex) and
+`macSignature` over
+`cnx-mac-identity-v1 \0 mac \0 phone \0 macNonce \0 challenge`. The phone
+(`LinkPairing`, `MacPins`) pins `macKey` per Mac device id the first time
+pairing passes. After that, a Mac that proves another key, sends none, or
+answers without `auth` is refused `mac_identity_changed` before the phone
+signs anything, and the phone says "This Mac's identity changed…". Removing
+the Mac in Settings → Paired Macs forgets the pin; when it adds itself again,
+the phone pins its key again. A Mac that never sent a key (an older one) is
+served unpinned.
+
+### Chief question answers (`cnx-hostd/src/chief_answers.rs`)
+
+A question part in a Chief conversation can grant something, so a paired
+phone's `conversation-op` `question.answer` counts only with its approval
+key's signature, as an agent answer in acpmux does. The command carries
+`approval: {approver, nonce, expiresAt, signature}` over
+`cnx-chief-answer-v1 \0 mac \0 approver \0 conversation \0 message_id \0
+part_index \0 nonce \0 expiresAt \0 sha256(canonical answer)`. hostd checks
+that the approver is the link's phone, uses that phone's paired approval key,
+the expiry is at most 300 s ahead, and the nonce was not spent; then strips
+`approval` and forwards the op. Unsigned or wrong answers are refused
+`forbidden` before the Chief owner sees them. The phone signs after Face ID
+(`ChiefAnswerSigner`, `ChiefDaemonBackend.answerQuestion`).
+
 ### The Mac (`CmuxNextMobile`, the iPhone host)
 
 - `pair_request` shows a cmux dialog, app-wide: "Allow “<phone>” to connect to

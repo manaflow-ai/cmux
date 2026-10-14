@@ -186,6 +186,7 @@ impl HostConfig {
                 supplied.devices.clone(),
                 std::sync::Arc::new(|event| crate::control::emit(&event)),
             )
+            .with_identity(supplied.identity.clone())
         });
         let max_tabs = env("CNX_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CNX_RB_HOST")) {

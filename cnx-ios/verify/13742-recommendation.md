@@ -60,7 +60,7 @@ on, the app runs `cnx-hostd`.
 | Threat | What stops it | What's left |
 | --- | --- | --- |
 | Stolen sign-in token | Admission is same-user only, so the token must be the person's. With #20491, a token alone reaches no service. | Without #20491, a token is the whole device trust: anyone holding it reaches the terminals. |
-| Malicious Mac | The phone dials only Macs on its own account, and sees what that Mac sends. | The phone trusts the Worker's Mac list. Nothing in `phone-approvals.md` pins a Mac key, so a host registered with a stolen token would get what the person types or uploads to it. |
+| Malicious Mac | The phone dials only Macs on its own account, and sees what that Mac sends. It pins each paired Mac's identity key on first use and refuses a Mac that can't prove it ("This Mac's identity changed…"), before it signs or sends anything. | Closed in `feat-cnx-ios-chiefsign` bae2a073 (phone, hostd) and #20491 3eaa3ef0 (the Mac's Keychain key). Left: a host registered under a new device id shows as one more Mac in the list; the person pairs it only by choice. |
 | Lost phone | Remove in Settings > Mobile ends the phone's live links (`drop_phone`). | A phone still signed in registers again. Keeping it out needs signing that session out of the account. |
 | Relay observer | End-to-end WireGuard or DTLS. | Metadata. |
 | Prompt injection | A link in agent output opens only as a web page in the Mac browser; `file:`, `javascript:` and app schemes are refused. | The `http(s)` narrowing is in the Rust policy only; the Swift mirror (`DaemonLanePolicy.swift`) keeps the same command list. |
@@ -145,12 +145,11 @@ person's, like the Mac's own avatar field, which isn't person-only.
 | Malicious Mac | Chief is the Mac's own. | None new. |
 | Lost phone | Remove and pairing, as above. | A phone with Require Face ID off can message Chief, which runs agents under its own policy. |
 | Relay observer | End to end. | Metadata. |
-| Prompt injection | The phone can't bind as an agent or as Chief (`conversation-bind`, `conversation-agent-token` refused). Command-bearing params, `participants.add`, `actor`, and every terminal, workspace and `cloud-*` command are refused. The avatar is at most 16 characters, with no control characters or picture names. | `conversation-op: question.answer` passes with the owner stamped as respondent, without a Face ID signature. Chief has no permission card yet; when it gets one, its Allow goes through the signed path (`phone-approvals.md`, "Known gaps"). |
+| Prompt injection | The phone can't bind as an agent or as Chief (`conversation-bind`, `conversation-agent-token` refused). Command-bearing params, `participants.add`, `actor`, and every terminal, workspace and `cloud-*` command are refused. The avatar is at most 16 characters, with no control characters or picture names. | Closed in `feat-cnx-ios-chiefsign` bae2a073 and #20491 3eaa3ef0: `question.answer` from a paired phone counts only with its Face ID signature over this Mac, conversation, question and answer (one use, at most 300 s, `chief_answers.rs`); unsigned answers are refused before the Chief owner. Chief has no permission card yet; when it gets one, its Allow goes through the signed path too. |
 
-**Recommendation: approve,** with one condition: before Chief's questions can
-grant anything, their answers from the phone go through the signed path. The
-avatar is cosmetic, and engine choice only picks among options the brain
-validates.
+**Recommendation: approve.** The condition (Chief question answers on the
+signed path) is closed in bae2a073 / 3eaa3ef0. The avatar is cosmetic, and
+engine choice only picks among options the brain validates.
 
 **Alternatives:** allow Chief messages but refuse `chief.engine.set` (engine
 and avatar stay Mac-only). Or keep Chief off the link.
@@ -213,7 +212,7 @@ Evidence: unit tests for each refusal
 - **Chief over the link (#20531):** may the paired phone use Chief
   conversations, `chief.engine.get`/`set` and `chief.stop`, with its avatar
   edit counting as the person's? Reply `approve Chief over the link` (Chief
-  question answers move to the signed path before they can grant anything)
+  question answers already need the phone's Face ID signature, bae2a073)
   or `Chief without engine and avatar edits` or `keep Chief off the link`.
 - **File previews (`feat-cnx-ios-fileroots`):** what may `file` read? Reply
   `approve fileroots (a)` (read-only below the folder of a live tab, no
