@@ -91,7 +91,7 @@ def new_workspace(name):
         terminal = focused_terminal()
         if terminal and terminal not in before:
             cli("workspace", "current", "rename", name)
-            time.sleep(1.0)  # the shell draws its first prompt
+            time.sleep(3.0)  # the shell draws its first prompt (a cold daemon is slower)
             return terminal
         time.sleep(0.5)
     return None
@@ -166,6 +166,12 @@ if working:
                      "sleep 600\n")
     write(working, f"sh {demo}")
     first = pin_card(lambda t: elapsed_seconds(status_line(t)) is not None)
+    if elapsed_seconds(status_line(first)) is None:
+        # The shell was not reading yet: the line went nowhere. Send it once more.
+        rows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
+        print("rows: " + json.dumps([[r.get("title"), r.get("activity")] for w in rows for r in w.get("rows") or []])[:600], flush=True)
+        write(working, f"sh {demo}")
+        first = pin_card(lambda t: elapsed_seconds(status_line(t)) is not None)
     print("card:\n" + first, flush=True)
     check(elapsed_seconds(status_line(first)) is not None, f"the status line carries an elapsed time ({status_line(first)!r})")
     shot("working-1.png")
