@@ -1,12 +1,12 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextIcons
 
 /// The sidebar's profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment
 /// 2): the current profile's initial (signed in: the cmux user's picture,
-/// else their initials) in a `SidebarStyle.avatarDiameter` circle, centered on the rows' glyph column, then a small chevron that
-/// says a click opens a menu. It draws inside a `SidebarItemRowView`, which
-/// owns the hover pill, the click and accessibility.
+/// else their initials) in a `SidebarStyle.avatarDiameter` circle, centered on the rows' glyph
+/// column. No chevron: the avatar alone opens the menu, as browsers' profile buttons do (Leo
+/// 2026-10-14: a chevron beside it sat outside the click and the hover pill). It draws inside a
+/// `SidebarItemRowView`, which owns the hover pill, the click and accessibility.
 final class SidebarAvatarView: NSView {
     var avatar: SidebarAvatar? { didSet { if avatar != oldValue { needsDisplay = true } } }
     /// Full strength under the pointer or keyboard focus, secondary at rest
@@ -16,19 +16,11 @@ final class SidebarAvatarView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// The circle, in this view's coordinates: centered `bounds.height / 2`
-    /// from the leading edge (a square item's center), so it sits on the
-    /// glyph column the icon line places the first item on.
+    /// The circle, in this view's coordinates: centered in the square item,
+    /// where the row's hover pill and click area sit.
     var circleFrame: NSRect {
         let d = SidebarStyle.avatarDiameter
-        let center = bounds.height / 2
-        return NSRect(x: center - d / 2, y: (bounds.height - d) / 2, width: d, height: d)
-    }
-
-    /// The chevron's box: right after the circle.
-    var chevronFrame: NSRect {
-        let size = SidebarStyle.avatarChevronSize
-        return NSRect(x: circleFrame.maxX + SidebarStyle.avatarChevronGap, y: (bounds.height - size) / 2, width: size, height: size)
+        return NSRect(x: (bounds.width - d) / 2, y: (bounds.height - d) / 2, width: d, height: d)
     }
 
     /// The avatar's picture, decoded; nil draws the initial.
@@ -38,36 +30,39 @@ final class SidebarAvatarView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let avatar else { return }
-        performWithTheme {
-            let circle = circleFrame
-            drawChevron(tint: isStrong ? Palette.textPrimary : Palette.textSecondary)
-            if let picture = Self.picture(avatar) {
-                NSGraphicsContext.saveGraphicsState()
-                NSBezierPath(ovalIn: circle).addClip()
-                picture.draw(in: circle, from: .zero, operation: .sourceOver, fraction: isStrong ? 1 : 0.85, respectFlipped: true, hints: nil)
-                NSGraphicsContext.restoreGraphicsState()
-                return
-            }
-            let colored = avatar.color != nil
-            let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.textPrimary.withAlphaComponent(isStrong ? 0.24 : 0.16)
-            fill.setFill()
-            NSBezierPath(ovalIn: circle).fill()
-            let text = colored ? Palette.textOnPrimary : (isStrong ? Palette.textPrimary : Palette.textSecondary)
-            // Two initials ("LL") take a smaller size to fit the circle.
-            let scale: CGFloat = avatar.initial.count > 1 ? 0.44 : 0.56
-            let font = NSFont.systemFont(ofSize: SidebarStyle.avatarDiameter * scale, weight: .semibold)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
-            let size = avatar.initial.size(withAttributes: attributes)
-            avatar.initial.draw(at: NSPoint(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2), withAttributes: attributes)
-        }
+        performWithTheme { Self.draw(avatar, in: circleFrame, strong: isStrong) }
     }
 
-    // theme-scoped: called only from draw(_:) inside performWithTheme
-    private func drawChevron(tint: NSColor) {
-        let image = NSImage.icon(.disclosureExpanded, size: .iconRowSize(forLabelPointSize: SidebarStyle.avatarChevronSize))
-        let tinted = image.tinted(tint)
-        let box = chevronFrame
-        let size = tinted.size
-        tinted.draw(in: NSRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height))
+    /// The picture clipped round, else the initial on the profile's color.
+    static func draw(_ avatar: SidebarAvatar, in circle: NSRect, strong: Bool) {
+        if let picture = picture(avatar) {
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(ovalIn: circle).addClip()
+            picture.draw(in: circle, from: .zero, operation: .sourceOver, fraction: strong ? 1 : 0.85, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+            return
+        }
+        let colored = avatar.color != nil
+        let fill = avatar.color.map { SidebarStyle.color($0) } ?? Palette.textPrimary.withAlphaComponent(strong ? 0.24 : 0.16)
+        fill.setFill()
+        NSBezierPath(ovalIn: circle).fill()
+        let text = colored ? Palette.textOnPrimary : (strong ? Palette.textPrimary : Palette.textSecondary)
+        // Two initials ("LL") take a smaller size to fit the circle.
+        let scale: CGFloat = avatar.initial.count > 1 ? 0.44 : 0.56
+        let font = NSFont.systemFont(ofSize: circle.height * scale, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: text]
+        let size = avatar.initial.size(withAttributes: attributes)
+        avatar.initial.draw(at: NSPoint(x: circle.midX - size.width / 2, y: circle.midY - size.height / 2), withAttributes: attributes)
+    }
+}
+
+extension SidebarAvatar {
+    /// The avatar at `diameter`, as a menu row's image (the profile menu's current profile).
+    @MainActor public func image(diameter: CGFloat) -> NSImage {
+        let avatar = self
+        return NSImage(size: NSSize(width: diameter, height: diameter), flipped: true) { rect in
+            MainActor.assumeIsolated { SidebarAvatarView.draw(avatar, in: rect, strong: true) }
+            return true
+        }
     }
 }
