@@ -221,6 +221,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextLayout",
+        "CmuxNextMacScreen",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
         "CmuxNextTasks",
@@ -525,6 +526,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
       "targets": [
         "CmuxNextBrowser",
+        "CmuxNextCompat",
         "CmuxNextRemoteView"
       ],
       "packages": [

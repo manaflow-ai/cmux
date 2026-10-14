@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxScreenKit
 import ApplicationServices
 import CoreGraphics
@@ -97,7 +98,7 @@ public final class MacScreenShareHost {
 
     public func openSettings(screenRecording: Bool) {
         let pane = screenRecording ? "Privacy_ScreenCapture" : "Privacy_Accessibility"
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.openInBackground(url) }
     }
 
     /// A new link: Macs paired with the old one can no longer connect.
