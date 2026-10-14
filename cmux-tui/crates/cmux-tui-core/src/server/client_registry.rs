@@ -875,7 +875,8 @@ impl ClientRegistry {
     /// tabs, the cmux app, is attached to this session). A page relay or a
     /// page's WebSocket renders no tabs, so its declaration never counts.
     pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
-        self.state.lock().unwrap().clients.values().any(|record| {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.values().any(|record| {
             record.origin.role != crate::request_origin::HelloRole::PageRelay
                 && record.origin.page.is_none()
                 && record.capabilities.contains(capability)
