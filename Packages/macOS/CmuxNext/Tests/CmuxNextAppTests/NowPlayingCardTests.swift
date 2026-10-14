@@ -24,6 +24,14 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    static let npDiag: Void = {
+        let info = ProcessInfo.processInfo
+        FileHandle.standardError.write(Data("NPDIAG automaticTerminationSupportEnabled=\(info.automaticTerminationSupportEnabled)\n".utf8))
+        info.disableAutomaticTermination("NowPlayingCardTests")
+        atexit { FileHandle.standardError.write(Data("NPDIAG atexit\n".utf8)) }
+    }()
+    init() { _ = Self.npDiag }
+
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     /// An 8 pt square of color, as PNG.
