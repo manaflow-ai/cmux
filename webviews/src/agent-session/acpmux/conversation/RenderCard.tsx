@@ -4,9 +4,12 @@
 // policy allows no connection. The frame asks for the HTML once it loads and reports its height;
 // the card grows to it, up to a cap a reader can lift. Nothing runs until the reader presses Run:
 // the frame shares the pane's web process, so a busy loop in agent HTML would freeze the pane. The
-// pane on a dev server has no render frame, so there the call stays a plain tool row.
-import { useEffect, useRef, useState } from "react";
+// pane on a dev server has no render frame, so there the call stays a plain tool row. Open hands the
+// page to the side panel beside the chat (ArtifactPanel.tsx), with its source a tab away.
+import { useContext, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { ArtifactContext } from "./artifactPreview";
+import { Expand } from "./icons";
 import { RENDER_FRAME_MIN_HEIGHT, type RenderCall } from "./renderCall";
 
 export const RENDER_FRAME_URL = "cmux-agent://render/frame";
@@ -67,6 +70,7 @@ export function useRenderFrame(html: string) {
 
 export function RenderCard({ call }: { call: RenderCall }) {
   const t = useT();
+  const open = useContext(ArtifactContext);
   const { frame, height } = useRenderFrame(call.html);
   const [expanded, setExpanded] = useState(false);
   const [running, setRunning] = useState(() => ranRenders.has(call.html));
@@ -95,6 +99,17 @@ export function RenderCard({ call }: { call: RenderCall }) {
             onClick={() => setExpanded((value) => !value)}
           >
             {expanded ? t("render.collapse") : t("render.expand")}
+          </button>
+        )}
+        {open && (
+          <button
+            type="button"
+            className="cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("artifact.open")}
+            title={t("artifact.open")}
+            onClick={() => open({ kind: "html", lang: "html", code: call.html })}
+          >
+            <Expand />
           </button>
         )}
       </div>

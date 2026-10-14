@@ -2,13 +2,16 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), vega-lite charts (DiagramBlock.tsx), live
+// ```cmux-render pages (RenderCard.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
+import { canRender, RenderCard } from "./RenderCard";
+import { renderFence } from "./renderCall";
 import { isRemoteMedia, RemoteMedia } from "../chips/ReplyMedia";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./RevealedMarkdown";
@@ -638,12 +641,16 @@ function Block({
         </div>
       );
     }
-    case "code":
+    case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
+      // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
+      const render = canRender() ? renderFence(block.lang, block.code) : undefined;
+      if (render) return <RenderCard call={render} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
+    }
     case "math":
       return <MathDisplay tex={block.tex} />;
     case "footnote": {
