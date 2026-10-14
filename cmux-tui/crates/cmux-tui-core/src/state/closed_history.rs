@@ -370,7 +370,11 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
         let presentation = self.presentation_snapshot();
-        let live = presentation.tab_groups.groups.contains_key(&id);
+        // A group row a close left behind (no strip edit pruned it yet)
+        // holds no open tab: it is not live, and forms again.
+        let live = self.with_state(|state| {
+            !crate::mux::tab_groups::group_members(state, &presentation.tab_groups, &id).is_empty()
+        });
         if !live || closed {
             let wanted = archive["tab_ids"]
                 .as_array()

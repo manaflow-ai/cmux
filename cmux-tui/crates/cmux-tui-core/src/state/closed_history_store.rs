@@ -684,6 +684,15 @@ pub(crate) fn capture_closed(
     }
     let closing_workspaces = closing.workspaces.iter().cloned().collect::<HashSet<_>>();
     let closing_screens = closing.screens.iter().cloned().collect::<HashSet<_>>();
+    // Before `capture_workspace` forgets which closing workspaces are
+    // ephemeral: their groups are never recorded.
+    let closing_tabs = closing.tabs.iter().cloned().collect::<HashSet<_>>();
+    let tab_groups = super::closed_tab_groups::closing_tab_groups(
+        transaction,
+        &closing_tabs,
+        &closing_screens,
+        &closing_workspaces,
+    )?;
     let mut capture = Capture::default();
     for workspace_id in &closing.workspaces {
         capture_workspace(transaction, workspace_id, &mut capture)?;
@@ -713,13 +722,6 @@ pub(crate) fn capture_closed(
     if capture.members.is_empty() {
         return Ok(());
     }
-    let closing_tabs = closing.tabs.iter().cloned().collect::<HashSet<_>>();
-    let tab_groups = super::closed_tab_groups::closing_tab_groups(
-        transaction,
-        &closing_tabs,
-        &closing_screens,
-        &closing_workspaces,
-    )?;
     insert_group(transaction, capture.members, capture.window, tab_groups)
 }
 

@@ -107,6 +107,9 @@ impl Mux {
                     ungrouped: None,
                     result: StripResult::None,
                 };
+                // A screen, pane or workspace close leaves the rows of the
+                // groups it emptied: drop them before the edit sees them.
+                prune_tab_groups(&projected, &mut edit.groups);
                 let result = mutate(&mux, &mut projected, &mut edit)?;
                 Mux::rebuild_split_screen_index(&mut projected);
                 prune_tab_groups(&projected, &mut edit.groups);

@@ -37,6 +37,7 @@ pub(super) fn closing_tab_groups(
              FROM tab_group_members AS m
              JOIN tab_groups AS g ON g.group_id = m.group_id
              JOIN resource_tabs AS t ON t.public_id = m.tab_id AND t.deleted_revision IS NULL
+                                        AND t.pane_id = g.pane_id
              JOIN resource_panes AS p ON p.public_id = t.pane_id
              JOIN resource_screens AS s ON s.public_id = p.screen_id
              ORDER BY g.group_id ASC, t.position ASC",
