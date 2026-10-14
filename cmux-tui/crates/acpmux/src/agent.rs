@@ -865,6 +865,16 @@ impl ChildAgent {
         tokio::time::timeout(ceiling, progress).await.unwrap_or(false)
     }
 
+    /// Whether the agent answers now: a hosted agent's host answers a query
+    /// within `budget` (a wedged host keeps its link open but never
+    /// answers); a direct child is alive.
+    pub async fn answers_within(&self, budget: std::time::Duration) -> bool {
+        if let Some(h) = &self.hosted {
+            return h.link().query_within(budget).await.is_ok();
+        }
+        self.is_alive().await
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {

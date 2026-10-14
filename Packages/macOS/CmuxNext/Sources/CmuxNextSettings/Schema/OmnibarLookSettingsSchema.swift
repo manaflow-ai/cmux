@@ -13,8 +13,9 @@ nonisolated enum OmnibarLookSettingsSchema {
                 S.glassPath, section: .browser, group: group,
                 title: SettingsText.keyed("settings.browser.omnibar.glass", "Address Bar Glass"),
                 help: SettingsText.keyed("settings.browser.omnibar.glass.help",
-                                         "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."),
+                                         "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."),
                 kind: .choice([
+                    SettingChoice("transparent", SettingsText.keyed("settings.choice.transparent", "Transparent")),
                     SettingChoice("regular", SettingsText.keyed("settings.choice.glass", "Glass")),
                     SettingChoice("clear", SettingsText.keyed("settings.choice.glassClear", "Clear Glass")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
