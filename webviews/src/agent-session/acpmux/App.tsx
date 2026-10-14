@@ -1375,14 +1375,13 @@ export function VirtualTranscript({
         ? estimated.layout
         : placeRows(
             estimated.layout,
+            // A row keeps its last drawn height until its new version is drawn: a streaming reply's
+            // text appears after the version that holds it, so an estimate of the version ran ahead
+            // of the drawn text, and its drawn height then pulled the view back a line or more at
+            // every chunk (agent-pane-chat-column.test.ts under load). Growth comes from what is drawn.
             (index) => {
               const known = drawn.get(rows[index].id);
-              return known &&
-                known.sessionId === sessionId &&
-                known.version === rows[index].version &&
-                known.width === rowWidth
-                ? known.height
-                : undefined;
+              return known && known.sessionId === sessionId && known.width === rowWidth ? known.height : undefined;
             },
             last && kept > 0 ? { layout: last.layout, kept } : undefined,
           );

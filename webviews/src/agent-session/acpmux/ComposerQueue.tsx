@@ -70,19 +70,31 @@ export function ComposerQueue({
       setEditing(undefined);
     }
   }, [queue, editing, onLost]);
+  // The space stays while the list redraws and goes with the list: cleared at every change, the
+  // transcript's own layout pass could run between the clear and the next set, read the taller
+  // view and scroll its followed reply back by a row (agent-pane-chat-column.test.ts under load).
+  const spaced = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const node = list.current;
-    const chat = node?.closest<HTMLElement>(".acpmux-main");
-    if (!node || !chat) return;
+    const chat = node?.closest<HTMLElement>(".acpmux-main") ?? null;
+    if (!node || !chat) {
+      spaced.current?.style.removeProperty("--acpmux-queue-space");
+      spaced.current = null;
+      return;
+    }
+    spaced.current = chat;
     const update = () => chat.style.setProperty("--acpmux-queue-space", `${node.offsetHeight}px`);
     const observer = new ResizeObserver(update);
     observer.observe(node);
     update();
-    return () => {
-      observer.disconnect();
-      chat.style.removeProperty("--acpmux-queue-space");
-    };
+    return () => observer.disconnect();
   }, [queue, leaving]);
+  useLayoutEffect(
+    () => () => {
+      spaced.current?.style.removeProperty("--acpmux-queue-space");
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
