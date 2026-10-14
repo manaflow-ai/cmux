@@ -2340,6 +2340,20 @@ export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
   check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
 ]);
 
+/**
+ * One staff Cloud VM health sweep per row (services/vms/health). Read-only
+ * observations of the provider account; the page reads the newest row and
+ * the sweep prunes rows past its retention window.
+ */
+export const cloudVmHealthSnapshots = pgTable("cloud_vm_health_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  attentionNeeded: boolean("attention_needed").notNull(),
+  report: jsonb("report").notNull(),
+}, (table) => [
+  index("cloud_vm_health_snapshots_created_at_idx").on(table.createdAt),
+]);
+
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
 export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
   userId: text("user_id").notNull(),
