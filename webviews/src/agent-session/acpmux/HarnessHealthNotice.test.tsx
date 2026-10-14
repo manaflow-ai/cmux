@@ -179,12 +179,34 @@ test("Update runs the host's updater for this agent and says so while it works, 
   ]);
   expect(opened).toEqual([]);
   expect(text(container)).toContain("Updating Codex…");
-  // Update and Skip wait for it; Not Now still hides the card.
+  // Every button waits for it: Not Now would lose the Restart Chat the update ends with.
   expect(button(container, "update")?.disabled ?? true).toBe(true);
   expect(button(container, "skip")?.disabled ?? true).toBe(true);
-  expect(button(container, "dismiss")?.disabled).toBe(false);
-  await press(container, "dismiss");
-  expect(notice(container)).toBeNull();
+  expect(button(container, "dismiss")?.disabled).toBe(true);
+});
+
+test("Restart Chat stays after the update even when the agent's health, read again, is current", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  // A reconnect reads health again: the CLI is current now, but this chat still runs 0.3.1.
+  await render(container, { ...outdated, version: "0.4.0", outdated: false, update: null }, [], "codex", native);
+  expect(text(container)).toContain("Codex 0.4.0 is installed. Restart the chat to use it.");
+  expect(button(container, "restart")).not.toBeNull();
+});
+
+test("a restart that failed says so and keeps Restart Chat", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  await press(container, "restart");
+  await answer(calls[1], { restarted: 0, after_turn: 0, failed: 1, error: "the agent did not start" });
+  expect(text(container)).toContain("Couldn't restart the chat: the agent did not start");
+  expect(button(container, "restart")?.disabled).toBe(false);
 });
 
 test("a finished update offers Restart Chat, which restarts the chat on the new version", async () => {
