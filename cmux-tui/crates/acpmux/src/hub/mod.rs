@@ -6,6 +6,7 @@
 
 mod adoption;
 mod aside;
+mod budget;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -182,7 +183,7 @@ pub(super) const PROMPT_LEDGER: usize = 64;
 
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
-/// `turn_result`.
+/// `turn_result`; and the shells it runs in the background (`idle.rs`).
 #[derive(Debug, Default)]
 pub(super) struct StreamState {
     /// `messageId` of the assistant message streaming now.
@@ -197,6 +198,7 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    pub(super) background_running: std::collections::HashSet<String>,
 }
 
 pub struct Hub {

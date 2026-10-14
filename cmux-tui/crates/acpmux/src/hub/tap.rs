@@ -116,6 +116,8 @@ impl Hub {
                 && subagent.is_none();
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
+            } else if subagent.is_some() && !kind.ends_with(".replay") {
+                tap_hub.note_subagent_background(&tap_session, msg.params());
             }
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
             if live_update {
