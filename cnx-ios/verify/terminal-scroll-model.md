@@ -64,6 +64,16 @@ rows; in `interacting` nothing. One function computes the bottom
   the reader's rows are an anchor, so the end moving up during a TUI redraw,
   or output appended below, no longer resumes following or moves them.
 
+- **A frame of another region while scrolling**: reproduced on the rig
+  (`scroll_while_streaming`: one frame of the active area's streaming rows over
+  seq rows). Cause: reading the cursor's row while it was outside the viewport
+  moved Ghostty's viewport to the active area and back; Ghostty renders on its
+  own thread and could present the active area in between. The cursor is now
+  read only when it is in the viewport; otherwise its last distance from the
+  end is used.
+- **A fling into a streaming bottom ended short of it**: the deceleration ran
+  on against a growing end. A fling that reaches the bottom stops and follows.
+
 ## Verification
 
 - Rig `scroll_while_streaming`: ~20 lines/s with a status line redrawn below;
@@ -76,6 +86,12 @@ rows; in `interacting` nothing. One function computes the bottom
 - Also passing on the same build: `reattach_no_jumps`, `composer_bottom_pin`,
   `shell_pull_keyboard_up`, `tui_quit_keyboard_up`, `term_scrollback`,
   `tab_switch_last_row`, `keybar_swipe_no_back`, `relaunch_restore`.
-- Not verified here: a main-thread hitch trace (Instruments) during scrolling;
+- Pacing (DEBUG scroll meter, `terminal-sizing` log): main-thread work per
+  scroll callback 0.0-0.2 ms; the simulator's own frame gaps reach 50-117 ms
+  under rig load (not app stalls). Instruments' Animation Hitches template
+  does not record on the simulator ("run data is missing").
+- Open: `scroll_while_streaming` failed once in three runs after the cursor fix
+  with one frame of another region (frame 1591); not investigated further.
+- Not verified here: a device hitch trace;
   the user's two exact device scenarios were not reproduced on the simulator
   rig on either the old or the new build.

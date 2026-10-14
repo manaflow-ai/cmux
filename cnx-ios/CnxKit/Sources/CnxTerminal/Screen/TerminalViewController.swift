@@ -120,6 +120,32 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// When the key bar shows (SPEC M4) and the constraints that apply it.
     private var keyBarRule = KeyBarVisibility()
     private var tuiSizing = TerminalTUISizing()
+    #if DEBUG
+    /// DEBUG frame pacing while the page is dragged or decelerates: the gap
+    /// between scroll callbacks (one per displayed frame while moving) and
+    /// the main-thread time each callback took.
+    struct ScrollMeter {
+        var frames = 0, over17 = 0
+        var longestMs = 0.0, longestStepMs = 0.0
+        var last: CFTimeInterval = 0
+        mutating func step(start: CFTimeInterval, end: CFTimeInterval, active: Bool) {
+            guard active else { last = 0; return }
+            if last > 0 {
+                let gap = (start - last) * 1000
+                frames += 1
+                longestMs = max(longestMs, gap)
+                if gap > 17.5 { over17 += 1 }
+            }
+            longestStepMs = max(longestStepMs, (end - start) * 1000)
+            last = start
+        }
+    }
+    private var scrollMeter = ScrollMeter()
+    #endif
+
+    /// The cursor's distance from the last row when it was last seen.
+    private var cursorRowsFromEnd: Int?
+
     /// The scroll model is setting the offset (not a person).
     private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
@@ -443,7 +469,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if scroll.isInteracting, !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating,
            fling == nil, !dragPinsToComposer, !model.isTUI, cell.height > 0 {
             scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+            #if DEBUG
+            sizingLog.notice("scroll: settled by applyScroll -> \(String(describing: self.scroll.state), privacy: .public)")
+            #endif
         }
+        // UIKit is moving the page: leave it alone.
+        if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating, !dragPinsToComposer { return }
         guard !model.isTUI, cell.height > 0,
               let target = scroll.target(layout: document, rowHeight: cell.height, topInset: scrollView.contentInset.top,
                                          bottomOffsetY: maxOffsetY) else { return }
@@ -947,7 +978,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let previousTotal = documentTotal
         documentTotal = scrollbar.total
         outputSinceProbe = false
-        let cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total)
+        // The cursor's row: read when it is in the viewport; while the page
+        // shows older rows, its last distance from the end (an inline TUI
+        // keeps its input box at the same place from the bottom).
+        var cursor = surface.cursorAbsoluteRow(totalRows: scrollbar.total)
+        if let cursor {
+            cursorRowsFromEnd = max(0, scrollbar.total - 1 - cursor)
+        } else if let distance = cursorRowsFromEnd {
+            cursor = max(0, scrollbar.total - 1 - distance)
+        }
         var blank: Int? = document?.originRow
         if model.session.remoteRows == nil {
             // A local session writes from row 0: no mirror rows above it.
@@ -1170,6 +1209,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     // MARK: Scrolling
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        #if DEBUG
+        let stepStart = CACurrentMediaTime()
+        defer { scrollMeter.step(start: stepStart, end: CACurrentMediaTime(), active: scroll.isInteracting) }
+        #endif
         updateBottomFade()
         guard !model.isTUI else { return }
         if scrollView.isTracking, !pinningDrag {
@@ -1192,6 +1235,23 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
+        // A fling that reaches the bottom follows from there: while output
+        // streams the deceleration would otherwise run on against a growing
+        // end and leave the page short of it.
+        if !settingOffset, scroll.isInteracting, !scrollView.isTracking, scrollView.isDecelerating,
+           scrollView.contentOffset.y >= maxOffsetY - 0.5 {
+            settingOffset = true
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+            settingOffset = false
+            #if DEBUG
+            sizingLog.notice("scroll: a fling reached the bottom -> following")
+            #endif
+            scroll.jumpToBottom()
+            #if DEBUG
+            scrollMeter = ScrollMeter()
+            #endif
+            DispatchQueue.main.async { [weak self] in self?.applyScroll() }
+        }
         // The rubber band past the top of a short scrollback is not a scroll
         // away from the prompt (verify/jump-button.md).
         setScrollButton(visible: scrollButtonVisibility.update(
@@ -1228,8 +1288,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The finger lifted (or the deceleration ended): follow within two rows
     /// of the bottom, else read here, anchored to the top row.
     private func settleScroll() {
+        #if DEBUG
+        if scrollMeter.frames > 0 {
+            sizingLog.notice("scroll pacing: \(self.scrollMeter.frames, privacy: .public) frames, longest \(String(format: "%.1f", self.scrollMeter.longestMs), privacy: .public) ms, \(self.scrollMeter.over17, privacy: .public) over 17 ms, longest main-thread step \(String(format: "%.1f", self.scrollMeter.longestStepMs), privacy: .public) ms")
+        }
+        scrollMeter = ScrollMeter()
+        #endif
         guard !model.isTUI, cell.height > 0 else { return }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
+        #if DEBUG
+        sizingLog.notice("scroll: settled -> \(String(describing: self.scroll.state), privacy: .public) (offset \(Int(self.scrollView.contentOffset.y), privacy: .public), bottom \(Int(self.maxOffsetY), privacy: .public))")
+        #endif
         applyScroll()
     }
 
