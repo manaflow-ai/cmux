@@ -182,6 +182,8 @@ public final class PaletteController {
     /// shortcut for an argument-taking action asks inline.
     public func collectArguments(for id: ActionID, invocation: ActionInvocation, relativeTo window: NSWindow? = nil) {
         guard let descriptor = registry.descriptor(for: id) else { return }
+        // Without its arguments, an action that opens a scope opens it, as its palette row does.
+        if invocation.arguments.isEmpty, let scope = scope(openedBy: id), show(scope: scope, relativeTo: window) { return }
         captureContext()
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: sources.targets,
                                        captured: capturedTargets, preview: sources.argumentPreview,

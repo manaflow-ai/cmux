@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDesign
 
 /// The scope graph and the scope prototypes of the palette
@@ -21,6 +22,15 @@ extension PaletteController {
             return current != settings
         }
         if changed { model.frecencyRevision += 1 }
+    }
+
+    /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens
+    /// Settings. Nil when no scope names the action.
+    func scope(openedBy id: ActionID) -> PaletteScopeID? {
+        configureScopes()
+        let action = registry.canonicalID(for: id).rawValue
+        let graph = model.navigation.graph
+        return graph.order.first { graph.scopes[$0]?.openAction == action }
     }
 
     func configureScopes(entry: PaletteScopeEntryStyle, chip: PaletteScopeChipStyle, itemActions: PaletteItemActionsStyle) {
