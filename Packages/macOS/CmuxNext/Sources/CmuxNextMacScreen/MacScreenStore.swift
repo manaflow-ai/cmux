@@ -1,6 +1,6 @@
 public import CmuxScreenKit
 public import Foundation
-import Observation
+public import Observation
 import Security
 
 /// One Mac this Mac can show: its name and view choices. The pairing

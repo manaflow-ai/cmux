@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
-import Observation
+public import Observation
 import SwiftUI
 
 /// A Mac Screen tab (`cmux://mac-screen…`, `MacScreenRecord`) shown as a

@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxScreenKit
 import ApplicationServices
 import CoreGraphics
-import Observation
+public import Observation
 import os
 import SystemConfiguration
 

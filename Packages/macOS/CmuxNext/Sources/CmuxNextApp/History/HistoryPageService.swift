@@ -209,7 +209,7 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(target, in: tab)
                 },
-                newTab: { [weak services] target in services?.windows.active?.focusedPane?.newBrowserTab(url: target) },
+                newTab: { [weak services] target in _ = services?.windows.active?.focusedPane?.newBrowserTab(url: target) },
                 closeTab: { [weak self] in self?.pageRequests.closeTab(key) })
             page.onNavigate = { [weak self] target in
                 pages.forget(key)

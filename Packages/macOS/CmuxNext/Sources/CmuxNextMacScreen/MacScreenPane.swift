@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxScreenKit
 import CmuxNextRemoteView
-import Observation
+public import Observation
 import SwiftUI
 
 /// What the pane's chrome shows, beyond `ScreenSession`'s own state.
@@ -252,7 +252,7 @@ public final class MacScreenPaneView: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override var isFlipped: Bool { true }
 
