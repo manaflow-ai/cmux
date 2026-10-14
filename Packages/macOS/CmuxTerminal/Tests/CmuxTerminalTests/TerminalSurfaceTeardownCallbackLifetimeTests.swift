@@ -115,11 +115,13 @@ import Testing
     @Test func teardownRetiresNativeSurfaceBeforeDeferredFree() async throws {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
-        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        cmux_test_ghostty_surface_request_process_termination_reset()
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { runtimeSurface.deallocate() }
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
                 "native app routing must be retired before deferred free starts"
             )
             recorder.record(.nativeFree)
@@ -129,7 +131,7 @@ import Testing
         surface.teardownSurface()
 
         #expect(
-            cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 1,
             "teardown must retire the native surface synchronously"
         )
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
@@ -138,11 +140,13 @@ import Testing
     @Test func deinitRetiresNativeSurfaceBeforeDeferredFree() async throws {
         let recorder = TeardownOrderRecorder()
         var surface: TerminalSurface? = makeSurface()
-        surface?.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
-        cmux_test_ghostty_surface_request_process_termination_reset()
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { runtimeSurface.deallocate() }
+        surface?.installRuntimeSurfaceForTesting(runtimeSurface)
+        cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
                 "deinit must retire native app routing before deferred free starts"
             )
             recorder.record(.nativeFree)
@@ -152,7 +156,7 @@ import Testing
         surface = nil
 
         #expect(
-            cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 1,
             "deinit must retire the native surface synchronously"
         )
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
@@ -191,15 +195,15 @@ import Testing
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         defer { runtimeSurface.deallocate() }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
                 "hibernation must retire native app routing before its isolated free"
             )
             recorder.record(.nativeFree)
         }
         defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
-        cmux_test_ghostty_surface_request_process_termination_reset()
+        cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
 
         surface.suspendRuntimeSurfaceForAgentHibernation(reason: "test.hibernate")
 
@@ -211,7 +215,7 @@ import Testing
         let completed = await recorder.waitForEventCount(2)
         #expect(completed, "timed out waiting for native free and tee-lease release")
         #expect(
-            cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 1,
             "hibernation must retire native app routing before its isolated free"
         )
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
