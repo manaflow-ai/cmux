@@ -690,7 +690,7 @@ export function NewTabScreen(props: Props) {
       )}
       {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
       {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      <StashedLink count={stashed} onOpen={() => props.onJump("stashed", "all")} />
+      {sections.stashed && <StashedLink count={stashed} onOpen={() => props.onJump("stashed", "all")} />}
       {sections.chats !== "none" && !allChats && (
         <ChatCards
           cards={cards}

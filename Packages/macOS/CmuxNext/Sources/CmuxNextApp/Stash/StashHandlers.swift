@@ -5,8 +5,9 @@ import Foundation
 
 /// Stash Tab, Stash Tabs to the Right, Stash Other Tabs and Stash Workspace
 /// (browser pages only), Show Stashed Tabs and Import from OneTab…. A tab's
-/// menu leaves the rows out while its daemon keeps no stashes and disables
-/// them when no browser page of the run qualifies.
+/// menu leaves the rows out while its daemon keeps no stashes (or the tab is
+/// no daemon tab) and disables them when no browser page of the run
+/// qualifies. To the Right and Other follow the strip's order.
 enum StashHandlers {
     /// The tabs one Stash action takes, as seen from its tab.
     enum Scope { case tab, toRight, others, workspace }
@@ -21,6 +22,8 @@ enum StashHandlers {
         let pane: PaneModel
         let workspace: WorkspaceModel?
         let daemon: DaemonService
+        /// The pane's tabs in strip order (groups drawn together, pinned first).
+        let strip: [TabModel]
     }
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -28,7 +31,7 @@ enum StashHandlers {
         NewTabStashed.wire(services.agentTabs, services: services)
         for (id, scope) in scopes {
             registry.bind(id, invoke: { invocation in
-                guard let origin = origin(invocation, services) else { return ctx.refuse(RefusalStrings.focusedPaneHasNoTab) }
+                guard let origin = origin(invocation, ctx) else { return }
                 guard services.historyPage.stash.serves(origin.daemon) else {
                     return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.stash))
                 }
@@ -37,11 +40,11 @@ enum StashHandlers {
                 services.historyPage.stash.stash(tabs: tabs, workspace: scope == .workspace ? origin.workspace?.resourceID : nil)
             })
             ActionTargetVisibility.hide(id, in: registry) { [weak services] invocation in
-                guard let services, let origin = origin(invocation, services) else { return false }
+                guard let services, let origin = origin(invocation, ctx) else { return true }
                 return !services.historyPage.stash.serves(origin.daemon)
             }
             ActionTargetReasons.set(id, in: registry) { [weak services] invocation in
-                guard let services, let origin = origin(invocation, services), services.historyPage.stash.serves(origin.daemon) else { return nil }
+                guard let services, let origin = origin(invocation, ctx), services.historyPage.stash.serves(origin.daemon) else { return nil }
                 return pages(scope, origin).isEmpty ? StashAppStrings.noPage : nil
             }
         }
@@ -51,31 +54,23 @@ enum StashHandlers {
         }
         registry.bind("stash.show", unavailable: served, invoke: { _ in TopPages.show(.page(.stashed), services: services) })
         registry.bind("stash.importOneTab", unavailable: served, invoke: { _ in
-            services.historyPage.stash.model.showImport()
-            TopPages.show(.page(.stashed), services: services)
+            if let key = TopPages.show(.page(.stashed), services: services) { services.historyPage.stash.draft(for: key).open() }
         })
     }
 
-    static func origin(_ invocation: ActionInvocation, _ services: AppServices) -> Origin? {
-        let found: (TabModel, PaneModel)?
-        if let ref = invocation.target, ref.kind == .tab {
-            found = services.locateTab(ref.id)
-        } else if let pane = services.windows.active?.focusedPane, let tab = pane.selectedTab {
-            found = (tab, pane.pane)
-        } else {
-            found = nil
-        }
-        guard let (tab, pane) = found else { return nil }
-        let daemon = services.machines.daemon(forTab: tab)
+    static func origin(_ invocation: ActionInvocation, _ ctx: AppActionContext) -> Origin? {
+        guard let (tab, pane) = ctx.daemonTab(invocation) else { return nil }
+        let daemon = ctx.services.machines.daemon(forPane: pane)
         let workspace = daemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
-        return Origin(tab: tab, pane: pane, workspace: workspace, daemon: daemon)
+        let strip = ctx.services.paneController(for: pane).map { controller in controller.orderedIDs.compactMap { controller.tab($0) } }
+        return Origin(tab: tab, pane: pane, workspace: workspace, daemon: daemon, strip: strip ?? pane.tabs)
     }
 
     /// The browser pages `scope` stashes, in pane order: web pages of a workspace that is not
     /// incognito, never another tab that is pinned.
     static func pages(_ scope: Scope, _ origin: Origin) -> [ResourceID] {
         guard origin.workspace?.ephemeral != true else { return [] }
-        let tabs = origin.pane.tabs, index = tabs.firstIndex { $0 === origin.tab } ?? tabs.count
+        let tabs = origin.strip, index = tabs.firstIndex { $0 === origin.tab } ?? tabs.count
         let picked: [TabModel] = switch scope {
         case .tab: [origin.tab]
         case .toRight: tabs.dropFirst(index + 1).filter { !$0.pinned }
@@ -83,7 +78,8 @@ enum StashHandlers {
         case .workspace: (origin.workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []).filter { !$0.pinned }
         }
         return picked.filter { tab in
-            tab.kind == .browser && tab.page == nil && (tab.url?.hasPrefix("https://") == true || tab.url?.hasPrefix("http://") == true)
+            tab.kind == .browser && tab.page == nil && tab.appTab == nil
+                && (tab.url?.hasPrefix("https://") == true || tab.url?.hasPrefix("http://") == true)
         }.compactMap(\.resourceID)
     }
 }

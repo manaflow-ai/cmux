@@ -63,12 +63,12 @@ struct StashTests {
             #expect(model.groups[0].tabs.map(\.url) == Array(urls[1...]))
 
             // A row's ×: that tab goes for good.
-            await model.delete(model.groups[0], tab: 0)
+            await model.delete(model.groups[0], tab: model.groups[0].tabs[0])
             #expect(model.groups.count == 1)
             #expect(model.groups[0].tabs.map(\.url) == [urls[2]])
 
             // A row's click: that tab comes back, the emptied group goes.
-            await model.restore(model.groups[0], tab: 0)
+            await model.restore(model.groups[0], tab: model.groups[0].tabs[0])
             #expect(model.groups.isEmpty)
             try await PinnedPageTests.until({ Self.tab(url: urls[2], store) != nil }, report: { "no tab at \(urls[2])" })
             #expect(Self.tab(url: urls[1], store) == nil, "the deleted tab never came back")
@@ -95,8 +95,9 @@ struct StashTests {
     @Test func pastedOneTabTextImportsOneGroupPerBlankLineSeparatedBlock() async throws {
         try await PinnedPageTests.withApp { services, _ in
             let model = services.historyPage.stash.model
-            model.showImport()
-            model.importText = """
+            let draft = StashImportDraft()
+            draft.open()
+            draft.text = """
             https://a.example/one | One
             https://a.example/two | Two | with a bar
 
@@ -104,8 +105,8 @@ struct StashTests {
             https://e.example/ |\u{20}
             not a page
             """
-            await model.importPasted()
-            #expect(!model.showsImport, "the paste box closes once the import went through")
+            await model.importPasted(draft)
+            #expect(!draft.isOpen, "the paste box closes once the import went through")
             let groups = model.groups.map { $0.tabs.map(\.url) }
             #expect(Set(groups) == [
                 ["https://a.example/one", "https://a.example/two"], ["https://b.example/", "https://e.example/"],

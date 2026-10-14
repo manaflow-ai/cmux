@@ -2,10 +2,12 @@ import Foundation
 
 /// One stash (`stash-v1`, a native OneTab; `stash.list`): browser pages
 /// closed into a named group, kept until restored or deleted. Members are in
-/// restore order; `stash.restore` and `stash.delete` name them by index.
+/// restore order; `stash.restore` and `stash.delete` name them by their stable `id`.
 public struct StashRecord: Decodable, Sendable, Equatable {
     /// One stashed page.
     public struct Page: Decodable, Sendable, Equatable {
+        /// The member's stable id in its stash.
+        public var id: String
         /// The page, with secret-looking query keys stripped by the daemon.
         public var url: String
         public var title: String?
@@ -15,7 +17,7 @@ public struct StashRecord: Decodable, Sendable, Equatable {
         public var workspaceID: ResourceID?
 
         enum CodingKeys: String, CodingKey {
-            case url, title
+            case id, url, title
             case browserProfileID = "browser_profile_id"
             case workspaceID = "workspace_id"
         }

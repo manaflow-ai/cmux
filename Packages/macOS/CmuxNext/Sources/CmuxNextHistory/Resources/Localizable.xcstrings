@@ -7992,133 +7992,395 @@
         }
       }
     },
-    "stash.import.done": {
+    "stash.import.result": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Imported from OneTab."
+            "value": "Imported %1$lld, skipped %2$lld."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم الاستيراد من OneTab."
+            "value": "تم استيراد %1$lld، وتخطي %2$lld."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uvezeno iz OneTab."
+            "value": "Uvezeno: %1$lld, preskočeno: %2$lld."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importeret fra OneTab."
+            "value": "Importeret: %1$lld, sprunget over: %2$lld."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aus OneTab importiert."
+            "value": "%1$lld importiert, %2$lld übersprungen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importado desde OneTab."
+            "value": "Importadas: %1$lld; omitidas: %2$lld."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importé depuis OneTab."
+            "value": "Importés : %1$lld, ignorés : %2$lld."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importato da OneTab."
+            "value": "Importate: %1$lld, saltate: %2$lld."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OneTab から読み込みました。"
+            "value": "%1$lld 件を読み込み、%2$lld 件をスキップしました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បាននាំចូលពី OneTab។"
+            "value": "បាននាំចូល %1$lld រំលង %2$lld។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "OneTab에서 가져왔습니다."
+            "value": "%1$lld개를 가져오고 %2$lld개를 건너뛰었습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importert fra OneTab."
+            "value": "Importert: %1$lld, hoppet over: %2$lld."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zaimportowano z OneTab."
+            "value": "Zaimportowano: %1$lld, pominięto: %2$lld."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importado do OneTab."
+            "value": "Importadas: %1$lld; ignoradas: %2$lld."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Импортировано из OneTab."
+            "value": "Импортировано: %1$lld, пропущено: %2$lld."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "นำเข้าจาก OneTab แล้ว"
+            "value": "นำเข้า %1$lld รายการ ข้าม %2$lld รายการ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "OneTab’den içe aktarıldı."
+            "value": "%1$lld içe aktarıldı, %2$lld atlandı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Імпортовано з OneTab."
+            "value": "Імпортовано: %1$lld, пропущено: %2$lld."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã nhập từ OneTab."
+            "value": "Đã nhập %1$lld, bỏ qua %2$lld."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已从 OneTab 导入。"
+            "value": "已导入 %1$lld 个，跳过 %2$lld 个。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已從 OneTab 匯入。"
+            "value": "已匯入 %1$lld 個，略過 %2$lld 個。"
+          }
+        }
+      }
+    },
+    "stash.deleted.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stashed tab deleted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم حذف علامة التبويب المخبأة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremljena kartica je izbrisana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemt fane slettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgelegter Tab gelöscht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pestaña guardada eliminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet mis de côté supprimé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda messa da parte eliminata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中のタブを削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានលុបផ្ទាំងដែលបានទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관한 탭을 삭제했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagret fane slettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usunięto odłożoną kartę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aba guardada excluída"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отложенная вкладка удалена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบแท็บที่เก็บไว้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklanan sekme silindi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкладену вкладку видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã xóa tab đã cất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除收起的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刪除收起的分頁"
+          }
+        }
+      }
+    },
+    "stash.deleted.group": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stashed group deleted"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم حذف المجموعة المخبأة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremljena grupa je izbrisana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemt gruppe slettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgelegte Gruppe gelöscht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupo guardado eliminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groupe mis de côté supprimé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppo messo da parte eliminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留中のグループを削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានលុបក្រុមដែលបានទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관한 그룹을 삭제했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lagret gruppe slettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usunięto odłożoną grupę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupo guardado excluído"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отложенная группа удалена"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลบกลุ่มที่เก็บไว้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saklanan grup silindi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкладену групу видалено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã xóa nhóm đã cất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除收起的组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刪除收起的群組"
           }
         }
       }

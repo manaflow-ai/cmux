@@ -3,13 +3,20 @@ import CmuxNextCompat
 
 /// The New Tab page's Stashed link: every page hears how many tabs are stashed (none, or a
 /// daemon without stash-v1: no link), again when the count or the set of pages changes. The
-/// stashes are read once this Mac's daemon serves them.
+/// stashes are read once this Mac's daemon serves them, and again on each stash change it
+/// publishes on `session.events` (the CLI, MCP, another window).
 @MainActor
 enum NewTabStashed {
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
         Task { [weak services] in
-            for await served in ObservationStream({ [weak services] in services.map { $0.historyPage.stash.serves($0.daemon) } ?? false }) where served {
-                await services?.historyPage.stash.model.reload()
+            var last: Int?
+            let changes = ObservationStream { [weak services] () -> Int? in
+                guard let services, services.historyPage.stash.serves(services.daemon) else { return nil }
+                return services.daemon.store.session.mirror?.stashChanges ?? 0
+            }
+            for await change in changes where change != last {
+                last = change
+                if change != nil { await services?.historyPage.stash.model.reload() }
             }
         }
         Task { [weak tabs, weak services] in

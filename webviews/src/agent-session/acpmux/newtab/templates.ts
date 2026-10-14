@@ -21,15 +21,17 @@ export type ScreenSections = {
   prompt: boolean;
   /// The Recently Closed list (cx-d0d.60).
   closed: boolean;
+  /// The Stashed link while tabs are stashed (stash-v1, cx-rws36).
+  stashed: boolean;
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
   // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's
   // actions live in the palette and the pane's toolbar, not on the page.
-  default: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false },
-  composer: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false },
-  threads: { chats: "list", allChats: true, recent: 3, prompt: false, closed: true },
-  console: { chats: "list", allChats: true, recent: 3, prompt: true, closed: true },
+  default: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stashed: false },
+  composer: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false, stashed: false },
+  threads: { chats: "list", allChats: true, recent: 3, prompt: false, closed: true, stashed: true },
+  console: { chats: "list", allChats: true, recent: 3, prompt: true, closed: true, stashed: true },
 };
 
 export function screenSections(template: ScreenTemplate): ScreenSections {

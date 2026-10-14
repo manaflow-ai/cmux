@@ -10,20 +10,32 @@ import Foundation
 final class StashService: StashPageSource {
     private weak var services: AppServices?
     let model = StashPageModel()
+    /// Each Stashed page's own OneTab paste box, by page key.
+    private var drafts: [String: StashImportDraft] = [:]
 
     init(services: AppServices) {
         self.services = services
         model.source = self
     }
 
+    func draft(for key: String) -> StashImportDraft {
+        if let draft = drafts[key] { return draft }
+        let draft = StashImportDraft()
+        drafts[key] = draft
+        return draft
+    }
+
+    func dropDraft(_ key: String) { drafts[key] = nil }
+
     /// Whether `daemon` keeps stashes; without it no stash UI shows. Only this Mac's daemon.
     func serves(_ daemon: DaemonService) -> Bool { daemon.isLocal && daemon.supports(DaemonCapabilities.shared.stash) }
 
     /// This Mac's daemon's state client, when it keeps stashes.
     private func state() throws -> StateResourceClient {
-        guard let services, serves(services.daemon), let connection = services.daemon.connection else {
+        guard let daemon = services?.daemon, let connection = daemon.connection else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
+        guard serves(daemon) else { throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.stash)) }
         return connection.state
     }
 
@@ -57,27 +69,42 @@ final class StashService: StashPageSource {
         do { records = try await state().stashes() } catch { throw Self.failure(error) }
         return records.map { record in
             StashedGroup(id: record.id, name: record.name, createdAt: Date(timeIntervalSince1970: Double(record.createdAtMs) / 1000),
-                         tabs: record.members.map { StashedGroup.Tab(url: $0.url, title: $0.title, profile: $0.browserProfileID) })
+                         tabs: record.members.map { StashedGroup.Tab(id: $0.id, url: $0.url, title: $0.title, profile: $0.browserProfileID) })
         }
     }
 
-    func restore(_ group: StashedGroup, tabs: [Int]?, inNewWorkspace: Bool) async throws {
-        do { try await state().restoreStash(group.id, members: tabs, target: inNewWorkspace ? .newWorkspace : .here) } catch {
-            throw Self.failure(error)
+    /// `here` puts a page whose pane is gone in the active window's focused pane; the restored
+    /// pages are shown (their workspace in the active window, the first one selected).
+    func restore(_ group: StashedGroup, tabs: [StashedGroup.Tab], inNewWorkspace: Bool) async throws {
+        var pane: ResourceID?
+        if let focused = services?.windows.active?.focusedPane?.pane, services?.machines.daemon(forPane: focused).isLocal == true {
+            pane = focused.resourceID
         }
+        do {
+            let state = try state()
+            let reopened = try await state.restoreStash(group.id, members: tabs.map(\.id), target: inNewWorkspace ? .newWorkspace : .here,
+                                                        pane: pane)
+            guard let services, let connection = services.daemon.connection else { return }
+            let daemon = services.daemon
+            await daemon.store.applied(through: await connection.eventSequence())
+            DaemonClosedHistory.show(reopened, kind: inNewWorkspace ? .workspace : .tab, daemon: daemon, services: services)
+        } catch { throw Self.failure(error) }
     }
 
-    func delete(_ group: StashedGroup, tabs: [Int]?) async throws {
-        do { try await state().deleteStash(group.id, members: tabs) } catch { throw Self.failure(error) }
+    func delete(_ group: StashedGroup, tabs: [StashedGroup.Tab]?) async throws {
+        do { try await state().deleteStash(group.id, members: tabs?.map(\.id)) } catch { throw Self.failure(error) }
     }
 
     /// Imported pages reopen in the app's browser engine (`browser.defaultEngine`, WebKit without Chromium).
-    func importGroups(_ groups: [OneTabExport.Group]) async throws {
+    func importGroups(_ groups: [OneTabExport.Group]) async throws -> (imported: Int, skipped: Int) {
         var engine = BrowserEngineTag.webkit.rawValue
         if case .open(let choice)? = services?.cache.browserTabs.resolve(requested: nil) { engine = choice.engine.rawValue }
         let wire = groups.map { group in
             StateResourceClient.StashImportGroup(name: nil, pages: group.tabs.map { .init(url: $0.url, title: $0.title) })
         }
-        do { try await state().importOneTab(wire, engine: engine) } catch { throw Self.failure(error) }
+        do {
+            let result = try await state().importOneTab(wire, engine: engine)
+            return (result.importedTabs, result.skippedTabs)
+        } catch { throw Self.failure(error) }
     }
 }

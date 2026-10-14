@@ -3,16 +3,20 @@ import SwiftUI
 
 /// Hosts the Stashed page (as a top page). Resolves the History page's
 /// colors in this view's theme scope, again on every theme change, and reads
-/// the groups again each time it shows.
+/// the groups again each time it shows. Its OneTab paste box (`draft`) is
+/// its own, and closes when the page closes or hides.
 public final class StashPageHostView: NSView {
     public let model: StashPageModel
+    public let draft: StashImportDraft
     private let appearanceState = HistoryPageAppearance()
 
-    public init(model: StashPageModel) {
+    public init(model: StashPageModel, draft: StashImportDraft) {
         self.model = model
+        self.draft = draft
         super.init(frame: .zero)
         wantsLayer = true
-        let hosting = NSHostingView(rootView: StashPageView(model: model, appearance: appearanceState))
+        let view = StashPageView(model: model, draft: draft, appearance: appearanceState) { [weak self] in self?.window }
+        let hosting = NSHostingView(rootView: view)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -34,7 +38,12 @@ public final class StashPageHostView: NSView {
         super.viewDidMoveToWindow()
         resolveColors()
         // task-owner: one stash.list read; the model drops a stale reply by generation
-        if window != nil { Task { [model] in await model.reload() } }
+        if window != nil { Task { [model] in await model.reload() } } else { draft.close() }
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        draft.close()
     }
 
     public override func viewDidChangeEffectiveAppearance() {

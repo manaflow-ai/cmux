@@ -21,8 +21,9 @@ final class StashTopPage: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
-        return StashPageHostView(model: services.historyPage.stash.model)
+        let stash = services.historyPage.stash
+        return StashPageHostView(model: stash.model, draft: stash.draft(for: key))
     }
 
-    func tabClosed(_ key: String) {}
+    func tabClosed(_ key: String) { services?.historyPage.stash.dropDraft(key) }
 }

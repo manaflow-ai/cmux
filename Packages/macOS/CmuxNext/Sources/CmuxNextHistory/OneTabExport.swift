@@ -48,6 +48,8 @@ public nonisolated struct OneTabExport: Sendable, Equatable {
     public var tabCount: Int { groups.reduce(0) { $0 + $1.tabs.count } }
 
     private static func tab(_ line: String) -> Tab? {
+        // `url | ` (an empty title) lost its space to the line trim.
+        let line = line.hasSuffix(" |") ? line + " " : line
         let parts = line.split(separator: " | ", maxSplits: 1, omittingEmptySubsequences: false)
         let url = String(parts[0]).trimmingCharacters(in: .whitespaces)
         guard !url.isEmpty, url.utf8.count <= 8_192 else { return nil }

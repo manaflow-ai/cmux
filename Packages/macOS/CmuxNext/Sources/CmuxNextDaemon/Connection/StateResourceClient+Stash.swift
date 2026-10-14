@@ -24,6 +24,17 @@ extension StateResourceClient {
         }
     }
 
+    /// What `stash.import` kept: pages imported, and pages skipped (not http(s), or repeated).
+    public struct StashImported: Decodable, Sendable, Equatable {
+        public var importedTabs: Int
+        public var skippedTabs: Int
+
+        enum CodingKeys: String, CodingKey {
+            case importedTabs = "imported_tabs"
+            case skippedTabs = "skipped_tabs"
+        }
+    }
+
     /// One page of an imported group (`StashImportTab`).
     public struct StashImportPage: Sendable, Equatable {
         public var url: String
@@ -65,22 +76,28 @@ extension StateResourceClient {
         }, as: [StashRecord].self)
     }
 
-    /// Reopens stash `id`'s members at `members` (every member for nil); they leave the stash.
-    public func restoreStash(_ id: String, members: [Int]? = nil, target: StashTarget = .here) async throws {
+    /// Reopens stash `id`'s members named `members` (member ids; every member for nil); they
+    /// leave the stash. `here` puts a member whose own pane is gone in `pane` (the pane the user
+    /// acted from). An id the stash no longer holds refuses the whole request.
+    @discardableResult
+    public func restoreStash(_ id: String, members: [String]? = nil, target: StashTarget = .here,
+                             pane: ResourceID? = nil) async throws -> ReopenedItem {
         var params: [String: JSONValue] = ["stash": .string(id), "target": .string(target.rawValue)]
-        if let members { params["members"] = .array(members.map { .number(Double($0)) }) }
-        try await stateMutation("stash.restore", params)
+        if let members { params["members"] = .array(members.map { .string($0) }) }
+        if let pane { params["pane"] = .string(pane.rawValue) }
+        return try await stateMutation("stash.restore", params, as: ReopenedItem.self)
     }
 
-    /// Deletes stash `id`'s members at `members`, or the whole stash for nil, for good.
-    public func deleteStash(_ id: String, members: [Int]? = nil) async throws {
+    /// Deletes stash `id`'s members named `members` (member ids), or the whole stash for nil.
+    public func deleteStash(_ id: String, members: [String]? = nil) async throws {
         var params: [String: JSONValue] = ["stash": .string(id)]
-        if let members { params["members"] = .array(members.map { .number(Double($0)) }) }
+        if let members { params["members"] = .array(members.map { .string($0) }) }
         try await stateMutation("stash.delete", params)
     }
 
     /// Imports OneTab groups as stashes whose pages reopen in `engine` (`webkit`, `cef`).
-    public func importOneTab(_ groups: [StashImportGroup], engine: String?) async throws {
+    @discardableResult
+    public func importOneTab(_ groups: [StashImportGroup], engine: String?) async throws -> StashImported {
         let wire: [JSONValue] = groups.map { group in
             var object: [String: JSONValue] = ["tabs": .array(group.pages.map { page in
                 var tab: [String: JSONValue] = ["url": .string(page.url)]
@@ -92,6 +109,6 @@ extension StateResourceClient {
         }
         var params: [String: JSONValue] = ["source": .string("onetab"), "groups": .array(wire)]
         if let engine { params["engine"] = .string(engine) }
-        try await stateMutation("stash.import", params)
+        return try await stateMutation("stash.import", params, as: StashImported.self)
     }
 }

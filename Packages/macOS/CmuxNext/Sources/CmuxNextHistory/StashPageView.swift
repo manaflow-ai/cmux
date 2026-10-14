@@ -1,13 +1,18 @@
+import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import SwiftUI
 
 /// The Stashed page (a native OneTab): stashed groups, newest first, each
 /// dated and named after its workspace, in the History page's rows and
-/// density. A row's click restores that tab; its × or menu deletes it.
+/// density. A row's click restores that tab; its × or menu deletes it. The
+/// page is disabled while an op is in flight; deletes offer Undo in a toast.
 struct StashPageView: View {
-    @Bindable var model: StashPageModel
+    let model: StashPageModel
+    @Bindable var draft: StashImportDraft
     let appearance: HistoryPageAppearance
+    /// The window the page shows in: where a delete's Undo toast shows.
+    let window: () -> NSWindow?
 
     private var colors: HistoryPageColors { appearance.colors }
 
@@ -23,6 +28,7 @@ struct StashPageView: View {
                 list
             }
         }
+        .disabled(model.isBusy)
         .background(colors.background)
     }
 
@@ -31,12 +37,12 @@ struct StashPageView: View {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.panelInset * 1.5) {
                 Text(StashStrings.title).font(Font(Typography.title)).foregroundStyle(colors.primary).lineLimit(1)
                     .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                if !model.showsImport {
-                    Button(StashStrings.importFromOneTab) { model.showImport() }
+                if !draft.isOpen {
+                    Button(StashStrings.importFromOneTab) { draft.open() }
                         .buttonStyle(.borderless).fixedSize().foregroundStyle(colors.secondary)
                 }
             }
-            if model.showsImport { importBox }
+            if draft.isOpen { importBox }
             if let notice = model.notice {
                 Text(notice).font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(3)
             }
@@ -48,17 +54,17 @@ struct StashPageView: View {
     private var importBox: some View {
         VStack(alignment: .leading, spacing: Metrics.panelInset) {
             Text(StashStrings.importHint).font(Font(Typography.caption)).foregroundStyle(colors.secondary)
-            TextEditor(text: $model.importText)
+            TextEditor(text: $draft.text)
                 .font(Font(Typography.body)).foregroundStyle(colors.primary)
                 .scrollContentBackground(.hidden).frame(minHeight: 72, maxHeight: 160)
                 .padding(Metrics.panelInset / 2)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(colors.separator))
             HStack(spacing: Metrics.panelInset * 1.5) {
                 Spacer(minLength: 0)
-                Button(StashStrings.cancel) { model.cancelImport() }.buttonStyle(.borderless).foregroundStyle(colors.secondary)
-                Button(StashStrings.importAction) { Task { await model.importPasted() } }
+                Button(StashStrings.cancel) { draft.close() }.buttonStyle(.borderless).foregroundStyle(colors.secondary)
+                Button(StashStrings.importAction) { Task { await model.importPasted(draft) } }
                     .buttonStyle(.borderless).foregroundStyle(colors.primary)
-                    .disabled(model.importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -67,8 +73,8 @@ struct StashPageView: View {
         List {
             ForEach(model.groups) { group in
                 Section {
-                    ForEach(Array(group.tabs.enumerated()), id: \.offset) { index, tab in
-                        row(tab, at: index, in: group)
+                    ForEach(group.tabs) { tab in
+                        row(tab, in: group)
                     }
                 } header: {
                     groupHeader(group)
@@ -77,27 +83,30 @@ struct StashPageView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .thinScrollers()
     }
 
-    private func row(_ tab: StashedGroup.Tab, at index: Int, in group: StashedGroup) -> some View {
-        let entry = HistoryEntry(id: "\(group.id)#\(index)", kind: .page, time: group.createdAt, title: tab.displayTitle,
+    /// A row: a button that restores its page (keyboard and VoiceOver reach it), then its ×.
+    private func row(_ tab: StashedGroup.Tab, in group: StashedGroup) -> some View {
+        let entry = HistoryEntry(id: "\(group.id)#\(tab.id)", kind: .page, time: group.createdAt, title: tab.displayTitle,
                                  detail: tab.url, payload: .page(url: tab.url, profile: tab.profile ?? ""))
         return HStack(spacing: Metrics.panelInset) {
-            HistoryPageRow(entry: entry, colors: colors)
-            Button { Task { await model.delete(group, tab: index) } } label: {
+            Button { Task { await model.restore(group, tab: tab) } } label: {
+                HistoryPageRow(entry: entry, colors: colors).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(StashStrings.restore)
+            Button { Task { await model.delete(group, tab: tab, undoIn: window()) } } label: {
                 Icon(.actionClose, size: Metrics.iconSize).foregroundStyle(colors.tertiary)
             }
             .buttonStyle(.plain).help(StashStrings.delete).accessibilityLabel(StashStrings.delete)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { Task { await model.restore(group, tab: index) } }
         .contextMenu {
-            Button(StashStrings.restore) { Task { await model.restore(group, tab: index) } }
+            Button(StashStrings.restore) { Task { await model.restore(group, tab: tab) } }
             Divider()
-            Button(StashStrings.delete, role: .destructive) { Task { await model.delete(group, tab: index) } }
+            Button(StashStrings.delete, role: .destructive) { Task { await model.delete(group, tab: tab, undoIn: window()) } }
         }
         .listRowBackground(Color.clear)
-        .thinScrollers()
     }
 
     private func groupHeader(_ group: StashedGroup) -> some View {
@@ -111,14 +120,14 @@ struct StashPageView: View {
                 .buttonStyle(.borderless).foregroundStyle(colors.secondary).fixedSize()
             Button(StashStrings.restoreInNewWorkspace) { Task { await model.restoreInNewWorkspace(group) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.secondary).fixedSize()
-            Button(StashStrings.deleteGroup) { Task { await model.delete(group) } }
+            Button(StashStrings.deleteGroup) { Task { await model.delete(group, undoIn: window()) } }
                 .buttonStyle(.borderless).foregroundStyle(colors.danger).fixedSize()
         }
         .contextMenu {
             Button(StashStrings.restoreAll) { Task { await model.restore(group) } }
             Button(StashStrings.restoreInNewWorkspace) { Task { await model.restoreInNewWorkspace(group) } }
             Divider()
-            Button(StashStrings.deleteGroup, role: .destructive) { Task { await model.delete(group) } }
+            Button(StashStrings.deleteGroup, role: .destructive) { Task { await model.delete(group, undoIn: window()) } }
         }
     }
 }

@@ -4,14 +4,17 @@ public import Foundation
 /// group named after the workspace they left (or an imported OneTab group).
 /// The App maps the daemon's `stash.list` records into it.
 public nonisolated struct StashedGroup: Identifiable, Hashable, Sendable {
-    /// One stashed page; its index in ``tabs`` names it to restore and delete.
-    public struct Tab: Hashable, Sendable {
+    /// One stashed page; its stable ``id`` names it to restore and delete.
+    public struct Tab: Hashable, Sendable, Identifiable {
+        /// The daemon's member id, stable while the page stays stashed.
+        public var id: String
         public var url: String
         public var title: String?
         /// The browser profile it reopens in; nil for the default.
         public var profile: String?
 
-        public init(url: String, title: String?, profile: String?) {
+        public init(id: String, url: String, title: String?, profile: String?) {
+            self.id = id
             self.url = url
             self.title = title
             self.profile = profile

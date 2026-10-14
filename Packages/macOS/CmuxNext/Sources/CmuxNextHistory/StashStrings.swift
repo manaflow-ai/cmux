@@ -21,5 +21,9 @@ nonisolated enum StashStrings {
     static var importAction: String { t("stash.import.action", "Import") }
     static var cancel: String { t("stash.import.cancel", "Cancel") }
     static var importNothing: String { t("stash.import.nothing", "No tabs found in the pasted text.") }
-    static var imported: String { t("stash.import.done", "Imported from OneTab.") }
+    static func imported(_ imported: Int, skipped: Int) -> String {
+        t("stash.import.result", "Imported \(imported), skipped \(skipped).")
+    }
+    static var deletedTab: String { t("stash.deleted.tab", "Stashed tab deleted") }
+    static var deletedGroup: String { t("stash.deleted.group", "Stashed group deleted") }
 }
