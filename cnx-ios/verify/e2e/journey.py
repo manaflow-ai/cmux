@@ -554,6 +554,41 @@ class Journey:
         self.hide_keyboard()
         return f"composer sent 'echo {marker}'"
 
+    def s_relaunch_restore(self):
+        """design/terminal R1-0: a cold launch restores the open terminal tab and it
+        attaches (accepts input) within 10 s, showing its last frame meanwhile."""
+        self.open_seed_workspace()
+        self.hide_keyboard()
+        time.sleep(1)
+        self.sim.terminate(BUNDLE)
+        time.sleep(1)
+        t = self.sim.launch(BUNDLE)
+        field = self.sim.wait(ident="terminal.composer.field", timeout=15)
+        check(field, "the relaunch did not restore the terminal tab")
+        restored = time.time() - t
+        connecting = bool(self.sim.find(ident="terminal.connecting"))
+        self.sim.shot(f"relaunch-restore-{self.run_id}")
+        # Attached: the connecting placeholder goes away within 10 s of launch.
+        while self.sim.find(ident="terminal.connecting") and time.time() - t < 10:
+            time.sleep(0.3)
+        check(not self.sim.find(ident="terminal.connecting"),
+              f"still connecting {time.time() - t:.0f} s after the relaunch (R1-0)")
+        attached = time.time() - t
+        marker = f"r{random.randint(10000, 99999)}"
+        self.sim.tap_el(field)
+        time.sleep(0.6)
+        self.sim.softtype(f"echo {marker}")
+        self.sim.tap_q(ident="terminal.composer.send")
+        deadline = time.time() + 8
+        while time.time() < deadline and not self.which_term(marker):
+            time.sleep(0.4)
+        check(self.which_term(marker), f"input after the relaunch never reached the Mac ({marker})")
+        ran = time.time() - t
+        self.hide_keyboard()
+        return {"notes": f"restored the tab in {restored:.1f} s ({'connecting label shown' if connecting else 'no connecting label'}); "
+                         f"attached {attached:.1f} s and the Mac ran input {ran:.1f} s after launch",
+                "metric_relaunch_attach_s": round(attached, 2)}
+
     def s_term_keys(self):
         self.open_seed_workspace()
         term = self.seed["term1"]
@@ -1066,6 +1101,7 @@ class Journey:
             ("create_workspace", "Create workspace (instant)", "dataflow", self.s_create_workspace),
             ("open_workspace", "Open workspace", "wsdesign", self.s_open_workspace),
             ("last_tab_restore", "Last-tab restore and tab grid", "wsdesign", self.s_last_tab_restore),
+            ("relaunch_restore", "Relaunch restores the tab and attaches", "wsdesign", self.s_relaunch_restore),
             ("term_direct", "Terminal: direct typing (soft keyboard)", "termlive", self.s_term_direct),
             ("term_composer", "Terminal: composer", "termlive", self.s_term_composer),
             ("term_keys", "Terminal: ^C, arrows, joystick", "termlive", self.s_term_keys),
