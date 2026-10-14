@@ -91,6 +91,10 @@ public struct MacPresenceDots: View {
 /// spells it "Aziz's MacBook Pro 3F2A" (`MacNameDisambiguation.displayName`).
 public struct MacNameTag: View {
     let tag: String
+    /// 11 pt at Large, growing with Dynamic Type up to twice that: beside a
+    /// name it must never squeeze the name (at accessibility sizes rows put it
+    /// on its own line under the name).
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 11
 
     public init(_ tag: String) {
         self.tag = tag
@@ -98,7 +102,7 @@ public struct MacNameTag: View {
 
     public var body: some View {
         Text(verbatim: tag)
-            .font(.system(.caption2, design: .monospaced).weight(.semibold))
+            .font(.system(size: min(size, 22), weight: .semibold, design: .monospaced))
             .foregroundStyle(theme.colors.label2)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)

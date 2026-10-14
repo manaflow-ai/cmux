@@ -59,6 +59,7 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         List {
@@ -133,7 +134,7 @@ struct DevicesPage: View {
     /// the rows and the remove confirmation say which one. Over the account's
     /// Macs, as Workspaces computes them, so a Mac has one tag everywhere.
     private var sameNames: MacNameDisambiguation {
-        MacNameDisambiguation(account: store.teams, extra: macs.map { (id: $0.id, name: $0.name) })
+        MacNameDisambiguation(account: store.teams)
     }
 
     /// The name with its tag when another Mac has the same name: the text the
@@ -212,10 +213,16 @@ struct DevicesPage: View {
             // Centered on the name's line, not the two-line block.
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 6 }
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(device.name).font(theme.type.rowTitle)
-                    if device.kind == .mac, let tag = sameNames.tag(for: device.id) {
-                        MacNameTag(tag)
+                let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
+                if typeSize.isAccessibilitySize {
+                    // The tag on its own line: beside the name it would squeeze
+                    // the name into one word per line.
+                    UnbrokenText(device.name)
+                    if let tag { MacNameTag(tag) }
+                } else {
+                    HStack(spacing: 6) {
+                        Text(device.name).font(theme.type.rowTitle)
+                        if let tag { MacNameTag(tag) }
                     }
                 }
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
@@ -240,8 +247,9 @@ struct DevicesPage: View {
         if device.online == true {
             presence = status(device)?.text ?? "Online"
         } else if let seen = device.lastSeenAt {
-            // The formatter Workspaces uses ("Last seen 2h ago").
-            presence = RelativeStamp().presence(isOnline: false, lastSeenAt: seen)
+            // The formatter and clock Workspaces uses ("Last seen 2h ago"); reading
+            // the clock redraws the page on each minute tick.
+            presence = RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: false, lastSeenAt: seen)
         } else {
             presence = "Offline"
         }

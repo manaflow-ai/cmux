@@ -7,6 +7,10 @@ public struct Team: Identifiable, Hashable, Sendable {
     public var appearance: TeamAppearance
     public var macs: [MacDevice]
 
+    /// The account's personal space (PROTOCOL.md "Personal space"): just you,
+    /// so it has no invites.
+    public var isPersonalSpace: Bool { id.hasPrefix("personal-") }
+
     public init(id: String, name: String, appearance: TeamAppearance? = nil, macs: [MacDevice] = []) {
         self.id = id
         self.name = name

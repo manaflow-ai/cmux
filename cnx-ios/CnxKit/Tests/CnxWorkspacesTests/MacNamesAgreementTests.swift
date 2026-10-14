@@ -25,9 +25,9 @@ import Testing
         let entries = MacFilterMemo().entries(MacFilterMemo.Input(macs: active, accountMacs: account, connection: [:],
                                                                  linkStatus: [:], live: false, now: Self.now))
         let workspaces = MacFilterMemo().names(account)
-        // Settings → Devices: the account's teams plus the service's list.
-        let service = account.map { (id: $0.id, name: $0.name) }
-        let settings = MacNameDisambiguation(account: Self.teams, extra: service)
+        // Settings → Devices: the same scope (every team's Macs).
+        #expect(MacNameDisambiguation.scope(Self.teams) == account)
+        let settings = MacNameDisambiguation(account: Self.teams)
         for mac in account {
             #expect(workspaces.tag(for: mac.id) == settings.tag(for: mac.id))
             #expect(workspaces.displayName(mac) == settings.displayName(id: mac.id, name: mac.name))
@@ -38,15 +38,31 @@ import Testing
         #expect(settings.displayName(id: "5b97a6f1-91c7", name: "Aziz's MacBook Pro") == "Aziz's MacBook Pro 91C7")
     }
 
-    @Test func lastSeenAgreesAcrossACachedMinute() {
-        // The filter caches by the minute; a row formats at any second of it.
-        let seen = Date(timeIntervalSince1970: 1_800_000_000 - 7200 + 15)
-        for offset in stride(from: 0.0, to: 60, by: 5) {
-            let now = Date(timeIntervalSince1970: 1_800_000_000 + offset)
-            let minute = Date(timeIntervalSince1970: (now.timeIntervalSince1970 / 60).rounded(.down) * 60)
-            #expect(RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: seen)
-                    == RelativeStamp(now: minute).presence(isOnline: false, lastSeenAt: seen))
-        }
-        #expect(RelativeStamp(now: Self.now).presence(isOnline: false, lastSeenAt: seen) == "Last seen 2h ago")
+    @Test func aMacOnlyTheServiceListsChangesNoTag() {
+        // Devices lists a Mac no team holds (a team left), named like one in a
+        // team: neither surface's tags change, because both tag over the teams.
+        let workspaces = MacFilterMemo().names(MacNameDisambiguation.scope(Self.teams))
+        let settings = MacNameDisambiguation(account: Self.teams)
+        let stray = MacDevice(id: "dead-0001", name: "mini 4", isOnline: false)
+        #expect(settings.tag(for: "mini-4") == nil)
+        #expect(workspaces.tag(for: "mini-4") == nil)
+        #expect(settings.tag(for: stray.id) == nil)
+        #expect(settings.tags == workspaces.tags)
+    }
+
+    @Test func lastSeenIsExactAgainstTheSharedMinute() {
+        let clock = MinuteClock(now: Self.now.addingTimeInterval(30), ticking: false)
+        #expect(clock.now == Self.now)
+        let stamp = RelativeStamp(now: clock.now)
+        #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-59)) == "Last seen just now")
+        #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-60)) == "Last seen 1m ago")
+        #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-61)) == "Last seen 1m ago")
+        #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-119)) == "Last seen 1m ago")
+        #expect(stamp.presence(isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-120)) == "Last seen 2m ago")
+        // The filter's cache keys on the same minute, so it formats the same text.
+        let mac = MacDevice(id: "m", name: "Mac", isOnline: false, lastSeenAt: Self.now.addingTimeInterval(-90))
+        let entry = MacFilterMemo().entries(MacFilterMemo.Input(macs: [mac], connection: [:], linkStatus: [:], live: false,
+                                                               now: clock.now))
+        #expect(entry.first?.detail == stamp.presence(isOnline: false, lastSeenAt: mac.lastSeenAt))
     }
 }

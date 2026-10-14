@@ -48,8 +48,11 @@ struct TeamSidebar: View {
                         .padding(.horizontal, theme.metrics.sideMargin)
                         .padding(.vertical, 8)
                     }
-                    inviteRow
-                        .padding(.top, 4)
+                    // The personal space is just you: nobody to invite.
+                    if let team = store.activeTeam, !team.isPersonalSpace {
+                        inviteRow
+                            .padding(.top, 4)
+                    }
                 }
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -118,7 +121,9 @@ struct TeamSidebar: View {
         .padding(.horizontal, theme.metrics.selectedRowInset)
         .contextMenu {
             Button("Change color and icon", systemImage: "paintpalette") { shell.editingTeam = team }
-            Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
+            if !team.isPersonalSpace {
+                Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
+            }
             Button("Copy team name", systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = team.name
                 theme.haptics.copy()
