@@ -549,3 +549,46 @@ fn open_url_uses_the_frontend_browser_path_when_the_app_renders_browsers() {
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
     drop(app);
 }
+
+/// The app's connection: it stays open and declares that it renders
+/// browser tabs.
+fn frontend_app(server: &HeadlessServer) -> Line {
+    let mut app = Line::open(server);
+    let info = app.send(&json!({"id": 1, "cmd": "set-client-info", "name": "app",
+                                "capabilities": ["frontend-browser-tabs-v1"]}));
+    assert_eq!(info["ok"], true, "{info}");
+    app
+}
+
+/// With the app attached, a link in a home workspace that has no screen yet
+/// (a fresh Home) gets the workspace's first screen with a frontend browser
+/// tab; a retry answers the first result and the next link reuses the tab.
+#[test]
+fn open_url_in_an_empty_home_makes_a_frontend_tab() {
+    let server = HeadlessServer::start("open-url-frontend-home");
+    let _app = frontend_app(&server);
+    let home = v2(&server, "workspace.ensure_home", json!({}), Some("open-url-fresh-home"));
+    let home = value(&home)["workspace_id"].as_str().unwrap().to_string();
+
+    let open =
+        |url: &str, key: &str| v2(&server, "workspace.open_url", json!({"url": url}), Some(key));
+    let opened = open("https://example.com/home", "open-url-fresh-home-1");
+    let first = value(&opened).clone();
+    assert_eq!(first["kind"], "browser", "{opened}");
+    assert_eq!(first["reused"], false, "{opened}");
+    assert_eq!(first["workspace_id"], home, "{opened}");
+    let made = screen(&server, &home);
+    let tab = tab_by_resource(&made, &first["tab_id"]);
+    assert_eq!(tab["browser_renderer"], "frontend", "not a frontend browser tab: {made}");
+    assert_eq!(tab["url"], "https://example.com/home", "{made}");
+    assert_eq!(made["panes"].as_array().unwrap().len(), 1, "{made}");
+    assert_eq!(pane_by_resource(&made, &first["pane_id"])["resource_id"], first["pane_id"]);
+
+    let retried = open("https://example.com/home", "open-url-fresh-home-1");
+    assert_eq!(value(&retried), &first, "{retried}");
+    assert_eq!(tab_count(&screen(&server, &home)), 1, "a retry made a tab");
+    let again = open("https://example.com/home-2", "open-url-fresh-home-2");
+    assert_eq!(value(&again)["reused"], true, "{again}");
+    assert_eq!(value(&again)["tab_id"], first["tab_id"], "{again}");
+    assert_eq!(tab_count(&screen(&server, &home)), 1, "the second link made a tab");
+}

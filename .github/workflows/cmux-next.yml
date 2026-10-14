@@ -918,6 +918,11 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
 
+      - name: No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+        id: no-process-scan
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-no-process-scan.py "$GITHUB_WORKSPACE"
+
       - name: Main-thread concurrency
         id: concurrency
         continue-on-error: true
@@ -1037,6 +1042,7 @@ jobs:
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/cmux-next/tests/fast-tier.test.sh
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
+          bash scripts/cmux-next/tests/check-no-process-scan.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
@@ -1178,6 +1184,7 @@ jobs:
             ${{ steps.app-size.outcome }}|CmuxNextApp size cap
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+            ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
