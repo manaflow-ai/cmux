@@ -482,13 +482,13 @@ def outside_text():
 
 
 def page_html(name, base=""):
-    with LOCK:
-        first = name not in SERVED
-        SERVED.add(name)
     body = "".join(f"<p style='height:40px;margin:0'>rj {name} row {i}</p>" for i in range(400)) if name == "tall" else ""
     act = ""
-    if first and name == "tall":
-        act = f"setTimeout(function(){{acted=1;window.scrollTo(0,{SCROLL});}},300);"
+    if name == "tall":
+        # The server, not the HTML, says whether to scroll: only the first load asks and gets a
+        # yes. A copy of the page from a cache runs this same script and asks again (no).
+        act = ("try{var q=new XMLHttpRequest();q.open('GET','" + base + "/act?page=tall&t='+Date.now(),false);q.send();"
+               f"if(q.responseText==='1'){{setTimeout(function(){{acted=1;window.scrollTo(0,{SCROLL});}},300);}}}}catch(e){{}}")
     # The history pages link on (a -> b -> c), for link-click navigation as a person's.
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
     href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
@@ -523,6 +523,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         url = urlparse(self.path)
+        if url.path == "/act":
+            page = parse_qs(url.query).get("page", [""])[0]
+            with LOCK:
+                first = page not in SERVED
+                SERVED.add(page)
+            data = b"1" if first else b"0"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if url.path == "/report":
             q = parse_qs(url.query)
             with LOCK:
@@ -883,6 +896,8 @@ def snapshot(label):
     surfaces, views = view_panes()
     raw = {"topology": topo, "debug.windows": rpc("debug.windows"), "debug.screens": rpc("debug.screens"),
            "debug.surfaces": surfaces, "reports": dict(REPORTS), "debug.timings": rpc("debug.timings")}
+    with LOCK:
+        raw["page_loads"] = list(PAGE_LOADS)
     items = {}
     ws_by_id = {w.get("id"): w for w in topo.get("workspaces", [])}
     rj = lambda name: (name or "").startswith("rj-")
@@ -1023,10 +1038,14 @@ def snapshot(label):
                      if any(t.get("agent_session") == sid or t.get("kind") == "conversation" for t in p.get("tabs", []))), AGENT.get("pane"))
         # The chat's page shows only while its workspace is shown: visit it.
         with visiting("rj-agent"):
-            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r else None)(
-                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 20, 1) \
+            # A page still connecting to acpmux has no session yet: wait for it to connect.
+            shown_at = time.time()
+            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r and r.get("connection") != "connecting" else None)(
+                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 45, 1) \
                 or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
         raw["agent_pane.chat_state"] = state
+        raw["agent_pane.connect_seconds"] = round(time.time() - shown_at, 1)
+        say(f"  chat page {state.get('connection') if isinstance(state, dict) else state} {raw['agent_pane.connect_seconds']} s after it was shown")
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
             items["agent.page.last_assistant"] = state.get("lastAssistant")
