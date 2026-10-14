@@ -165,6 +165,29 @@ test("a chat another chat's agent started is not listed on its own", async () =>
   expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds", "Fix the flaky upload test"]);
 });
 
+// The parent's row keeps its children in a collapsed list with a count; opened, it lists them under
+// it (Leo 2026-10-14).
+test("a chat's children fold into a list under its row", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "child", name: "Coordinator: land the PR", spawnedBy: "lane-1", updatedAt: T0 + 1 }),
+    lane({ sessionId: "child-2", name: "Coordinator: fix the reds", spawnedBy: "lane-1", updatedAt: T0 + 2 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds"]);
+  const toggle = page.querySelector<HTMLButtonElement>(".nt-card-children-toggle")!;
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle.textContent).toBe("2");
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(rows(page).map((row) => row.title)).toEqual([
+    "cg-next-reds",
+    "Coordinator: fix the reds",
+    "Coordinator: land the PR",
+  ]);
+});
+
 test("a chat whose last turn failed reads Failed; one that lost its agent reads Disconnected", async () => {
   const page = await mount("a", [
     lane({ sessionId: "failed", name: "continue", lastTurn: { status: "failed" }, indicator: "failed" }),
