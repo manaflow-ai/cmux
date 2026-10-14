@@ -218,8 +218,7 @@ def late_undo(label, undone, redone):
     rpc("debug.key", {"key": "z", "modifiers": ["cmd", "shift"]})
     again = wait(lambda: bool(redone()) or None, 5)
     if not again and undo_toasts():
-        toast(undo=True)  # the inverse's own toast redoes it when the stack has no redo
-        again = wait(lambda: bool(redone()) or None, 5)
+        toast(undo=True)  # keep the next steps' state; the redo check above stays FAIL
     record(f"{label}: Shift-Cmd-Z redoes the late undo", bool(again), f"list={list_titles()}")
 
 

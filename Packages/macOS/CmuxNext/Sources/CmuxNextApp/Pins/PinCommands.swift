@@ -50,17 +50,25 @@ struct PinCommands {
         let windows = context.services.windows
         guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        let step = PinUndoStep(title: title) { inverse(self) }
+        let run: @MainActor () -> Void = { inverse(self) }
+        // An inverse that ran from the undo stack comes back here (often later, after the daemon's reply): it fills the
+        // step the undo put at once, so it is the redo (or, from a redo, the next undo), not a new undo that clears redo.
+        let step: PinUndoStep
+        defer { PinUndoStep.pending = nil }
+        if let pending = PinUndoStep.pending, pending.undoManager === window.undoManager,
+           ContinuousClock.now - pending.created < .seconds(10) { // a refused inverse never comes: a later change is new
+            PinUndoStep.pending = nil
+            step = pending
+            step.fill(title: title, run)
+        } else {
+            step = PinUndoStep(title: title, run)
+            step.undoManager = window.undoManager
+            step.register()
+        }
         step.handle = handle
-        step.undoManager = window.undoManager
         PinUndoStep.newest = step
         handle.onAction = { step.run(fromToast: true) }
         handle.ownsUndoTop = { [weak step] manager in step?.isTop(of: manager) == true }
-        // The handler holds the step (an undo manager may not retain its target), so it outlives the toast.
-        window.undoManager?.registerUndo(withTarget: step) { [step] _ in
-            MainActor.assumeIsolated { step.run(fromToast: false) }
-        }
-        window.undoManager?.setActionName(title)
     }
 }
 
@@ -70,12 +78,29 @@ struct PinCommands {
 final class PinUndoStep {
     /// The step registered last (a newer one is the top of its stack, not this).
     static weak var newest: PinUndoStep?
+    /// The step an undo or redo of the stack put for its inverse, until that inverse registers.
+    static var pending: PinUndoStep?
     private var inverse: (() -> Void)?
-    private let title: String
+    private var title: String
+    let created = ContinuousClock.now
     weak var handle: CmuxToastHandle?
     weak var undoManager: UndoManager?
 
-    init(title: String, _ inverse: @escaping @MainActor () -> Void) {
+    init(title: String, _ inverse: (@MainActor () -> Void)?) {
+        self.title = title
+        self.inverse = inverse
+    }
+
+    /// Puts the step on its stack (on the redo side while the stack undoes).
+    func register() {
+        // The handler holds the step (an undo manager may not retain its target), so it outlives the toast.
+        undoManager?.registerUndo(withTarget: self) { [self] _ in
+            MainActor.assumeIsolated { self.run(fromToast: false) }
+        }
+        undoManager?.setActionName(title)
+    }
+
+    func fill(title: String, _ inverse: @escaping @MainActor () -> Void) {
         self.title = title
         self.inverse = inverse
     }
@@ -88,14 +113,28 @@ final class PinUndoStep {
 
     func run(fromToast: Bool) {
         guard let inverse else { return }
-        self.inverse = nil
         if fromToast {
-            undoManager?.removeAllActions(withTarget: self) // the toast ran it: the stack loses the step
-        } else if let handle, !handle.isDismissed {
+            if isTop(of: undoManager), let undoManager {
+                undoManager.undo() // the same path as Cmd-Z after the toast: the inverse becomes the redo
+                return
+            }
+            self.inverse = nil
+            undoManager?.removeAllActions(withTarget: self) // not the top: the stack loses the step
+            inverse()
+            return
+        }
+        self.inverse = nil
+        if let handle, !handle.isDismissed {
             handle.onAction = nil
             handle.dismiss() // the stack ran it: the toast goes
         }
+        if let undoManager, undoManager.isUndoing || undoManager.isRedoing {
+            // The inverse's step goes on the other side now, while the stack undoes or redoes; the inverse fills it.
+            let next = PinUndoStep(title: title, nil)
+            next.undoManager = undoManager
+            next.register()
+            Self.pending = next
+        }
         inverse()
     }
-}
 }
