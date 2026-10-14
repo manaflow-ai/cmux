@@ -219,10 +219,10 @@ impl Mux {
         let live =
             if failure.is_none() { self.live_surface_for_terminal(terminal_id) } else { None };
         let Some(surface) = live else {
-            let creating = terminals.remove(terminal_id).expect("the entry is present");
+            let queued = terminals.remove(terminal_id).map(|creating| creating.queued);
             inputs.ended.notify_all();
             drop(terminals);
-            return give_back(terminal_id, creating.queued, failure.unwrap_or("failed"));
+            return give_back(terminal_id, queued.unwrap_or_default(), failure.unwrap_or("failed"));
         };
         creating.flushing = true;
         drop(terminals);
@@ -233,8 +233,8 @@ impl Mux {
         loop {
             let batch = {
                 let mut terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
-                let creating =
-                    terminals.get_mut(terminal_id).expect("a flushing entry stays until it ends");
+                // A flushing entry stays until this loop removes it.
+                let Some(creating) = terminals.get_mut(terminal_id) else { break };
                 if creating.queued.is_empty() {
                     terminals.remove(terminal_id);
                     inputs.ended.notify_all();
@@ -314,7 +314,7 @@ impl Mux {
 
     /// The live terminal surface whose host id is `terminal_id`.
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(surface) = state.indexed_catalog_terminal(terminal_id)
             && state.surfaces.contains_key(&surface.id)
         {
