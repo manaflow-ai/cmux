@@ -565,6 +565,62 @@ fn a_closed_tab_group_reopens_as_its_group() {
     assert_eq!(groups[0]["tab_ids"], serde_json::Value::Array(back), "{groups:?}");
 }
 
+#[test]
+fn a_closed_tab_group_that_emptied_its_screen_reopens_as_its_group() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-group-screen");
+    let workspace = kinds_workspace(&mut app);
+    let first = workspace["screens"][0]["resource_id"].clone();
+    app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                "cols":80,"rows":24}));
+    let screen = |app: &mut AppConnection| {
+        kinds_workspace(app)["screens"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|screen| screen["resource_id"] != first)
+            .cloned()
+            .expect("the new screen is listed")
+    };
+    let pane = screen(&mut app)["panes"][0]["id"].as_u64().expect("the new screen has a pane");
+    app.send(serde_json::json!({"cmd":"new-tab","pane":pane}));
+    let tabs = screen(&mut app)["panes"][0]["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| tab["tab_resource_id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert_eq!(tabs.len(), 2, "{tabs:?}");
+    resource_request(
+        &harness.socket,
+        "group-screen-create",
+        "tab_group.create",
+        serde_json::json!({"machine":"current","session":"current","tabs":tabs,
+                           "name":"Build","color":"blue"}),
+        Some("group-screen-create"),
+    );
+    let created = tab_groups(&harness, "group-screen-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+
+    // Its screen's only pane held nothing else: the close takes the screen.
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "tab_group.close",
+        serde_json::json!({"tab_group":group_id}),
+        "group-screen",
+    );
+    assert_eq!(item["kind"], "screen", "{item}");
+    let back = reopened["tab_ids"].as_array().cloned().unwrap_or_default();
+    assert_eq!(back.len(), 2, "both tabs reopen once: {reopened}");
+    let groups = tab_groups(&harness, "group-screen-list-2");
+    assert_eq!(groups.len(), 1, "the reopen formed no group: {groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Build");
+    assert_eq!(groups[0]["color"], "blue");
+    assert_eq!(groups[0]["tab_ids"], serde_json::Value::Array(back), "{groups:?}");
+}
+
 fn screen_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
     let reply = resource_request(
         &harness.socket,
