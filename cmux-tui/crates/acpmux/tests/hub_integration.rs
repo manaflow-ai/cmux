@@ -14,6 +14,8 @@ use tokio::sync::mpsc;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/lanes.rs"]
+mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/questions.rs"]
@@ -700,6 +702,12 @@ async fn restart_marks_unknown_outcome() {
         events.iter().map(|e| &e.kind).collect::<Vec<_>>()
     );
     assert_eq!(events.last().unwrap().msg["detail"], "outcome_unknown");
+    // cx-v9k2f: the session shows that turn failed, with why, not idle.
+    let s = hub2.session_summary(&hub2.resolve(&id).unwrap());
+    assert_eq!(s["lastTurn"]["status"], "failed", "{s}");
+    assert_eq!(s["indicator"], "failed", "{s}");
+    assert_eq!(s["lane"]["state"], "failed", "{s}");
+    assert!(s["lane"]["error"].as_str().unwrap_or_default().contains("restarted"), "{s}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
