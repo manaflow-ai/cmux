@@ -172,11 +172,22 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     const at = names.indexOf("New terminal");
     expect(at).toBeGreaterThan(-1);
     expect(names[at + 1]).toBe("New browser");
-    // The longer menu still shows its last group (Archive, Close) without scrolling when the
-    // window has room for it.
+    await context.close();
+  });
+
+  test("the chat menu shows its last group without scrolling when the window has room", async () => {
+    // A short window: the menu is taller than 70% of it, and the window still holds all of it.
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 640 } });
+    const page = await context.newPage();
+    await open(page);
+    await page.getByRole("button", { name: "Chat actions" }).click();
+    const items = page.getByRole("menuitem");
+    await items.first().waitFor({ timeout: 5_000 });
     const popup = await box(page, ".acpmux-chat-menu-popover");
     const last = (await items.last().boundingBox()) ?? { y: 0, height: 0 };
     expect(last.y + last.height).toBeLessThanOrEqual(popup.y + popup.height);
+    // A taller menu than 70% of the window, so the check is a real one.
+    expect(popup.height).toBeGreaterThan(640 * 0.7);
     await context.close();
   });
 
