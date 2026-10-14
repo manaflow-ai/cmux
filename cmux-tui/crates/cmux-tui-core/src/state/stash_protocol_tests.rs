@@ -207,3 +207,106 @@ fn stash_import_delete_and_persistence_across_a_restart() {
     assert_eq!(member_urls(&stashes[0]), ["https://c.example/"]);
     assert_eq!(stashes[0]["members"][0]["title"], "C");
 }
+
+fn tab_kind(mux: &Arc<Mux>, tab: &str) -> String {
+    mux.read_registry_state(|connection| {
+        Ok(connection.query_row(
+            "SELECT content_kind FROM resource_tabs WHERE public_id = ?1 AND deleted_revision IS NULL",
+            [tab],
+            |row| row.get::<_, String>(0),
+        )?)
+    })
+    .unwrap()
+}
+
+/// Tabs named out of order go back to their own places: pane [X, A, B, Y],
+/// stash [B, A], restore here: [X, A, B, Y].
+#[test]
+fn stash_restore_here_puts_tabs_named_out_of_order_back_in_place() {
+    let mux = Mux::new_for_test("stash-order", SurfaceOptions::default());
+    let x = mux.new_workspace(Some("Order".into()), None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(x)).unwrap();
+    let a = browser_in(&mux, pane, "https://example.com/a");
+    let b = browser_in(&mux, pane, "https://example.com/b");
+    let y = browser_in(&mux, pane, "https://example.com/y");
+    let (a_id, b_id) = (tab_id(&mux, a), tab_id(&mux, b));
+
+    let created = mutate(&mux, "stash.create", json!({"tabs": [b_id, a_id, b_id]}), "stash");
+    assert_eq!(created["tab_ids"], json!([a_id, b_id]), "pane order, each tab once");
+    mutate(&mux, "stash.restore", json!({"stash": created["stash_id"]}), "restore");
+    let order = pane_tab_ids(&mux, x);
+    assert_eq!(order.len(), 4, "{order:?}");
+    assert_eq!(order[0], tab_id(&mux, x));
+    assert_eq!(tab_url(&mux, &order[1]), "https://example.com/a");
+    assert_eq!(tab_url(&mux, &order[2]), "https://example.com/b");
+    assert_eq!(order[3], tab_id(&mux, y));
+    mux.shutdown();
+}
+
+/// A stash that empties a workspace keeps the workspace in Recently Closed
+/// (name, group, place, theme), without the stashed pages.
+#[test]
+fn stash_that_empties_a_workspace_keeps_the_workspace_reopenable_without_its_pages() {
+    let mux = Mux::new_for_test("stash-workspace", SurfaceOptions::default());
+    let shell = mux.new_workspace(Some("Reading".into()), None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(shell)).unwrap();
+    let a = browser_in(&mux, pane, "https://example.com/a");
+    browser_in(&mux, pane, "https://example.com/b");
+    let workspace = workspace_of(&mux, a);
+    mutate(&mux, "tab.close", json!({"tab": tab_id(&mux, shell)}), "close-shell");
+
+    let created = mutate(&mux, "stash.create", json!({"workspace": workspace}), "stash-ws");
+    assert_eq!(created["tab_ids"].as_array().unwrap().len(), 2);
+    let closed = read(&mux, "closed.list", json!({}));
+    let group = closed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["kind"] == "workspace")
+        .unwrap_or_else(|| panic!("the emptied workspace is in Recently Closed: {closed}"))
+        .clone();
+    assert_eq!(group["name"], "Reading");
+    assert!(!group.to_string().contains("example.com"), "no stashed page twice: {group}");
+
+    let reopened = mutate(&mux, "closed.reopen", json!({"closed": group["id"]}), "reopen-ws");
+    let tabs = reopened["tab_ids"].as_array().unwrap();
+    assert_eq!(tabs.len(), 1, "only its fresh shell: {reopened}");
+    assert_eq!(tab_kind(&mux, tabs[0].as_str().unwrap()), "terminal");
+    let stashes = read(&mux, "stash.list", json!({}));
+    assert_eq!(member_urls(&stashes[0]), ["https://example.com/a", "https://example.com/b"]);
+    mux.shutdown();
+}
+
+/// Credentials never reach a stash: user info, and secret keys in the query
+/// or the fragment, are stripped; import times are clamped or refused.
+#[test]
+fn stash_import_strips_credentials_and_checks_times() {
+    let mux = Mux::new_for_test("stash-privacy", SurfaceOptions::default());
+    let url = "https://user:pass@a.example/p?q=1&token=s#access_token=t&x=1";
+    let imported = mutate(
+        &mux,
+        "stash.import",
+        json!({"source": "onetab", "groups": [
+            {"created_ms": "99999999999999999999999", "tabs": [{"url": url}]},
+        ]}),
+        "import",
+    );
+    assert_eq!(imported["imported_tabs"], 1);
+    let stashes = read(&mux, "stash.list", json!({}));
+    assert_eq!(member_urls(&stashes[0]), ["https://a.example/p?q=1#x=1"]);
+    let created: u64 = stashes[0]["created_at_ms"].as_str().unwrap().parse().unwrap();
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
+    assert!(created <= now, "a future time is clamped to now");
+    let refused = send(
+        &mux,
+        "stash.import",
+        json!({"source": "onetab", "groups": [
+            {"created_ms": "soon", "tabs": [{"url": "https://a.example/"}]},
+        ]}),
+        Some("import-bad"),
+    );
+    assert_eq!(error_code(refused), "validation.invalid");
+    mux.shutdown();
+}
