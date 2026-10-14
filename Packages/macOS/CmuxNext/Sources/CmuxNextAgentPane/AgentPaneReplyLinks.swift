@@ -27,6 +27,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Selects a file in Finder (the image viewer's Show in Finder).
+    public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
+    public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
@@ -88,6 +92,7 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
+        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 
