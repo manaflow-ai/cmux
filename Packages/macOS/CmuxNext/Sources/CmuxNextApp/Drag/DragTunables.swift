@@ -33,8 +33,8 @@ enum DragTunables {
     /// way to the row, and the drop made a new workspace (cx-8g6ez).
     static let sidebarSlotDwell = Tunable<Double>.number(
         "tabDrag.sidebarSlotDwell", .tabDrag, "Sidebar slot dwell",
-        help: "How long a dragged tab rests between two sidebar rows before a new-workspace gap opens there; before that the row under the pointer takes the tab. 0 opens it at once.",
-        default: 0.25, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.sidebarSlotDwell")
+        help: "How long a dragged tab rests between two sidebar rows before a new-workspace gap opens there; before that the row under the pointer takes the tab. 0 opens it at once. Stays under the 0.5 s spring-load delay, which would select the row first.",
+        default: 0.25, range: 0...0.45, step: 0.05, unit: .seconds, code: "DragTunables.sidebarSlotDwell")
 
     static var all: [TunableDescriptor] {
         [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor) + [splitDwell.descriptor, sidebarSlotDwell.descriptor]

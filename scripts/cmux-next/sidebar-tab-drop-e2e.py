@@ -11,7 +11,7 @@ The script attaches to an app already running (a capture slot's `capture-host la
 tagged build) through its debug socket, opens a target workspace and a source workspace with
 two terminal tabs (`action.run`), reads the strip (`debug.tab_drag`) and the sidebar rows
 (`debug.sidebar_rows`), drags the source's second tab with `debug.mouse` through the slot
-above the target row (a brief pass, as a hand crossing it) onto the row's center and releases,
+above the target row (a brief pass, as a hand crossing it) onto the row's upper part and releases,
 then reads the workspaces (`snapshot.get`). It never launches or quits the app.
 
 Usage: sidebar-tab-drop-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--record DIR]
@@ -132,16 +132,20 @@ def main():
     rx, ry, rw, rh = rect
     cx, cy = rx + rw / 2, ry + rh / 2
     slot_y = ry + 2  # the slot between the target row and the row above it
+    # Release on the row's upper part, as a quick drop that lands a little high: classic's whole
+    # row takes the tab there. On the row's center the drop only fails where the opened gap pushes
+    # the row past the pointer, which depends on the row height.
+    top_y = ry + rh * 0.2
     # Press on the tab, carry it into the sidebar through the slot above the target row
-    # (a brief pass, 80 ms), then onto the row's center, and release there.
+    # (a brief pass, 80 ms), then onto the row's upper part, and release there.
     if opts.record:
         rpc("debug.window_record", {"dir": opts.record, "seconds": 3.0})
         time.sleep(0.3)  # test harness: still frames before the press
     mouse(action="drag", x=sx, y=sy, to_x=cx, to_y=slot_y, steps=12, release=False)
     time.sleep(0.08)  # test harness: a hand passing through the slot
-    mouse(action="drag", x=cx, y=slot_y, to_x=cx, to_y=cy, steps=4, press=False, release=False)
-    time.sleep(0.1)  # test harness: the pointer settles on the row
-    mouse(action="drag", x=cx, y=cy, to_x=cx, to_y=cy, steps=1, press=False)
+    mouse(action="drag", x=cx, y=slot_y, to_x=cx, to_y=top_y, steps=4, press=False, release=False)
+    time.sleep(0.03)  # test harness: a quick drop, well inside the 0.25 s slot dwell
+    mouse(action="drag", x=cx, y=top_y, to_x=cx, to_y=top_y, steps=1, press=False)
     after = wait(lambda: (lambda now: now if now != before else None)(workspaces()), 5) or workspaces()
     new = [w for w in after if w not in before]
     target_tabs = after.get(target, [])
