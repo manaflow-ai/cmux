@@ -399,6 +399,10 @@ const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
 const REPLAY_MAX: usize = 128;
+/// A route that flips between two addresses of the same peer (a LAN and a
+/// hairpinned public address while candidates are sprayed) replays at most
+/// this often; a roam of this side always replays.
+const REPLAY_GAP: Duration = Duration::from_secs(1);
 /// While the confirmed route is TURN, plain UDP candidates are tried this
 /// often, so the session goes back to a direct path once one works again.
 const UPGRADE_SPRAY_GAP: Duration = Duration::from_secs(5);
@@ -464,6 +468,8 @@ struct HybridUnderlay {
     sent_to: HashSet<SocketAddr>,
     /// What was sent lately, for the replay after a route change.
     recent: std::collections::VecDeque<(Instant, Bytes)>,
+    /// When a route change last replayed.
+    last_replay: Option<Instant>,
 }
 
 const UDP_PATH: PathId = PathId(0);
@@ -507,6 +513,7 @@ impl HybridUnderlay {
             blackhole: false,
             sent_to: HashSet::new(),
             recent: std::collections::VecDeque::new(),
+            last_replay: None,
         };
         underlay.set_peer_endpoints(peer_endpoints.to_vec());
         underlay
@@ -564,7 +571,7 @@ impl HybridUnderlay {
                 self.reflexive = Some(reflexive);
                 self.roam = Some(timeline);
                 self.publish_path();
-                self.replay_recent();
+                self.replay_recent(true);
             }
             Control::Turn(turn) => {
                 self.turn = Some(turn);
@@ -580,13 +587,13 @@ impl HybridUnderlay {
                 self.next_spray = None;
                 self.last_marker = None;
                 // What we sent toward its old network may be lost.
-                self.replay_recent();
+                self.replay_recent(true);
             }
             Control::Rehomed => {
                 self.last_marker = None;
                 // Relay frames sent on the dead socket are lost.
                 if !self.direct_only() {
-                    self.replay_recent();
+                    self.replay_recent(true);
                 }
             }
             Control::Blackhole => {
@@ -611,9 +618,16 @@ impl HybridUnderlay {
         self.recent.push_back((now, Bytes::copy_from_slice(datagram)));
     }
 
-    /// Send what went out lately again, on the current route.
-    fn replay_recent(&mut self) {
+    /// Send what went out lately again, on the current route. Replays for
+    /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
+    fn replay_recent(&mut self, forced: bool) {
         let now = Instant::now();
+        if !forced {
+            if self.last_replay.is_some_and(|last| now.duration_since(last) < REPLAY_GAP) {
+                return;
+            }
+            self.last_replay = Some(now);
+        }
         let recent: Vec<Bytes> = self
             .recent
             .iter()
@@ -907,7 +921,7 @@ impl Underlay for HybridUnderlay {
                     self.confirmed = false;
                     self.last_marker = None;
                     self.direct = Some(route);
-                    self.replay_recent();
+                    self.replay_recent(false);
                 } else {
                     self.direct = Some(route);
                 }
