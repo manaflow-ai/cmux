@@ -328,7 +328,7 @@ RUN_CLASSES = ("std", "light")
 XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
 # Optional namespaces keep explicitly configured fleets (such as AWS) out of
 # the ordinary mini family while retaining the role labels' semantics.
-OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-|fast-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
