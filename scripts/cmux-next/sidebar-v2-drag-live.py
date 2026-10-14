@@ -308,12 +308,9 @@ try:
     else:
         record("pinned tile into the list at the drop index", False, f"pinned={pinned} loose={[r.get('title') for r in loose]}")
 
-    # 5. A link item (url body with a favicon) into the main list. No app action adds a link yet, so the link goes in
-    # through the app's document store (debug.sidebar_apply: mirror, then the daemon's sidebar.apply, one undo step).
-    link_op = {"op": "item.add", "to": {"section": "sec_pinned"},
-               "item": {"body": {"type": "url", "url": "https://github.com", "title": "GitHub",
-                                 "icon_url": "https://github.com/favicon.ico"}}}
-    added = json.dumps(rpc("debug.sidebar_apply", {"ops": [link_op], "title": "Add Link"}))
+    # 5. A link item into the main list, added as a user adds it: `cmux action run sidebar.item.add` with an address
+    # (the bundled cmux of the tagged app). Its row draws the page's favicon once a tab has shown the page.
+    added = cli("action", "run", "sidebar.item.add", "--item", "https://github.com", "--section", "sec_pinned")
     print("link add:", added[:400], flush=True)
     link = wait(lambda: next((i for i in section_items("sec_pinned") if i.get("ref_kind") == "url"), None), 10)
     alpha = by_title("Alpha")
@@ -325,16 +322,17 @@ try:
                f"row={row and (row.get('key'), row.get('window_frame'))} items={[(i.get('section'), i.get('ref_kind')) for i in items()]}")
         if row:
             key = row.get("key")
-            icon = wait(lambda: next((r.get("icon") for r in window().get("rows", []) if r.get("key") == key and r.get("icon") == "favicon"), None), 15)
-            shot("v2-5-link-row")
-            record("link row draws its favicon", icon == "favicon", f"row {key} icon={icon}")
             rpc("debug.mouse", {"x": center(row["window_frame"])[0], "y": center(row["window_frame"])[1], "action": "click"})
             opened = wait(lambda: "github.com" in json.dumps(rpc("debug.surfaces") or {}), 15)
             shot("v2-5-link-opened")
             record("link row in the list opens its page", bool(opened), "debug.surfaces names github.com" if opened else "no github.com surface")
+            # The open tab teaches the app the page's favicon; the row stores it on the item (icon_url) and draws it.
+            icon = wait(lambda: next((r.get("icon") for r in window().get("rows", []) if r.get("key") == key and r.get("icon") == "favicon"), None), 20)
+            shot("v2-5-link-row")
+            record("link row draws its favicon", icon == "favicon", f"row {key} icon={icon}")
             undo("link item into the list", lambda: any(i.get("ref_kind") == "url" for i in section_items("sec_pinned")))
     else:
-        record("link item into the list", False, f"no url item in Pinned after debug.sidebar_apply item.add ({added[:300]}; link={link})")
+        record("link item into the list", False, f"no url item in Pinned after cmux action run sidebar.item.add ({added[:300]}; link={link})")
 
     # 6. Cross-machine drop: needs a second machine section.
     machines = [r for r in window().get("rows", []) if str(r.get("key", "")).startswith("section")]

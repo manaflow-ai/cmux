@@ -1,3 +1,4 @@
+import Foundation
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextSidebar
@@ -52,6 +53,15 @@ enum SidebarSectionHandlers {
                     return .itemAdd(LayoutItem(id: .mint(), ref: ref, label: label), section: section.id, index: Int.max)
                 }
                 guard let op = doc.addToTopOp(ref, label: label) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
+                return op
+            }
+            // An http(s) address adds a link: its row opens the page and draws the page's favicon once a tab has shown it.
+            if let link = SidebarSectionResolve.link(name) {
+                if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
+                    let section = try SidebarSectionResolve.section(sectionName, in: doc)
+                    return .itemAdd(LayoutItem(id: .mint(), ref: link), section: section.id, index: Int.max)
+                }
+                guard let op = doc.addToTopOp(link) else { throw ActionFailure(message: SidebarSectionStrings.alreadyOnTop) }
                 return op
             }
             guard let builtIn = SidebarBuiltIn(rawValue: name) else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
@@ -181,6 +191,13 @@ enum SidebarSectionResolve {
     static func section(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutSection {
         guard let target, target.kind == .sidebarSection else { throw ActionFailure(message: SidebarSectionStrings.noSuchSection) }
         return try section(target.id, in: doc)
+    }
+
+    /// The link ref `text` names: an http or https address with a host, else nil.
+    static func link(_ text: String) -> LayoutItemRef? {
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              url.host?.isEmpty == false else { return nil }
+        return .url(text)
     }
 
     /// By id, else by exact title.

@@ -311,7 +311,6 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_apply") { call in .value(DebugSidebarApply.run(call.params)) },
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarRows.report(call.params, services: services))
