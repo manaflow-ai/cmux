@@ -1,5 +1,6 @@
 // From MessagesLab bd65bbf appkit-native/Sources/FrameTick.swift (not vendored: it is a
-// Host.swift helper). Unchanged except this header; IdleAfterFirstFrame from 7924f00 (0b58d56).
+// Host.swift helper). Unchanged except this header; IdleAfterFirstFrame from 7924f00 (0b58d56), with a
+// cmux deinit and a weak window in its occlusion observer.
 import AppKit
 
 /// Runs work at the start of the next display frame of a view's screen: a display
@@ -52,6 +53,12 @@ final class IdleAfterFirstFrame: NSObject {
 
     init(view: NSView, work: @escaping () -> Void) { self.view = view; self.work = work }
 
+    deinit {
+        if let occlusion { NotificationCenter.default.removeObserver(occlusion) }
+        if let observer { CFRunLoopObserverInvalidate(observer) }
+        link?.invalidate()
+    }
+
     func start() { onIdle { [weak self] in self?.firstFrameCommitted() } }
 
     /// One beforeWaiting pass of the main run loop, after Core Animation's commit (order max).
@@ -69,8 +76,10 @@ final class IdleAfterFirstFrame: NSObject {
         guard let view, let window = view.window else { work = nil; return }
         guard window.isVisible, window.occlusionState.contains(.visible) else {
             // Not on screen yet: wait for the window server to report it visible, then step 1 again.
-            occlusion = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
-                guard let self, let o = self.occlusion, window.occlusionState.contains(.visible) else { return }
+            // cmux: the block holds the window weakly, and `deinit` removes the observer (a Home view closed
+            // before its window showed kept the block, and the window, for the life of the process).
+            occlusion = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self, weak window] _ in
+                guard let self, let window, let o = self.occlusion, window.occlusionState.contains(.visible) else { return }
                 NotificationCenter.default.removeObserver(o); self.occlusion = nil
                 self.start()
             }
