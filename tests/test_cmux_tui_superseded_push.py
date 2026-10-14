@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""A superseded cmux-tui artifacts push skips its builds and daemon tests.
+
+On 2026-10-14 the owned Macs' side lane had ~285 queued jobs and 37% of the
+queued cmux-tui artifacts runs were superseded: 61 cmux-tui-pin-* merge trees
+of pull requests that had moved on, and 24 lane-branch pushes whose branch had
+moved. They were cancelled by hand. The workflow group keeps them: a queued
+run is already admitted, and GitHub replaces only a pending one.
+
+This runs the workflow's own steps against a fake GitHub API and real commits:
+tree-preflight's superseded check and the daemon-test job's re-check, then
+tree-preflight's daemon policy and inspect steps with the verdict, and checks
+the jobs that consume it. main, feat-cmux-next and next-batch/* runs, pull
+request runs and dispatches are never superseded.
+"""
+
+import http.server
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+
+import yaml
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
+REPO = "manaflow-ai/cmux"
+KEY = "c" * 40
+FAILURES = []
+
+
+def _check(ok, message):
+    print(("ok: " if ok else "FAIL: ") + message)
+    if not ok:
+        FAILURES.append(message)
+
+
+def jobs():
+    with open(WORKFLOW, encoding="utf-8") as handle:
+        return yaml.safe_load(handle)["jobs"]
+
+
+def step(job, step_id):
+    found = [s for s in jobs()[job]["steps"] if s.get("id") == step_id]
+    if len(found) != 1:
+        raise SystemExit(f"FAIL: {job} has no step with id {step_id}")
+    return found[0]
+
+
+class FakeApi:
+    """Serves ROUTES (path without query -> (status, body)) and logs requests."""
+
+    def __init__(self):
+        self.routes = {}
+        self.requests = []
+        api = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                api.requests.append(self.path)
+                status, body = api.routes.get(self.path.split("?")[0], (404, {"message": "Not Found"}))
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def reset(self, routes):
+        self.routes = {f"/repos/{REPO}/{path}": value for path, value in routes.items()}
+        self.requests = []
+
+
+def git(repo, *args, env=None):
+    base = ["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    return subprocess.run(base + list(args), check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+
+def make_commits(repo):
+    subprocess.run(["git", "init", "-q", repo], check=True)
+    git(repo, "commit", "-q", "--allow-empty", "-m", "base")
+    base = git(repo, "rev-parse", "HEAD")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "lane head")
+    head = git(repo, "rev-parse", "HEAD")
+    tree = git(repo, "rev-parse", "HEAD^{tree}")
+    merge = git(repo, "commit-tree", tree, "-p", base, "-p", head, "-m", f"Merge {head} into {base}")
+    other = git(repo, "commit-tree", tree, "-p", base, "-p", head, "-m", "next-batch: stack 3 PRs")
+    os.symlink(os.path.join(ROOT, "scripts"), os.path.join(repo, "scripts"))
+    return base, head, merge, other
+
+
+def run_check(api, repo, script, event, ref, sha, extra=None):
+    output = os.path.join(repo, "github-output")
+    open(output, "w").close()
+    env = {"PATH": os.environ["PATH"], "HOME": repo, "GITHUB_OUTPUT": output,
+           "GITHUB_API_URL": api.url, "GITHUB_REPOSITORY": REPO, "GH_TOKEN": "x",
+           "EVENT_NAME": event, "REF": ref, "SHA": sha, "KEY": "", "RUN_ID": "100"}
+    env.update(extra or {})
+    result = subprocess.run(["bash", "-e", "-c", script], cwd=repo, env=env, capture_output=True, text=True, timeout=60)
+    values = dict(line.split("=", 1) for line in open(output).read().splitlines() if "=" in line)
+    if result.returncode != 0:
+        return f"exit {result.returncode}: {result.stderr.strip()[-300:]}"
+    return values.get("stale")
+
+
+def commit(sha, parents, message):
+    """GET commits/<sha>: the pin check reads parents and subject from here."""
+    return (200, {"sha": sha, "parents": [{"sha": p} for p in parents], "commit": {"message": message}})
+
+
+def shallow_clone(source, branch, into):
+    """A depth-1 checkout of BRANCH, as actions/checkout leaves it: no parents."""
+    subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", branch, f"file://{source}", into],
+                   check=True, capture_output=True)
+    os.symlink(os.path.join(ROOT, "scripts"), os.path.join(into, "scripts"))
+    return into
+
+
+def pull(number, head, state="open", repo=REPO):
+    return {"number": number, "state": state, "head": {"sha": head, "repo": {"full_name": repo}}}
+
+
+def check_verdicts():
+    preflight_step = step("tree-preflight", "stale")
+    daemon_step = step("cmux-next-daemon-tests", "current")
+    api = FakeApi()
+    with tempfile.TemporaryDirectory() as repo:
+        base, head, merge, other = make_commits(repo)
+        newer = "d" * 40
+        lane = "refs/heads/codex/some-lane"
+        pin = f"refs/heads/cmux-tui-pin-{merge[:12]}"
+        ref_path = "git/ref/heads/codex/some-lane"
+        pulls_path = f"commits/{head}/pulls"
+        deferred_path = "actions/artifacts"
+        merge_path = f"commits/{merge}"
+        merge_commit = {merge_path: commit(merge, [base, head], f"Merge {head} into {base}")}
+        script = preflight_step["run"]
+        cases = [
+            ("a lane push whose branch moved is superseded", "push", lane, head,
+             {ref_path: (200, {"object": {"sha": newer}})}, "true"),
+            ("a lane push that is still the branch head runs", "push", lane, head,
+             {ref_path: (200, {"object": {"sha": head}})}, "false"),
+            ("a lane push of a deleted branch runs (fail open)", "push", lane, head, {}, "false"),
+            ("a lane push runs when the API fails", "push", lane, head,
+             {ref_path: (500, {"message": "boom"})}, "false"),
+            ("a pin whose pull request has a newer head is superseded", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])}), "true"),
+            ("a pin of the pull request's current head runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
+            ("a pin of a merged pull request's final head runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [pull(7, head, state="closed")])}), "false"),
+            ("a pin of a commit no pull request has runs", "push", pin, merge,
+             dict(merge_commit, **{pulls_path: (200, [])}), "false"),
+            ("a pin of a non-merge commit (pin-cmux-tui.sh) runs", "push", f"refs/heads/cmux-tui-pin-{head[:12]}", head,
+             {f"commits/{head}": commit(head, [base], "lane head"), pulls_path: (200, [pull(7, newer)])}, "false"),
+            ("a pin of a merge that is not GitHub's pull request merge (next_batch.py) runs", "push",
+             f"refs/heads/cmux-tui-pin-{other[:12]}", other,
+             {f"commits/{other}": commit(other, [base, head], "next-batch: stack 3 PRs"),
+              pulls_path: (200, [pull(7, newer)])}, "false"),
+            ("a pin runs when the API fails", "push", pin, merge, dict(merge_commit, **{pulls_path: (502, {})}), "false"),
+            ("a pin runs when its commit lookup fails", "push", pin, merge,
+             {merge_path: (502, {}), pulls_path: (200, [pull(7, newer)])}, "false"),
+            ("a feat-cmux-next push is never superseded here", "push", "refs/heads/feat-cmux-next", head,
+             {"git/ref/heads/feat-cmux-next": (200, {"object": {"sha": newer}})}, "false"),
+            ("a main push is never superseded here", "push", "refs/heads/main", head,
+             {"git/ref/heads/main": (200, {"object": {"sha": newer}})}, "false"),
+            ("a next-batch push is never superseded here", "push", "refs/heads/next-batch/abc", head,
+             {"git/ref/heads/next-batch/abc": (200, {"object": {"sha": newer}})}, "false"),
+            ("a dispatch is never superseded", "workflow_dispatch", lane, head,
+             {ref_path: (200, {"object": {"sha": newer}})}, "false"),
+            ("a pull request run is never superseded here", "pull_request_target", lane, head,
+             {ref_path: (200, {"object": {"sha": newer}})}, "false"),
+        ]
+        for why, event, ref, sha, routes, want in cases:
+            api.reset(routes)
+            got = run_check(api, repo, script, event, ref, sha)
+            _check(got == want, f"tree-preflight: {why} ({got!r}, want {want!r})")
+            if ref in ("refs/heads/feat-cmux-next", "refs/heads/main") or event != "push":
+                _check(api.requests == [], f"tree-preflight: {why} without asking the API ({api.requests})")
+
+        # actions/checkout fetches depth 1 in both jobs, so the pin commit is a
+        # shallow boundary and git shows it without parents (run 38608893139
+        # kept a superseded pin that way). The verdict must come from the API.
+        git(repo, "branch", "pin", merge)
+        git(repo, "branch", "batch", other)
+        with tempfile.TemporaryDirectory() as tmp:
+            shallow = shallow_clone(repo, "pin", os.path.join(tmp, "pin"))
+            _check(git(shallow, "log", "-1", "--format=%P", merge) == "",
+                   "the shallow checkout shows the pin commit without parents")
+            api.reset(dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])}))
+            got = run_check(api, shallow, script, "push", pin, merge)
+            _check(got == "true", f"tree-preflight: a superseded pin in a depth-1 checkout is superseded ({got!r}, want 'true')")
+            api.reset(dict(merge_commit, **{pulls_path: (200, [pull(7, newer)]),
+                                            deferred_path: (200, {"artifacts": []})}))
+            got = run_check(api, shallow, daemon_step["run"], "push", pin, merge, {"KEY": KEY, "RUN_ID": "100"})
+            _check(got == "true", f"daemon tests: a superseded pin in a depth-1 checkout skips ({got!r}, want 'true')")
+            batch = shallow_clone(repo, "batch", os.path.join(tmp, "batch"))
+            api.reset({f"commits/{other}": commit(other, [base, head], "next-batch: stack 3 PRs"),
+                       pulls_path: (200, [pull(7, newer)])})
+            got = run_check(api, batch, script, "push", f"refs/heads/cmux-tui-pin-{other[:12]}", other)
+            _check(got == "false", f"tree-preflight: a depth-1 pin whose API subject is not a pull request merge runs ({got!r})")
+
+        # The daemon-test job re-checks when it gets a Mac, with the run's key.
+        moved = dict(merge_commit, **{pulls_path: (200, [pull(7, newer)])})
+        other_run = {"artifacts": [{"expired": False, "workflow_run": {"id": 200}}]}
+        own_run = {"artifacts": [{"expired": False, "workflow_run": {"id": 100}}]}
+        daemon_cases = [
+            ("the daemon tests of a superseded pin skip", dict(moved, **{deferred_path: (200, {"artifacts": []})}), "true"),
+            ("the daemon tests run when another run deferred the key to this one",
+             dict(moved, **{deferred_path: (200, other_run)}), "false"),
+            ("this run's own deferral marker does not keep it", dict(moved, **{deferred_path: (200, own_run)}), "true"),
+            ("the daemon tests run when the deferral lookup fails", dict(moved, **{deferred_path: (500, {})}), "false"),
+            ("the daemon tests of a current pin run", dict(merge_commit, **{pulls_path: (200, [pull(7, head)])}), "false"),
+        ]
+        for why, routes, want in daemon_cases:
+            api.reset(routes)
+            got = run_check(api, repo, daemon_step["run"], "push", pin, merge, {"KEY": KEY, "RUN_ID": "100"})
+            _check(got == want, f"daemon tests: {why} ({got!r}, want {want!r})")
+        api.reset({ref_path: (200, {"object": {"sha": newer}})})
+        got = run_check(api, repo, daemon_step["run"], "pull_request_target", lane, head, {"KEY": KEY})
+        _check(got == "false" and api.requests == [], f"daemon tests: a pull request run is never superseded ({got!r})")
+    api.server.shutdown()
+
+
+FAKE_CURL = r"""#!/usr/bin/env python3
+import sys
+url = next(a for a in sys.argv[1:] if a.startswith("http"))
+if "/actions/" in url:
+    print("{}")
+    sys.exit(0)
+sys.exit(22)
+"""
+
+
+def check_preflight_consumers():
+    # daemon-policy: a superseded push runs no daemon tests, even on a testing ref.
+    policy = step("tree-preflight", "daemon-policy")
+    _check(str(policy.get("env", {}).get("STALE")) == "${{ steps.stale.outputs.stale }}",
+           "daemon-policy reads the superseded verdict")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        git(tmp, "commit", "-q", "--allow-empty", "-m", "x\n\nCmux-Daemon-Tests: run")
+        for stale, ref, want in (("true", "refs/heads/cmux-tui-pin-0123456789ab", "false"),
+                                 ("true", "refs/heads/codex/lane", "false"),
+                                 ("false", "refs/heads/cmux-tui-pin-0123456789ab", "true"),
+                                 ("false", "refs/heads/codex/lane", "true")):
+            output = os.path.join(tmp, "out")
+            open(output, "w").close()
+            env = {"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": output,
+                   "EVENT_NAME": "push", "REF": ref, "STALE": stale}
+            subprocess.run(["bash", "-e", "-c", policy["run"]], cwd=tmp, env=env, check=True, capture_output=True)
+            got = dict(l.split("=", 1) for l in open(output).read().splitlines()).get("daemon_tests")
+            _check(got == want, f"daemon-policy with stale={stale} on {ref} -> daemon_tests {got!r}, want {want!r}")
+
+    # inspect: a superseded push neither claims its tree key nor builds.
+    inspect = step("tree-preflight", "inspect")
+    _check(str(inspect.get("env", {}).get("STALE")) == "${{ steps.stale.outputs.stale }}",
+           "inspect reads the superseded verdict")
+    sha = git(ROOT, "rev-parse", "HEAD")
+    for stale in ("true", "false"):
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, "bin")
+            os.makedirs(bin_dir)
+            curl = os.path.join(bin_dir, "curl")
+            with open(curl, "w") as handle:
+                handle.write(FAKE_CURL)
+            os.chmod(curl, os.stat(curl).st_mode | stat.S_IXUSR)
+            output = os.path.join(tmp, "out")
+            open(output, "w").close()
+            env = {k: v for k, v in os.environ.items() if not k.startswith("ACTIONS_ID_TOKEN")}
+            env.update(PATH=f"{bin_dir}:{os.environ['PATH']}", EVENT_NAME="push", REF="refs/heads/codex/lane",
+                       SHA=sha, SOURCE_COMMIT=sha, HEAD_REPOSITORY=REPO, REPOSITORY=REPO,
+                       SERVER_URL="https://github.invalid", API_URL="https://api.github.invalid", RUN_ID="5",
+                       GITHUB_RUN_ID="5", GH_TOKEN="x", GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, STALE=stale)
+            result = subprocess.run(["bash", "-e", "-c", inspect["run"]], cwd=ROOT, env=env,
+                                    capture_output=True, text=True, timeout=120)
+            out = dict(l.split("=", 1) for l in open(output).read().splitlines() if "=" in l)
+            claimed = "tree claim:" in result.stderr or "tree-claim authority" in result.stdout
+            want_macos = "false" if stale == "true" else "true"
+            _check(result.returncode == 0 and out.get("run_macos") == want_macos,
+                   f"inspect with stale={stale}: run_macos {out.get('run_macos')!r}, want {want_macos!r} "
+                   f"({result.returncode}, {result.stderr.strip()[-200:]})")
+            _check(claimed == (stale != "true"),
+                   f"inspect with stale={stale}: {'claims' if claimed else 'does not claim'} the tree key")
+            _check(out.get("owner_run_id", "") == "", f"inspect with stale={stale} elects no other owner")
+
+
+def check_wiring():
+    all_jobs = jobs()
+    preflight = all_jobs["tree-preflight"]
+    names = [s.get("id") for s in preflight["steps"]]
+    _check(names.index("stale") < names.index("daemon-policy") < names.index("inspect"),
+           "tree-preflight decides superseded before the daemon policy and the claim")
+    _check(preflight["permissions"].get("pull-requests") == "read",
+           "tree-preflight can read a pin's pull request")
+    _check(preflight["outputs"].get("stale") == "${{ steps.stale.outputs.stale }}", "tree-preflight exports stale")
+
+    daemon = all_jobs["cmux-next-daemon-tests"]
+    steps = daemon["steps"]
+    index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
+    _check(index == 1, "the daemon tests re-check right after the checkout")
+    current = steps[index]
+    _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
+    for later in steps[index + 1:]:
+        _check("steps.current.outputs.stale != 'true'" in str(later.get("if", "")),
+               f"daemon-test step {later.get('name') or later.get('id') or later.get('uses')} is skipped when superseded")
+    _check(daemon["permissions"].get("pull-requests") == "read" and daemon["permissions"].get("actions") == "read",
+           "the daemon-test job can read pull requests and deferral artifacts")
+    _check(daemon["outputs"].get("superseded") == "${{ steps.current.outputs.stale }}",
+           "the daemon-test job exports superseded")
+    _check(daemon["outputs"].get("key") == "${{ steps.key.outputs.key }}",
+           "a skipped key step leaves the key empty, so nothing publishes or marks the tree tested")
+
+    notify = all_jobs["notify-unpublished-tree"]
+    report = next(s for s in notify["steps"] if str(s.get("name", "")).startswith("Report the unpublished tree"))
+    _check("needs.cmux-next-daemon-tests.outputs.superseded != 'true'" in str(report.get("if", "")),
+           "a superseded run does not report its tree as failed to cmux-next")
+    hand = next(s for s in notify["steps"] if str(s.get("name", "")).startswith("Hand the key"))
+    _check("superseded" not in str(hand.get("if", "")), "a superseded owner still hands its key to a deferred run")
+
+
+def main():
+    check_verdicts()
+    check_preflight_consumers()
+    check_wiring()
+    if FAILURES:
+        print(f"{len(FAILURES)} failure(s)")
+        sys.exit(1)
+    print("PASS: superseded lane and pin pushes skip their builds and daemon tests; promotion refs keep theirs")
+
+
+if __name__ == "__main__":
+    main()

@@ -157,14 +157,10 @@ try:
     rpc("debug.mouse", {"pane": dock, "action": "click"})
     check("the keyboard is in the dock before openSettings", focused_pane() == dock, {"dock": dock, "focused": focused_pane()})
     run("openSettings")
-    def settings_pane():
-        for p in panes():
-            if "settings" in json.dumps(p).lower():
-                return p
-        return None
-    found = poll(settings_pane, 30)
-    check("Settings opens beside the dock, not in it", bool(found) and found.get("pane") != dock,
-          {"dock": dock, "settings": found, "panes": panes()})
+    # The Settings tab takes the keyboard where it opened: a pane that is not the dock.
+    moved = poll(lambda: (lambda f: f if f and f != dock else None)(focused_pane()), 30)
+    check("Settings opens beside the dock, not in it", bool(moved) and moved in [p.get("pane") for p in panes()],
+          {"dock": dock, "focused": moved, "panes": [p.get("pane") for p in panes()]})
     shot("4-settings-beside-dock")
 finally:
     reply = rpc("action.run", {"id": "quitEndSessions"}, timeout=10)

@@ -349,7 +349,7 @@ declare namespace Cmux {
   type SidebarLayoutSnapshot = { revision: string; sections: Array<Cmux.JsonValue> }
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarSectionPatch = { title?: string | null; look?: string; room?: string | null; max_rows?: number | null; shows_title?: boolean; layout?: string; align?: string; gap?: number | null; columns?: number | null }
-  type SidebarSectionSnapshot = { id: string; kind: Cmux.JsonValue; title?: string; shows_title: boolean; region: string; look: string; arrangement: string; columns?: number; max_rows?: number; scroll: string; room?: string; order: string; keeps_closed: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type SidebarSectionSnapshot = { id: string; kind: Cmux.JsonValue; title?: string; shows_title: boolean; region: string; look: string; arrangement: string; align: string; gap?: number; columns?: number; max_rows?: number; scroll: string; room?: string; order: string; keeps_closed: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
   type SnapshotId = string
@@ -1342,6 +1342,8 @@ interface CmuxGlobal {
       add: CmuxOp<{ machine?: string; session?: string; item: Cmux.JsonValue; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
       /** `sidebar.item.remove` (mutation, scope `sidebar:write`) */
       remove: CmuxOp<{ machine?: string; session?: string; id: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+      /** `sidebar.item.remove_ref` (mutation, scope `sidebar:write`) */
+      remove_ref: CmuxOp<{ machine?: string; session?: string; ref: Cmux.SidebarItemRef }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
       /** `sidebar.item.update` (mutation, scope `sidebar:write`) */
       update: CmuxOp<{ machine?: string; session?: string; id: string; patch: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     }
@@ -1349,6 +1351,8 @@ interface CmuxGlobal {
     move: CmuxOp<{ machine?: string; session?: string; items: Array<string>; to: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     /** `sidebar.pin` (mutation, scope `sidebar:write`) */
     pin: CmuxOp<{ machine?: string; session?: string; items: Array<string> }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
+    /** `sidebar.reset` (mutation, scope `sidebar:write`) */
+    reset: CmuxOp<{ machine?: string; session?: string }, Cmux.MutationResult<Cmux.SidebarDocMutation>>
     section: {
       /** `sidebar.section.add` (mutation, scope `sidebar:write`) */
       add: CmuxOp<{ machine?: string; session?: string; section: Cmux.JsonValue; place?: Cmux.JsonValue }, Cmux.MutationResult<Cmux.SidebarDocMutation>>

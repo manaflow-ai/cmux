@@ -363,17 +363,15 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let steer = mux_meta(&params)
-                .and_then(|m| m.get("steer"))
-                .and_then(Value::as_bool)
-                .or_else(|| params.get("steer").and_then(Value::as_bool))
-                .unwrap_or(false);
+            let provenance = crate::prompt_provenance::of(&params, conn.origin == Origin::Local)?;
+            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
+            let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
+            let steer = steer.unwrap_or(false);
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -385,6 +383,7 @@ async fn dispatch_request(
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                provenance,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -928,10 +927,10 @@ async fn dispatch_request(
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched, from the
-        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the unix
+        // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));

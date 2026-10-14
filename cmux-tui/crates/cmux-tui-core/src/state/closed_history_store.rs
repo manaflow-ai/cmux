@@ -537,6 +537,53 @@ pub(crate) fn record_ungrouped_group(
     insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
+/// Close of a whole tab group: `archive` (as [`record_ungrouped_group`]
+/// takes it, naming the closed tabs) rides on the group that recorded its
+/// tabs, so reopening them forms the group again. Nothing recorded them
+/// (an incognito workspace): nothing to attach.
+pub(crate) fn attach_closed_tab_group(
+    transaction: &Transaction<'_>,
+    archive: &Value,
+) -> anyhow::Result<()> {
+    let Some(first) = archive["tab_ids"].get(0).and_then(Value::as_str) else { return Ok(()) };
+    if !super::store::state_tables_ready(transaction)? {
+        return Ok(());
+    }
+    let found = transaction
+        .query_row(
+            "SELECT g.closed_id, g.record_json FROM closed_groups AS g
+             WHERE EXISTS (SELECT 1 FROM json_each(g.record_json, '$.members') AS m
+                           WHERE json_extract(m.value, '$.tab_id') = ?1)
+             ORDER BY g.seq DESC LIMIT 1",
+            [first],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()?;
+    let Some((closed_id, record)) = found else { return Ok(()) };
+    let mut record: Value = serde_json::from_str(&record)?;
+    // Only the group this close recorded holds every one of its tabs.
+    let recorded = record["members"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|member| member["tab_id"].as_str())
+        .collect::<HashSet<_>>();
+    if !archive["tab_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .all(|tab| tab.as_str().is_some_and(|tab| recorded.contains(tab)))
+    {
+        return Ok(());
+    }
+    record["tab_group"] = archive.clone();
+    transaction.execute(
+        "UPDATE closed_groups SET record_json = ?2 WHERE closed_id = ?1",
+        params![closed_id, serde_json::to_string(&record)?],
+    )?;
+    queue_change(transaction, &state_upsert("closed", &closed_id, public_item(&record)))
+}
+
 /// A new closed group id.
 pub(crate) fn new_closed_id() -> String {
     format!("closed_{}", new_uuid_v4().replace('-', ""))
@@ -777,6 +824,8 @@ pub(crate) fn tab_member(
     let Some(tab) = tab_record(transaction, tab_id)? else { return Ok(None) };
     Ok(Some(json!({
         "kind": "tab",
+        // The closed tab's id: a closed tab group names its tabs by it.
+        "tab_id": tab_id,
         "name": tab["name"],
         "workspace_id": workspace_id,
         "pane_id": pane_id,

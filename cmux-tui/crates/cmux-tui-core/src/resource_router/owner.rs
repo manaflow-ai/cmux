@@ -229,6 +229,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarItemAdd
         | ResourceOperation::SidebarItemRemove
         | ResourceOperation::SidebarItemUpdate
+        | ResourceOperation::SidebarItemRemoveRef
         | ResourceOperation::SidebarSectionAdd
         | ResourceOperation::SidebarSectionUpdate
         | ResourceOperation::SidebarSectionMove
@@ -238,6 +239,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SidebarGroupUngroup
         | ResourceOperation::SidebarAdopt
         | ResourceOperation::SidebarApply
+        | ResourceOperation::SidebarReset
         | ResourceOperation::ProjectList
         | ResourceOperation::ProjectObserve
         | ResourceOperation::ProjectAdd
