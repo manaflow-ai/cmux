@@ -132,7 +132,10 @@ struct SSHRemoteCommandCLIIntegrationTests {
         )
 
         #expect(!scpArguments.contains { $0.contains("__cmux_route_sensitive") })
-        #expect(scpArguments.contains("ControlPersist=600"))
+        // A one-off upload rides the carrier's master and never becomes one.
+        #expect(scpArguments.contains("ControlMaster=no"))
+        #expect(!scpArguments.contains { $0.hasPrefix("ControlPersist=") })
+        #expect(!scpArguments.contains("ControlMaster=auto"))
         // The route identity is kept beside the options for connection sharing.
         #expect(configuration.routeSensitiveIdentifier == String(repeating: "a1", count: 32))
     }
