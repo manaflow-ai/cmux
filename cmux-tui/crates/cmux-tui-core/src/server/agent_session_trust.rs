@@ -186,6 +186,12 @@ pub(super) fn routed(
     if !params.valid() || params.level.is_some() != setting {
         return Err(fail(Refusal::BadRequest));
     }
+    // A page cannot prove the person chose the home folder first (Use Home
+    // Folder), and one confirmed click must never trust a whole home folder:
+    // a page never trusts it (home_rule refuses it without home_confirmed).
+    if params.home_confirmed {
+        return Err(fail(Refusal::BadRequest));
+    }
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Err(fail(Refusal::NotTrusted));
     }

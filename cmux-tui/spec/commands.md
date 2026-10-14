@@ -8306,13 +8306,17 @@ the trusted local connection rule and the acpmux start are those of
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
 acpmux). Pages reach the same verb only as the routed v2 operations
 `agent_session.trust.get {surface, cwd}` and `agent_session.trust.set
-{surface, cwd, level, home_confirmed?}` (page-router.md, namespace
+{surface, cwd, level}` (page-router.md, namespace
 `agent_session`, hq-6d): only page `agent` (the agent pane and its New Tab
 page) may read, every other page gets `origin.forbidden` (the trust state
 tells a page which folders the person works in), and a set needs the
 person's gesture, a host confirmation the daemon checks for exactly that
 request (`origin.forbidden {reason: "gesture_required"}` without it), and
-origin user. A page relay cannot send this legacy line. Known limit (hq-6d):
+origin user. A page never trusts a home folder (`home_confirmed` is a bad
+request there: a page cannot prove the person chose the home folder first).
+The legacy `agent-session-trust` command stays local-Unix only: a page relay
+cannot send it, WebSocket and remote relay connections are refused; the
+page path is only the v2 names through the page router. Known limit (hq-6d):
 a plain trusted local unix client keeps acpmux's own rule and answers
 without a gesture, as it can on acpmux's own socket (same uid); the app's
 chat on another machine reaches the verb that way, behind its relay's
