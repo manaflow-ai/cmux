@@ -24,7 +24,7 @@ import CmuxNextWakeups
 /// `desync` those where one of strip and content shows the new tab and the other the old one.
 @MainActor
 enum DebugFrameStrip {
-    typealias Frame = WindowFrameStrip.Frame
+    typealias Frame = WindowFrame
 
     static func run(_ params: [String: JSONValue], _ controller: WindowController, _ services: AppServices) async -> JSONValue {
         guard let window = controller.window, window.windowNumber > 0 else { return .object(["error": .string("no window")]) }
@@ -36,7 +36,7 @@ enum DebugFrameStrip {
         // The app's bench marks around the key come back with the frames (`spans`, ms from the key).
         BenchSpans.begin()
         let start = ContinuousClock.now
-        let recording = Task.detached { await WindowFrameStrip.record(number, scale: scale, from: start, until: 120 + duration) }
+        let recording = Task.detached { await WindowFrame.record(number, scale: scale, from: start, until: 120 + duration) }
         // The key goes in once the recorder has frames from before it.
         let lead = DemandTimer(owner: "debug.frame_strip.lead")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -60,7 +60,7 @@ enum DebugFrameStrip {
         var settledAt: Double?, firstChange: Double?
         let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
-        let measures = await WindowFrameStrip.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
+        let measures = await WindowFrame.measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
         for (offset, m) in measures.enumerated() {
             let index = shown + offset, frame = frames[index]
             let (insideBefore, insideFinal, stripBefore, stripFinal) = (m.insideBefore, m.insideFinal, m.stripBefore, m.stripFinal)
@@ -82,14 +82,14 @@ enum DebugFrameStrip {
                 if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
             }
             let name = String(format: "frame-%03d.png", index)
-            WindowFrameStrip.write(frame, to: (dir as NSString).appendingPathComponent(name))
+            frame.write(to: (dir as NSString).appendingPathComponent(name))
             rows.append(.object([
                 "ms": .number((frame.milliseconds - sentAt).rounded()), "file": .string(name),
                 "outside_vs_before": .number(m.outsideBefore), "outside_vs_final": .number(m.outsideFinal), "intermediate": .bool(isIntermediate),
                 "blank": .bool(isBlank), "desync": .bool(isDesync), "content_intermediate": .bool(isContentIntermediate),
             ]))
         }
-        WindowFrameStrip.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
+        WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
         return .object([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
