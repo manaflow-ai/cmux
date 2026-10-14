@@ -2,7 +2,8 @@
 //! "chief needs to be able to have live context on what's happening on right side"). Against a
 //! real headless cmux-tui daemon (`CMUX_TUI_BIN`) with a Home workspace (`workspace.ensure_home`,
 //! as the app sends it) holding a terminal that printed a line, `optchat-chief workspace` (the
-//! same reader every turn uses, through the real `cmux` CLI) prints one block that names the
+//! same reader every turn uses, through the bundled CLI the host pins: `bin/cmux`, beside
+//! `bin/cmux-tui`, as the app ships them) prints one block that names the
 //! Home workspace, its pane, tab and terminal by their public ids and shows the terminal's last
 //! screen lines. A terminal of another workspace is not in it. A daemon with no Home workspace
 //! gives no block.
@@ -141,12 +142,28 @@ impl Daemon {
         (pane, tab, terminal)
     }
 
-    /// `optchat-chief workspace` with this daemon's CLI: its exit code and stdout.
+    /// The app bundle's bin dir as the app ships it: one binary as `cmux` (the curated CLI)
+    /// and as `cmux-tui`. The host pins `CMUX_BUNDLED_CLI_PATH` to its `cmux`.
+    fn bundle_cli(&self) -> PathBuf {
+        let dir = self.dir.path().join("bundle/bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["cmux", "cmux-tui"] {
+            let link = dir.join(name);
+            if !link.exists() {
+                std::os::unix::fs::symlink(bin(), &link).unwrap();
+            }
+        }
+        dir.join("cmux")
+    }
+
+    /// `optchat-chief workspace` with this daemon's CLI, pinned as the host pins it (the
+    /// bundle's `cmux`): its exit code and stdout.
     fn chief_workspace(&self) -> (Option<i32>, String) {
+        let cli = self.bundle_cli();
         let mut command = Command::new(env!("CARGO_BIN_EXE_optchat-chief"));
         self.env(&mut command);
         command
-            .env("CMUX_BUNDLED_CLI_PATH", bin())
+            .env("CMUX_BUNDLED_CLI_PATH", cli)
             .arg("workspace")
             .stdin(Stdio::null());
         let out = command.output().unwrap();

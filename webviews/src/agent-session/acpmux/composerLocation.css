@@ -207,7 +207,8 @@
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
    legible over a busy painting while the backdrop still shows through. On an opaque page the base is
-   the page color, so the card looks as before. Reduce Transparency makes the card opaque. */
+   the page color, so the card looks as before. Reduce Transparency makes the card opaque. The
+   composer card itself paints the solid composer surface (below, composerStates.css). */
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
@@ -374,23 +375,24 @@
 
 /* The composer is one material surface. The location scope is quiet metadata at its lower edge,
    so it cannot read as a second box over wallpaper or add a full-width divider. Its rim is one
-   device pixel and its focus ring whole device pixels (desktop.css hairline tokens), so both stay
-   continuous around the rounded corners at every scale; the rim clears with appearance.borders
-   none, as the composer edge does (styles.css). */
+   device pixel (desktop.css hairline tokens), so it stays continuous around the rounded corners at
+   every scale. Focus is quiet, as the New Tab box's (Lawrence, Leo 10-14): the same rim, its tone
+   one 8% step toward the text, never a wider ring or the accent. The rim clears with
+   appearance.borders none, focused or not, as the composer edge does (styles.css); Increase
+   Contrast draws the shared focus ring (composerStates.css). */
 .acpmux-composer-box {
   --acpmux-composer-rim: color-mix(in srgb, var(--agent-text) 16%, transparent);
-  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
+  background: var(--acpmux-composer-surface);
   box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
+    var(--acpmux-composer-shadow, var(--elevation-1)),
     inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-rim);
 }
 :root[data-borders="none"] .acpmux-composer-box {
   --acpmux-composer-rim: transparent;
 }
 .acpmux-composer-box:focus-within {
-  box-shadow:
-    0 8px 24px color-mix(in srgb, var(--agent-shadow, #000) 18%, transparent),
-    inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--agent-accent, var(--agent-text)) 38%, transparent);
+  /* The rest rim (16%) one 8% step toward the text: 8% + 92% of 16%. */
+  --acpmux-composer-rim: color-mix(in srgb, var(--agent-text) 23%, transparent);
 }
 .acpmux-composer-context,
 .acpmux-composer-box[data-context-first] > .acpmux-composer-context {
@@ -424,7 +426,7 @@
   border: .5px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--agent-shadow, #000) 10%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .acpmux-permission-card-heading { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .acpmux-permission-card-heading strong { min-width: 0; overflow-wrap: anywhere; font-size: var(--text-title); }

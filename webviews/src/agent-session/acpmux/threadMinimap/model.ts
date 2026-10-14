@@ -9,8 +9,9 @@ export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
   id: string;
-  /// The bookmark key: session id, row id and a hash of the prompt, since every session numbers
-  /// its rows `user-<seq>` and a row's `at` is not stable across snapshots.
+  /// The turn's stable key: session id, row id and a hash of the prompt, since every session
+  /// numbers its rows `user-<seq>` and a row's `at` is not stable across snapshots. Bookmarks use
+  /// the row id's seq instead (bookmarks.ts), which acpmux checks against its log.
   key: string;
   /// The prompt on one line.
   prompt: string;
@@ -32,8 +33,6 @@ export const TICK_REST_WIDTH = TICK_WIDTHS[TICK_WIDTHS.length - 1];
 export const TICK_CURRENT_WIDTH = TICK_WIDTHS[2];
 /// Space kept free above and below the column and the popover.
 export const EDGE_MARGIN = 8;
-/// The pause before the first popover shows; moving between ticks shows the next at once.
-export const POPOVER_DELAY_MS = 110;
 /// Blocks of a reply the preview keeps (the popover clamps to three lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;

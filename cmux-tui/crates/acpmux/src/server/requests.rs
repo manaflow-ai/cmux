@@ -3,6 +3,7 @@
 use super::*;
 
 mod composer;
+mod presets;
 
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
@@ -61,11 +62,10 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
     }
-    // Only the person allows or widens what runs without asking
-    // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    // Held to the Web's rules: a Web connection, or a peer forwarding for its
-    // own Web client (`via: web`); a peer forwarding its unix socket or app
-    // keeps the person rule.
+    // Only the person allows or widens what runs without asking (`hub/person.rs`): one
+    // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
+    // connection, or a peer forwarding for its own Web client (`via: web`); a peer
+    // forwarding its unix socket or app keeps the person rule.
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
@@ -136,10 +136,10 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                    method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
+                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "toolInventory"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -362,17 +362,15 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let steer = mux_meta(&params)
-                .and_then(|m| m.get("steer"))
-                .and_then(Value::as_bool)
-                .or_else(|| params.get("steer").and_then(Value::as_bool))
-                .unwrap_or(false);
+            let provenance = crate::prompt_provenance::of(&params, conn.origin == Origin::Local)?;
+            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
+            let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
+            let steer = steer.unwrap_or(false);
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let notify = conn.clone();
             let opts = crate::hub::PromptOptions {
                 prompt_id,
@@ -384,6 +382,7 @@ async fn dispatch_request(
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
+                provenance,
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -439,6 +438,7 @@ async fn dispatch_request(
             // The app pane's model pick is saved for the next new chat (start_defaults.rs).
             hub.client_set_model(&s, model, conn.origin == Origin::LocalApp).await
         }
+        method::MUX_SET_TOOLS => hub.set_tools(&hub.resolve(session_key(&params)?)?, &params).await,
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.kill(&s, false).await?;
@@ -451,7 +451,9 @@ async fn dispatch_request(
         }
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        method::MUX_SESSIONS => {
+            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
+        }
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
@@ -646,203 +648,8 @@ async fn dispatch_request(
                 None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
             }
         }
-        // Read or change presets: {name?, set?: {harness, model, effort, policy, env, args}, clear?: bool}.
-        method::MUX_PRESETS => {
-            let name = str_param(&params, "name").map(str::to_owned);
-            let set = params.get("set").filter(|v| v.is_object());
-            let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
-            if set.is_some() || clear {
-                let name = name.clone().ok_or_else(|| {
-                    RpcError::invalid_params("name is required to change a preset")
-                })?;
-                let mut cfg = hub.config.write().await;
-                // REMOTE-FLOOR v3: a remote-origin client builds its settings
-                // from scratch, so it never sets, changes or clears a preset
-                // that shapes the harness command line (args, systemPrompt).
-                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                let remote = conn.origin != Origin::Local;
-                if remote
-                    && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
-                        || set.is_some_and(|s| {
-                            ["args", "systemPrompt"]
-                                .iter()
-                                .any(|k| s.get(*k).is_some_and(|v| !v.is_null()))
-                        }))
-                {
-                    return Err(RpcError::invalid_params(format!(
-                        "preset {name:?}: args and systemPrompt are set only over the local socket; a remote-origin connection builds its settings from scratch"
-                    )));
-                }
-                let presets_dir = cfg.presets_dir();
-                // The new system prompt text, written once the set is valid.
-                let mut new_prompt: Option<Option<String>> = None;
-                if clear {
-                    cfg.presets.remove(&name);
-                    if let Some(dir) = &presets_dir {
-                        crate::config::remove_preset_dir(dir, &name).map_err(|e| {
-                            RpcError::internal(format!("remove preset directory: {e}"))
-                        })?;
-                    }
-                } else if let Some(set) = set {
-                    let obj = set.as_object().unwrap();
-                    let mut merged = cfg.presets.get(&name).cloned();
-                    let harness = obj
-                        .get("harness")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .or_else(|| merged.as_ref().map(|p| p.harness.clone()))
-                        .ok_or_else(|| {
-                            RpcError::invalid_params("a preset needs harness=FAMILY-or-PROFILE")
-                        })?;
-                    cfg.resolve_harness(&harness).map_err(RpcError::invalid_params)?;
-                    let p = merged.get_or_insert_with(|| crate::config::Preset {
-                        harness: harness.clone(),
-                        model: None,
-                        effort: None,
-                        policy: None,
-                        env: std::collections::BTreeMap::new(),
-                        args: Vec::new(),
-                        system_prompt_sha256: None,
-                        description: None,
-                    });
-                    p.harness = harness;
-                    for (k, v) in obj {
-                        match (k.as_str(), v) {
-                            ("harness", _) => {}
-                            ("model", Value::Null) => p.model = None,
-                            ("model", Value::String(m)) => p.model = Some(m.clone()),
-                            ("effort", Value::Null) => p.effort = None,
-                            ("effort", Value::String(e)) => p.effort = Some(e.clone()),
-                            ("policy", Value::Null) => p.policy = None,
-                            ("policy", Value::String(pol)) => {
-                                p.policy = Some(
-                                    pol.parse::<PermissionPolicy>()
-                                        .map_err(RpcError::invalid_params)?,
-                                )
-                            }
-                            ("description", Value::Null) => p.description = None,
-                            ("description", Value::String(d)) => p.description = Some(d.clone()),
-                            ("systemPrompt", Value::Null) => new_prompt = Some(None),
-                            ("systemPrompt", Value::String(text)) => {
-                                new_prompt = Some(Some(text.clone()))
-                            }
-                            ("systemPrompt", _) => {
-                                return Err(RpcError::invalid_params(
-                                    "systemPrompt must be the prompt's text (a string) or null",
-                                ));
-                            }
-                            ("args", Value::Null) => p.args.clear(),
-                            ("args", v) => {
-                                p.args = crate::config::parse_preset_args(v)
-                                    .map_err(RpcError::invalid_params)?
-                            }
-                            ("env", Value::Null) => p.env.clear(),
-                            ("env", Value::Object(map)) => {
-                                for (ek, ev) in map {
-                                    match ev {
-                                        Value::Null => {
-                                            p.env.remove(ek);
-                                        }
-                                        Value::String(s) => {
-                                            p.env.insert(ek.clone(), s.clone());
-                                        }
-                                        _ => {
-                                            return Err(RpcError::invalid_params(format!(
-                                                "env.{ek} must be a string"
-                                            )));
-                                        }
-                                    }
-                                }
-                            }
-                            (other, _) => {
-                                return Err(RpcError::invalid_params(format!(
-                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, args, systemPrompt, description"
-                                )));
-                            }
-                        }
-                    }
-                    let mut p = merged.unwrap();
-                    // Checked against the profile the preset resolves to now.
-                    let profile =
-                        cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
-                    // A built-in Chief preset without a client env gets its
-                    // env from the definition (`config/chief_builtins.rs`),
-                    // whoever installs it; a client env is the person's
-                    // (`hub/person.rs` refused it from anyone else).
-                    if let Some(builtin) = crate::config::chief_builtins::parse(&name)
-                        && obj.get("env").is_none()
-                    {
-                        let family =
-                            crate::config::derive_family(&profile, &cfg.harnesses[&profile]);
-                        p.env = crate::config::chief_builtins::env(
-                            &builtin,
-                            &family,
-                            &crate::config::chief_builtins::Context::current(),
-                        )
-                        .map_err(RpcError::invalid_params)?;
-                    }
-                    let kind = cfg.harnesses[&profile].kind;
-                    crate::config::check_preset_args(kind, &p.args)
-                        .map_err(RpcError::invalid_params)?;
-                    let keeps_prompt =
-                        p.system_prompt_sha256.is_some() && !matches!(new_prompt, Some(None));
-                    if (matches!(new_prompt, Some(Some(_))) || keeps_prompt)
-                        && kind != crate::config::HarnessKind::ClaudeStdio
-                    {
-                        return Err(RpcError::invalid_params(
-                            "systemPrompt: only Claude Code harnesses take a system prompt file",
-                        ));
-                    }
-                    match new_prompt {
-                        Some(Some(text)) => {
-                            crate::config::check_preset_dir_name(&name)
-                                .map_err(RpcError::invalid_params)?;
-                            let dir = presets_dir.as_ref().ok_or_else(|| {
-                                RpcError::invalid_params(
-                                    "systemPrompt: this daemon has no state directory for preset files",
-                                )
-                            })?;
-                            let sha = crate::config::write_system_prompt(dir, &name, &text)
-                                .map_err(|e| {
-                                    RpcError::internal(format!("write the system prompt file: {e}"))
-                                })?;
-                            p.system_prompt_sha256 = Some(sha);
-                        }
-                        Some(None) => {
-                            p.system_prompt_sha256 = None;
-                            if let Some(dir) = &presets_dir {
-                                crate::config::remove_preset_dir(dir, &name).map_err(|e| {
-                                    RpcError::internal(format!("remove preset directory: {e}"))
-                                })?;
-                            }
-                        }
-                        None => {}
-                    }
-                    cfg.presets.insert(name.clone(), p);
-                }
-                if let Err(e) = cfg.save() {
-                    return Err(RpcError::internal(format!("save config: {e}")));
-                }
-            }
-            let cfg = hub.config.read().await;
-            let view = |n: &str, p: &crate::config::Preset| {
-                let (profile, error) = match cfg.resolve_harness(&p.harness) {
-                    Ok(x) => (Some(x), None),
-                    Err(e) => (None, Some(e)),
-                };
-                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description})
-            };
-            match name {
-                Some(n) if !clear => cfg
-                    .presets
-                    .get(&n)
-                    .map(|p| view(&n, p))
-                    .ok_or_else(|| RpcError::not_found(format!("no preset {n:?}"))),
-                _ => Ok(
-                    json!({"presets": cfg.presets.iter().map(|(n, p)| view(n, p)).collect::<Vec<_>>()}),
-                ),
-            }
-        }
+        // Read or change presets (`requests/presets.rs`).
+        method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
             let mut detail = hub.session_detail(&s);
@@ -865,9 +672,7 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
-        method::MUX_DRAFT_GET | method::MUX_DRAFT_SET | method::MUX_ASK => {
-            composer::handle(hub, conn, m, &params).await
-        }
+        m if composer::handles(m) => composer::handle(hub, conn, m, &params).await,
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
             let remove: Vec<String> = params
@@ -976,7 +781,7 @@ async fn dispatch_request(
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             conn.watch_all.store(on, Ordering::SeqCst);
-            Ok(json!({"sessions": hub.all_session_summaries()}))
+            crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
         }
         method::MUX_EVENTS => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -1120,10 +925,10 @@ async fn dispatch_request(
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched, from the
-        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
+        // Anything else that names a session goes to the agent untouched, from the unix
+        // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));

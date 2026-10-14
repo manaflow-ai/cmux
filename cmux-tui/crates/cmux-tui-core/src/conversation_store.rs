@@ -24,6 +24,8 @@ use sha2::{Digest, Sha256};
 
 #[path = "conversation_import.rs"]
 mod import;
+#[path = "conversation_inbox.rs"]
+pub(crate) mod inbox;
 pub(crate) use import::ImportedMessage;
 #[path = "conversation_links.rs"]
 pub(crate) mod links;
@@ -41,6 +43,15 @@ pub(crate) const SCHEMA_VERSION: i64 = 2;
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
 pub(crate) const LOCAL_USER: &str = "user_local";
+
+/// Whether `participant` may hold a minted credential (`conversation-bind`):
+/// an agent, or a person other than the server's own user. A device
+/// (`remote_`) comes only from pairing, and `user_local` is every unbound
+/// trusted connection already.
+pub(crate) fn credentialed(participant: &str) -> bool {
+    participant.starts_with("agent_")
+        || (participant.starts_with("user_") && participant != LOCAL_USER)
+}
 
 /// An op the conversation reducer refused. The control socket reports it
 /// with `error_code` [`ConversationRejected::CODE`] and the reason code as
@@ -203,6 +214,12 @@ impl ConversationStore {
                agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak >= 0),
                last_agent_text_at TEXT
              ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS agent_thread_guard (
+               conversation TEXT NOT NULL,
+               thread_root TEXT NOT NULL,
+               agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak > 0),
+               PRIMARY KEY(conversation, thread_root)
+             ) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS agent_token (
                participant TEXT PRIMARY KEY NOT NULL,
                token_hash TEXT NOT NULL
@@ -210,6 +227,7 @@ impl ConversationStore {
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
         transaction.execute_batch(threads::SCHEMA)?;
+        transaction.execute_batch(inbox::SCHEMA)?;
         transaction.execute_batch(runs::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
@@ -221,13 +239,14 @@ impl ConversationStore {
         Ok(Self { connection, attachments })
     }
 
-    /// Mints the credential of agent `participant`: a random token whose SHA-256
-    /// is stored (a new token replaces the old one). A connection becomes that
-    /// participant only by presenting the token (`conversation-bind`).
+    /// Mints the credential of `participant` (an agent, or a person other than
+    /// `user_local`): a random token whose SHA-256 is stored (a new token
+    /// replaces the old one). A connection becomes that participant only by
+    /// presenting the token (`conversation-bind`).
     pub(crate) fn mint_agent_token(&mut self, participant: &str) -> anyhow::Result<String> {
         anyhow::ensure!(
-            valid_participant_id(participant) && participant.starts_with("agent_"),
-            "bad request: participant must be an agent id"
+            valid_participant_id(participant) && credentialed(participant),
+            "bad request: participant must be an agent or another person"
         );
         let mut random = [0_u8; 32];
         getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("agent token randomness"))?;
@@ -478,7 +497,10 @@ fn apply_op_in(
     if let Op::MessageSend { parts, .. } = op {
         // After every reducer rule (the conformance corpus order), over the
         // head's loop-guard counters (no row window to fill with work cards).
-        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
+        // In the thread the new message joins (the reducer resolved it).
+        let thread_root = commit.message.as_ref().and_then(|m| m.thread_root.as_deref());
+        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms, thread_root)
+            .map_err(rejected)?;
     }
     let origin = stamp_origin(&mut commit, actor, op);
     write_head(transaction, &commit.head)?;
@@ -596,6 +618,17 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         )
         .optional()?
         .unwrap_or((0, None));
+    // The loop guard per thread (budget.rs): only threads above 0 have a row.
+    let mut statement = connection.prepare(
+        "SELECT thread_root, agent_text_streak FROM agent_thread_guard WHERE conversation = ?1",
+    )?;
+    let thread_agent_streaks = statement
+        .query_map(params![id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+        .map(|row| {
+            let (root, streak) = row?;
+            Ok((root, u32::try_from(streak).context("thread agent streak is out of range")?))
+        })
+        .collect::<anyhow::Result<_>>()?;
     Ok(Some(ConversationHead {
         id: id.to_string(),
         title,
@@ -608,6 +641,7 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         read_cursors,
         agent_text_streak: u32::try_from(guard.0).context("agent_text_streak is out of range")?,
         last_agent_text_at: guard.1,
+        thread_agent_streaks,
     }))
 }
 
@@ -640,6 +674,15 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
            last_agent_text_at = excluded.last_agent_text_at",
         params![head.id, i64::from(head.agent_text_streak), head.last_agent_text_at],
     )?;
+    transaction
+        .execute("DELETE FROM agent_thread_guard WHERE conversation = ?1", params![head.id])?;
+    for (root, streak) in &head.thread_agent_streaks {
+        transaction.execute(
+            "INSERT INTO agent_thread_guard(conversation, thread_root, agent_text_streak)
+             VALUES(?1, ?2, ?3)",
+            params![head.id, root, i64::from(*streak)],
+        )?;
+    }
     for (participant, seq) in &head.read_cursors {
         transaction.execute(
             "INSERT INTO read_cursor(conversation, participant, seq) VALUES(?1, ?2, ?3)
@@ -727,6 +770,18 @@ pub enum ConversationEvent {
     /// `conversation.events` item, delivered only on that stream (never on
     /// the raw subscribe stream or the remote relay). Never stored.
     Draft { conversation: String, participant: String, item: Value },
+    /// A participant's own list state of one conversation changed (a pin, a
+    /// "marked unread"; `conversation-inbox-state-v1`). Not conversation
+    /// state: no rev, and `subscribe` delivers it only to connections whose
+    /// principal is `participant` (never the remote relay or
+    /// `conversation.events`).
+    Inbox {
+        conversation: String,
+        participant: String,
+        pinned: bool,
+        pin_position: Option<u64>,
+        marked_unread: bool,
+    },
     /// An agent's run changed (`conversation-run-append`,
     /// `conversation-runs-v1`): the run after the append and the steps it
     /// wrote. Not a conversation change (no rev); `subscribe` delivers it
@@ -753,6 +808,19 @@ impl ConversationEvent {
                 "on": on,
             }),
             Self::Draft { item, .. } => item.clone(),
+            Self::Inbox { conversation, participant, pinned, pin_position, marked_unread } => {
+                let mut value = json!({
+                    "event": "conversation-inbox-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                    "pinned": pinned,
+                    "marked_unread": marked_unread,
+                });
+                if let Some(position) = pin_position {
+                    value["pin_position"] = json!(position);
+                }
+                value
+            }
             Self::Run { conversation, run, steps } => json!({
                 "event": "conversation-run-changed",
                 "conversation": conversation,

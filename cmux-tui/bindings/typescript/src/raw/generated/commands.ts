@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6. */
+/* cmux-tui mux protocol 12, IR 3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e. */
 
 
 import type * as T from "./types.js";
@@ -353,6 +353,77 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentLinkRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-link";
+  "conversation": string;
+  "hash": string;
+  "name"?: (string) | null;
+  "variant"?: (string) | null;
+}
+export type CloudAttachmentLinkResult = {
+  "expires_in_ms": bigint;
+  "path": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentReadRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-read";
+  "conversation": string;
+  "hash": string;
+  "length"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "variant"?: (string) | null;
+}
+export type CloudAttachmentReadResult = {
+  "byte_count": bigint;
+  "data": string;
+  "eof": boolean;
+  "hash": string;
+  "mime_type": string;
+  "offset": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudAttachmentUploadRequest extends CmuxRequestBase {
+  cmd: "cloud-attachment-upload";
+  "byte_count"?: (bigint) | null;
+  "conversation"?: (string) | null;
+  "data"?: (string) | null;
+  "duration_ms"?: (bigint) | null;
+  "height"?: (number) | null;
+  "mime_type"?: (string) | null;
+  "name"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "piece"?: (string) | null;
+  "poster"?: (T.JsonValue) | null;
+  "preview"?: (T.JsonValue) | null;
+  "sha256"?: (string) | null;
+  "upload"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type CloudAttachmentUploadResult = {
+  "needs"?: (Array<string>) | null;
+  "received"?: (bigint) | null;
+  "stored"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+  "poster"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+  "preview"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+}) | null;
+  "upload"?: (string) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudConversationHistoryRequest extends CmuxRequestBase {
   cmd: "cloud-conversation-history";
   "before_seq": bigint;
@@ -432,6 +503,15 @@ export interface CloudInboxListRequest extends CmuxRequestBase {
 export type CloudInboxListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudInboxOpRequest extends CmuxRequestBase {
+  cmd: "cloud-inbox-op";
+  "conversation": string;
+  "idempotency_key": string;
+  "op": (T.JsonValue) | null;
+}
+export type CloudInboxOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudInboxSubscribeRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-subscribe";
 }
@@ -493,6 +573,19 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
 export type ConversationAgentTokenResult = {
   "participant": string;
   "token": string;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentLinkRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-link";
+  "conversation": string;
+  "hash": string;
+  "name"?: (string) | null;
+  "variant"?: (string) | null;
+}
+export type ConversationAttachmentLinkResult = {
+  "expires_in_ms": bigint;
+  "path": string;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -616,6 +709,20 @@ export type ConversationImportResult = {
   "conversation": T.ConversationSummary;
   "imported": Array<bigint>;
   "skipped": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationInboxOpRequest extends CmuxRequestBase {
+  cmd: "conversation-inbox-op";
+  "conversation": string;
+  "op": (T.JsonValue) | null;
+}
+export type ConversationInboxOpResult = {
+  "conversation": string;
+  "marked_unread": boolean;
+  "participant": string;
+  "pin_position"?: bigint;
+  "pinned": boolean;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -1651,6 +1758,7 @@ export interface NotifyRequest extends CmuxRequestBase {
 /** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
+  "page"?: (string) | null;
 }
 export type PageCredentialResult = T.JsonValue;
 
@@ -2645,6 +2753,9 @@ export type CmuxRequest =
   | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | CloudAttachmentLinkRequest
+  | CloudAttachmentReadRequest
+  | CloudAttachmentUploadRequest
   | CloudConversationHistoryRequest
   | CloudConversationOpRequest
   | CloudConversationRunRequest
@@ -2654,6 +2765,7 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationUnsubscribeRequest
   | CloudInboxListRequest
+  | CloudInboxOpRequest
   | CloudInboxSubscribeRequest
   | CloudInboxUnsubscribeRequest
   | CloudMuxAckRequest
@@ -2663,6 +2775,7 @@ export type CmuxRequest =
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
   | ConversationAgentTokenRequest
+  | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
   | ConversationAttachmentUploadRequest
   | ConversationBindRequest
@@ -2670,6 +2783,7 @@ export type CmuxRequest =
   | ConversationDraftRequest
   | ConversationHistoryRequest
   | ConversationImportRequest
+  | ConversationInboxOpRequest
   | ConversationLinkResolveRequest
   | ConversationListRequest
   | ConversationOpRequest
@@ -3141,6 +3255,30 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "cloud-attachment-link": {
+    request: CloudAttachmentLinkRequest;
+    result: CloudAttachmentLinkResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
+    stream: null;
+  };
+  "cloud-attachment-read": {
+    request: CloudAttachmentReadRequest;
+    result: CloudAttachmentReadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
+    stream: null;
+  };
+  "cloud-attachment-upload": {
+    request: CloudAttachmentUploadRequest;
+    result: CloudAttachmentUploadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-attachments-v1";
+    stream: null;
+  };
   "cloud-conversation-history": {
     request: CloudConversationHistoryRequest;
     result: CloudConversationHistoryResult;
@@ -3211,6 +3349,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-inbox-op": {
+    request: CloudInboxOpRequest;
+    result: CloudInboxOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-inbox-state-v1";
     stream: null;
   };
   "cloud-inbox-subscribe": {
@@ -3285,6 +3431,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "local-conversations-v1";
     stream: null;
   };
+  "conversation-attachment-link": {
+    request: ConversationAttachmentLinkRequest;
+    result: ConversationAttachmentLinkResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "ws-attachments-v1";
+    stream: null;
+  };
   "conversation-attachment-read": {
     request: ConversationAttachmentReadRequest;
     result: ConversationAttachmentReadResult;
@@ -3339,6 +3493,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-inbox-op": {
+    request: ConversationInboxOpRequest;
+    result: ConversationInboxOpResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-inbox-state-v1";
     stream: null;
   };
   "conversation-link-resolve": {
