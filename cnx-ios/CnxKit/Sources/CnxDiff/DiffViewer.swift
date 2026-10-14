@@ -172,8 +172,33 @@ struct DiffFileRow: View {
     let file: DiffFile
     let isViewed: Bool
     let toggleViewed: () -> Void
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            // Accessibility sizes: the name gets the full width (two lines), the counts and
+            // Mark viewed go under it.
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    StatusBadge(status: file.status)
+                    Text(file.fileName).font(.body).lineLimit(2).truncationMode(.middle)
+                }
+                if !file.directory.isEmpty {
+                    Text(file.directory).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                }
+                HStack(spacing: 0) {
+                    DiffCounts(additions: file.additions, deletions: file.deletions)
+                    Spacer(minLength: 8)
+                    ViewedToggle(isViewed: isViewed, action: toggleViewed)
+                }
+            }
+            .opacity(isViewed ? 0.6 : 1)
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 12) {
             StatusBadge(status: file.status)
             VStack(alignment: .leading, spacing: 2) {

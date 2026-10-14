@@ -258,7 +258,8 @@ public struct DiffFileScreen: View {
                     .layoutPriority(0)
             }
             Text(file.fileName)
-                .lineLimit(1)
+                // At accessibility sizes a long name wraps to a second line instead of losing its middle.
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 .truncationMode(.middle)
                 .layoutPriority(1)
         }
