@@ -226,6 +226,7 @@ async function planResponse() {
   return response.json() as Promise<Record<string, unknown>>;
 }
 
+/** Call the dashboard billing procedure with the current mocked viewer. */
 function dashboardPlanResponse() {
   return call(billingRouter.current, undefined, {
     context: { request: new Request("https://cmux.test/api/dashboard/rpc"), serverPrefetch: true },

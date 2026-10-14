@@ -25,6 +25,7 @@ import {
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
+/** Return personal and selected Team billing status for the authenticated viewer. */
 export async function GET(request: NextRequest) {
   if (!isStackConfigured()) {
     return jsonResponse({
