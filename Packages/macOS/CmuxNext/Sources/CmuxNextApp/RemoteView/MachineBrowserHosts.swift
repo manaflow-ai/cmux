@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextRemoteLocalhostService
 import Foundation
 
 /// Which machines run browser tabs there (cx-2cob slice 2): the last

@@ -176,6 +176,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
+        "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
         "CmuxNextServer",
@@ -228,6 +229,7 @@
         "CmuxNextHomeEngine",
         "CmuxNextLayout",
         "CmuxNextProcessEnvironment",
+        "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextWakeups"
@@ -698,6 +700,21 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextRemoteLocalhostService": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextRemoteLocalhost",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []

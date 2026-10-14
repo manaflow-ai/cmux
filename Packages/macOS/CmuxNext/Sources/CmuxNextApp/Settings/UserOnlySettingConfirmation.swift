@@ -9,24 +9,32 @@ import CmuxNextSettings
 enum UserOnlySettingConfirmation {
     static func install(_ settings: SettingsController, services: AppServices) {
         settings.userOnlyConfirmation = { [weak services] key, value in
-            guard let window = services?.windows.active?.window else { return false }
+            guard let services else { return false }
             let prompt = DestructiveConfirmation.Prompt(
                 title: ConfirmationStrings.userOnlySettingTitle(key),
                 // A reset shows the value it returns to (the schema default).
                 body: ConfirmationStrings.userOnlySettingBody(key, (value ?? Self.defaultValue(key)).compactText),
                 button: ConfirmationStrings.userOnlySettingButton)
-            // The request may end first (deadline, Ctrl-C): then the sheet goes, answered no.
-            guard !Task.isCancelled else { return false }
-            let shown = ShownDialog()
-            return await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
-                    shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
-                        continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
-                    }
+            return await ask(prompt, services: services)
+        }
+    }
+
+    /// Shows `prompt` on the active window and returns whether the person
+    /// confirmed it. Also the sheet of other person-only changes a command
+    /// asks for (Set Workspace Localhost).
+    static func ask(_ prompt: DestructiveConfirmation.Prompt, services: AppServices) async -> Bool {
+        guard let window = services.windows.active?.window else { return false }
+        // The request may end first (deadline, Ctrl-C): then the sheet goes, answered no.
+        guard !Task.isCancelled else { return false }
+        let shown = ShownDialog()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
+                    continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
                 }
-            } onCancel: {
-                Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
             }
+        } onCancel: {
+            Task { @MainActor in if let id = shown.id { _ = CmuxDialogCenter.shared.dismiss(id) } }
         }
     }
 
