@@ -11,7 +11,7 @@ import {
   HomeOps,
   type HomeCapabilities,
   type HomeChief,
-  type HomeChiefGrant,
+  type HomeChiefGrantChange,
   type HomeChiefProfile,
   type HomeParticipant,
 } from "./types";
@@ -41,10 +41,11 @@ export interface SheetsHost {
 const NONE: HomeCapabilities = { start: false, invite: false, chiefs: false };
 const SELECTORS = { machine: "current", session: "current" };
 
-/** A grant as the record's fields (sorted, as the owner keeps them). */
-const grantFields = (grant: HomeChiefGrant) => ({
-  tools: [...grant.tools].sort(),
-  harnesses: [...grant.harnesses].sort(),
+/** The changed grant fields as the record's fields (sorted, as the owner keeps them); a field the
+ * person did not change is not sent, so the owner applies its own default (as `cmux chief new`). */
+const grantFields = (grant: HomeChiefGrantChange) => ({
+  ...(grant.tools ? { tools: [...grant.tools].sort() } : {}),
+  ...(grant.harnesses ? { harnesses: [...grant.harnesses].sort() } : {}),
 });
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
@@ -106,6 +107,7 @@ export class HomeSheets {
       this.set({ route });
     } else if (this.fromHash) {
       this.fromHash = false;
+      this.back = "#/";
       this.set({ route: undefined });
     }
     return route !== undefined;
@@ -116,9 +118,15 @@ export class HomeSheets {
     this.set({ route });
   }
 
+  /** Where the page goes when the open sheet closes: the hash it was opened from. */
+  private back = "#/";
+
   /** Opens a route: the page URL's hash says it, so a reload and the host see the same. */
   open(route: HomeRoute): void {
     const hash = routeHash(route);
+    // Back to the conversation the sheet opened over (never a message link: that would open it again).
+    if (typeof window !== "undefined" && !parseRoute(window.location.hash))
+      this.back = /^#\/conversation\/[A-Za-z0-9_]+/.exec(window.location.hash)?.[0] ?? "#/";
     if (typeof window !== "undefined" && window.location.hash !== hash) window.location.hash = hash;
     else this.set({ route });
   }
@@ -126,8 +134,13 @@ export class HomeSheets {
   close(): void {
     this.fromHash = false;
     this.set({ route: undefined });
-    if (typeof window !== "undefined" && parseRoute(window.location.hash))
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/`);
+    const back = this.back;
+    this.back = "#/";
+    if (typeof window !== "undefined" && parseRoute(window.location.hash)) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${back}`);
+      // The page's panes follow the hash (panes.ts); a replaced hash fires no event of its own.
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
   }
 
   async loadChiefs(): Promise<void> {
@@ -239,7 +252,7 @@ export class HomeSheets {
    * message from the page. Resolves the Chief, or undefined when it was refused. */
   async createChief(
     profile: HomeChiefProfile,
-    grant: HomeChiefGrant | undefined,
+    grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<HomeChief | undefined> {
     if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
@@ -280,7 +293,7 @@ export class HomeSheets {
   async updateChief(
     before: HomeChief,
     profile: HomeChiefProfile,
-    grant: HomeChiefGrant | undefined,
+    grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
   ): Promise<boolean> {
     if (!this.client) return false;
