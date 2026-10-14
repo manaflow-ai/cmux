@@ -17,6 +17,7 @@ import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTasks
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Every tunable the app declares, by module. One list, so the window, the
@@ -25,7 +26,7 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
     }
 }
 
