@@ -68,7 +68,7 @@ fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
 
 /// Whether `daemon_socket` is the own daemon of the app this `cmux`
 /// belongs to (app.rs `app_owns_daemon`).
-fn app_daemon_is(daemon_socket: &Path) -> bool {
+pub(super) fn app_daemon_is(daemon_socket: &Path) -> bool {
     let exe = std::env::current_exe().ok();
     crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
         .is_some_and(|identity| super::app::app_owns_daemon(&identity, daemon_socket))

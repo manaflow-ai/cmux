@@ -50,10 +50,12 @@ the current one. Levels: info, progress, success, warning, error. Text that
 starts with a dash goes after --. --ephemeral creates an incognito workspace
 the session closes at its next start. Workspace groups and rooms are
 personal: they live in this Mac's home session. A group or room is named by
-its id or exact name. list (--order session, the default) gives the
-session's workspace order: creation order unless a workspace was moved; it
-is not the sidebar order. list --order personal gives the sidebar order: loose
-workspaces, and each group's workspaces where the group shows. The app's
+its id or exact name. list --order session gives the session's workspace
+order: creation order unless a workspace was moved. list --order personal
+gives the cmux app's sidebar order: loose workspaces, and each group's
+workspaces where the group shows. Without --order, list gives the sidebar
+order in the app's context (an app terminal or Chief addressing the app's
+own daemon), else the session order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
