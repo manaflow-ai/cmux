@@ -49,6 +49,7 @@ if grep -q -e '"dev",' -e 'createServer(' -e 'vite.config.gallery-dev.ts' -e 'vi
 fi
 case "$2" in
   *hang*) sleep 60 ;;
+  *slow*) sleep 3; echo "(pass) $2" ;;
   *fail*) echo "(fail) a broken test"; exit 1 ;;
   *) echo "(pass) $2" ;;
 esac
@@ -170,6 +171,21 @@ class PerFileRunner(unittest.TestCase):
         # One file per config warms its cache first; every other file starts from a copy of it.
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_a_file_can_declare_a_longer_limit_than_the_default(self):
+        # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
+        # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".
+        # A file names its own limit on a header line; one without it keeps the default.
+        contents = {
+            "test/slow-declared.test.ts": "// cmux-web-test-timeout: 8\n",
+            "test/slow-default.test.ts": "",
+        }
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents))
+        self.assertNotRegex(output, r"(FAIL|TIMEOUT)[^\n]*test/slow-declared\.test\.ts")
+        self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-default\.test\.ts \(limit 2s\)")
+        self.assertIn("test/slow-declared.test.ts", output)
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])
