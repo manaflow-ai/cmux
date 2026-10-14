@@ -14,6 +14,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-find.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -50,8 +51,9 @@ await requireBrowserLane("chat-find.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/?mock");
     browser = await chromium.launch({ headless: true });
-  }, 60_000);
+  }, 240_000);
 
   afterAll(async () => {
     await browser?.close();

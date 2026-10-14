@@ -17,6 +17,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ime-composition-keys.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -56,7 +57,8 @@ await requireBrowserLane("ime-composition-keys.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/history/?mock");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();

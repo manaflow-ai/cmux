@@ -21,6 +21,7 @@ import fs from "node:fs";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("text-field-focus.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -99,8 +100,9 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
+    await warmDevServer(base, "/gallery/frame.html");
     browser = await engine!.launch({ headless: true });
-  }, 120_000);
+  }, 300_000);
 
   afterAll(async () => {
     await browser?.close();

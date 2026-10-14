@@ -16,6 +16,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import markdownStrings from "../src/pages/markdown/generated/strings.json";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmDevServer } from "./support/warmDevServer";
 
 await requireBrowserLane("ui-a11y.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -67,7 +68,8 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
       server!.stderr!.on("data", onData);
       server!.on("exit", (code) => reject(new Error(`dev server exited ${code}`)));
     });
-  }, 60_000);
+    await warmDevServer(base, "/test/browser/ui-a11y.html");
+  }, 240_000);
 
   afterAll(() => {
     server?.kill();
