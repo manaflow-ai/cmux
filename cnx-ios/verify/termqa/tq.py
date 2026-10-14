@@ -273,3 +273,24 @@ def paste_composer(text, send=True):
         s.tap_el(allow[0]); time.sleep(0.5)
     if send:
         return s.tap_q(ident="terminal.composer.send")
+
+
+def max_item(text):
+    import re
+    nums = [int(m) for m in re.findall(r"(?m)^\s*(\d{1,4})\. ", text)]
+    return max(nums) if nums else None
+
+
+def lag_probe(samples=12, gap=1.5):
+    """Phone vs Mac: the highest 'N. ' item on each screen at (nearly) the same moment."""
+    s = Sim(load()["udid"])
+    out = []
+    for _ in range(samples):
+        t0 = time.time()
+        mac = max_item(mac_screen())
+        t1 = time.time()
+        phone = max_item("\n".join(o[4] for o in s.ocr()))
+        t2 = time.time()
+        out.append((round(t0 % 1000, 1), mac, phone, round(t1 - t0, 2), round(t2 - t1, 2)))
+        time.sleep(gap)
+    return out

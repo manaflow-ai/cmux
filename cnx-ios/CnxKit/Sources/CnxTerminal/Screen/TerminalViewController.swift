@@ -145,6 +145,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The cursor's distance from the last row when it was last seen.
     private var cursorRowsFromEnd: Int?
+    /// Keeps the end from moving up while a TUI redraws below the cursor (termqa D2).
+    private var endHold = TerminalEndHold()
 
     /// The scroll model is setting the offset (not a person).
     private var settingOffset = false
@@ -1004,8 +1006,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if let cursor, cursor + 1 <= scrollbar.total - 1 {
             lastContent = surface.lastNonBlankRow(from: cursor + 1, through: scrollbar.total - 1)
         }
-        let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
-                                               lastContentRow: lastContent)
+        let measured = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
+                                                   lastContentRow: lastContent)
+        if document == nil { endHold.reset() }
+        // The Mac's screen is the bottom `remoteRows` rows of the mirror.
+        let screenTop = max(0, scrollbar.total - (model.session.remoteRows ?? surface.grid.rows))
+        let next = endHold.hold(measured, totalRows: scrollbar.total, cursorRow: cursor, screenTopRow: screenTop)
         guard next != document else { return }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil

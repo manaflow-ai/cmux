@@ -165,6 +165,12 @@ public final class DaemonTerminalSession: TerminalSession {
             let inbox = DaemonTerminalInbox { [weak self] batch in
                 MainActor.assumeIsolated {
                     guard let self, self.client === client else { return }
+                    // Until the Mac confirms the attach, its events wait: the
+                    // mirror is reset only for an attach that succeeded.
+                    if self.heldEvents != nil {
+                        self.heldEvents?.append(contentsOf: batch)
+                        return
+                    }
                     for event in batch { self.apply(event) }
                 }
             }
@@ -184,12 +190,12 @@ public final class DaemonTerminalSession: TerminalSession {
             attachedWithSize = nil
             let identify = try? await client.request("identify")
             let initialSize = identify.map(Self.acceptsInitialSize) ?? false
-            // The replay that follows rebuilds the screen and scrollback. The
-            // reset also tells the screen where the Mac's screen starts in its
-            // taller mirror (TerminalRowShift).
-            log.notice("surface \(self.surface, privacy: .public): mirror reset for an attach (everAttached \(self.everAttached, privacy: .public))")
-            setAlternate(false)
-            handler?(.output(Data("\u{1B}c".utf8)))
+            // The mirror is not reset yet: a reattach that fails (a Mac host
+            // that just restarted answers "unknown surface" for a moment) keeps
+            // the last frame on screen under the reconnecting badge, instead
+            // of a blank screen with an error line (termqa D3). The replay's
+            // events wait in `heldEvents` until the attach is confirmed.
+            heldEvents = []
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
@@ -207,7 +213,17 @@ public final class DaemonTerminalSession: TerminalSession {
                 reply = try await client.request("attach-surface", params: ["surface": surface])
             }
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
-            guard self.client === client else { return }
+            guard self.client === client else { heldEvents = nil; return }
+            // The replay rebuilds the screen and scrollback. The reset also
+            // tells the screen where the Mac's screen starts in its taller
+            // mirror (TerminalRowShift).
+            log.notice("surface \(self.surface, privacy: .public): mirror reset for an attach (everAttached \(self.everAttached, privacy: .public))")
+            setAlternate(false)
+            handler?(.output(Data("\u{1B}c".utf8)))
+            let held = heldEvents ?? []
+            heldEvents = nil
+            for event in held { apply(event) }
+            attachRetries = 0
             attached = true
             everAttached = true
             handler?(.connection(.attached))
@@ -221,8 +237,20 @@ public final class DaemonTerminalSession: TerminalSession {
             drainInput()
             openInputLane(for: client)
         } catch {
+            heldEvents = nil
             lastError = LinkController.reason(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
+            if everAttached, attachRetries < Self.reattachBackoff.count, handler != nil, !ended {
+                // A reattach: keep the last frame and try again (bounded backoff).
+                let delay = Self.reattachBackoff[attachRetries]
+                attachRetries += 1
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    self?.reconnect()
+                }
+                return
+            }
             emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
         }
     }
@@ -436,6 +464,13 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         return try result.get()
     }
+
+    /// Events that arrived before the Mac confirmed the attach (nil: none held).
+    private var heldEvents: [DaemonTerminalInbound]?
+    /// Failed reattach attempts since the last good attach.
+    private var attachRetries = 0
+    /// Delays before retrying a failed reattach (seconds); then the error shows.
+    static let reattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
 
     /// The size the attach already carried (no separate resize needed).
     private var attachedWithSize: (columns: Int, rows: Int)?

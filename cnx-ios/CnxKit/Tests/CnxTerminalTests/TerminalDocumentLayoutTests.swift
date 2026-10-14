@@ -87,3 +87,47 @@ import Testing
         #expect(TerminalDocumentLayout.needsOriginScan(previous: scrolledAway, previousTotal: 5000, totalRows: 148, screenRows: 148))
     }
 }
+
+/// termqa D2: a following page jumped down 7 rows and back up while Codex
+/// erased and redrew its live area below the cursor.
+@Suite struct TerminalEndHoldTests {
+    /// Mac screen of 42 rows at the bottom of a 400-row scrollback (top row 358).
+    @Test func anInlineTUIRedrawDoesNotMoveTheEndUp() {
+        var hold = TerminalEndHold()
+        let drawn = TerminalDocumentLayout.make(totalRows: 400, cursorRow: 390, leadingBlankRows: 0, lastContentRow: 396)
+        #expect(hold.hold(drawn, totalRows: 400, cursorRow: 390, screenTopRow: 358).endRow == 397)
+        // The live area is erased: the measured end moves up 7 rows; the held one does not.
+        let erased = TerminalDocumentLayout.make(totalRows: 400, cursorRow: 389, leadingBlankRows: 0, lastContentRow: nil)
+        #expect(erased.endRow == 390)
+        #expect(hold.hold(erased, totalRows: 400, cursorRow: 389, screenTopRow: 358).endRow == 397)
+        // Lines committed above the live area grow the scrollback: the end moves with them.
+        let grown = TerminalDocumentLayout.make(totalRows: 410, cursorRow: 399, leadingBlankRows: 0, lastContentRow: nil)
+        #expect(hold.hold(grown, totalRows: 410, cursorRow: 399, screenTopRow: 368).endRow == 407)
+        // Redrawn lower than before: the end follows down.
+        let lower = TerminalDocumentLayout.make(totalRows: 410, cursorRow: 401, leadingBlankRows: 0, lastContentRow: 409)
+        #expect(hold.hold(lower, totalRows: 410, cursorRow: 401, screenTopRow: 368).endRow == 410)
+    }
+
+    @Test func aClearedScreenLetsTheEndMoveUp() {
+        var hold = TerminalEndHold()
+        let full = TerminalDocumentLayout.make(totalRows: 400, cursorRow: 399, leadingBlankRows: 0)
+        _ = hold.hold(full, totalRows: 400, cursorRow: 399, screenTopRow: 358)
+        // ^L: the cursor on the screen's first row; the prompt goes to the top, not held at the bottom.
+        let cleared = TerminalDocumentLayout.make(totalRows: 400, cursorRow: 358, leadingBlankRows: 0)
+        #expect(hold.hold(cleared, totalRows: 400, cursorRow: 358, screenTopRow: 358).endRow == 359)
+        // `clear` with ESC [3J: the scrollback shrank.
+        var hold2 = TerminalEndHold()
+        _ = hold2.hold(full, totalRows: 400, cursorRow: 399, screenTopRow: 358)
+        let reset = TerminalDocumentLayout.make(totalRows: 42, cursorRow: 1, leadingBlankRows: 0)
+        #expect(hold2.hold(reset, totalRows: 42, cursorRow: 1, screenTopRow: 0).endRow == 2)
+    }
+
+    @Test func aShortSessionStillEndsAtItsCursor() {
+        var hold = TerminalEndHold()
+        // A new shell: 3 rows of text at the top of a 42-row screen.
+        let short = TerminalDocumentLayout.make(totalRows: 42, cursorRow: 2, leadingBlankRows: 0)
+        #expect(hold.hold(short, totalRows: 42, cursorRow: 2, screenTopRow: 0).endRow == 3)
+        let more = TerminalDocumentLayout.make(totalRows: 42, cursorRow: 8, leadingBlankRows: 0)
+        #expect(hold.hold(more, totalRows: 42, cursorRow: 8, screenTopRow: 0).endRow == 9)
+    }
+}

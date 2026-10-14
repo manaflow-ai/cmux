@@ -10,6 +10,8 @@ import Testing
 final class FakeTerminalDaemon: @unchecked Sendable {
     private let lock = NSLock()
     private var commands: [[String: Any]] = []
+    /// The next N attaches answer "unknown surface" (a Mac host that just restarted).
+    var failNextAttaches = 0
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -22,6 +24,16 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         }
         switch cmd {
         case "attach-surface":
+            let fail: Bool = lock.withLock {
+                guard failNextAttaches > 0 else { return false }
+                failNextAttaches -= 1
+                return true
+            }
+            if fail {
+                // The replay a refusing daemon never sends; a stray event first, then the refusal.
+                return [Self.line(["event": "output", "surface": 7, "data": Data("stale".utf8).base64EncodedString()]),
+                        Self.line(["id": id, "ok": false, "error": "unknown surface 7"])]
+            }
             guard object["surface"] as? Int == 7 else { return [Self.line(["id": id, "ok": false, "error": "unknown surface"])] }
             return [
                 Self.line(["event": "vt-state", "surface": 7, "cols": 80, "rows": 24,
@@ -204,6 +216,41 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
     }
 
+    /// termqa D3: right after the Mac's host restarts, a reattach can be refused
+    /// ("unknown surface") for a moment. The screen keeps its last frame: no
+    /// mirror reset and no error line until an attach succeeds, then the
+    /// reset and the replay, in that order.
+    @Test func aRefusedReattachKeepsTheLastFrameAndRetries() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "host restarted")
+        try await waitUntil { !session.isAttached }
+
+        daemon.failNextAttaches = 2
+        let before = events.count
+        session.reconnect()
+        try await waitUntil(attempts: 400) { session.isAttached }
+        let after = Array(events[before...])
+        let outputs = after.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }
+        // Nothing reached the screen before the good attach: no reset, no "[unknown surface]" line, no stray output.
+        #expect(outputs.first == "\u{1B}c")
+        #expect(!outputs.contains { $0.contains("unknown surface") || $0.contains("stale") })
+        #expect(outputs.contains("hello\r\n$ "))
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 4)
+    }
+
     @Test func detachedEventEndsTheTerminal() async throws {
         let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
         var events: [TerminalSessionEvent] = []
@@ -212,8 +259,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.contains(.exited(code: 0)))
     }
 
-    private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
+    private func waitUntil(attempts: Int = 200, _ condition: @MainActor () -> Bool) async throws {
+        for _ in 0..<attempts where !condition() {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(condition())

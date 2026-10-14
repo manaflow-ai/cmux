@@ -104,3 +104,48 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         return limit
     }
 }
+
+/// Keeps the document's end from moving up while the active screen is the
+/// same (termqa D2). An inline TUI (Codex CLI) erases its live area below
+/// the cursor and draws it again a moment later; measured as "the last row
+/// with text", the end moved up rows and back, and a following page jumped
+/// down 7 rows and up again. A terminal's screen rows never go away: once a
+/// row near the bottom held text, the document keeps it, blank or not.
+///
+/// Held as the gap from the scrollback's end (absolute rows shift when
+/// Ghostty trims old pages). It is dropped (the end may move up again) by a
+/// screen cleared to its first row (`clear`), a shrunk scrollback (a reset,
+/// ESC [3J) and a new document (attach, leaving a TUI).
+public struct TerminalEndHold: Equatable, Sendable {
+    /// The smallest gap between the document's end and the scrollback's end
+    /// seen since the screen was last cleared.
+    public private(set) var gapRows: Int?
+    private var total = 0
+
+    public init() {}
+
+    /// The end to use for `layout`, measured with `totalRows` rows in the
+    /// scrollback, the cursor at `cursorRow` and the Mac's screen starting at
+    /// absolute row `screenTopRow`.
+    public mutating func hold(_ layout: TerminalDocumentLayout, totalRows: Int, cursorRow: Int?,
+                              screenTopRow: Int) -> TerminalDocumentLayout {
+        defer { total = totalRows }
+        if totalRows < total || (cursorRow.map { $0 <= screenTopRow } ?? false) {
+            gapRows = nil
+        }
+        let gap = max(0, totalRows - layout.endRow)
+        guard let held = gapRows, gap > held else {
+            gapRows = gap
+            return layout
+        }
+        let end = min(totalRows, max(layout.endRow, totalRows - held))
+        return TerminalDocumentLayout(originRow: layout.originRow, endRow: end)
+    }
+
+    /// A new document (attach, a reset, leaving a TUI): nothing is held.
+    public mutating func reset() {
+        gapRows = nil
+        total = 0
+    }
+}
+
