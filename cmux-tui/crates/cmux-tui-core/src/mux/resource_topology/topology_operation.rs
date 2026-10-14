@@ -307,9 +307,11 @@ impl Mux {
             expected_revision,
             mutation,
         )?;
+        crate::debug_spans::mark("topology.committed");
         if !commit.replayed {
             self.emit_resource_topology_legacy_events(operation, &commit);
         }
+        crate::debug_spans::mark("topology.legacy_events");
         Ok(commit)
     }
 
