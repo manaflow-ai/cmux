@@ -1,3 +1,4 @@
+import CnxAgentChat
 import CnxFeed
 import CnxModel
 import CnxTransport
@@ -106,7 +107,7 @@ import Testing
     }
 
     final class RecordingLink: MacLink, @unchecked Sendable {
-        let transport: TransportKind = .webRTC
+        let transport: CnxTransport.TransportKind = .webRTC
         let states: AsyncStream<LinkState> = AsyncStream { $0.finish() }
         let channel: AuthChannel
         private(set) var opened: [(String, [String: String])] = []
@@ -128,11 +129,14 @@ import Testing
         let (identity, approval) = try keys.publicKeys()
         #expect(link.opened.map(\.0) == ["auth"])
         #expect(link.opened.first?.1 == ["identityKey": identity, "approvalKey": approval, "name": "", "action": "unpair"])
-        let reply = try JSONDecoder().decode(JSONValue.self, from: try #require(channel.sent.first))
-        let signature = try #require(Data(hex: try #require(reply["signature"]?.stringValue)))
+        let sent = try #require(channel.sent.first)
+        let reply = try JSONDecoder().decode(JSONValue.self, from: sent)
+        let signatureHex = try #require(reply["signature"]?.stringValue)
+        let signature = try #require(Data(hex: signatureHex))
         let message = LinkAuthPayload(mac: "mac-1", phone: "phone-1", nonce: "nonce-1", identityKey: identity,
                                       approvalKey: approval, action: "unpair").message
-        let key = try P256.Signing.PublicKey(x963Representation: try #require(Data(hex: identity)))
+        let identityBytes = try #require(Data(hex: identity))
+        let key = try P256.Signing.PublicKey(x963Representation: identityBytes)
         #expect(key.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signature), for: message))
     }
 }
@@ -149,7 +153,7 @@ import Testing
         func removeThisPhoneFromMacs() async { removals += 1 }
     }
 
-    struct Fixture {
+    @MainActor struct Fixture {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnx-signout-\(UUID().uuidString)")
         let defaults: UserDefaults
         let feed = FeedStore(items: [])
@@ -157,11 +161,12 @@ import Testing
         init() {
             let suite = "cnx-signout-\(UUID().uuidString)"
             defaults = UserDefaults(suiteName: suite)!
+            snapshots = LiveSnapshotStore(directory: directory.appending(path: "snapshots"))
         }
 
         func archive(_ user: String) -> FeedArchive { FeedArchive(url: directory.appending(path: "feed-\(user).json")) }
         func marks(_ user: String) -> FeedReadMarks { FeedReadMarks(url: directory.appending(path: "read-\(user).json")) }
-        var snapshots: LiveSnapshotStore { LiveSnapshotStore(directory: directory.appending(path: "snapshots")) }
+        let snapshots: LiveSnapshotStore
     }
 
     static func item(_ id: String) -> FeedItem {

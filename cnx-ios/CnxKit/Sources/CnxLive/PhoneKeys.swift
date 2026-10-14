@@ -66,8 +66,8 @@ public final class PhoneKeys: @unchecked Sendable { // crash-allow: immutable af
     /// Migration: builds before per-user keys kept one pair and deleted it on
     /// sign-out, so a pair that exists belongs to the account signed in now;
     /// the first `PhoneKeys(userID:)` adopts it.
-    public init(userID: String? = nil, service: String = PhoneKeys.defaultService,
-                store: any DeviceSecretStore = KeychainSecretStore()) {
+    public convenience init(userID: String? = nil, service: String = PhoneKeys.defaultService,
+                            store: any DeviceSecretStore = KeychainSecretStore()) {
         self.init(userID: userID, service: service, store: store, enclave: Self.hasEnclave)
     }
 

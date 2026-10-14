@@ -14,7 +14,9 @@ public protocol SignOutSession: AnyObject {
     var accountDeleted: Bool { get }
 }
 
+#if os(iOS)
 extension LiveCoordinator: SignOutSession {}
+#endif
 
 /// Sign-out on this phone (verify/persistence.md).
 ///
