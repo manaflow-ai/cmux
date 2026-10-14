@@ -579,7 +579,13 @@ fn every_chief_change_reaches_the_subscribers_that_asked() {
     ));
     assert_eq!(next_chief_change(&mut page), (scout.clone(), "updated".to_owned()));
 
-    // A refused write changes nothing and says nothing.
+    // An edit that changes nothing, and a refused write, say nothing.
+    ok(&v2(
+        &mut home,
+        "chief.profile.update",
+        json!({"chief": scout, "display_name": "Boss"}),
+        Some("changed-same"),
+    ));
     let refused = v2(&mut home, "chief.profile.delete", json!({"chief": "agent_mux"}), Some("x"));
     assert_eq!(refused["ok"], false, "{refused}");
     ok(&v2(&mut home, "chief.profile.delete", json!({"chief": scout}), Some("changed-delete")));
