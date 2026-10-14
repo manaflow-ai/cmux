@@ -50,7 +50,8 @@ transport or models.
 - **Swipe to close.** Swipe a card left to close it, as in Safari: horizontal
   drags only, 1:1 to the left (rubber band to the right), closes past 72% of
   the card's width or on a left fling faster than 225 pt/s, else springs back;
-  the close goes through your `close(_:)` and the grid reflows.
+  the close goes through your `close(_:)`, and the grid reflows once it
+  returns true (false: the card springs back and your `notice` shows).
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
@@ -82,9 +83,10 @@ final class MyTabs: TabsDataSource {
 
     func activate(_ id: String) { activeTabID = id }
 
-    func close(_ id: String) {
+    func close(_ id: String) async -> Bool {
         tabs.removeAll { $0.id == id }
         if activeTabID == id { activeTabID = tabs.last?.id }
+        return true  // false (with `notice` set) when the close was refused
     }
 
     func createTab(_ option: TabsKitNewTabOption) async -> String? {
@@ -230,6 +232,11 @@ xcodebuild -project CmuxTabsKitDemo.xcodeproj -scheme CmuxTabsKitDemo \
 
 Launch the demo with the `-showGrid` argument to open the grid once the
 first page has loaded.
+
+Verification hooks (launch arguments): `-tabCount N` starts with N web pages
+(try 0 and 50), `-failCreate` refuses every New Tab and `-failClose` refuses
+every close; both refusals show the data source's `notice` as a toast and the
+grid stays as it was (a swiped card springs back).
 
 ## Tests
 

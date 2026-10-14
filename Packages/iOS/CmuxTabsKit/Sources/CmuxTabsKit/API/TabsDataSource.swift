@@ -28,8 +28,12 @@ public protocol TabsDataSource: AnyObject, Observable {
 
     /// Makes `id` the active tab (a card tapped, a swipe, a suggestion).
     func activate(_ id: TabsKitTab.ID)
-    /// Closes `id`. When it was active, pick the next active tab.
-    func close(_ id: TabsKitTab.ID)
+    /// Closes `id` and returns true once it is gone from `tabs` (when it
+    /// was active, pick the next active tab). Return false when the close
+    /// was refused: the tab stays in `tabs`, its card springs back, and the
+    /// kit shows your `notice` (set it to say why). The card keeps its slot
+    /// (no reflow) until this returns.
+    func close(_ id: TabsKitTab.ID) async -> Bool
     /// Creates a tab, appends it to `tabs`, makes it active and returns its
     /// id; nil when it could not be created (the grid stays as it was).
     func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID?

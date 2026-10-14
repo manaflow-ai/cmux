@@ -61,6 +61,7 @@ struct TabCard<Content: View>: View {
     /// The zoom draws this card's content and close button; its title row
     /// stays here and fades in with the others.
     var contentHidden = false
+    var onOpen: () -> Void = {}
     var onClose: () -> Void
     @ViewBuilder var content: Content
 
@@ -102,8 +103,13 @@ struct TabCard<Content: View>: View {
             .opacity(titleOpacity)
         }
         .frame(width: width, alignment: .top)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
+        // One element per card, framed to the card and its title row, with
+        // Open and Close actions (no nested images or buttons).
+        .accessibilityRepresentation {
+            Button("\(title), tab", action: onOpen)
+                .accessibilityAction(named: "Open", onOpen)
+                .accessibilityAction(named: "Close", onClose)
+        }
     }
 }
 
@@ -126,7 +132,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     @Binding var scrollOffset: CGFloat
     @Binding var position: ScrollPosition
     var onSelect: (String) -> Void
-    var onClose: (String) -> Void
+    /// Closes the card's tab; false when refused (it stays).
+    var onClose: (String) async -> Bool
     var onNewTab: (TabsKitNewTabOption) -> Void
     var onDone: () -> Void
     var onCloseAll: () -> Void
@@ -151,7 +158,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                         TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
                                 radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
                                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
-                                contentHidden: tab.id == hiddenTabId, onClose: { onClose(tab.id) }) {
+                                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                                onClose: { Task { _ = await onClose(tab.id) } }) {
                             source.card(for: tab)
                         }
                         .contentShape(.rect)
@@ -161,8 +169,10 @@ struct TabOverview<Source: TabsDataSource>: View {
                             switch phase {
                             case .changed(let dx): swipes.track(tab.id, translation: dx)
                             case .ended(_, let v):
-                                swipes.release(tab.id, velocity: v, card: r, motion: theme.motion) { onClose(tab.id) }
-                            case .cancelled: swipes.cancel(tab.id, motion: theme.motion)
+                                swipes.release(tab.id, velocity: v, card: r, reduceMotion: UIAccessibility.isReduceMotionEnabled) {
+                                    await onClose(tab.id)
+                                }
+                            case .cancelled: swipes.cancel(tab.id, reduceMotion: UIAccessibility.isReduceMotionEnabled)
                             }
                         })
                         .opacity(swipes.opacity(tab.id))
@@ -181,6 +191,9 @@ struct TabOverview<Source: TabsDataSource>: View {
                     }
                 }
                 .frame(width: layout.size.width, height: layout.contentHeight, alignment: .topLeading)
+                // The grid reflows when a tab leaves (the data source removes
+                // it once its close succeeded).
+                .animation(theme.motion.resolve(theme.motion.reflow), value: tabs.map(\.id))
                 .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { onContentOrigin($0) }
             }
             .scrollPosition($position)
