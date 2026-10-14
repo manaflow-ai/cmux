@@ -57,7 +57,9 @@ public final class ControlWorkspaceInfoCache {
     public init() {}
 
     /// The control value of `model` and its pane slots, from the cache when
-    /// nothing their build read changed.
+    /// nothing their build read changed. Outside `workspaceList` only for
+    /// models that list does not hold (remote sessions' workspaces): a call
+    /// for a listed model would rebuild its stale entry without the list.
     func info(for model: WorkspaceModel, build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]),
               counted: Bool = true) -> (info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]]) {
         let key = ObjectIdentifier(model)

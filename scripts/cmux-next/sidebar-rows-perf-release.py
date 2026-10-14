@@ -88,11 +88,13 @@ def wait(predicate, seconds):
 
 
 def app_pid():
-    marker = os.path.join(APP, "Contents/MacOS/")
-    for line in subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout.splitlines():
-        pid, _, command = line.strip().partition(" ")
-        if command.startswith(marker):
-            return int(pid)
+    """The process that holds the tag's socket (an `open -n` command line need not name the bundle path),
+    else the newest process running the bundle's binary."""
+    for command in (["lsof", "-t", SOCKET], ["pgrep", "-n", "-f", os.path.join(os.path.realpath(APP), "Contents/MacOS")],
+                    ["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")]):
+        found = [int(p) for p in subprocess.run(command, capture_output=True, text=True).stdout.split() if int(p) != os.getpid()]
+        if found:
+            return found[0]
     return None
 
 
@@ -151,6 +153,10 @@ def ticking_terminals():
                 terms.append(ident)
     except (ValueError, AttributeError):
         pass
+    if not terms:  # other output shape: every terminal (the ticking ones and the first window's)
+        listed = cli("terminal", "list")
+        terms = [word for word in listed.stdout.split() if word.startswith("term_")]
+        print(f"terminal list fallback: {len(terms)} terminals; {(listed.stdout or listed.stderr)[:300]!r}", flush=True)
     return terms
 
 
@@ -173,12 +179,14 @@ class Target:
     @classmethod
     def find(cls):
         pid = app_pid()
+        if not pid:
+            sys.exit(f"FAIL no process for the tagged app (socket {SOCKET})")
         started = cua("start_session", {})
         if isinstance(started, dict) and started.get("error"):
             sys.exit(f"FAIL cua-driver start_session: {json.dumps(started)[:300]}")
         listed = {}
         windows = wait(lambda: [w for w in (listed.update(cua("list_windows", {"pid": pid})) or listed.get("windows") or [])
-                                if w.get("is_on_screen")], 30)
+                                if w.get("is_on_screen") and w.get("pid", pid) == pid], 30)
         if not windows:
             sys.exit(f"FAIL cua-driver lists no on-screen window for pid {pid}: {json.dumps(listed)[:400]}")
         main = max(windows, key=lambda w: w["bounds"]["width"] * w["bounds"]["height"])

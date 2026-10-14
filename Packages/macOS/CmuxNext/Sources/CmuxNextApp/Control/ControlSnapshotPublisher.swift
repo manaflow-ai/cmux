@@ -91,8 +91,10 @@ final class ControlSnapshotPublisher {
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
         }
-        // Publish only on change: an unchanged workspace list is the same
-        // array as last time, so this compare is O(windows) then, not O(n).
+        // Publish only on change: an unchanged local workspace list is the
+        // same array as last time, so this compare is O(windows) then (with a
+        // remote session loaded the appended list is a new array: O(n)).
+        // Readers' predicates read the contents, not the generation.
         let published = router.snapshots.current
         let unchanged = !workspaceInfos.listChanged && topology == published.topology && settings == published.settings
             && tabSearch == published.tabSearch
