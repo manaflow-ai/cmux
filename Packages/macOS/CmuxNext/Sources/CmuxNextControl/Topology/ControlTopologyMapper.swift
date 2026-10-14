@@ -144,14 +144,18 @@ enum ControlTopologyMapper {
     /// when `slots` does not line up, so the full path decides).
     private static func appFactsUnchanged(_ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
                                           selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> Bool {
-        for (screen, panes) in zip(info.screens, slots) {
-            guard screen.panes.count == panes.count else { return false }
-            for (pane, slot) in zip(screen.panes, panes) {
+        // Index loops, not zip: a debug build does not specialize zip and paid
+        // generic metadata lookups per element on every publish.
+        for screenIndex in info.screens.indices where screenIndex < slots.count {
+            let panes = info.screens[screenIndex].panes, paneSlots = slots[screenIndex]
+            guard panes.count == paneSlots.count else { return false }
+            for paneIndex in panes.indices {
+                let pane = panes[paneIndex], slot = paneSlots[paneIndex]
                 guard pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
                 guard !slot.pageTabs.isEmpty else { continue }
                 guard pane.tabs.count == slot.pageTabs.count else { return false }
-                for (tab, model) in zip(pane.tabs, slot.pageTabs) {
-                    if let model, let title = pages.title(model), title != tab.title { return false }
+                for tabIndex in slot.pageTabs.indices {
+                    if let model = slot.pageTabs[tabIndex], let title = pages.title(model), title != pane.tabs[tabIndex].title { return false }
                 }
             }
         }

@@ -155,7 +155,7 @@ final class ControlSnapshotPublisher {
             let visible = {
                 WindowProfiles.visible(members, profile: profile, machines: machines).filter { machines.workspace(id: $0) != nil }
             }
-            info.visibleWorkspaceIDs = cache?.memo("window:" + controller.state.id, key: members + ["\u{0}" + profile.rawValue],
+            info.visibleWorkspaceIDs = cache?.memo("window:" + controller.state.id, key: [members, [profile.rawValue]],
                                                    build: visible) ?? visible()
             return info
         }

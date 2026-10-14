@@ -24,11 +24,20 @@ import CmuxNextCompat
 /// models no longer listed are dropped on each publish.
 @MainActor
 public final class ControlWorkspaceInfoCache {
-    private struct Entry {
+    /// A class: every publish looks up every entry, and a struct lookup
+    /// copied the whole value (retains of every array in it) each time.
+    private final class Entry {
         let model: WorkspaceModel
         let info: ControlWorkspaceInfo
         let slots: [[ControlPaneSlot]]
         let generation: UInt64
+
+        init(model: WorkspaceModel, info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]], generation: UInt64) {
+            self.model = model
+            self.info = info
+            self.slots = slots
+            self.generation = generation
+        }
     }
 
     private var entries: [ObjectIdentifier: Entry] = [:]
@@ -68,7 +77,7 @@ public final class ControlWorkspaceInfoCache {
     /// each live model has its entry and there are no others (the usual
     /// case), it returns without building a set (O(n) lookups, no allocation).
     public func retain(_ live: [WorkspaceModel]) {
-        if entries.count == live.count, live.allSatisfy({ entries[ObjectIdentifier($0)]?.model === $0 }) {
+        if entries.count == live.count, live.allSatisfy({ entries.index(forKey: ObjectIdentifier($0)) != nil }) {
             return
         }
         let keep = Set(live.map(ObjectIdentifier.init))
@@ -81,7 +90,7 @@ public final class ControlWorkspaceInfoCache {
     // MARK: Derived values
 
     private struct Memo {
-        let key: AnyHashable
+        let key: Any
         let value: Any
         let generation: UInt64
     }
@@ -107,8 +116,10 @@ public final class ControlWorkspaceInfoCache {
     /// rebuild still adds its reads there: nested tracking merges into the
     /// outer one). A large access list made every publish, and the first
     /// change after one, O(workspaces) (1,000 workspaces, 2026-10-14 profile).
-    public func memo<Key: Hashable, Value>(_ slot: String, key: Key, build: () -> Value) -> Value {
-        if let memo = memos[slot], memo.key == AnyHashable(key), let value = memo.value as? Value,
+    /// `key` is compared with its own `==` (an `AnyHashable` array compare
+    /// boxed every element).
+    public func memo<Key: Equatable, Value>(_ slot: String, key: Key, build: () -> Value) -> Value {
+        if let memo = memos[slot], let old = memo.key as? Key, old == key, let value = memo.value as? Value,
            !memoGenerations.withLock({ $0.stale.contains(memo.generation) }) {
             return value
         }
@@ -126,7 +137,7 @@ public final class ControlWorkspaceInfoCache {
             // task-owner: none needed; a one-shot hop that holds the cache weakly and ends after one publish.
             if live { Task { @MainActor [weak self] in self?.onStale() } }
         }
-        memos[slot] = Memo(key: AnyHashable(key), value: value, generation: generation)
+        memos[slot] = Memo(key: key, value: value, generation: generation)
         return value
     }
 
