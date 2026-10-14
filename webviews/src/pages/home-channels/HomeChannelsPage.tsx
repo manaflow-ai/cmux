@@ -468,237 +468,237 @@ export function HomeChannelsPage({
   return (
     <AttachmentContext.Provider value={store.attachments}>
       <AvatarContext.Provider value={store.avatars}>
-      <PicturesContext.Provider value={sheetState.pictures}>
-        <div className="lg-shell" ref={shell}>
-          <div className="lg-page" data-pane={pane}>
-            <ConversationList
-              conversations={conversations}
-              channels={channels}
-              people={people}
-              activity={snap.activity}
-              me={me}
-              selected={snap.selected}
-              strings={strings}
-              onSelect={select}
-              onOpenPalette={() => setPalette(true)}
-              onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
-              actions={rowActions}
-            />
-            <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-              {snap.loading ? null : empty || !open ? (
-                <EmptyState
-                  strings={strings}
-                  noConversations={empty}
-                  canCreate={online && caps.start}
-                  onCreate={() => store.sheets.open({ kind: "newMessage" })}
-                  onPalette={() => setPalette(true)}
-                />
-              ) : (
-                <>
-                  <header className="lg-header">
-                    <button
-                      type="button"
-                      className="hc-icon-button lg-back"
-                      aria-label={t("action.back")}
-                      title={t("action.back")}
-                      aria-keyshortcuts="Meta+["
-                      onClick={back}
-                    >
-                      <HomeIcon name="chevronLeft" size={16} />
-                    </button>
-                    <span className="lg-header-mark">
-                      {channel ? (
-                        <ChannelMark />
-                      ) : (
-                        <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+        <PicturesContext.Provider value={sheetState.pictures}>
+          <div className="lg-shell" ref={shell}>
+            <div className="lg-page" data-pane={pane}>
+              <ConversationList
+                conversations={conversations}
+                channels={channels}
+                people={people}
+                activity={snap.activity}
+                me={me}
+                selected={snap.selected}
+                strings={strings}
+                onSelect={select}
+                onOpenPalette={() => setPalette(true)}
+                onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
+                actions={rowActions}
+              />
+              <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
+                {snap.loading ? null : empty || !open ? (
+                  <EmptyState
+                    strings={strings}
+                    noConversations={empty}
+                    canCreate={online && caps.start}
+                    onCreate={() => store.sheets.open({ kind: "newMessage" })}
+                    onPalette={() => setPalette(true)}
+                  />
+                ) : (
+                  <>
+                    <header className="lg-header">
+                      <button
+                        type="button"
+                        className="hc-icon-button lg-back"
+                        aria-label={t("action.back")}
+                        title={t("action.back")}
+                        aria-keyshortcuts="Meta+["
+                        onClick={back}
+                      >
+                        <HomeIcon name="chevronLeft" size={16} />
+                      </button>
+                      <span className="lg-header-mark">
+                        {channel ? (
+                          <ChannelMark />
+                        ) : (
+                          <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+                        )}
+                      </span>
+                      <h1 className="lg-header-title">{name}</h1>
+                      <p className="lg-header-context">
+                        {state && state !== "idle" ? (
+                          <span className={`lg-state ${state}`}>
+                            {t(state === "working" ? "chief.working" : "chief.waiting")}
+                          </span>
+                        ) : state === "idle" ? (
+                          <span>{t("chief.idle")}</span>
+                        ) : null}
+                        {channel && <span>{format("header.members", String(open.participants.length))}</span>}
+                        {channel && threads.length > 0 && (
+                          <span>
+                            {openThreads === 1
+                              ? t("header.openThread.one")
+                              : format("header.openThreads", String(openThreads))}
+                          </span>
+                        )}
+                      </p>
+                      <span className="lg-spacer" />
+                      {!online && (
+                        <output className="lg-connection">
+                          {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                        </output>
                       )}
-                    </span>
-                    <h1 className="lg-header-title">{name}</h1>
-                    <p className="lg-header-context">
-                      {state && state !== "idle" ? (
-                        <span className={`lg-state ${state}`}>
-                          {t(state === "working" ? "chief.working" : "chief.waiting")}
-                        </span>
-                      ) : state === "idle" ? (
-                        <span>{t("chief.idle")}</span>
-                      ) : null}
-                      {channel && <span>{format("header.members", String(open.participants.length))}</span>}
-                      {channel && threads.length > 0 && (
-                        <span>
-                          {openThreads === 1
-                            ? t("header.openThread.one")
-                            : format("header.openThreads", String(openThreads))}
+                      {notice && <output className="lg-notice">{notice}</output>}
+                      {channel && (
+                        <span className="lg-faces" aria-hidden="true">
+                          {open.participants.slice(0, 4).map((p) => (
+                            <Avatar key={p.id} participant={p} size={20} />
+                          ))}
                         </span>
                       )}
-                    </p>
-                    <span className="lg-spacer" />
-                    {!online && (
-                      <output className="lg-connection">
-                        {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                      {online && caps.invite && open.owner === "local" && (
+                        <button
+                          type="button"
+                          className="hc-icon-button"
+                          aria-label={t("action.invite")}
+                          title={t("action.invite")}
+                          onClick={() => store.sheets.open({ kind: "invite", conversation: open.id })}
+                        >
+                          <HomeIcon name="personAdd" size={16} />
+                        </button>
+                      )}
+                      {online && openChief && (
+                        <button
+                          type="button"
+                          className="hc-icon-button"
+                          aria-label={t("action.editChief")}
+                          title={t("action.editChief")}
+                          onClick={() => store.sheets.open({ kind: "editChief", chief: openChief.id })}
+                        >
+                          <HomeIcon name="edit" size={16} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="hc-icon-button"
+                        aria-label={t("action.copyConversationLink")}
+                        title={t("action.copyConversationLink")}
+                        onClick={() => copyLink()}
+                      >
+                        <HomeIcon name="link" size={16} />
+                      </button>
+                    </header>
+                    {snap.error && (
+                      <output className="hc-error selectable">
+                        <span>{snap.error}</span>
+                        <button type="button" onClick={() => store.dismissError()}>
+                          {t("error.dismiss")}
+                        </button>
                       </output>
                     )}
-                    {notice && <output className="lg-notice">{notice}</output>}
-                    {channel && (
-                      <span className="lg-faces" aria-hidden="true">
-                        {open.participants.slice(0, 4).map((p) => (
-                          <Avatar key={p.id} participant={p} size={20} />
-                        ))}
-                      </span>
-                    )}
-                    {online && caps.invite && open.owner === "local" && (
-                      <button
-                        type="button"
-                        className="hc-icon-button"
-                        aria-label={t("action.invite")}
-                        title={t("action.invite")}
-                        onClick={() => store.sheets.open({ kind: "invite", conversation: open.id })}
-                      >
-                        <HomeIcon name="personAdd" size={16} />
-                      </button>
-                    )}
-                    {online && openChief && (
-                      <button
-                        type="button"
-                        className="hc-icon-button"
-                        aria-label={t("action.editChief")}
-                        title={t("action.editChief")}
-                        onClick={() => store.sheets.open({ kind: "editChief", chief: openChief.id })}
-                      >
-                        <HomeIcon name="edit" size={16} />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="hc-icon-button"
-                      aria-label={t("action.copyConversationLink")}
-                      title={t("action.copyConversationLink")}
-                      onClick={() => copyLink()}
-                    >
-                      <HomeIcon name="link" size={16} />
-                    </button>
-                  </header>
-                  {snap.error && (
-                    <output className="hc-error selectable">
-                      <span>{snap.error}</span>
-                      <button type="button" onClick={() => store.dismissError()}>
-                        {t("error.dismiss")}
-                      </button>
-                    </output>
-                  )}
-                  <RunsContext.Provider value={runsWithPeople}>
-                    <div className="lg-stage" ref={column} data-drop-zone>
-                      <Timeline
-                        conversation={snap.selected}
-                        rows={rows}
-                        people={people}
-                        me={me}
-                        strings={strings}
-                        loadingOlder={snap.loadingOlder}
-                        onLoadOlder={() => void store.loadOlder()}
-                        onOpenThread={(root) => openThread(root)}
-                        onReact={(message, value) => void store.react(message, value)}
-                        onCopyLink={(message) => copyLink(message)}
-                        highlight={snap.highlight}
-                        threadFor={threadFor}
-                        openThread={snap.thread}
-                        focused={focused}
-                        pendingState={pendingState}
-                        onRetry={(key) => store.retry(key)}
-                        onDiscard={(key) => store.discard(key)}
-                        stamp={stamp}
-                        empty={t("timeline.empty")}
-                        {...editActions("main")}
-                      />
-                      <div className="lg-typing" aria-live="polite">
-                        {typingNames.length === 1
-                          ? format("typing.one", typingNames[0]!)
-                          : typingNames.length > 1
-                            ? t("typing.many")
-                            : ""}
-                      </div>
-                      <div className="lg-main-compose">
-                        <Composer
-                          key={open.id}
-                          strings={strings}
-                          placeholder={format("composer.placeholder", place)}
-                          label={format("composer.placeholder", name)}
-                          disabled={!online}
-                          people={mentionable}
-                          onEditLast={() => {
-                            const last = lastEditable(
-                              snap.messages,
-                              me,
-                              new Set(threads.map((entry) => entry.root.id)),
-                            );
-                            if (last) setEditing({ id: last.id, surface: "main" });
-                          }}
-                          attachments={uploads}
-                          dropZone={column}
-                          onSend={(text, files) => store.send(text, undefined, undefined, files)}
-                        />
-                      </div>
-                      {snap.thread && (
-                        <ThreadSheet
-                          key={snap.thread}
-                          root={snap.thread}
-                          thread={sheetThread}
-                          place={place}
-                          messages={threadSource}
-                          stats={snap.threadStats.get(snap.thread)}
-                          hasMore={snap.threadView?.hasMore}
-                          loadingMore={snap.threadView?.loading}
-                          onLoadMore={() => store.loadMoreReplies()}
+                    <RunsContext.Provider value={runsWithPeople}>
+                      <div className="lg-stage" ref={column} data-drop-zone>
+                        <Timeline
+                          conversation={snap.selected}
+                          rows={rows}
                           people={people}
-                          mentionable={mentionable}
                           me={me}
                           strings={strings}
-                          canSend={online}
-                          highlight={snap.highlight}
-                          onClose={() => openThread(undefined)}
-                          onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
-                          owners={open.participants}
-                          onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
-                          onRename={(title) =>
-                            sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
-                          }
-                          onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
-                          attachments={uploads}
-                          onCopyLink={(message) => copyLink(message)}
+                          loadingOlder={snap.loadingOlder}
+                          onLoadOlder={() => void store.loadOlder()}
+                          onOpenThread={(root) => openThread(root)}
                           onReact={(message, value) => void store.react(message, value)}
+                          onCopyLink={(message) => copyLink(message)}
+                          highlight={snap.highlight}
+                          threadFor={threadFor}
+                          openThread={snap.thread}
+                          focused={focused}
                           pendingState={pendingState}
                           onRetry={(key) => store.retry(key)}
                           onDiscard={(key) => store.discard(key)}
-                          {...editActions("thread")}
+                          stamp={stamp}
+                          empty={t("timeline.empty")}
+                          {...editActions("main")}
                         />
-                      )}
-                      {runSheet && runSheet.run.conversation === snap.selected && (
-                        <RunSheet
-                          key={`${runSheet.run.author}:${runSheet.run.id}`}
-                          entry={runSheet}
-                          people={people}
-                          strings={strings}
-                          place={place}
-                          asked={askedLine(runSheet.run.answers[0], threadSource)}
-                          onClose={() => setOpenRun(undefined)}
-                          onLoad={runs.onLoad}
-                        />
-                      )}
-                    </div>
-                  </RunsContext.Provider>
-                </>
-              )}
-            </section>
-            <RouteSheets
-              sheets={store.sheets}
-              state={sheetState}
-              strings={strings}
-              conversations={conversations}
-              me={me}
-            />
-            {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+                        <div className="lg-typing" aria-live="polite">
+                          {typingNames.length === 1
+                            ? format("typing.one", typingNames[0]!)
+                            : typingNames.length > 1
+                              ? t("typing.many")
+                              : ""}
+                        </div>
+                        <div className="lg-main-compose">
+                          <Composer
+                            key={open.id}
+                            strings={strings}
+                            placeholder={format("composer.placeholder", place)}
+                            label={format("composer.placeholder", name)}
+                            disabled={!online}
+                            people={mentionable}
+                            onEditLast={() => {
+                              const last = lastEditable(
+                                snap.messages,
+                                me,
+                                new Set(threads.map((entry) => entry.root.id)),
+                              );
+                              if (last) setEditing({ id: last.id, surface: "main" });
+                            }}
+                            attachments={uploads}
+                            dropZone={column}
+                            onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                          />
+                        </div>
+                        {snap.thread && (
+                          <ThreadSheet
+                            key={snap.thread}
+                            root={snap.thread}
+                            thread={sheetThread}
+                            place={place}
+                            messages={threadSource}
+                            stats={snap.threadStats.get(snap.thread)}
+                            hasMore={snap.threadView?.hasMore}
+                            loadingMore={snap.threadView?.loading}
+                            onLoadMore={() => store.loadMoreReplies()}
+                            people={people}
+                            mentionable={mentionable}
+                            me={me}
+                            strings={strings}
+                            canSend={online}
+                            highlight={snap.highlight}
+                            onClose={() => openThread(undefined)}
+                            onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
+                            owners={open.participants}
+                            onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
+                            onRename={(title) =>
+                              sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
+                            }
+                            onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
+                            attachments={uploads}
+                            onCopyLink={(message) => copyLink(message)}
+                            onReact={(message, value) => void store.react(message, value)}
+                            pendingState={pendingState}
+                            onRetry={(key) => store.retry(key)}
+                            onDiscard={(key) => store.discard(key)}
+                            {...editActions("thread")}
+                          />
+                        )}
+                        {runSheet && runSheet.run.conversation === snap.selected && (
+                          <RunSheet
+                            key={`${runSheet.run.author}:${runSheet.run.id}`}
+                            entry={runSheet}
+                            people={people}
+                            strings={strings}
+                            place={place}
+                            asked={askedLine(runSheet.run.answers[0], threadSource)}
+                            onClose={() => setOpenRun(undefined)}
+                            onLoad={runs.onLoad}
+                          />
+                        )}
+                      </div>
+                    </RunsContext.Provider>
+                  </>
+                )}
+              </section>
+              <RouteSheets
+                sheets={store.sheets}
+                state={sheetState}
+                strings={strings}
+                conversations={conversations}
+                me={me}
+              />
+              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+            </div>
           </div>
-        </div>
-      </PicturesContext.Provider>
+        </PicturesContext.Provider>
       </AvatarContext.Provider>
     </AttachmentContext.Provider>
   );

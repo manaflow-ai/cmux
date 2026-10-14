@@ -55,6 +55,8 @@ import CmuxNextCompat
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
+    /// This Mac's acpmux socket from the last handshake (the agent CLI card's update and restart).
+    var acpmuxSocket: String?
     /// The permission options the daemon sent, to tell an allow from a deny.
     public let permissionOptions = AcpmuxPermissionOptions()
     /// The sessions this pane started or shows.
