@@ -189,6 +189,21 @@ async fn stopping_a_background_subagent_stops_its_claude_task() {
         .collect();
     assert_eq!(replies, vec![(json!(7), None)]);
 
+    // Claude's refusal is the request's error.
+    t.outbound(&stop(9, "acp-1/toolu_w")).await;
+    let refused = json!({"type": "control_response",
+        "response": {"subtype": "error", "request_id": "stop-9", "error": "task already finished"}});
+    let errors: Vec<_> = t
+        .inbound(&refused)
+        .await
+        .into_iter()
+        .filter_map(|m| match m {
+            Message::Response { id, error: Some(e), .. } => Some((id, e.message)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(errors, vec![(json!(9), "task already finished".to_owned())]);
+
     // A subagent this chat does not have is an error, not a stray stop.
     let Outbound::Reply(Message::Response { error: Some(_), .. }) =
         t.outbound(&stop(8, "acp-1/toolu_gone")).await

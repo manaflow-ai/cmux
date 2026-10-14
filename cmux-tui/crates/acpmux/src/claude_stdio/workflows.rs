@@ -37,6 +37,7 @@ impl Translator {
             self.workflows.lock().await.remove(tool);
             self.background_subagents.lock().await.remove(tool);
             self.subagents.lock().await.remove(tool);
+            self.subagent_tasks.lock().await.retain(|_, t| t != tool);
             return Some(json!({
                 "sessionUpdate": "subagent_state_update",
                 "subagentSessionId": child,
@@ -92,7 +93,15 @@ impl Translator {
         if let Some(action) = action {
             update["action"] = json!(action);
         }
-        if let Some((done, started)) = workflow.flatten().and_then(|dir| journal_counts(&dir)) {
+        // Off the stdout loop: a big run's journal is megabytes, read on every progress line.
+        let dir = workflow.flatten();
+        let counts = match dir {
+            Some(dir) => {
+                tokio::task::spawn_blocking(move || journal_counts(&dir)).await.ok().flatten()
+            }
+            None => None,
+        };
+        if let Some((done, started)) = counts {
             update["agents"] = json!({"done": done, "started": started});
         }
         Some(update)
@@ -117,7 +126,7 @@ impl Translator {
                 "request_id": format!("stop-{id}"), "request": {"subtype": "stop_task", "task_id": task}})]),
             None => Outbound::Reply(Message::err(
                 id.clone(),
-                RpcError::invalid_params(format!("no running background subagent {child}")),
+                RpcError::invalid_params(format!("no running subagent {child}")),
             )),
         }
     }
@@ -137,12 +146,14 @@ pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {
 /// the `journal.jsonl` in its transcript dir.
 fn journal_counts(dir: &Path) -> Option<(usize, usize)> {
     use std::io::Read;
-    let mut text = String::new();
+    let mut bytes = Vec::new();
     std::fs::File::open(dir.join("journal.jsonl"))
         .ok()?
         .take(JOURNAL_BYTES)
-        .read_to_string(&mut text)
+        .read_to_end(&mut bytes)
         .ok()?;
+    // A cut at the limit may split a character; the lines before it still count.
+    let text = String::from_utf8_lossy(&bytes);
     let (mut done, mut started) = (0, 0);
     for line in text.lines() {
         match serde_json::from_str::<Value>(line)
