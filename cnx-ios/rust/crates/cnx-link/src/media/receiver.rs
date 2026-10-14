@@ -269,8 +269,13 @@ impl ReceiverCore {
                         self.release(frame, &mut frames);
                     }
                     None => {
-                        let waiting = self.highest.is_some_and(|h| h >= next);
-                        if !waiting {
+                        // Blocked only by a hole: a frame whose last packets
+                        // are still on their way (a large keyframe on a slow
+                        // path) is not a loss, however long it takes.
+                        let hole = self.highest.is_some_and(|h| {
+                            h >= next && (self.packets.range(next..=h).count() as u64) < h - next + 1
+                        });
+                        if !hole {
                             self.blocked_since = None;
                             break;
                         }
@@ -306,7 +311,12 @@ impl ReceiverCore {
             }
         }
         let mut rtcp: RtcpPackets = Vec::new();
-        if std::mem::take(&mut self.pli_now) && self.media_ssrc != 0 {
+        let pli_due =
+            |last: Option<u64>, interval: u64| last.is_none_or(|t| now_us.saturating_sub(t) >= interval);
+        if std::mem::take(&mut self.pli_now)
+            && self.media_ssrc != 0
+            && pli_due(self.last_pli_us, self.config.pli_interval_us)
+        {
             self.last_pli_us = Some(now_us);
             self.stats.plis_sent += 1;
             rtcp.push(Box::new(PictureLossIndication {
@@ -364,6 +374,7 @@ pub(crate) async fn run(
     mut keyframes: mpsc::UnboundedReceiver<()>,
     stats: watch::Sender<ReceiverStats>,
     rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
+    mut closed: Option<watch::Receiver<Option<String>>>,
 ) {
     let epoch = std::time::Instant::now();
     let mut core = ReceiverCore::new(config);
@@ -376,6 +387,7 @@ pub(crate) async fn run(
         let wake = core.next_deadline_us(now);
         let sleep = tokio::time::sleep(std::time::Duration::from_micros(wake.saturating_sub(now)));
         tokio::select! {
+            () = super::link_closed(&mut closed) => break,
             packet = carrier.recv_rtp() => {
                 let Some(packet) = packet else { break };
                 core.push(packet, super::micros_since(epoch));
@@ -555,6 +567,63 @@ mod tests {
         let (out, _) = receiver.poll(now);
         assert_eq!(out.len(), 2);
         assert!(out[0].keyframe && !out[1].keyframe);
+    }
+
+    /// A 100 kB keyframe on a 2.5 Mbit/s path takes about 320 ms to arrive,
+    /// longer than the give-up deadline: with no packet missing it is not a
+    /// loss, and the frame is released whole when its marker arrives.
+    #[test]
+    fn a_frame_still_arriving_is_not_given_up() {
+        let mut sender = SenderCore::new(SenderConfig::default(), 1);
+        let mut receiver = ReceiverCore::new(ReceiverConfig::default());
+        receiver.set_rtt(10_000);
+        // A running stream: a keyframe and a P-frame are out.
+        for p in frames(&mut sender, 2, 0).iter().flatten() {
+            receiver.push(p.clone(), 0);
+        }
+        assert_eq!(receiver.poll(0).0.len(), 2);
+        let start = 33_334;
+        let key = sender
+            .frame(&OutgoingFrame { access_unit: access_unit(true, 100_000, 9), capture_us: start }, start);
+        assert!(key.len() > 80);
+        let spacing = 330_000 / key.len() as u64;
+        let mut now = start;
+        for p in &key {
+            receiver.push(p.clone(), now);
+            let (out, rtcp) = receiver.poll(now);
+            if !p.header.marker {
+                assert!(out.is_empty());
+                assert!(!has_pli(&rtcp), "a PLI at {now} us while the frame was still arriving");
+            } else {
+                assert_eq!(out.len(), 1);
+                assert!(out[0].keyframe);
+            }
+            now += spacing;
+        }
+        assert!(now - start > receiver.deadline_us());
+        assert_eq!(receiver.stats().frames_dropped, 0);
+    }
+
+    /// One roam can be announced twice (host endpoints, then the reflexive
+    /// ones): the receiver asks for one keyframe, not one per announcement.
+    #[test]
+    fn path_changes_send_one_pli_per_interval() {
+        let mut sender = SenderCore::new(SenderConfig::default(), 1);
+        let mut receiver = ReceiverCore::new(ReceiverConfig::default());
+        for (i, frame) in frames(&mut sender, 2, 0).iter().enumerate() {
+            for p in frame {
+                receiver.push(p.clone(), i as u64 * 16_667);
+            }
+        }
+        assert_eq!(receiver.poll(20_000).0.len(), 2);
+        receiver.path_changed();
+        let (out, rtcp) = receiver.poll(500_000);
+        assert!(out.is_empty() && has_pli(&rtcp));
+        receiver.path_changed();
+        assert!(!has_pli(&receiver.poll(510_000).1), "a second PLI within the interval");
+        receiver.path_changed();
+        assert!(has_pli(&receiver.poll(900_000).1));
+        assert_eq!(receiver.stats().frames_dropped, 0);
     }
 
     #[test]

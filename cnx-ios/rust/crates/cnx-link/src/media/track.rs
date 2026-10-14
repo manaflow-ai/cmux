@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, mpsc};
 use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::configure_rtcp_reports;
 use webrtc::api::media_engine::{MIME_TYPE_H264, MediaEngine};
@@ -125,14 +125,26 @@ pub(crate) async fn add_receiver(pc: &RTCPeerConnection) -> Result<Arc<ReceiveCa
     )
     .await
     .map_err(|e| MediaError::Other(e.to_string()))?;
-    let (track_tx, track_rx) = watch::channel(None);
+    // A task reads each video track into a queue: `recv_rtp` is polled in a
+    // `select!` that drops it often, and a read dropped half way through the
+    // interceptor chain (the TWCC receiver awaits its own queue after the
+    // NACK generator already counted the packet as arrived) would lose the
+    // packet without a NACK.
+    let (rtp_tx, rtp_rx) = mpsc::channel(1024);
     pc.on_track(Box::new(move |track: Arc<TrackRemote>, _, _| {
         if track.kind() == RTPCodecType::Video {
-            track_tx.send_replace(Some(track));
+            let rtp_tx = rtp_tx.clone();
+            tokio::spawn(async move {
+                while let Ok((packet, _)) = track.read_rtp().await {
+                    if rtp_tx.send(packet).await.is_err() {
+                        return;
+                    }
+                }
+            });
         }
         Box::pin(async {})
     }));
-    Ok(Arc::new(ReceiveCarrier { pc: Mutex::new(None), track: Mutex::new(track_rx) }))
+    Ok(Arc::new(ReceiveCarrier { pc: Mutex::new(None), rtp: Mutex::new(rtp_rx) }))
 }
 
 /// Mac side, before applying an offer with the lane: the sending track.
@@ -303,7 +315,7 @@ fn drop_this(n: u64, permille: u32) -> bool {
 /// peer connection.
 pub struct ReceiveCarrier {
     pc: Mutex<Option<Arc<RTCPeerConnection>>>,
-    track: Mutex<watch::Receiver<Option<Arc<TrackRemote>>>>,
+    rtp: Mutex<mpsc::Receiver<rtp::packet::Packet>>,
 }
 
 impl ReceiveCarrier {
@@ -337,12 +349,7 @@ impl MediaCarrier for ReceiveCarrier {
     }
 
     fn recv_rtp(&self) -> BoxFuture<'_, Option<rtp::packet::Packet>> {
-        Box::pin(async move {
-            let mut rx = self.track.lock().await;
-            let track = rx.wait_for(Option::is_some).await.ok()?.clone()?;
-            drop(rx);
-            track.read_rtp().await.ok().map(|(packet, _)| packet)
-        })
+        Box::pin(async move { self.rtp.lock().await.recv().await })
     }
 
     fn recv_rtcp(&self) -> BoxFuture<'_, Option<RtcpPackets>> {

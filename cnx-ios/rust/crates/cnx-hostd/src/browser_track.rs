@@ -1,15 +1,15 @@
 //! `browser` over the media lane (cnx-ios/verify/browser-video-track.md).
 //!
-//! When the phone asks for `video: "track"` and the link has a WebRTC video
-//! track, hostd becomes the rd viewer of the page's main stream on
+//! When the phone asks for `video: "track"` and the link has a media lane (a
+//! WebRTC video track, or RTP inside the WireGuard tunnel), hostd becomes the rd viewer of the page's main stream on
 //! loopback: it reassembles the host's frames and writes each access unit
-//! to the track, with the capture time as its RTP timestamp. Everything
+//! to the lane, with the capture time as its RTP timestamp. Everything
 //! else (rb control, input, clock probes, popup streams) still rides the
 //! `browser` channel, unchanged.
 //!
 //! hostd answers the host's media engine with the feedback a viewer at the
 //! end of the real path would send, so the host's own controls (frame gate,
-//! congestion controller, recovery) follow the WebRTC path:
+//! congestion controller, recovery) follow the lane's path:
 //!
 //! - Arrivals: each host datagram is timed through a virtual bottleneck at
 //!   the media lane's target bitrate (TWCC-fed). Sending above the target

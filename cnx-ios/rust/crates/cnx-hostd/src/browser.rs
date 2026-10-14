@@ -306,8 +306,9 @@ pub async fn serve(
         None => "about:blank".to_owned(),
     };
     let (addr, secret, viewer, cancelled) = config.claim(tab, &url).await?;
-    // `video: "track"`: the page's video on the link's media lane when the
-    // link has one; otherwise (WireGuard, an older phone) on this channel.
+    // `video: "track"`: the page's video on the link's media lane (a WebRTC
+    // track or RTP inside the WireGuard tunnel) when the link has one;
+    // otherwise (an older phone, or the lane off) on this channel.
     let track = (args.get("video").and_then(Value::as_str) == Some("track"))
         .then_some(peer.video.as_ref())
         .flatten()
@@ -364,9 +365,21 @@ async fn splice(
         }
         let wake = if claim.is_some() { bridge.next_deadline_us(now_us()) } else { now_us() + 3_600_000_000 };
         let sleep = tokio::time::sleep(Duration::from_micros(wake.saturating_sub(now_us())));
+        // While the lane's window is full the host's ack is held; reopen the
+        // frame gate the moment it drains, not at the next wake.
+        let uncongested = claim.as_ref().filter(|c| c.state().congested).map(|c| c.uncongested());
         let keyframe = async {
             match claim.as_mut() {
-                Some(c) => c.keyframes.recv().await.is_ok(),
+                // A lagged receiver missed requests: still one request.
+                Some(c) => {
+                    !matches!(c.keyframes.recv().await, Err(tokio::sync::broadcast::error::RecvError::Closed))
+                }
+                None => std::future::pending().await,
+            }
+        };
+        let uncongested = async {
+            match uncongested {
+                Some(drained) => drained.await,
                 None => std::future::pending().await,
             }
         };
@@ -455,6 +468,7 @@ async fn splice(
                 }
             }
             () = sleep => {}
+            () = uncongested => {}
             _ = &mut cancelled => {
                 return Err(Refusal::new("replaced", "another viewer opened this tab"));
             }

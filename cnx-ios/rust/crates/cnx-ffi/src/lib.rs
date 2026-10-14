@@ -253,9 +253,10 @@ impl LinkHandle {
         let mut args = args;
         let link = self.link.clone();
         on_runtime(async move {
-            // With a media lane the page's video rides it (a WebRTC track or RTP in the tunnel)
-            // (`video: "track"`); an older hostd ignores the field and
-            // streams on the channel, which the viewer reads either way.
+            // With a media lane the page's video rides it (`video: "track"`:
+            // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
+            // ignores the field and streams on the channel, which the viewer
+            // reads either way.
             let lane = match link.media() {
                 Some(cnx_link::media::MediaLane::In(lane)) if args.get("video").is_none() => Some(lane),
                 _ => None,
@@ -263,11 +264,15 @@ impl LinkHandle {
             if lane.is_some() {
                 args["video"] = serde_json::Value::from("track");
             }
+            let channel = link.open("browser", args).await?;
+            // Take the lane's frames only once this tab's `open` is queued:
+            // a malformed request leaves the tab that has them now
+            // undisturbed, and the keyframe request (a PLI on the lane)
+            // follows the `open`, so it usually reaches this tab's claim.
             let frames = match &lane {
                 Some(lane) => Some(lane.subscribe().await),
                 None => None,
             };
-            let channel = link.open("browser", args).await?;
             let (sender, receiver) = channel.split();
             Ok(browser::start(Arc::new(sender), receiver, observer, lane.zip(frames)))
         })

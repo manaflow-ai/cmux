@@ -26,7 +26,8 @@ pub struct Peer {
     pub device_id: String,
     /// The link session (a UUID): one `upload` folder per session.
     pub session_id: String,
-    /// The link's media lane (browser video as a WebRTC track), if the
+    /// The link's media lane (browser video as RTP: a WebRTC track or UDP
+    /// inside the WireGuard tunnel), if the
     /// phone and this Mac negotiated one.
     pub video: Option<cnx_link::media::VideoOut>,
 }

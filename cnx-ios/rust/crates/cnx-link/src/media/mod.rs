@@ -135,8 +135,14 @@ pub fn rtp_timestamp(capture_us: u64) -> u32 {
 /// now: the newest time at or before `host_now_us` with that timestamp.
 pub fn capture_us_from_rtp(rtp_ts: u32, host_now_us: u64) -> u64 {
     let now_ts = rtp_timestamp(host_now_us);
-    let behind_ticks = u64::from(now_ts.wrapping_sub(rtp_ts));
-    host_now_us.saturating_sub(behind_ticks * 1_000_000 / u64::from(CLOCK_RATE))
+    // Signed: a timestamp slightly ahead of the estimate of the host's
+    // clock (an offset error larger than the frame's age) is "now", not
+    // 2^32 ticks (13 hours) behind.
+    let behind_ticks = now_ts.wrapping_sub(rtp_ts) as i32;
+    if behind_ticks <= 0 {
+        return host_now_us;
+    }
+    host_now_us.saturating_sub(behind_ticks as u64 * 1_000_000 / u64::from(CLOCK_RATE))
 }
 
 /// One frame for the lane (Mac side).
@@ -198,8 +204,13 @@ pub struct VideoClaim {
 }
 
 impl VideoOut {
-    /// Runs the sender core on `carrier` until the carrier ends.
-    pub fn start(carrier: Arc<dyn MediaCarrier>, config: SenderConfig) -> Self {
+    /// Runs the sender core on `carrier` until the carrier ends or `closed`
+    /// (the link's close state) says the link closed.
+    pub fn start(
+        carrier: Arc<dyn MediaCarrier>,
+        config: SenderConfig,
+        closed: Option<watch::Receiver<Option<String>>>,
+    ) -> Self {
         let (frames_tx, frames_rx) = mpsc::channel(4);
         let (state_tx, state_rx) = watch::channel(SenderState {
             target_bps: config.cc.start_bps,
@@ -220,7 +231,7 @@ impl VideoOut {
             keyframes: keyframes.clone(),
             next_claim: std::sync::atomic::AtomicU64::new(1),
         });
-        tokio::spawn(sender::run(carrier, config, frames_rx, state_tx, keyframes));
+        tokio::spawn(sender::run(carrier, config, frames_rx, state_tx, keyframes, closed));
         Self { inner }
     }
 
@@ -272,6 +283,14 @@ impl VideoClaim {
 
     pub fn state(&self) -> SenderState {
         *self.inner.state.borrow()
+    }
+
+    /// Resolves once the lane is no longer congested (at once if it is not).
+    pub fn uncongested(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let mut state = self.inner.state.clone();
+        async move {
+            let _ = state.wait_for(|s| !s.congested).await;
+        }
     }
 }
 
@@ -338,12 +357,14 @@ impl VideoFrames {
 }
 
 impl VideoIn {
-    /// Runs the receiver core on `carrier` until the carrier ends. `rtt`
-    /// (the link's ping round trip) sets how long a gap may wait for a NACK.
+    /// Runs the receiver core on `carrier` until the carrier ends or `closed`
+    /// (the link's close state) says the link closed. `rtt` (the link's ping
+    /// round trip) sets how long a gap may wait for a NACK.
     pub fn start(
         carrier: Arc<dyn MediaCarrier>,
         config: ReceiverConfig,
         rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
+        closed: Option<watch::Receiver<Option<String>>>,
     ) -> Self {
         let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
         let (stats_tx, stats_rx) = watch::channel(ReceiverStats::default());
@@ -353,7 +374,7 @@ impl VideoIn {
             keyframe: keyframe_tx,
             stats: stats_rx,
         });
-        tokio::spawn(receiver::run(carrier, config, Arc::clone(&inner), keyframe_rx, stats_tx, rtt));
+        tokio::spawn(receiver::run(carrier, config, Arc::clone(&inner), keyframe_rx, stats_tx, rtt, closed));
         Self { inner }
     }
 
@@ -381,9 +402,27 @@ pub enum MediaLane {
     In(VideoIn),
 }
 
+/// Resolves once `closed` (a link's close state) reports a close, or never
+/// without one.
+pub(crate) async fn link_closed(closed: &mut Option<watch::Receiver<Option<String>>>) {
+    match closed.as_mut() {
+        Some(state) => {
+            let _ = state.wait_for(Option::is_some).await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timestamp_slightly_ahead_of_the_clock_estimate_is_now() {
+        let now = 50_000_000;
+        assert_eq!(capture_us_from_rtp(rtp_timestamp(now + 2_000), now), now);
+        assert_eq!(capture_us_from_rtp(rtp_timestamp(now), now), now);
+    }
 
     #[test]
     fn rtp_timestamps_round_trip_to_the_capture_time() {

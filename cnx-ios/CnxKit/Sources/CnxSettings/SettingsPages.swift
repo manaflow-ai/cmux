@@ -437,7 +437,7 @@ struct TransportPage: View {
             } footer: {
                 Text(relayAvailable == false
                      ? "Relay unavailable."
-                     : "Relay only: always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once. Browser video on channel: streamed browser tabs skip the WebRTC video track. Applies at the next connection.")
+                     : "Relay only: always through the relay, as from a distant network: WebRTC over TURN, WireGuard over the cmux relay. Applies at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
             }
             #endif
         }

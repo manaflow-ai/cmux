@@ -145,8 +145,9 @@ pub struct Impairment {
     /// A bottleneck of this many bits per second with a 250 ms queue
     /// (packets that would wait longer are dropped); 0 means none.
     pub cap_bps: u64,
-    /// Drop every RTP packet first sent from `.0` after the carrier opens
-    /// for `.1`, and every later resend of those: a loss no NACK recovers.
+    /// Drop every RTP packet first sent from `.0` after the carrier's first
+    /// RTP packet for `.1`, and every later resend of those: a loss no NACK
+    /// recovers.
     pub blackout: Option<(Duration, Duration)>,
 }
 
@@ -617,10 +618,13 @@ impl RTCPWriter for RtcpToSocket {
 /// A bottleneck and blackout in front of the socket (tests and measurement).
 struct Shaper {
     impairment: Impairment,
-    opened: Instant,
+    /// When the first packet went (the blackout's clock).
+    first: Option<Instant>,
     next_free: Instant,
     /// Sequence numbers the blackout took (so their resends die too).
     blacked_out: std::collections::HashSet<u16>,
+    /// The shaper task is gone.
+    closed: bool,
 }
 
 /// Longest a packet waits in the emulated bottleneck's queue.
@@ -629,14 +633,20 @@ const SHAPER_QUEUE: Duration = Duration::from_millis(250);
 impl Shaper {
     fn new(impairment: Impairment) -> Self {
         let now = Instant::now();
-        Self { impairment, opened: now, next_free: now, blacked_out: std::collections::HashSet::new() }
+        Self {
+            impairment,
+            first: None,
+            next_free: now,
+            blacked_out: std::collections::HashSet::new(),
+            closed: false,
+        }
     }
 
     /// When packet `seq` of `len` bytes sent at `now` leaves the bottleneck,
     /// or `None` when the path drops it.
     fn depart(&mut self, seq: u16, len: usize, now: Instant) -> Option<Instant> {
         if let Some((start, length)) = self.impairment.blackout {
-            let since = now.duration_since(self.opened);
+            let since = now.duration_since(*self.first.get_or_insert(now));
             if since >= start && since < start + length {
                 self.blacked_out.insert(seq);
             }
@@ -674,17 +684,27 @@ impl RTPWriter for ShapedRtpWriter {
     ) -> Result<usize, webrtc::interceptor::Error> {
         let Some(bytes) = rtp_datagram(packet, self.max_datagram, &self.counters)? else { return Ok(0) };
         let len = bytes.len();
-        let depart = self.shaper.lock().unwrap_or_else(std::sync::PoisonError::into_inner).depart(
-            packet.header.sequence_number,
-            len,
-            Instant::now(),
-        );
-        let Some(depart) = depart else {
-            Counters::add(&self.counters.impaired);
-            return Ok(len);
+        // Queue under the lock, so concurrent writers (the sender and the
+        // NACK responder's resends) leave in departure order. A full queue
+        // drops, as the bottleneck's own queue would.
+        let mut shaper = self.shaper.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let queued = match shaper.depart(packet.header.sequence_number, len, Instant::now()) {
+            None => false,
+            Some(depart) => match self.out.try_send((depart, bytes)) {
+                Ok(()) => true,
+                Err(mpsc::error::TrySendError::Full(_)) => false,
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    shaper.closed = true;
+                    false
+                }
+            },
         };
-        self.out.send((depart, bytes)).await.map_err(|_| webrtc::interceptor::Error::ErrIoEOF)?;
-        Counters::add(&self.counters.rtp_sent);
+        let closed = shaper.closed;
+        drop(shaper);
+        if closed {
+            return Err(webrtc::interceptor::Error::ErrIoEOF);
+        }
+        Counters::add(if queued { &self.counters.rtp_sent } else { &self.counters.impaired });
         Ok(len)
     }
 }
@@ -750,7 +770,7 @@ mod tests {
     #[test]
     fn the_bottleneck_paces_and_drops_past_its_queue() {
         let mut shaper = Shaper::new(Impairment { cap_bps: 1_000_000, ..Impairment::default() });
-        let now = shaper.opened;
+        let now = shaper.next_free;
         // 1000 + 60 bytes at 1 Mbit/s: about 8.5 ms each.
         let first = shaper.depart(0, 1000, now).unwrap();
         let second = shaper.depart(0, 1000, now).unwrap();
@@ -772,8 +792,10 @@ mod tests {
             blackout: Some((Duration::from_millis(100), Duration::from_millis(50))),
             ..Impairment::default()
         });
-        let t0 = shaper.opened;
+        let t0 = Instant::now();
         let ms = |n| t0 + Duration::from_millis(n);
+        // The clock starts at the first packet.
+        assert!(shaper.depart(0, 100, ms(0)).is_some());
         assert!(shaper.depart(1, 100, ms(99)).is_some());
         assert!(shaper.depart(2, 100, ms(100)).is_none());
         assert!(shaper.depart(3, 100, ms(149)).is_none());

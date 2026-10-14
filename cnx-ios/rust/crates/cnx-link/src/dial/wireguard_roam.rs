@@ -376,6 +376,12 @@ async fn run_control(
     let mut resends = 0usize;
     let mut resend_at: Option<Instant> = None;
     let mut applied = 0u64;
+    // The first endpoint the peer last announced (its new socket's host
+    // address, or its TURN address when relay only). A new one is a network
+    // change for the media lane; the same one again is not: a roam announces
+    // twice (host endpoints at once, then with the reflexive ones), and an
+    // empty list follows a mere signaling-socket move.
+    let mut peer_first: Option<String> = None;
     loop {
         let resend = async {
             match resend_at {
@@ -421,11 +427,17 @@ async fn run_control(
                             .filter(|text| text.parse::<SocketAddr>().is_ok())
                             .take(MAX_ENDPOINTS)
                             .collect();
+                        let moved = endpoints.first().is_some_and(|first| peer_first.as_ref() != Some(first));
+                        if moved {
+                            peer_first = endpoints.first().cloned();
+                        }
                         if control.send(Control::PeerEndpoints(endpoints)).is_err() {
                             return;
                         }
-                        // The peer's network changed.
-                        path_epoch.send_modify(|epoch| *epoch += 1);
+                        if moved {
+                            // The peer's network changed.
+                            path_epoch.send_modify(|epoch| *epoch += 1);
+                        }
                         // Send at once, so the spray opens this side's NAT
                         // toward the peer's new address.
                         let current = lock(&net).clone();

@@ -29,7 +29,9 @@ use super::rtp;
 pub const MIN_RESEND_GAP: Duration = Duration::from_millis(40);
 /// Most resends of one packet.
 pub const MAX_RESENDS: u8 = 3;
-/// Sequence numbers remembered (about two seconds of video).
+/// Sequence numbers remembered (about two seconds of video at 2.5 Mbit/s;
+/// longer at lower rates). A NACK for an older one is past the generator's
+/// 512-packet window anyway.
 const REMEMBERED: usize = 4096;
 
 pub(super) struct ResendGuardBuilder;

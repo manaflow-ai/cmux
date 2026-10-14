@@ -336,6 +336,7 @@ pub(crate) async fn run(
     mut frames: mpsc::Receiver<(u64, OutgoingFrame)>,
     state: watch::Sender<SenderState>,
     keyframes: broadcast::Sender<()>,
+    mut closed: Option<watch::Receiver<Option<String>>>,
 ) {
     let epoch = std::time::Instant::now();
     let mut core = SenderCore::new(config, carrier.twcc_ext_id());
@@ -350,6 +351,7 @@ pub(crate) async fn run(
             }
         };
         tokio::select! {
+            () = super::link_closed(&mut closed) => return,
             changed = path_changed => {
                 if !changed {
                     path = None;

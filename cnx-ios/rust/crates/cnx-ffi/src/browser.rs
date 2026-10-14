@@ -6,7 +6,8 @@
 //! and hands Swift whole access units to decode with VideoToolbox.
 //!
 //! On a link with a media lane (verify/browser-video-track.md) the page's
-//! frames come from the WebRTC video track instead (RTP, NACK, TWCC, PLI;
+//! frames come from the lane instead (RTP on a WebRTC video track or inside
+//! the WireGuard tunnel; NACK, TWCC, PLI;
 //! a lost frame is skipped to the next keyframe rather than stalling the
 //! channel). The channel still carries rb control, input and the clock
 //! probes, and the viewer takes frames from either source, so a hostd that
@@ -60,7 +61,8 @@ pub struct BrowserStats {
     /// `host = viewer + offset`, and the best probe's round trip.
     pub clock_offset_us: Option<i64>,
     pub clock_rtt_us: Option<u32>,
-    /// The last frame came on the link's WebRTC video track (not the channel).
+    /// The last frame came on the link's media lane (a WebRTC video track or
+    /// RTP inside the WireGuard tunnel), not the channel.
     pub video_track: bool,
     /// Track frames: skipped to a keyframe after an unrecoverable loss, and
     /// packets a NACK brought back.

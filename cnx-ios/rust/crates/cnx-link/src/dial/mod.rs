@@ -193,11 +193,13 @@ impl PendingMedia {
             Self::Send(carrier) => crate::media::MediaLane::Out(crate::media::VideoOut::start(
                 carrier,
                 crate::media::SenderConfig::default(),
+                Some(link.closed_state()),
             )),
             Self::Receive(carrier) => crate::media::MediaLane::In(crate::media::VideoIn::start(
                 carrier,
                 crate::media::ReceiverConfig::default(),
                 Some(link.rtt()),
+                Some(link.closed_state()),
             )),
         }
     }
