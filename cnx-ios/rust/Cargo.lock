@@ -485,7 +485,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+ "cmux-remote-browser",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-rd-proto"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-remote-browser"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -518,8 +536,14 @@ dependencies = [
 name = "cnx-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-ffi",
+ "cmux-rd-proto",
+ "cnx-hostd",
  "cnx-link",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "uniffi",

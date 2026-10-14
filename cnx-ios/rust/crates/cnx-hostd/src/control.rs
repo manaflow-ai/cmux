@@ -36,15 +36,29 @@ pub fn enabled() -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
-    Token { token: String },
-    Acpmux { url: String, token: Option<String> },
+    Token {
+        token: String,
+    },
+    Acpmux {
+        url: String,
+        token: Option<String>,
+    },
     /// The browser host the app started for `need_browser` `request`: its
     /// loopback rd stream carrier address and per-launch secret.
-    Browser { request: u64, addr: String, secret: String },
+    Browser {
+        request: u64,
+        addr: String,
+        secret: String,
+    },
     /// The app could not start a browser host for `request`.
-    BrowserFailed { request: u64, reason: String },
+    BrowserFailed {
+        request: u64,
+        reason: String,
+    },
     /// The browser host of `tab` exited.
-    BrowserGone { tab: String },
+    BrowserGone {
+        tab: String,
+    },
 }
 
 impl Inbound {
@@ -117,7 +131,9 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
                 }
-                Some(Inbound::Browser { request, addr, secret }) => broker.answer(request, Ok((addr, secret))),
+                Some(Inbound::Browser { request, addr, secret }) => {
+                    broker.answer(request, Ok((addr, secret)));
+                }
                 Some(Inbound::BrowserFailed { request, reason }) => broker.answer(request, Err(reason)),
                 Some(Inbound::BrowserGone { tab }) => broker.gone(&tab),
                 None => tracing::warn!("ignoring an unknown control line"),
@@ -187,8 +203,12 @@ mod tests {
         );
         assert_eq!(serde_json::to_string(&Event::NeedToken).unwrap(), r#"{"type":"need_token"}"#);
         assert_eq!(
-            serde_json::to_string(&Event::NeedBrowser { request: 1, tab: "s4".into(), url: "about:blank".into() })
-                .unwrap(),
+            serde_json::to_string(&Event::NeedBrowser {
+                request: 1,
+                tab: "s4".into(),
+                url: "about:blank".into()
+            })
+            .unwrap(),
             r#"{"type":"need_browser","request":1,"tab":"s4","url":"about:blank"}"#
         );
         assert_eq!(

@@ -69,7 +69,8 @@ pub struct RunningHost {
 }
 
 /// Starts a host for a tab.
-pub type Launcher = Arc<dyn Fn(LaunchRequest) -> BoxFuture<'static, Result<RunningHost, String>> + Send + Sync>;
+pub type Launcher =
+    Arc<dyn Fn(LaunchRequest) -> BoxFuture<'static, Result<RunningHost, String>> + Send + Sync>;
 
 struct Entry {
     host: RunningHost,
@@ -105,12 +106,7 @@ impl Default for BrowserConfig {
 impl BrowserConfig {
     /// `launcher` None refuses every open with `unavailable`.
     pub fn new(launcher: Option<Launcher>, max_tabs: usize) -> Self {
-        Self {
-            launcher,
-            max_tabs: max_tabs.max(1),
-            hosts: Arc::default(),
-            next_viewer: Arc::default(),
-        }
+        Self { launcher, max_tabs: max_tabs.max(1), hosts: Arc::default(), next_viewer: Arc::default() }
     }
 
     /// Hosts are `exe --serve` processes; each tab's CEF cache lives in
@@ -134,9 +130,15 @@ impl BrowserConfig {
     }
 
     /// The host for `tab`, launched when needed, now owned by a new viewer.
-    async fn claim(&self, tab: &str, url: &str) -> Result<(SocketAddr, String, u64, oneshot::Receiver<()>), Refusal> {
-        let launcher =
-            self.launcher.clone().ok_or_else(|| Refusal::new("unavailable", "no browser host on this Mac"))?;
+    async fn claim(
+        &self,
+        tab: &str,
+        url: &str,
+    ) -> Result<(SocketAddr, String, u64, oneshot::Receiver<()>), Refusal> {
+        let launcher = self
+            .launcher
+            .clone()
+            .ok_or_else(|| Refusal::new("unavailable", "no browser host on this Mac"))?;
         let mut hosts = self.hosts.lock().await;
         hosts.retain(|_, entry| entry.host.guard.alive());
         if !hosts.contains_key(tab) {
@@ -246,7 +248,8 @@ pub fn filter_frame(kind: u8, payload: &[u8]) -> FrameVerdict {
                     if !VIEWER_MESSAGES.contains(&t) {
                         return FrameVerdict::Drop("rb message a viewer may not send");
                     }
-                    if t == "rb.navigate" && !body.get("url").and_then(Value::as_str).is_some_and(allowed_url) {
+                    if t == "rb.navigate" && !body.get("url").and_then(Value::as_str).is_some_and(allowed_url)
+                    {
                         return FrameVerdict::Drop("rb.navigate to an address that is not on the web");
                     }
                     FrameVerdict::Forward
@@ -311,8 +314,9 @@ async fn splice(
     mut receiver: ChannelReceiver,
     mut cancelled: oneshot::Receiver<()>,
 ) -> Result<(), Refusal> {
-    let stream =
-        TcpStream::connect(addr).await.map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
+    let stream = TcpStream::connect(addr)
+        .await
+        .map_err(|e| Refusal::new("unavailable", format!("browser host: {e}")))?;
     let _ = stream.set_nodelay(true);
     let (mut host_read, mut host_write) = stream.into_split();
     host_write
@@ -372,10 +376,13 @@ async fn splice(
 /// with `browser {request, addr, secret}` or `browser_failed`; it reports a
 /// host that exited with `browser_gone {tab}`, and hostd asks it to stop one
 /// with `browser_stop {tab}`.
+/// The app's answer: the host's address and secret, or why it did not start.
+type BrowserAnswer = Result<(String, String), String>;
+
 pub struct BrowserBroker {
     emit: Arc<dyn Fn(&crate::control::Event) + Send + Sync>,
     next: std::sync::atomic::AtomicU64,
-    pending: std::sync::Mutex<HashMap<u64, oneshot::Sender<Result<(String, String), String>>>>,
+    pending: std::sync::Mutex<HashMap<u64, oneshot::Sender<BrowserAnswer>>>,
     alive: std::sync::Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
@@ -390,7 +397,7 @@ impl BrowserBroker {
     }
 
     /// The app's answer to `need_browser` `request`.
-    pub fn answer(&self, request: u64, result: Result<(String, String), String>) {
+    pub fn answer(&self, request: u64, result: BrowserAnswer) {
         let waiter = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&request);
         if let Some(waiter) = waiter {
             let _ = waiter.send(result);
@@ -418,7 +425,11 @@ impl BrowserBroker {
         let id = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id, tx);
-        (self.emit)(&crate::control::Event::NeedBrowser { request: id, tab: request.tab.clone(), url: request.url });
+        (self.emit)(&crate::control::Event::NeedBrowser {
+            request: id,
+            tab: request.tab.clone(),
+            url: request.url,
+        });
         let answer = tokio::time::timeout(LAUNCH_TIMEOUT + Duration::from_secs(15), rx).await;
         self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
         let (addr, secret) = match answer {
@@ -524,7 +535,11 @@ async fn launch_process(
         .and_then(|v| v.get("listening").and_then(Value::as_str).and_then(|a| a.parse::<SocketAddr>().ok()))
         .filter(|a| a.ip().is_loopback())
         .ok_or_else(|| format!("unexpected host output: {}", line.trim()))?;
-    Ok(RunningHost { addr, secret, guard: Box::new(ProcessGuard { child, _lifeline: lifeline, _stdout: stdout }) })
+    Ok(RunningHost {
+        addr,
+        secret,
+        guard: Box::new(ProcessGuard { child, _lifeline: lifeline, _stdout: stdout }),
+    })
 }
 
 #[cfg(test)]
@@ -550,20 +565,30 @@ mod tests {
         ] {
             assert_eq!(filter_frame(STREAM_CONTROL, &rb(body)), FrameVerdict::Forward);
         }
-        assert_eq!(filter_frame(STREAM_CONTROL, &control(serde_json::json!({"t": "stop"}))), FrameVerdict::Forward);
+        assert_eq!(
+            filter_frame(STREAM_CONTROL, &control(serde_json::json!({"t": "stop"}))),
+            FrameVerdict::Forward
+        );
         for (frame, kind) in [
             (rb(serde_json::json!({"t": "rb.navigate", "url": "file:///etc/passwd"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.navigate", "url": "javascript:alert(1)"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.navigate", "url": "chrome://settings"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.page", "url": "x"})), STREAM_CONTROL),
             (rb(serde_json::json!({"t": "rb.clipboard.push", "seq": 1, "items": []})), STREAM_CONTROL),
-            (control(serde_json::json!({"t": "service", "service": "desktop", "body": {"t": "rb.open"}})), STREAM_CONTROL),
+            (
+                control(serde_json::json!({"t": "service", "service": "desktop", "body": {"t": "rb.open"}})),
+                STREAM_CONTROL,
+            ),
             (control(serde_json::json!({"t": "hello", "token": "00"})), STREAM_CONTROL),
             (control(serde_json::json!({"t": "start", "key": "k", "mode": "m"})), STREAM_CONTROL),
             (b"not json".to_vec(), STREAM_CONTROL),
             (vec![0; 16], cmux_rd_proto::STREAM_BULK),
         ] {
-            assert!(matches!(filter_frame(kind, &frame), FrameVerdict::Drop(_)), "{}", String::from_utf8_lossy(&frame));
+            assert!(
+                matches!(filter_frame(kind, &frame), FrameVerdict::Drop(_)),
+                "{}",
+                String::from_utf8_lossy(&frame)
+            );
         }
     }
 
@@ -575,7 +600,8 @@ mod tests {
             seen.lock().unwrap().push(serde_json::to_value(event).unwrap());
         })));
         let launch = broker.launcher();
-        let pending = tokio::spawn(launch(LaunchRequest { tab: "s4".into(), url: "https://example.com".into() }));
+        let pending =
+            tokio::spawn(launch(LaunchRequest { tab: "s4".into(), url: "https://example.com".into() }));
         while events.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
         }

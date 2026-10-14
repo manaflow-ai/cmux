@@ -97,7 +97,10 @@ async fn fixture(fake: FakeOptions) -> Fixture {
         default_socket: None,
         file_roots: vec![root.path().to_path_buf()],
         acpmux: AcpmuxTarget::Fixed { url: fake_acpmux().await, token: Some("acp-token".into()) },
-        browser: cnx_hostd::browser::BrowserConfig::new(Some(fake_rb_host::launcher(Arc::clone(&browser_launches))), 4),
+        browser: cnx_hostd::browser::BrowserConfig::new(
+            Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
+            4,
+        ),
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -249,7 +252,8 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
 
     // browser: hostd sends the hello, the phone reads the host's carrier.
     let tab = format!("s{}", kind as u8);
-    let mut first = link.open("browser", serde_json::json!({"tab": tab, "url": "https://example.com/"})).await.unwrap();
+    let mut first =
+        link.open("browser", serde_json::json!({"tab": tab, "url": "https://example.com/"})).await.unwrap();
     let mut rd = RdReader::default();
     assert_eq!(rd.control(&mut first).await["t"], "welcome");
     assert_eq!(rd.control(&mut first).await["t"], "started");
@@ -260,9 +264,14 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     // A file: address never reaches the host; a web one does.
     let mut out = Vec::new();
     for url in ["file:///etc/passwd", "https://example.org/"] {
-        let body = serde_json::json!({"t": "service", "service": "rb/1", "body": {"t": "rb.navigate", "url": url}});
-        cmux_rd_proto::encode_stream_frame(cmux_rd_proto::STREAM_CONTROL, &serde_json::to_vec(&body).unwrap(), &mut out)
-            .unwrap();
+        let body =
+            serde_json::json!({"t": "service", "service": "rb/1", "body": {"t": "rb.navigate", "url": url}});
+        cmux_rd_proto::encode_stream_frame(
+            cmux_rd_proto::STREAM_CONTROL,
+            &serde_json::to_vec(&body).unwrap(),
+            &mut out,
+        )
+        .unwrap();
     }
     first.send(Bytes::from(out)).await.unwrap();
     assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.org/");

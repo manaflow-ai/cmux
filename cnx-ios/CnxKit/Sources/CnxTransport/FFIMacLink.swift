@@ -58,6 +58,68 @@ final class FFIMacLink: MacLink, @unchecked Sendable {
     }
 }
 
+extension FFIMacLink: BrowserStreamOpening {
+    func openBrowser(tab: String, url: String?, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection {
+        var args = ["tab": tab]
+        if let url { args["url"] = url }
+        let json = String(decoding: try JSONSerialization.data(withJSONObject: args), as: UTF8.self)
+        do {
+            return FFIBrowserStream(handle: try await handle.openBrowser(argsJson: json, observer: BrowserObserverBridge(sink: sink)))
+        } catch let error as CnxError {
+            throw error.linkError
+        }
+    }
+}
+
+final class BrowserObserverBridge: BrowserObserver, @unchecked Sendable {
+    private let sink: any BrowserStreamSink
+
+    init(sink: any BrowserStreamSink) { self.sink = sink }
+
+    func onFrame(frame: BrowserFrame) {
+        sink.browserFrame(BrowserStreamFrame(
+            stream: frame.stream, frame: frame.frame, keyframe: frame.keyframe, accessUnit: frame.accessUnit,
+            captureMicros: frame.captureUs, receivedMicros: frame.receivedUs, ageMicros: frame.ageUs))
+    }
+
+    func onMessage(json: String) { sink.browserMessage(Data(json.utf8)) }
+
+    func onClosed(code: String, reason: String) { sink.browserClosed(code: code, reason: reason) }
+}
+
+final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
+    private let handle: BrowserStream
+
+    init(handle: BrowserStream) { self.handle = handle }
+
+    func send(message: Data) throws {
+        do { try handle.sendMessage(json: String(decoding: message, as: UTF8.self)) } catch let error as CnxError { throw error.linkError }
+    }
+
+    func send(input: Data, mustDeliver: Bool) throws {
+        do {
+            try handle.sendInput(json: String(decoding: input, as: UTF8.self), mustDeliver: mustDeliver)
+        } catch let error as CnxError { throw error.linkError }
+    }
+
+    func requestKeyframe() { handle.requestKeyframe() }
+    func noteDecode(micros: UInt32) { handle.noteDecode(decodeUs: micros) }
+    func nowMicros() -> UInt64 { handle.nowUs() }
+    func close() { handle.close() }
+
+    func stats() -> BrowserStreamStats {
+        let raw = handle.stats()
+        var stats = BrowserStreamStats()
+        stats.frames = raw.frames
+        stats.keyframes = raw.keyframes
+        stats.bytes = raw.bytes
+        stats.framesLost = raw.framesLost
+        stats.clockOffsetMicros = raw.clockOffsetUs
+        stats.clockRTTMicros = raw.clockRttUs
+        return stats
+    }
+}
+
 final class FFIChannel: LinkChannel, @unchecked Sendable {
     private let handle: ChannelHandle
     let id: UInt32

@@ -141,10 +141,14 @@ impl HostConfig {
         let max_tabs = env("CNX_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CNX_RB_HOST")) {
             // Supervised: the app starts its own bundled browser host.
-            (Some(supplied), _) => crate::browser::BrowserConfig::new(Some(supplied.browser.launcher()), max_tabs),
+            (Some(supplied), _) => {
+                crate::browser::BrowserConfig::new(Some(supplied.browser.launcher()), max_tabs)
+            }
             (None, Some(exe)) => crate::browser::BrowserConfig::process(
                 PathBuf::from(exe),
-                env("CNX_RB_CACHE_DIR").map(PathBuf::from).unwrap_or_else(|| default_state_dir().join("browser")),
+                env("CNX_RB_CACHE_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| default_state_dir().join("browser")),
                 max_tabs,
             ),
             (None, None) => crate::browser::BrowserConfig::default(),

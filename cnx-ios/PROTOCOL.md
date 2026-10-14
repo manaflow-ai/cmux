@@ -171,6 +171,26 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
 - `acpmux`: splice to the acpmux loopback WebSocket: one link `data` frame
   carries exactly one WebSocket text message (a JSON value) in each direction.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
+- `browser`: `{"tab", "url"?}` a streamed Mac browser tab
+  (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
+  carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
+  of a `cmux.rb/1` session with the Mac's browser host, unchanged in the
+  host-to-phone direction. hostd sends the rd `hello` itself, with the host's
+  per-launch secret. The phone sends only datagrams (input, feedback, clock
+  probes), `stop`, and rd `service` messages for `rb/1` whose body `t` is a
+  viewer message (`rb.open`, `rb.close`, `rb.visibility`, `rb.screen`,
+  `rb.vsync`, `rb.history`, `rb.navigate` to http, https or `about:blank`,
+  `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
+  `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
+  its channel; a new channel for the same tab closes the older with
+  `replaced`. `url` must be http, https or `about:blank` (`forbidden`), and
+  a Mac with no browser host refuses with `unavailable`. Under
+  `CNX_CONTROL=stdio` the app starts the hosts: hostd writes
+  `{"type":"need_browser","request","tab","url"}` and the app answers
+  `{"type":"browser","request","addr":"127.0.0.1:PORT","secret"}` or
+  `{"type":"browser_failed","request","reason"}`. It reports
+  `{"type":"browser_gone","tab"}` when a host exits, and hostd asks
+  `{"type":"browser_stop","tab"}` to stop one.
 - `echo`: test service.
 
 A service that ends normally closes its channel with `{code:"eof"}`; a

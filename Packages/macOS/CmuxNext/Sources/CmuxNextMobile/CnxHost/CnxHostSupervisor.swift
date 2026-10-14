@@ -23,15 +23,20 @@ public actor CnxHostSupervisor {
         public var log: URL?
         /// The environment hostd's `HOME`, `PATH` and `TMPDIR` come from.
         public var inherited: [String: String]
+        /// The app's browser hosts for streamed browser tabs; nil when this
+        /// build has none (hostd then refuses `browser` as unavailable).
+        public var browserHosts: (any CnxBrowserHosting)?
 
         public init(launch: CnxHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
-                    inherited: [String: String] = ProcessInfo.processInfo.environment) {
+                    inherited: [String: String] = ProcessInfo.processInfo.environment,
+                    browserHosts: (any CnxBrowserHosting)? = nil) {
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
             self.log = log
             self.inherited = inherited
+            self.browserHosts = browserHosts
         }
     }
 
@@ -116,6 +121,8 @@ public actor CnxHostSupervisor {
         }
         process = child
         defer { process = nil }
+        // A new hostd knows none of the old one's browser hosts.
+        defer { if let hosts = inputs.browserHosts { Task { await hosts.stopAll() } } }
         logger.info("cnx-hostd started pid=\(child.pid ?? 0, privacy: .public) team=\(inputs.launch.teamID, privacy: .public)")
         // stop() cancels this task: closing hostd's stdin ends it, which ends the group.
         let status = await withTaskCancellationHandler {
@@ -164,6 +171,13 @@ public actor CnxHostSupervisor {
                 await sendToken(child, inputs: inputs)
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case let .needBrowser(request, tab, url):
+                startBrowser(child, inputs: inputs, request: request, tab: tab, url: url)
+            case let .browserStop(tab):
+                if let hosts = inputs.browserHosts {
+                    // task-owner: one stop per hostd request; the host's own exit reports back
+                    Task { await hosts.stop(tab: tab) }
+                }
             default:
                 let at = now()
                 publish { $0.apply(event, at: at) }
@@ -189,6 +203,28 @@ public actor CnxHostSupervisor {
             child.send(CnxHostLaunch.tokenLine(token))
         } catch {
             logger.error("no access token for cnx-hostd: \(String(describing: type(of: error)), privacy: .public)")
+        }
+    }
+
+    /// Starts a browser host for hostd without holding up its other requests.
+    private func startBrowser(_ child: CnxHostProcess, inputs: Inputs, request: UInt64, tab: String, url: String) {
+        guard let hosts = inputs.browserHosts else {
+            child.send(CnxHostLaunch.browserFailedLine(request: request, reason: "this build has no browser host"))
+            return
+        }
+        let logger = logger
+        // task-owner: one start per need_browser; it ends when the host listens or fails
+        Task {
+            do {
+                let host = try await hosts.start(tab: tab, url: url) { [weak child] in
+                    _ = child?.send(CnxHostLaunch.browserGoneLine(tab: tab))
+                }
+                logger.info("browser host for \(tab, privacy: .public) on port \(host.port, privacy: .public)")
+                child.send(CnxHostLaunch.browserLine(request: request, port: host.port, secret: host.secret))
+            } catch {
+                logger.error("browser host for \(tab, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                child.send(CnxHostLaunch.browserFailedLine(request: request, reason: String(describing: error)))
+            }
         }
     }
 
