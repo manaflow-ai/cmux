@@ -1,11 +1,16 @@
 //! Where the host's acpmux daemon lives (CmuxNextAgentPane
 //! AcpmuxEnvironment.swift; same rule as `cmux acp`, cmux-tui `acp.rs`
-//! `tagged_home`): `ACPMUX_HOME` wins, else a tagged dev build uses
-//! `~/.acpmux/tags/<slug>`, else `~/.acpmux`. A tagged build's daemon listens
-//! on an ephemeral port.
+//! `build_home`): `ACPMUX_HOME` wins, else the build's own home
+//! ([`BuildIdentity::acpmux_home`]: `~/.acpmux` for NIGHTLY and outside any
+//! build, `~/.acpmux/builds/<key>` for every other build). A daemon in a
+//! home other than `~/.acpmux` listens on an ephemeral port. `ACPMUX_SOCKET`
+//! counts only with an explicit `ACPMUX_HOME`: inherited alone (an app
+//! launched from another cmux's terminal), it is another daemon's socket.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
+
+use crate::build_identity::BuildIdentity;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Environment {
@@ -22,9 +27,10 @@ pub struct Environment {
 pub const INSTALL_DIRECTORIES: [&str; 4] =
     ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"];
 
-/// The environment, or None when no `acpmux` executable exists.
+/// The environment of `build` (None: outside any build), or None when no
+/// `acpmux` executable exists.
 pub fn resolve(
-    tag: Option<&str>,
+    build: Option<&BuildIdentity>,
     bundled_bin_directory: Option<&Path>,
     environment: &BTreeMap<String, String>,
     user_home: &Path,
@@ -34,21 +40,22 @@ pub fn resolve(
     let executable = executable_candidates(bundled_bin_directory, environment, user_home)
         .into_iter()
         .find(|p| is_executable(p))?;
-    let slug = tag.and_then(tag_slug);
-    let home = match (environment.get("ACPMUX_HOME").filter(|h| !h.is_empty()), &slug) {
-        (Some(custom), _) => PathBuf::from(custom),
-        (None, Some(slug)) => user_home.join(".acpmux/tags").join(slug),
-        (None, None) => user_home.join(".acpmux"),
+    let own_home = build.map(|build| build.acpmux_home(user_home));
+    let shared = own_home.as_ref().is_none_or(|home| *home == user_home.join(".acpmux"));
+    let custom_home = environment.get("ACPMUX_HOME").filter(|h| !h.is_empty());
+    let home = match custom_home {
+        Some(custom) => PathBuf::from(custom),
+        None => own_home.unwrap_or_else(|| user_home.join(".acpmux")),
     };
-    let socket = socket_path(
-        environment.get("ACPMUX_SOCKET").map(String::as_str).filter(|s| !s.is_empty()),
-        &home,
-        uid,
-    );
+    let configured = custom_home
+        .and(environment.get("ACPMUX_SOCKET"))
+        .map(String::as_str)
+        .filter(|s| !s.is_empty());
+    let socket = socket_path(configured, &home, uid);
     let home_text = home.to_string_lossy().into_owned();
     Some(Environment {
         executable,
-        daemon_arguments: if slug.is_some() {
+        daemon_arguments: if !shared {
             vec!["--listen".into(), "127.0.0.1:0".into()]
         } else {
             Vec::new()
@@ -137,7 +144,7 @@ pub fn fnv1a64(text: &str) -> u64 {
     hash
 }
 
-/// cmux-tui `acp.rs` `sanitize_tag`: lowercase, runs of anything outside
+/// `BuildIdentity`'s tag rule (`build_identity::tag_slug`): lowercase, runs of anything outside
 /// `[a-z0-9]` become one `-`, no leading or trailing `-`; None when empty.
 pub fn tag_slug(raw: &str) -> Option<String> {
     let mut slug = String::with_capacity(raw.len());

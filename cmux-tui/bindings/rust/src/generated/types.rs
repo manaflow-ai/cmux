@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6.
+// cmux-tui mux protocol 12, IR b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -518,8 +518,14 @@ pub struct ConversationSummary {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub last_message: Option<ConversationMessage>,
     pub last_seq: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub marked_unread: Option<bool>,
     pub owner: String,
     pub participants: Vec<ConversationParticipant>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
     pub read_cursors: BTreeMap<String, u64>,
     pub rev: u64,
     pub title: String,

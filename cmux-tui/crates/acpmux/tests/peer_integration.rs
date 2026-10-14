@@ -150,6 +150,9 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
         v["sessions"].as_array().unwrap().iter().any(|x| x["name"] == "b/remote-one"),
         "peer session not listed after add_peer settled: {v}"
     );
+    // cx-v9k2f: a peer's session carries its lane like a local one.
+    let listed = v["sessions"].as_array().unwrap().iter().find(|x| x["name"] == "b/remote-one");
+    assert_eq!(listed.unwrap()["lane"]["state"], "idle", "{v}");
 
     // Prompt through A by the prefixed name; the reply streams to A's client.
     ca.call(method::MUX_ATTACH, json!({"session": "b/remote-one", "limit": 0})).await.unwrap();
@@ -230,6 +233,96 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     let st = ca.call(method::MUX_STATUS, json!({})).await.unwrap();
     assert_eq!(st["peers"][0]["name"], "b");
     assert_eq!(st["peers"][0]["connected"], true);
+}
+
+/// Two daemons peered both ways (a real pair on 10-14 grew names
+/// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
+/// sessions to a peer, both in the watch snapshot and in later changes, so a
+/// mirror never comes back as `b/a/cycle` and never nests.
+#[tokio::test]
+async fn bidirectional_peers_do_not_reexport_mirrored_sessions() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "cycle-a").await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "cycle-b").await;
+
+    let mut owner = client(a.clone()).await;
+    let created = owner
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "cycle"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{b_port}"),
+        Some("tok".into()),
+        Some(b_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    b.add_peer(
+        "a",
+        &format!("ws://127.0.0.1:{a_port}"),
+        Some("tok".into()),
+        Some(a_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut mirror = client(b.clone()).await;
+
+    let rows = |v: &Value| {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["sessionId"].as_str().unwrap_or("").to_owned(),
+                    s["name"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // A change after the snapshot travels as `session_changed`, the path that
+    // ping-ponged: rename on A, then wait until B shows the new name.
+    owner.call(method::MUX_RENAME, json!({"sessionId": id, "newName": "renamed"})).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let b_now = mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+        if rows(&b_now).iter().any(|(_, n)| n == "a/renamed") {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never mirrored the rename: {b_now}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // An echo needs one more round trip each way; give it several before
+    // taking the public views. Each list must hold exactly one row for the
+    // one session, under its exact name.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a_rows = rows(&owner.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    let b_rows = rows(&mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    assert_eq!(
+        a_rows,
+        vec![(id.clone(), "renamed".to_owned())],
+        "owner re-imported its own session from the peer"
+    );
+    assert_eq!(
+        b_rows,
+        vec![(id.clone(), "a/renamed".to_owned())],
+        "peer exposed recursive mirrors"
+    );
 }
 
 #[tokio::test]
@@ -583,6 +676,53 @@ async fn every_answer_for_a_peers_prompt_goes_to_the_peer_within_a_hop_limit() {
         })
         .await;
     assert_eq!(decided["msg"]["outcome"]["optionId"], "no", "{decided}");
+}
+
+/// Prompt bookmarks of a peer's chat live on the daemon that owns it: A forwards both
+/// `_acpmux/bookmark_set` and `_acpmux/bookmark_get` to B, which checks the seq in its own log.
+#[tokio::test]
+async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "marks").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "marked"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "hi"}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let page = cb.call(method::MUX_EVENTS, json!({"sessionId": remote_id, "limit": 5000})).await;
+    let page = page.unwrap();
+    let events = page["events"].as_array().unwrap();
+    let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
+    let (prompt_seq, reply_seq) = (seq_of("user_message"), seq_of("turn_result"));
+
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let refused = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+        )
+        .await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");
+    let set = ca
+        .call(
+            "_acpmux/bookmark_set",
+            json!({"sessionId": remote_id, "seq": prompt_seq, "bookmarked": true}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set["peer"], "b", "{set}");
+    assert_eq!(set["bookmarks"], json!([prompt_seq]), "{set}");
+    let got = ca.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(got["peer"], "b", "{got}");
+    assert_eq!(got["bookmarks"], json!([prompt_seq]), "{got}");
+    // B holds it, in its own session.
+    let on_b = cb.call("_acpmux/bookmark_get", json!({"sessionId": remote_id})).await.unwrap();
+    assert_eq!(on_b["bookmarks"], json!([prompt_seq]), "{on_b}");
+    assert!(on_b.get("peer").is_none(), "{on_b}");
 }
 
 /// A TCP relay in front of `port` that counts the bytes each way: what

@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
-    self, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
-    read_body, read_value, require_agent, require_conversation, snapshot_data,
+    self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
+    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -22,6 +22,16 @@ use super::stream::{CloudEvent, StreamAction, StreamState};
 pub struct HttpReply {
     pub status: u16,
     pub body: Value,
+}
+
+/// One ranged read of a signed attachment URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RangeReply {
+    pub status: u16,
+    pub content_type: Option<String>,
+    /// The whole object's size (from `Content-Range`, else `Content-Length` of a 200).
+    pub total: Option<u64>,
+    pub body: Vec<u8>,
 }
 
 /// A transport failure before a reply arrived.
@@ -78,6 +88,23 @@ pub trait CloudBackend: Send + Sync {
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, bearer, client_version);
         Err(TransportError("this cloud backend sends no GET requests".into()))
+    }
+    /// `PUT url` with `headers` and the raw `body`, no bearer: an attachment
+    /// upload slot or a presigned object URL is its own credential.
+    fn put(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: Vec<u8>,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (url, headers, body);
+        Err(TransportError("this cloud backend sends no PUT requests".into()))
+    }
+    /// `GET url` for bytes `offset..offset+length` (one `Range`), no bearer:
+    /// a signed attachment URL is its own credential.
+    fn get_range(&self, url: &str, offset: u64, length: u64) -> Result<RangeReply, TransportError> {
+        let _ = (url, offset, length);
+        Err(TransportError("this cloud backend reads no byte ranges".into()))
     }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
     /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
@@ -446,6 +473,26 @@ impl CloudConversations {
         Ok(value)
     }
 
+    /// `cloud-participant-avatar-get`: a Cloud participant's picture (the
+    /// owner's `participant.avatar.get`: `{participant_id, avatar}`, the
+    /// avatar with its base64 `data`, or null).
+    pub fn participant_avatar(&self, participant: &str) -> Result<Value, CloudError> {
+        let valid = ["user_", "agent_"].iter().any(|prefix| {
+            participant.strip_prefix(prefix).is_some_and(|rest| {
+                (1..=64).contains(&rest.len())
+                    && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            })
+        });
+        if !valid {
+            return Err(CloudError::BadRequest(format!(
+                "participant {participant:?} is not a person or Chief id"
+            )));
+        }
+        let body = read_body("participant.avatar.get", json!({"participant_id": participant}));
+        let (value, _) = read_value(self.post("/v1/read", &body)?)?;
+        Ok(value)
+    }
+
     /// The account (JWT `sub`) and Stack project (JWT `aud`) of the current
     /// person's lease, when its token carries both and is no chief token:
     /// the inputs of the person's Worker user id. Never the token.
@@ -495,6 +542,19 @@ impl CloudConversations {
     pub fn op(&self, request: &OpRequest) -> Result<Value, CloudError> {
         let body = contract::op_body(request)?;
         mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// `cloud-inbox-op`: the person's own pin or "marked unread" of one
+    /// conversation (UserDO `inbox.pin`, `inbox.mark_unread`); the reply's
+    /// `value` is the inbox entry. Never retried here.
+    pub fn inbox_op(&self, request: &InboxOpRequest) -> Result<Value, CloudError> {
+        let body = contract::inbox_op_body(request)?;
+        mutation_data(self.post("/v1/ops", &body)?)
+    }
+
+    /// Validates a `cloud-inbox-op` before it leaves the request loop.
+    pub fn check_inbox_op(&self, request: &InboxOpRequest) -> Result<(), CloudError> {
+        contract::inbox_op_body(request).map(|_| ())
     }
 
     /// Validates a command before it leaves the request loop, so shape
@@ -573,7 +633,16 @@ impl CloudConversations {
         Ok(reply)
     }
 
-    fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
+    /// The lease's API origin (`https://host[:port]`), for checking URLs the owner returns.
+    pub(crate) fn api_origin(&self) -> Result<String, CloudError> {
+        Ok(self.inner.usable_session()?.http_url(""))
+    }
+
+    pub(crate) fn backend(&self) -> &Arc<dyn CloudBackend> {
+        &self.inner.backend
+    }
+
+    pub(crate) fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
         let session = self.inner.usable_session()?;
         let reply = self
             .inner

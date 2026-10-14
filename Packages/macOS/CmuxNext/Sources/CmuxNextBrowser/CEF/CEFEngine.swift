@@ -105,6 +105,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
     }
 
+    /// Runs when starting CEF fails in this process (process-wide). A failed
+    /// `CefInitialize` has already reset every signal action.
+    public var onStartFailed: (() -> Void)? {
+        get { CEFRuntime.shared.onStartFailed }
+        set { CEFRuntime.shared.onStartFailed = newValue }
+    }
+
     /// How this process started CEF (for `debug.cef`).
     public var startReport: CEFStartReport { CEFRuntime.shared.report }
 

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 51c00043a9a8aed2eca070157fec1e513d5244b984cf2b1dd25a31637989b9d6.
+// cmux-tui mux protocol 12, IR b18c74d45c19743aac182ef9d622608ac8b17ac47c2bc5e18a08fd000fa6b90f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -500,6 +500,123 @@ pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentReadRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub length: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentReadResult {
+    pub byte_count: u64,
+    pub data: String,
+    pub eof: bool,
+    pub hash: String,
+    pub mime_type: String,
+    pub offset: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub byte_count: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub duration_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub height: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime_type: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub piece: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sha256: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<u32>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStoredPoster {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStoredPreview {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudAttachmentUploadResultStored {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<CloudAttachmentUploadResultStoredPoster>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<CloudAttachmentUploadResultStoredPreview>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudAttachmentUploadResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub needs: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub received: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stored: Optional<CloudAttachmentUploadResultStored>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationHistoryRequest {
     pub before_seq: u64,
     pub conversation: String,
@@ -605,6 +722,17 @@ pub struct CloudInboxListRequest {
 pub type CloudInboxListResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudInboxOpRequest {
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CloudInboxOpResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudInboxSubscribeRequest {
 }
@@ -647,6 +775,15 @@ pub struct CloudMuxUnsubscribeRequest {
 pub type CloudMuxUnsubscribeResult = T::JsonValue;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudParticipantAvatarGetRequest {
+    pub participant_id: String,
+}
+
+#[rustfmt::skip]
+pub type CloudParticipantAvatarGetResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct CloudSessionClearRequest {
 }
@@ -686,6 +823,24 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentLinkResult {
+    pub expires_in_ms: u64,
+    pub path: String,
 }
 
 #[rustfmt::skip]
@@ -869,6 +1024,24 @@ pub struct ConversationImportResult {
     pub conversation: T::ConversationSummary,
     pub imported: Vec<u64>,
     pub skipped: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpRequest {
+    pub conversation: String,
+    pub op: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationInboxOpResult {
+    pub conversation: String,
+    pub marked_unread: bool,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<u64>,
+    pub pinned: bool,
 }
 
 #[rustfmt::skip]
@@ -2388,6 +2561,8 @@ pub struct NotifyRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PageCredentialRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -3934,6 +4109,18 @@ impl CmuxClient {
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
+    pub fn cloud_attachment_link(&mut self, request: CloudAttachmentLinkRequest) -> Result<CloudAttachmentLinkResult> {
+        self.execute(&CLOUD_ATTACHMENT_LINK_METADATA, &request)
+    }
+
+    pub fn cloud_attachment_read(&mut self, request: CloudAttachmentReadRequest) -> Result<CloudAttachmentReadResult> {
+        self.execute(&CLOUD_ATTACHMENT_READ_METADATA, &request)
+    }
+
+    pub fn cloud_attachment_upload(&mut self, request: CloudAttachmentUploadRequest) -> Result<CloudAttachmentUploadResult> {
+        self.execute(&CLOUD_ATTACHMENT_UPLOAD_METADATA, &request)
+    }
+
     pub fn cloud_conversation_history(&mut self, request: CloudConversationHistoryRequest) -> Result<CloudConversationHistoryResult> {
         self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
     }
@@ -3970,6 +4157,10 @@ impl CmuxClient {
         self.execute(&CLOUD_INBOX_LIST_METADATA, &request)
     }
 
+    pub fn cloud_inbox_op(&mut self, request: CloudInboxOpRequest) -> Result<CloudInboxOpResult> {
+        self.execute(&CLOUD_INBOX_OP_METADATA, &request)
+    }
+
     pub fn cloud_inbox_subscribe(&mut self, request: CloudInboxSubscribeRequest) -> Result<CloudInboxSubscribeResult> {
         self.execute(&CLOUD_INBOX_SUBSCRIBE_METADATA, &request)
     }
@@ -3990,6 +4181,10 @@ impl CmuxClient {
         self.execute(&CLOUD_MUX_UNSUBSCRIBE_METADATA, &request)
     }
 
+    pub fn cloud_participant_avatar_get(&mut self, request: CloudParticipantAvatarGetRequest) -> Result<CloudParticipantAvatarGetResult> {
+        self.execute(&CLOUD_PARTICIPANT_AVATAR_GET_METADATA, &request)
+    }
+
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
         self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
     }
@@ -4004,6 +4199,10 @@ impl CmuxClient {
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_attachment_link(&mut self, request: ConversationAttachmentLinkRequest) -> Result<ConversationAttachmentLinkResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_LINK_METADATA, &request)
     }
 
     pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {
@@ -4032,6 +4231,10 @@ impl CmuxClient {
 
     pub fn conversation_import(&mut self, request: ConversationImportRequest) -> Result<ConversationImportResult> {
         self.execute(&CONVERSATION_IMPORT_METADATA, &request)
+    }
+
+    pub fn conversation_inbox_op(&mut self, request: ConversationInboxOpRequest) -> Result<ConversationInboxOpResult> {
+        self.execute(&CONVERSATION_INBOX_OP_METADATA, &request)
     }
 
     pub fn conversation_link_resolve(&mut self, request: ConversationLinkResolveRequest) -> Result<ConversationLinkResolveResult> {
