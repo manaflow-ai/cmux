@@ -127,7 +127,14 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
  * `cmux.telemetry.sample_weight` is how many submitted spans this one stands for after
  * ingest sampling; estimate counts with `sum(sample_weight)`, not `count()`.
  */
-export function cloudSpanToOtlp(span: CloudTelemetrySpan, sampleWeight = 1) {
+type OtlpSpan = {
+  readonly traceId: string; readonly spanId: string; readonly parentSpanId?: string;
+  readonly name: string; readonly kind: number;
+  readonly startTimeUnixNano: string; readonly endTimeUnixNano: string;
+  readonly attributes: ReturnType<typeof otlpAttributes>; readonly status: { readonly code: number };
+};
+
+export function cloudSpanToOtlp(span: CloudTelemetrySpan, sampleWeight = 1): OtlpSpan {
   if (span.auth) return authSpanToOtlp(span, span.auth, sampleWeight);
   const attributes = {
     "cmux.subsystem": "vm-cloud", "cmux.observation.source": "client",
@@ -155,7 +162,7 @@ export function cloudSpanToOtlp(span: CloudTelemetrySpan, sampleWeight = 1) {
  * A sign-in service rate-limit record. The span name and `cmux.auth.*` attributes are the
  * contract of the "cmux Stack Auth health" dashboard and the client rate-limit monitor.
  */
-function authSpanToOtlp(span: CloudTelemetrySpan, auth: CloudTelemetryAuth, sampleWeight: number) {
+function authSpanToOtlp(span: CloudTelemetrySpan, auth: CloudTelemetryAuth, sampleWeight: number): OtlpSpan {
   const limited = auth.event === "stack_rate_limited";
   const attributes = {
     "cmux.observation.source": "client", "cmux.event_id": span.eventId,
