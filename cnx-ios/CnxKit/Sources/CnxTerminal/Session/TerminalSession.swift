@@ -78,6 +78,10 @@ public protocol TerminalSession: AnyObject {
     /// Whether the session shows the Mac's terminal now. Read once when the
     /// screen is built; changes arrive as ``TerminalSessionEvent/connection(_:)``.
     var connectionState: TerminalConnectionState { get }
+    /// The screen has more output waiting than it can take: stop delivering
+    /// `.output` until it asks again (`false`). Sessions that cannot hold
+    /// the program back ignore it.
+    func setOutputPaused(_ paused: Bool)
 }
 
 extension TerminalSession {
@@ -88,6 +92,8 @@ extension TerminalSession {
 
     /// Sessions that do not report a connection are always attached.
     public var connectionState: TerminalConnectionState { .attached }
+
+    public func setOutputPaused(_ paused: Bool) {}
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

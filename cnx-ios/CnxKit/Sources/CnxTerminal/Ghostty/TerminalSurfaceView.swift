@@ -21,6 +21,8 @@ import UIKit
 @MainActor
 final class TerminalSurfaceView: UIView {
     var onInput: ((Data) -> Void)?
+    /// The person typed, pressed a key or pasted (before the bytes go out).
+    var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
     /// The surface became first responder (direct typing) or resigned.
     var onFocusChange: ((Bool) -> Void)?
@@ -218,21 +220,30 @@ final class TerminalSurfaceView: UIView {
 
     // MARK: Output and drawing
 
-    /// Feeds session output on the output queue (never the main thread), then draws.
-    func feed(_ data: Data) {
+    /// Feeds one batch of session output on the output queue (never the
+    /// main thread). `transform` (the row shift) runs there first, in feed
+    /// order. `completion` runs on the main thread once Ghostty parsed the
+    /// batch, after a draw was requested. The screen keeps one batch in
+    /// flight (`TerminalViewController`'s output pump).
+    func feed(_ data: Data, transform: (@Sendable (Data) -> Data)? = nil, completion: (@MainActor () -> Void)? = nil) {
         guard let surface else {
-            pendingOutput.append(data)
+            pendingOutput.append(transform?(data) ?? data)
+            completion?()
             return
         }
         let ref = SurfaceRef(surface)
+        let done = completion.map(MainCallback.init)
         outputQueue.async {
-            data.withUnsafeBytes { raw in
+            let bytes = transform?(data) ?? data
+            bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
             }
             DispatchQueue.main.async { MainActor.assumeIsolated { [weak self] in
-                self?.onEvent?(.outputProcessed)
+                // Ghostty also renders on its own after parsing, but later:
+                // without this request a keystroke echo waited ~3x longer.
                 self?.setNeedsTerminalDraw()
+                done?.run()
             } }
         }
     }
@@ -297,20 +308,27 @@ final class TerminalSurfaceView: UIView {
         let height = IOSurfaceGetHeight(surface)
         let rows = height / rowHeight
         var result = [UInt64](repeating: 0, count: rows)
-        for row in 0..<rows {
-            var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-            for line in [rowHeight / 2, rowHeight * 3 / 4] {
-                let y = row * rowHeight + line
-                guard y < height else { continue }
-                let pointer = base + y * bytesPerRow
-                var x = 0
-                while x < width {
-                    let value = pointer[x * bytesPerElement + 1] >> 4 // a high nibble survives blending noise
-                    hash = (hash ^ UInt64(value)) &* 0x0000_0100_0000_01B3
-                    x += 3
-                }
+        // Pointer walk, no allocation per row: this runs for every presented
+        // frame on the main thread. Same samples and hash as before: green
+        // channel high nibble, every third pixel, two lines per row.
+        let stride = 3 * bytesPerElement
+        let lineBytes = width * bytesPerElement
+        func sample(_ y: Int, into hash: inout UInt64) {
+            guard y < height else { return }
+            var pointer = base + y * bytesPerRow + 1
+            let end = pointer + lineBytes
+            while pointer < end {
+                hash = (hash ^ UInt64(pointer.pointee >> 4)) &* 0x0000_0100_0000_01B3 // a high nibble survives blending noise
+                pointer += stride
             }
-            result[row] = hash
+        }
+        result.withUnsafeMutableBufferPointer { out in
+            for row in 0..<rows {
+                var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+                sample(row * rowHeight + rowHeight / 2, into: &hash)
+                sample(row * rowHeight + rowHeight * 3 / 4, into: &hash)
+                out[row] = hash
+            }
         }
         return result
     }
@@ -410,6 +428,13 @@ final class TerminalSurfaceView: UIView {
         guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
         perform([.paste(text)])
     }
+}
+
+/// A main-thread callback carried through the output queue.
+private struct MainCallback: @unchecked Sendable {
+    let body: @MainActor () -> Void
+    init(_ body: @escaping @MainActor () -> Void) { self.body = body }
+    @MainActor func run() { body() }
 }
 
 struct SurfaceRef: @unchecked Sendable {

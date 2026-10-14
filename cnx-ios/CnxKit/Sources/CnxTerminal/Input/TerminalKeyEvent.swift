@@ -53,6 +53,16 @@ public enum TerminalInputAction: Hashable, Sendable {
     /// The input method's marked text, drawn at the cursor and never sent
     /// (`ghostty_surface_preedit`); empty clears it.
     case preedit(String)
+
+    /// Input the person gave (a key press, text, a paste): the screen jumps
+    /// to the prompt for it. Releases and marked text are not.
+    public var isUserInput: Bool {
+        switch self {
+        case .key(let event): event.isPress
+        case .text(let text), .paste(let text): !text.isEmpty
+        case .preedit: false
+        }
+    }
 }
 
 /// Physical keys by HID usage (page 7) that the router names.
