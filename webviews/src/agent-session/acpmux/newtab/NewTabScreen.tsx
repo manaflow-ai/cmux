@@ -38,6 +38,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useMinuteClock } from "../clock";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -192,9 +193,12 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   const device = useDeviceChats();
   const closed = useRecentlyClosed();
+  // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
+  const clock = useMinuteClock();
+  const at = now ?? clock;
   const cards = useMemo(
-    () => recentChatCards(snapshot.sessions, now, t, device, sections.recent),
-    [snapshot.sessions, now, t, device, sections.recent],
+    () => recentChatCards(snapshot.sessions, at, t, device, sections.recent),
+    [snapshot.sessions, at, t, device, sections.recent],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
   // the cards keep only the chats that are running or need the user.
@@ -701,7 +705,10 @@ export function NewTabScreen(props: Props) {
             title: card.title,
             ...(card.harness ? { harness: card.harness } : {}),
             state: card.state,
-            label: nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
+            label:
+              card.state === "failed"
+                ? t("header.failed")
+                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
           }))}
           onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}

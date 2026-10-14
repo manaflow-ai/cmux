@@ -1,9 +1,10 @@
 // A background shell's end in the transcript (cx-ncc.84, Claude parity): Claude's Bash calls that
 // run in the background end with acpmux's `background_task_update`, noted where it happened as
-// Claude desktop notes it, "Background task stopped · <reason>: <command>".
+// Claude desktop notes it, "Background task stopped · <reason>: <command>". It is drawn as a tool
+// row, in their font, height and rhythm, with nothing on hover (Leo 2026-10-13).
 import { useT } from "../i18n";
-import { Icon } from "../icons/Icon";
 import type { AcpmuxBackgroundTask } from "../model";
+import { TerminalSquare } from "./icons";
 
 export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
   const t = useT();
@@ -17,9 +18,13 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
           ? t("bgTask.stoppedReason", { reason, command })
           : t("bgTask.stopped", { command });
   return (
-    <div className="cv-bgtask" data-state={state} title={command}>
-      <Icon name="terminal" size={13} />
-      <span className="cv-bgtask__text">{text}</span>
+    <div className="cv-tools">
+      <div className="cv-tool cv-bgtask" data-state={state}>
+        <span className="cv-tool__icon">
+          <TerminalSquare />
+        </span>
+        <span className="cv-tool__text">{text}</span>
+      </div>
     </div>
   );
 }

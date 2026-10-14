@@ -8,6 +8,7 @@ import type {
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -2264,14 +2265,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
@@ -2547,6 +2549,22 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
   return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
 }
 
+/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
+/// known fields.
+function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
+  if (!value || typeof value !== "object") return undefined;
+  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const source = (raw: unknown) =>
+    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
+  const start = {
+    ...(typeof model === "string" && model ? { model } : {}),
+    ...(typeof effort === "string" && effort ? { effort } : {}),
+    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
+    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
+  };
+  return start.model || start.effort ? start : undefined;
+}
+
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
   const harnesses = value?.harnesses ?? value?.items ?? value ?? [];
   const entries: any[] = Array.isArray(harnesses) ? harnesses : harnessEntries(harnesses, value?.defaultHarness);
@@ -2563,6 +2581,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
+    ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }
       : {}),
