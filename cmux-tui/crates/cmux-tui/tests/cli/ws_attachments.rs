@@ -113,7 +113,7 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
     page.request(
         "conversation-op",
         json!({"conversation": conversation, "idempotency_key": "att-1",
-               "op": {"kind": "message.send", "client_msg_id": "att-1", "parts": [part.clone()]}}),
+               "op": {"kind": "message.send", "client_msg_id": "att-1", "parts": [part]}}),
     );
     let event = page.message_event();
     assert_eq!(event["parts"][0], part, "{event}");
@@ -181,7 +181,7 @@ fn a_browser_page_uploads_sends_and_plays_a_video_through_a_download_link() {
     // A token the daemon never gave, or a changed one, reads nothing.
     let forged = format!("/attachments/{}", "0".repeat(64));
     assert_eq!(http(&addr, "GET", &forged, None).0, 404);
-    let mut changed = path.clone().into_bytes();
+    let mut changed = path.into_bytes();
     let last = changed.len() - 1;
     changed[last] = if changed[last] == b'a' { b'b' } else { b'a' };
     assert_eq!(http(&addr, "GET", std::str::from_utf8(&changed).unwrap(), None).0, 404);

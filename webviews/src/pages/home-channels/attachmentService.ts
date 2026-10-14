@@ -5,7 +5,8 @@
 //
 // Images, previews and posters come back as data URLs read over the page's own connection, so they
 // show under any page policy (the app's page scheme allows `img-src data:` only). A video plays
-// from a short-lived URL on the daemon's listener, which answers byte ranges (seeking).
+// from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
+// whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
 import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
 
@@ -56,6 +57,10 @@ const CHUNK_BYTES = 1024 * 1024;
 const READ_BYTES = 3 * 1024 * 1024;
 /** Images up to this size come back as data URLs; a larger one shows from its URL. */
 const DATA_URL_MAX_BYTES = 16_000_000;
+/** Image data URLs kept (least recently used goes first). */
+const IMAGE_CACHE_ENTRIES = 64;
+/** The longest wait for the browser to read a video's first frame. */
+const FACTS_TIMEOUT_MS = 5_000;
 
 export function attachmentClass(mimeType: string): AttachmentClass {
   return TYPES[mimeType] ?? "file";
@@ -155,10 +160,16 @@ async function videoFacts(file: File): Promise<Facts> {
   video.muted = true;
   video.playsInline = true;
   video.preload = "auto";
+  // A file the browser cannot decode may fire nothing: give up after a few seconds (no poster).
   const once = (name: string) =>
     new Promise<boolean>((resolve) => {
-      video.addEventListener(name, () => resolve(true), { once: true });
-      video.addEventListener("error", () => resolve(false), { once: true });
+      const timer = setTimeout(() => resolve(false), FACTS_TIMEOUT_MS);
+      const done = (value: boolean) => {
+        clearTimeout(timer);
+        resolve(value);
+      };
+      video.addEventListener(name, () => done(true), { once: true });
+      video.addEventListener("error", () => done(false), { once: true });
     });
   try {
     const loaded = once("loadeddata");
@@ -278,20 +289,30 @@ export class AttachmentService {
   image(conversation: string, image: { hash: string; variant: "original" | "preview" | "poster" }): Promise<string> {
     const key = `${conversation}:${image.hash}:${image.variant}`;
     let found = this.images.get(key);
-    if (!found) {
+    if (found) this.images.delete(key);
+    else {
       found = this.readDataUrl(conversation, image.hash, image.variant);
       found.catch(() => this.images.delete(key));
-      this.images.set(key, found);
     }
+    // Most recent last; the oldest leaves when the cache is full.
+    this.images.set(key, found);
+    while (this.images.size > IMAGE_CACHE_ENTRIES) this.images.delete(this.images.keys().next().value as string);
     return found;
   }
 
-  /** A URL of one variant on the daemon's listener (video, large images, downloads). */
-  url(conversation: string, hash: string, variant: "original" | "preview" | "poster", name?: string): Promise<string> {
+  /** A URL of one variant on the daemon's listener (video, large images, downloads). `fresh` asks
+   * for a new link (the old one stopped answering: it ended, or the daemon restarted). */
+  url(
+    conversation: string,
+    hash: string,
+    variant: "original" | "preview" | "poster",
+    name?: string,
+    fresh = false,
+  ): Promise<string> {
     const key = `${conversation}:${hash}:${variant}:${name ?? ""}`;
     const now = Date.now();
     const cached = this.urls.get(key);
-    if (cached && cached.until > now) return cached.url;
+    if (cached && cached.until > now && !fresh) return cached.url;
     const url = this.client
       .call<{ url: string; expiresInMs: number }>(HomeOps.attachmentUrl, {
         conversation,
@@ -324,9 +345,13 @@ export class AttachmentService {
         { conversation, hash, variant, offset, length: READ_BYTES },
       );
       mimeType = read.mimeType || mimeType;
+      // Whole base64 quanta only join: every read but the last is a multiple of 3 bytes.
+      const padding = read.data.endsWith("==") ? 2 : read.data.endsWith("=") ? 1 : 0;
+      const decoded = (read.data.length / 4) * 3 - padding;
+      if (!read.eof && decoded % 3 !== 0) throw new Error("short read");
       data += read.data;
-      offset += READ_BYTES;
-      if (read.eof || !read.data || offset >= read.byteCount) break;
+      offset += decoded;
+      if (read.eof || decoded === 0 || offset >= read.byteCount) break;
     }
     // Only raster images become data URLs (never a type that could run as a document).
     if (!/^image\/(jpeg|png|gif|webp|heic)$/.test(mimeType)) throw new Error("not an image");

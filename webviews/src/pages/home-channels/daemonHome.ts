@@ -436,8 +436,8 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
         const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
-        if ((!text && files.length === 0) || text.length > 40_000 || files.length > 10)
-          throw pageError("cmux.page.invalid_params", "text");
+        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
+        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
         const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
         const send: Json = { kind: "message.send", client_msg_id: key, parts };

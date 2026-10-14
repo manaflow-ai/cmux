@@ -211,7 +211,13 @@ pub(super) fn link(mux: &Mux, client: u64, params: LinkParams) -> anyhow::Result
     let variant = piece(variant, "variant")?;
     let name = match name {
         None => None,
-        Some(name) if cmux_conversation::valid_attachment_name(&name) => Some(name),
+        // The upload rules for a name: never an executable or active-document extension.
+        Some(name)
+            if cmux_conversation::valid_attachment_name(&name)
+                && !cmux_conversation::is_denied_name(&name) =>
+        {
+            Some(name)
+        }
         Some(_) => anyhow::bail!(crate::conversation_store::attachments::AttachmentRejected(
             "validation_invalid"
         )),

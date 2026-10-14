@@ -154,8 +154,13 @@ export function Composer({
   useEffect(() => {
     const zone = dropZone?.current;
     if (!zone || !attachments) return;
+    // A nested drop zone (the thread sheet over the conversation column) takes its own drops.
+    const nested = (event: DragEvent) => {
+      const owner = (event.target as Element | null)?.closest?.("[data-drop-zone]");
+      return owner !== null && owner !== undefined && owner !== zone;
+    };
     const over = (event: DragEvent) => {
-      if (!event.dataTransfer?.types.includes("Files")) return;
+      if (!event.dataTransfer?.types.includes("Files") || nested(event)) return;
       event.preventDefault();
       setDropping(true);
     };
@@ -163,7 +168,7 @@ export function Composer({
       if (!zone.contains(event.relatedTarget as Node | null)) setDropping(false);
     };
     const drop = (event: DragEvent) => {
-      if (!event.dataTransfer?.files.length) return;
+      if (!event.dataTransfer?.files.length || nested(event)) return;
       event.preventDefault();
       setDropping(false);
       addRef.current(event.dataTransfer.files);
@@ -233,9 +238,9 @@ export function Composer({
         addFiles(event.dataTransfer.files);
       }}
       onPasteCapture={(event) => {
-        // Pasted files (a screenshot, files copied in a file manager) attach; text pastes as text.
+        // Pasted files (a screenshot, files copied in a file manager) attach; text still pastes as text.
         if (!attachments || event.clipboardData.files.length === 0) return;
-        event.preventDefault();
+        if (!event.clipboardData.getData("text/plain")) event.preventDefault();
         addFiles(event.clipboardData.files);
       }}
     >

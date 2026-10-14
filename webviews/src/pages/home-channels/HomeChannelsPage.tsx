@@ -403,7 +403,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
                 </button>
               </output>
             )}
-            <div className="lg-stage" ref={column}>
+            <div className="lg-stage" ref={column} data-drop-zone>
               <Timeline
                 conversation={snap.selected}
                 rows={rows}

@@ -147,6 +147,8 @@ function VideoPlayer({ conversation, part, strings }: { conversation: string; pa
   const [src, setSrc] = useState<string>();
   const posterSrc = usePoster(conversation, part);
   const size = frame(part, 480, 320);
+  /** The playback position to restore after a new link (the old one ended mid-play). */
+  const resume = useRef<{ at: number; tried: number } | undefined>(undefined);
   useEffect(() => {
     if (!service) return;
     let live = true;
@@ -158,6 +160,15 @@ function VideoPlayer({ conversation, part, strings }: { conversation: string; pa
       live = false;
     };
   }, [service, conversation, part.hash, part.name]);
+  // A link answers 10 minutes: a player that seeks later gets an error; ask for a new link once a
+  // minute at most and go on from the same position.
+  const renew = (video: HTMLVideoElement) => {
+    if (!service || !src) return;
+    const now = Date.now();
+    if (resume.current && now - resume.current.tried < 60_000) return;
+    resume.current = { at: video.currentTime, tried: now };
+    service.url(conversation, part.hash, "original", part.name, true).then(setSrc, () => undefined);
+  };
   return (
     <figure className="hc-att-video" style={{ width: size.width }}>
       <video
@@ -169,6 +180,11 @@ function VideoPlayer({ conversation, part, strings }: { conversation: string; pa
         width={size.width}
         height={size.height}
         aria-label={part.name}
+        onError={(event) => renew(event.currentTarget)}
+        onLoadedMetadata={(event) => {
+          const at = resume.current?.at;
+          if (at) event.currentTarget.currentTime = at;
+        }}
       />
       <figcaption>
         <span className="hc-att-name">{part.name}</span>
@@ -317,7 +333,7 @@ function duration(ms: number): string {
 export interface PendingAttachment {
   id: string;
   file: File;
-  /** A local picture of it while it uploads (an object URL of an image). */
+  /** A local picture of it while it uploads (a data URL of an image). */
   thumb?: string;
   progress: UploadProgress;
   part?: HomeAttachment;

@@ -89,6 +89,8 @@ export function ThreadSheet({
   onRetry,
   onDiscard,
 }: ThreadSheetProps) {
+  /** Files dropped on the sheet go to the thread's composer (not the conversation's). */
+  const sheet = useRef<HTMLElement | null>(null);
   const { t, format } = strings;
   const [replyTo, setReplyTo] = useState<HomeMessage | undefined>();
   const [renaming, setRenaming] = useState<string | undefined>();
@@ -134,7 +136,13 @@ export function ThreadSheet({
   };
   const resolved = thread?.status === "resolved";
   return (
-    <aside className="lg-sheet" data-status={thread?.status ?? "open"} aria-label={thread?.title || t("thread.title")}>
+    <aside
+      ref={sheet}
+      className="lg-sheet"
+      data-drop-zone
+      data-status={thread?.status ?? "open"}
+      aria-label={thread?.title || t("thread.title")}
+    >
       <header className="lg-sheet-header">
         <div className="lg-sheet-bar">
           <button
@@ -281,6 +289,7 @@ export function ThreadSheet({
           disabled={!canSend}
           people={mentionable}
           attachments={attachments}
+          dropZone={sheet}
           onSend={async (text, files) => {
             const sent = await onSend(text, replyTo?.id, files);
             if (sent) setReplyTo(undefined);

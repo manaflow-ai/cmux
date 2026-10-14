@@ -6589,8 +6589,8 @@ Trusted local connections, and authenticated WebSocket connections with
 A download link to one variant of an attachment of `conversation` (the local
 counterpart of the cloud owner's signed download URL): `hash`, `variant`
 (`original` by default, or `poster` or `preview`) and an optional `name`, the
-file name the download offers (the attachment name rule; otherwise
-`attachment_rejected` `validation_invalid`). The caller and the hash follow the
+file name the download offers (the attachment name rule and denied extensions;
+otherwise `attachment_rejected` `validation_invalid`). The caller and the hash follow the
 `conversation-attachment-read` rule and refusals. Trusted local and
 authenticated WebSocket connections.
 
@@ -6599,8 +6599,10 @@ Result: `object{path:string, expires_in_ms:uint64}`. `path` is
 listener section): HTTP `GET` or `HEAD`, one byte range per
 request, so a browser can show an image or play and seek a video from it. The
 token is random, names nothing, lives in memory only and answers for
-`expires_in_ms` (10 minutes) or until the daemon restarts; every request
-checks the participant and the record again.
+`expires_in_ms` (10 minutes) or until the daemon restarts, also after the
+connection that asked for it closed; every request checks the participant and
+the record again. A client asks for a new link when one stops answering (a
+video player that seeks after the link ended).
 
 ### cloud-session-set, cloud-session-clear, cloud-session-status
 
