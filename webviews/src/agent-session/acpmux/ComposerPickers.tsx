@@ -370,7 +370,7 @@ export function ComposerPickers({
     return (
       entry?.models.find((choice) => choice.id === id)?.name ??
       models.find((choice) => choice.id === id)?.name ??
-      modelIdName(id)
+      modelIdName(id, t)
     );
   };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
@@ -405,7 +405,7 @@ export function ComposerPickers({
       snapshot.catalog
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
-      modelIdName(resolvedId));
+      modelIdName(resolvedId, t));
   // A New Tab's chat names the model it will start on (the last pick here), not the default's last
   // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
   const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
