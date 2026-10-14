@@ -4,7 +4,7 @@ import Testing
 
 /// The sidebar profile menu's rows sit at the plain menu inset (Leo 2026-10-13, cosmic-gray on
 /// macOS 27): the current profile's checkmark reserved a state column, and every row of the menu
-/// sat right of it. Its avatar (Leo 2026-10-14) sits in the image column the rows' symbols use.
+/// sat right of it. Its avatar (Leo 2026-10-14) is part of the row's title, not a row image.
 @MainActor
 struct ProfileMenuInsetTests {
     /// The same rows with no state and no image on any of them, submenus included.
@@ -22,7 +22,7 @@ struct ProfileMenuInsetTests {
     }
 
     @Test func theProfileMenuReservesNoColumnBeyondThePlainInset() {
-        // The avatar's size (the sidebar draws it; an image of that size reserves the same column).
+        // The avatar's size (the sidebar draws it).
         let avatar = NSImage(size: NSSize(width: 16, height: 16))
         let menu = ProfileMenuBuilder(registry: .standard()).make(profile: ProfileMenuProfile(name: "Default"), avatar: avatar)
         #expect(menu.size.width == plain(menu).size.width)

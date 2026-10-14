@@ -50,13 +50,14 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     }
 
     /// The current profile, its avatar and a submenu with its options, one
-    /// row with no "Profiles" header over it (Leo 2026-10-14). No
-    /// checkmark: a checked row reserves a state column for every row of
-    /// the menu, and with one profile a checkmark meant nothing. The avatar
-    /// sits in the image column the other rows' symbols already use.
+    /// row with no "Profiles" header over it (Leo 2026-10-14). No checkmark
+    /// and no row image: a checked row reserves a state column, and an image
+    /// an image column, for every row of the menu, which pushed them all right
+    /// of the menu's inset (#20291). The avatar goes in the title, before the
+    /// name, so it takes no column.
     private func profileRow(_ profile: ProfileMenuProfile, avatar: NSImage?, actions: [ActionID]) -> NSMenuItem {
         let item = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
-        item.image = avatar
+        if let avatar { item.attributedTitle = Self.title(profile.name, avatar: avatar) }
         item.identifier = NSUserInterfaceItemIdentifier("profileMenu.currentProfile")
         let options = actions.compactMap(boundMenuItem)
         if !options.isEmpty {
@@ -79,6 +80,18 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     private func boundMenuItem(_ id: ActionID) -> NSMenuItem? {
         guard registry.action(for: id) != nil else { return nil }
         return registry.makeMenuItem(for: id)
+    }
+
+    /// `avatar`, centered on the menu font's capitals, then the name.
+    private static func title(_ name: String, avatar: NSImage) -> NSAttributedString {
+        let font = NSFont.menuFont(ofSize: 0)
+        let attachment = NSTextAttachment()
+        attachment.image = avatar
+        let size = avatar.size
+        attachment.bounds = NSRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
+        let title = NSMutableAttributedString(attachment: attachment)
+        title.append(NSAttributedString(string: " " + name, attributes: [.font: font]))
+        return title
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
