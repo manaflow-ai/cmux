@@ -109,6 +109,18 @@ describe("image staleness guard", () => {
     expect(tip.always).toEqual([...TIP_ALWAYS, "workspace-open-url-v1"].sort())
   })
 
+  it("reads a relative re-export with no such child module from the crate root, never a same-named constant elsewhere", () => {
+    const files = {
+      "cmux-tui/crates/cmux-tui-core/src/router.rs": `pub(crate) use links::OPEN as ROUTER_OPEN;\n`,
+      "cmux-tui/crates/cmux-tui-core/src/links.rs": `pub(crate) use inner::QUX as OPEN;\nmod inner;\n`,
+      "cmux-tui/crates/cmux-tui-core/src/links/inner.rs": `pub(crate) const QUX: &str = "links-open-v1";\n`,
+      "cmux-tui/crates/cmux-tui-core/src/other.rs": `pub(crate) const OPEN: &str = "other-open-v1";\n`,
+    }
+    const tip = tipCapabilities(treeReader(repo({ files, extraSource: ["crate::router::ROUTER_OPEN"] })))
+    expect(tip.always).toContain("links-open-v1")
+    expect(tip.always).not.toContain("other-open-v1")
+  })
+
   it("passes when every channel image serves every capability the tip always serves", () => {
     const report = checkStaleness(treeReader(repo()))
     expect(report.problems).toEqual([])

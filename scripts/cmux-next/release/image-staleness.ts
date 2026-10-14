@@ -158,10 +158,9 @@ const resolveToken = (token: string, index: Map<string, Array<{ file: string; va
       // A relative path (`use open_url::X`) names a child of this module first.
       const path = alias[1]!.split("::")
       if (path[0] === "self") return resolveToken([...segments, ...path.slice(1), alias[2]].join("::"), index, reader, depth + 1)
-      if (path[0] !== "crate" && path[0] !== "super") {
-        try {
-          return resolveToken([...segments, ...path, alias[2]].join("::"), index, reader, depth + 1)
-        } catch {}
+      const child = [...segments, ...path]
+      if (path[0] !== "crate" && path[0] !== "super" && moduleFiles(child, reader).some((f) => reader.read(f) !== undefined)) {
+        return resolveToken([...child, alias[2]].join("::"), index, reader, depth + 1)
       }
       return resolveToken(`${alias[1]}::${alias[2]}`, index, reader, depth + 1)
     }
