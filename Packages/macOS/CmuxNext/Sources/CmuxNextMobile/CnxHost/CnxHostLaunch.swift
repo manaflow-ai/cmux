@@ -26,7 +26,9 @@ public struct CnxHostLaunch: Sendable, Equatable {
     public var stackProjectID: String
     /// The Chief's conversation owner session (`ChiefHome.session`), served
     /// to phones by hostd's scoped `chief` service; nil lets hostd derive it
-    /// from `~/.cmux/chief/default`.
+    /// from `~/.cmux/chief/default`, the home of every build that is not an
+    /// isolated launch. The app's wiring sets it with
+    /// `ChiefHome.resolve(tag:).session` (cnx-ios/verify/relay-security.md).
     public var chiefSession: String?
 
     public init(executable: URL, baseURL: URL, teamID: String, userID: String, deviceID: String, deviceName: String,

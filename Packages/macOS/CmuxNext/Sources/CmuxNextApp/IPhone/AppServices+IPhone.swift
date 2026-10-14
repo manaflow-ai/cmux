@@ -1,6 +1,5 @@
 import CmuxNextCloud
 import CmuxNextDaemon
-import CmuxNextHomeEngine
 import CmuxNextMobile
 import CmuxNextSettings
 import Foundation
@@ -57,8 +56,7 @@ extension AppServices {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
-            computerName: { await MacName.computerName() },
-            chiefSession: ChiefHome.resolve(tag: environment.tag).session
+            computerName: { await MacName.computerName() }
         )
     }
 

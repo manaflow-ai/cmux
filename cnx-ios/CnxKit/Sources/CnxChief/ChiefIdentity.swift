@@ -1,15 +1,15 @@
 import CmuxConversationCore
 import Foundation
 
-/// Who is in the Chief conversation. Ids follow the cmux-tui local
-/// conversation owner: `user_local` for the person on a trusted connection,
-/// `agent_chief` for Chief (spec/commands.md, conversation-list).
+/// Who is in the Chief conversation. Ids follow the Mac's Chief owner:
+/// `user_local` for the person on a trusted connection, `agent_mux` for
+/// Chief (the brain binds as it; `DaemonHomeSource+Create.swift` on the Mac).
 public struct ChiefIdentity: Sendable, Hashable {
     public var meID: String
     public var chiefID: String
     public var title: String
 
-    public init(meID: String = "user_local", chiefID: String = "agent_chief", title: String = "Chief") {
+    public init(meID: String = "user_local", chiefID: String = "agent_mux", title: String = "Chief") {
         self.meID = meID
         self.chiefID = chiefID
         self.title = title

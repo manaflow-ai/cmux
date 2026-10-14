@@ -3,24 +3,47 @@ import CnxTransport
 import CryptoKit
 import Foundation
 
-/// The real Chief: the cmux-tui local conversation owner, reached through a
-/// link's `daemon` channel (protocol v12 JSON lines, capability
-/// `local-conversations-v1`). Finds (or creates) the Chief conversation,
-/// subscribes, loads pages with `conversation-snapshot` /
-/// `conversation-history`, writes with `conversation-op`, and turns
-/// `conversation-changed` / `conversation-typing` events into store events.
-/// A `rev` gap means events were missed: the store is told to refetch.
+/// The real Chief: the Mac's Chief conversation owner (the cmux-tui session
+/// of the Chief home that every cmux-next build on the Mac shares), reached
+/// through the link's `chief` channel, which cnx-hostd scopes to the owner's
+/// conversations with agents (verify/relay-security.md, "Chief"). Finds the
+/// conversation the Mac's Home shows (the oldest one with `agent_mux`, as
+/// `HomeChiefName.select`), subscribes, loads pages with
+/// `conversation-snapshot` / `conversation-history`, writes with
+/// `conversation-op`, and turns `conversation-changed` / `conversation-typing`
+/// events into store events. A `rev` gap means events were missed: the store
+/// is told to refetch. The phone never creates Chief: the Mac does, with its
+/// own idempotent request, when Home opens.
 public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Sendable {
     let core: Core
 
-    public init(client: DaemonClient, identity: ChiefIdentity = .standard, conversationID: String? = nil) {
-        core = Core(client: client, identity: identity, conversationID: conversationID)
+    public init(client: DaemonClient, identity: ChiefIdentity = .standard, conversationID: String? = nil,
+                preferences: ChiefPreferences = ChiefPreferences()) {
+        core = Core(client: client, identity: identity, conversationID: conversationID, preferences: preferences)
+        control = ChiefControl(client: client)
     }
 
-    /// Opens a `daemon` channel on `link` for Chief.
+    /// The brain's engine controls (model, harness, effort, stop) on the same channel.
+    public let control: ChiefControl
+
+    /// The link service of the Chief owner (cnx-hostd `chief`).
+    public static let service = "chief"
+
+    /// Opens the `chief` channel on `link`.
     public static func open(link: any MacLink, identity: ChiefIdentity = .standard) async throws -> ChiefDaemonBackend {
-        let channel = try await link.openChannel(service: "daemon", args: [:])
+        let channel = try await link.openChannel(service: service, args: [:])
         return ChiefDaemonBackend(client: DaemonClient(channel: channel), identity: identity)
+    }
+
+    /// Renames the conversation (`title.set`), as the Mac's Chief settings do.
+    public func rename(_ title: String) async throws {
+        _ = try await core.op(["kind": "title.set", "title": title], expectMessage: false)
+    }
+
+    /// Hide Alerts and Send Read Receipts belong to this phone
+    /// (``ChiefPreferences``); other list actions do not apply to Chief.
+    public func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+        try await core.updateListState(change)
     }
 
     public func events() -> AsyncStream<ConversationBackendEvent> {
@@ -39,6 +62,10 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
     public func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage {
         try await core.react(messageID: messageID, reaction: reaction)
+    }
+
+    public func edit(messageID: String, text: String, textRuns: [ConversationTextRun]) async throws -> ConversationMessage {
+        try await edit(messageID: messageID, text: text)
     }
 
     public func edit(messageID: String, text: String) async throws -> ConversationMessage {
@@ -75,11 +102,16 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         Task { await core.close() }
     }
 
+    /// What the phone says when the Mac has no Chief conversation yet.
+    public static let notStarted = String(localized: "Chief hasn't started on this Mac yet. Open Home in cmux on the Mac to start it.")
+
     actor Core {
         let client: DaemonClient
         let identity: ChiefIdentity
         let wire: ChiefWire
+        let preferences: ChiefPreferences
         private var conversationID: String?
+        private var info: ConversationInfo?
         private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         private var rev: UInt64 = 0
         private var eventSeq = 0
@@ -95,10 +127,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         /// 2 MiB: base64 keeps each line under the link's 4 MiB line cap.
         static let chunkBytes = 2 * 1024 * 1024
 
-        init(client: DaemonClient, identity: ChiefIdentity, conversationID: String?) {
+        init(client: DaemonClient, identity: ChiefIdentity, conversationID: String?, preferences: ChiefPreferences) {
             self.client = client
             self.identity = identity
             self.conversationID = conversationID
+            self.preferences = preferences
             wire = ChiefWire(identity: identity)
         }
 
@@ -120,31 +153,37 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             return reply["data"] as? [String: Any] ?? [:]
         }
 
-        /// The Chief conversation: the given id, the existing one, or a new one.
+        /// The Chief conversation: the given id, else the one the Mac's Home
+        /// shows. Chief that the Mac has not started yet is an honest error.
         func resolve() async throws -> String {
             if let conversationID { return conversationID }
             let list = try await call("conversation-list")
-            let summaries = list["conversations"] as? [[String: Any]] ?? []
-            if let found = summaries.first(where: { wire.isChief($0) && ($0["title"] as? String) == identity.title }),
-               let id = found["id"] as? String {
-                conversationID = id
-                return id
-            }
-            let created = try await call("conversation-create", [
-                "idempotency_key": "cnx-ios-chief-\(identity.meID)",
-                "title": identity.title,
-                "participants": wire.participants(),
-            ])
-            guard let id = (created["conversation"] as? [String: Any])?["id"] as? String else {
-                throw ConversationBackendError(code: -4, message: "conversation-create returned no conversation")
+            guard let id = wire.chiefConversation(in: list["conversations"] as? [[String: Any]] ?? []) else {
+                throw ConversationBackendError(code: -2, message: ChiefDaemonBackend.notStarted)
             }
             conversationID = id
             return id
         }
 
+        func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+            let id = try await resolve()
+            if let muted = change.muted { preferences.setMuted(muted, id) }
+            if let receipts = change.sendReadReceipts {
+                preferences.setSendsReadReceipts(receipts, id)
+                // Turning receipts back on reports where this phone has read to.
+                if receipts, let lastRead = lastReadHere { await markRead(lastRead) }
+            }
+            guard var info = info ?? wire.info(["id": id]) else {
+                throw ConversationBackendError(code: -4, message: "no conversation")
+            }
+            info.listState = preferences.listState(id)
+            self.info = info
+            return info
+        }
+
         func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
             var parts: [[String: Any]] = draft.attachmentIDs.compactMap { uploadedParts[$0] }
-            if !draft.text.isEmpty || parts.isEmpty { parts.append(["type": "text", "text": draft.text]) }
+            if !draft.text.isEmpty || parts.isEmpty { parts.append(wire.textPart(draft.text, mentions: draft.mentions)) }
             var op: [String: Any] = ["kind": "message.send", "client_msg_id": draft.clientMessageID, "parts": parts]
             if let reply = draft.replyToID { op["reply_to"] = ["message_id": reply, "part_index": 0] }
             return try await self.op(op, idempotencyKey: draft.clientMessageID)
@@ -210,8 +249,15 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
         }
 
         func op(_ op: sending [String: Any], idempotencyKey: String = UUID().uuidString) async throws -> ConversationMessage {
+            try await self.op(op, idempotencyKey: idempotencyKey, expectMessage: true)!
+        }
+
+        /// One `conversation-op`; with `expectMessage` the message it made or changed.
+        @discardableResult
+        func op(_ op: sending [String: Any], idempotencyKey: String = UUID().uuidString, expectMessage: Bool) async throws -> ConversationMessage? {
             let id = try await resolve()
             let result = try await call("conversation-op", ["conversation": id, "idempotency_key": idempotencyKey, "op": op])
+            guard expectMessage else { return nil }
             guard let change = result["change"] as? [String: Any], let object = change["message"] as? [String: Any],
                   let message = await decode(object) else {
                 throw ConversationBackendError(code: -4, message: "conversation-op returned no message")
@@ -239,8 +285,17 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             _ = try? await call("conversation-typing", ["conversation": id, "on": on])
         }
 
+        /// Where this phone has read to, whether or not it told the Mac.
+        private var lastReadHere: Int?
+
         func markRead(_ seq: Int) async {
             guard let id = try? await resolve() else { return }
+            lastReadHere = max(lastReadHere ?? 0, seq)
+            // Send Read Receipts off: the read position stays on this phone.
+            guard preferences.sendsReadReceipts(id) else {
+                yieldReadState(lastRead: seq)
+                return
+            }
             _ = try? await call("conversation-op", [
                 "conversation": id, "idempotency_key": UUID().uuidString, "op": ["kind": "read_cursor.set", "seq": seq],
             ])
@@ -275,7 +330,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                 _ = try await call("subscribe")
                 try await connect(id: id, lagged: false)
             } catch {
-                continuation.yield(.disconnected(reason: "\(error)"))
+                continuation.yield(.disconnected(reason: (error as? ConversationBackendError)?.message ?? "\(error)"))
                 return
             }
             for await line in client.events {
@@ -286,9 +341,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
         private func connect(id: String, lagged: Bool) async throws {
             let snapshot = try await call("conversation-snapshot", ["conversation": id, "tail": 1])
-            guard let summary = snapshot["conversation"] as? [String: Any], let info = wire.info(summary) else {
+            guard let summary = snapshot["conversation"] as? [String: Any], var info = wire.info(summary) else {
                 throw ConversationBackendError(code: -4, message: "conversation-snapshot returned no conversation")
             }
+            info.listState = preferences.listState(id)
+            self.info = info
             absorb(summary)
             continuation?.yield(.connected(info: info, meID: identity.meID, lagged: lagged))
             yieldReadState(lastRead: wire.readCursor(summary, of: identity.meID))
@@ -361,7 +418,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                     }
                 }
             case "conversation":
-                if let summary = change["conversation"] as? [String: Any], let info = wire.info(summary) {
+                if let summary = change["conversation"] as? [String: Any], var info = wire.info(summary) {
+                    info.listState = preferences.listState(info.id)
+                    self.info = info
                     absorb(summary)
                     continuation?.yield(.conversationChanged(info))
                 }

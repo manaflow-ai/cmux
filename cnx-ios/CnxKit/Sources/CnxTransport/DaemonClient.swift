@@ -39,6 +39,28 @@ public actor DaemonClient {
         }
     }
 
+    /// Sends a `cmux.protocol/2` request (`machine` and `session` default to
+    /// `current`, as the Mac app's `ResourceRequestEnvelope`) and returns the
+    /// raw response line (`ok`, `result` or `error`).
+    public func resourceRequest(_ operation: String, params: sending [String: Any] = [:], idempotencyKey: String? = nil) async throws -> Data {
+        start()
+        let id = "r\(nextID)"
+        nextID += 1
+        var fields = params
+        fields["machine"] = fields["machine"] ?? "current"
+        fields["session"] = fields["session"] ?? "current"
+        var object: [String: Any] = ["protocol": "cmux.protocol/2", "type": "request", "id": id, "operation": operation, "params": fields]
+        if let idempotencyKey { object["idempotency_key"] = idempotencyKey }
+        var line = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])
+        line.append(0x0A)
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation
+            Task {
+                do { try await channel.send(line) } catch { self.fail(id: id, error: error) }
+            }
+        }
+    }
+
     private func fail(id: String, error: any Error) {
         pending.removeValue(forKey: id)?.resume(throwing: error)
     }
