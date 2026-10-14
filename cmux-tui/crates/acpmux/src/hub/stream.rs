@@ -88,7 +88,6 @@ impl Hub {
                         }
                     }
                 }
-                "background_task_update" => note_background(&mut st.background_running, update),
                 k if NEUTRAL_UPDATES.contains(&k) => {}
                 _ => {
                     // A tool call, plan or user chunk ends the message: a
@@ -135,12 +134,9 @@ impl Hub {
         st.trailing_seqs.push(rec.seq);
     }
 
-    /// Forget per-turn stream state when a turn starts. The background
-    /// shells still running outlive the turn (`idle.rs`).
+    /// Forget per-turn stream state when a turn starts.
     pub(super) fn reset_stream(&self, session: &Session) {
-        let mut st = session.stream.lock().unwrap_or_else(|e| e.into_inner());
-        let background_running = std::mem::take(&mut st.background_running);
-        *st = StreamState { background_running, ..StreamState::default() };
+        *session.stream.lock().unwrap_or_else(|e| e.into_inner()) = StreamState::default();
     }
 
     /// Error fields for `turn_result`: the text and code of the failure, and
@@ -173,50 +169,5 @@ impl Hub {
             out.insert("errorChunkSeqs".into(), json!(st.trailing_seqs));
         }
         out
-    }
-}
-
-/// Notes one `background_task_update` in `running`: a shell that went to
-/// the background, or one that ended.
-fn note_background(running: &mut std::collections::HashSet<String>, update: &Value) {
-    let Some(call) = update.get("toolCallId").and_then(Value::as_str) else { return };
-    if update.get("state").and_then(Value::as_str) == Some("running") {
-        running.insert(call.to_owned());
-    } else {
-        running.remove(call);
-    }
-}
-
-impl Hub {
-    /// A subagent's background shell (its update carries the subagent's
-    /// session id, `tap.rs`) keeps the chat that runs it alive too.
-    pub(super) fn note_subagent_background(&self, session: &Session, params: Option<&Value>) {
-        let Some(update) = params.and_then(|p| p.get("update")) else { return };
-        if update.get("sessionUpdate").and_then(Value::as_str) == Some("background_task_update") {
-            let mut st = session.stream.lock().unwrap_or_else(|e| e.into_inner());
-            note_background(&mut st.background_running, update);
-        }
-    }
-
-    /// The background shells the session's log says still run: each
-    /// `running` update without a later end, since the harness last
-    /// exited or started. A daemon that adopted a running host knows them
-    /// again this way.
-    pub(super) fn recover_background_running(&self, session: &Session) {
-        let mut running = std::collections::HashSet::new();
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            match (e.dir.as_str(), e.kind.as_str()) {
-                (_, "background_task_update") => note_background(
-                    &mut running,
-                    e.msg.pointer("/params/update").unwrap_or(&Value::Null),
-                ),
-                // A harness that ended, or a new one, has none of the shells
-                // before it (a power loss logs no end).
-                ("mux", "stopped" | "exited" | "host_started") => running.clear(),
-                _ => {}
-            }
-            true
-        });
-        session.stream.lock().unwrap_or_else(|e| e.into_inner()).background_running = running;
     }
 }

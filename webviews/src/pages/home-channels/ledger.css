@@ -1566,6 +1566,16 @@
   display: contents;
 }
 
+/* A run's author picture (participant-avatars-v1) next to its name. */
+.lg-run-author {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.lg-run-toggle > .hc-avatar {
+  margin-inline-end: 2px;
+}
+
 /* ---------- Sheets (routes.ts): one dialog, one decision ---------- */
 /* The palette's surface and the shared popup rule (a dimmed page, the solid popup surface). */
 .lg-form.ui-dialog,

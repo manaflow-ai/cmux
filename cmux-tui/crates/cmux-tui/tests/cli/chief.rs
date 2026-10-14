@@ -15,6 +15,8 @@ mod brains;
 mod build_homes;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
+#[path = "participant_avatars.rs"]
+mod participant_avatars;
 #[path = "chief_registry.rs"]
 mod registry;
 
