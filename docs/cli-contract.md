@@ -376,7 +376,7 @@ These address `browser_…` resources. App browser tabs use the page commands in
 
 ```text
 cmux notification list [--limit <n>]
-cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|success|warning|error] [--terminal <term_id>]
+cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|warning|error] [--terminal <term_id>]
 cmux notification clear [--terminal <term_id>]
 cmux notification ack --client <id> <notification_id...>
 cmux notify [--title <value>] [--subtitle <value>] [--body <value>] [--surface <term_id|current>] [--workspace <ws_id|current>]
