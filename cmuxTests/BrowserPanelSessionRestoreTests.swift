@@ -302,7 +302,7 @@ struct BrowserPanelSessionRestoreTests {
         #expect(WorkspaceShareExporter.sceneSurfaceKind(
             for: deferred,
             isShareableTextBox: { _ in false }
-        ) == .browser)
+        ).rawValue == "browser")
         #expect(!restored.requestDeferredBrowserMaterialization(
             panelId: restoredPanelID,
             isVisibleInUI: false
