@@ -173,8 +173,13 @@ A profile is named by its id or its exact name. `set-profile` keeps the tab (sam
 position): the daemon moves the tab record and the app reloads the page at the
 same URL in the target profile's store. The back/forward list and session
 storage stay with the old profile, and the reload loses unsaved form input.
-Agents may move any tab, also the person's; agents cannot delete a profile. Do
-not move a tab into the person's own profile unless they asked for it.
+Agents may move any tab, also the person's. Do not move a tab into the
+person's own profile unless they asked for it.
+
+Agents cannot delete browser profiles, not even the ones they made. Only a
+person deletes one (Settings, the palette or the menu, then the confirmation
+sheet). `cmux browser-profile delete` and the daemon's `delete-browser-profile`
+refuse every agent, script and CLI call.
 
 ## Troubleshooting
 

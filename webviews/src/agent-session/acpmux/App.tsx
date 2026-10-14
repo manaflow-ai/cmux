@@ -193,9 +193,7 @@ import {
   SubagentNavContext,
   SubagentOfRow,
 } from "./subagents/SubagentGroup";
-import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
-import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
@@ -707,7 +705,6 @@ const defaultRegistry: NativeRegistry = {
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
-  [MOVE_ROW]: MoveRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
@@ -763,6 +760,8 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 function RowFrame({
   row,
   kind,
+  joinsPrevious,
+  joinsNext,
   index,
   setSize,
   top,
@@ -783,6 +782,10 @@ function RowFrame({
 }: {
   row: AcpmuxRow;
   kind: string;
+  /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
+  joinsPrevious: boolean;
+  /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
+  joinsNext: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -828,14 +831,14 @@ function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -875,6 +878,9 @@ function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
+/// A row drawn as tool rows: tool calls and thoughts, or a background task's end.
+const isStepRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined && (row.kind === "backgroundTask" || (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
   const ids: string[] = [];
@@ -1833,6 +1839,8 @@ export function VirtualTranscript({
                       key={`${sessionId ?? ""}:${row.id}`}
                       row={row}
                       kind={kind}
+                      joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
+                      joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
@@ -2063,8 +2071,6 @@ function AcpmuxPane() {
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
-  /// Folders started chats moved to from the location row (shell/chatMoves.ts), oldest first.
-  const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -2298,15 +2304,9 @@ function AcpmuxPane() {
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
       : undefined;
-  const sessionMoves = useMemo(
-    () => chatMoves.filter((move) => move.sessionId === snapshot.sessionId),
-    [chatMoves, snapshot.sessionId],
-  );
-  /// The folder the chat moved to, where its commands run and its files are searched.
-  const movedTo = sessionMoves.at(-1)?.cwd;
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
-  const fileRoot = movedTo ?? snapshot.summary?.cwd;
+  const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
   // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
   // that would not fit the image cap answers `tooLarge` with its name.
@@ -2376,9 +2376,9 @@ function AcpmuxPane() {
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
-      return withMoveRows(withShellRows(subagents.rows, chatShellRuns), sessionMoves);
+      return withShellRows(subagents.rows, chatShellRuns);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
   const lineage = useMemo(
     () => ({
@@ -3539,8 +3539,16 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
-              // A new chat starts on its pick, else on the model last picked on that harness here.
-              const picked = model ? String(model) : lastOfferedModel(String(harness), catalogRef.current, folder);
+              // A new chat starts on its pick, else on acpmux's saved default, else on the model last
+              // picked on that harness here. acpmux sets its start model itself (start_defaults.rs):
+              // that one is not sent again.
+              const start = catalogRef.current.find((entry) => entry.id === String(harness))?.start;
+              const asked = model
+                ? String(model)
+                : start?.modelSource === "saved" || start?.modelSource === "profile"
+                  ? undefined
+                  : lastOfferedModel(String(harness), catalogRef.current, folder);
+              const picked = asked && asked !== start?.model ? asked : undefined;
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),
@@ -4499,7 +4507,7 @@ function AcpmuxPane() {
       {pendingFolder ? (
         <StartFolderAsk
           ask={pendingFolder.ask}
-          current={freshChat && !snapshot.sessionId ? projectDraft : (movedTo ?? snapshot.summary?.cwd)}
+          current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
           error={pendingFolder.error}
           onUse={() => {
             // The question closes on the click, so a second click cannot use the folder twice.
@@ -4670,14 +4678,11 @@ function AcpmuxPane() {
               ? undefined
               : (command) =>
                   shellRuns.start(command, {
-                    ...((movedTo ?? composerSnapshot.summary?.cwd)
-                      ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
-                      : {}),
+                    ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
                     ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                   })
           }
           localName={machineName}
-          movedTo={movedTo}
           onBrowseFolder={
             canMove
               ? () =>
@@ -4686,19 +4691,14 @@ function AcpmuxPane() {
                     .catch(() => undefined)
               : undefined
           }
-          // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
-          onMove={
-            canMove
+          // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
+          // in a tab of its own; a Cloud chat's folder is a label.
+          // The floating chat has no tabs to open one in. Another machine's `~` is not this Mac's: a
+          // remote chat starts one only in an absolute folder.
+          onNewChat={
+            canMove && !quick
               ? (cwd) => {
-                  const move: ChatMove = {
-                    id: `${Date.now().toString(36)}-${chatMoves.length}`,
-                    sessionId: snapshot.sessionId!,
-                    cwd,
-                    machine: machineName ?? t("composer.thisMac"),
-                    at: Date.now(),
-                  };
-                  setChatMoves((current) => [...current, move]);
-                  return move;
+                  if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
                 }
               : undefined
           }

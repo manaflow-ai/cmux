@@ -6,12 +6,14 @@ import CmuxNextDesign
 /// live check `scripts/cmux-next/omnibar-pointer-live.py` walks them.
 ///
 /// Cursor:
-/// - I-beam only over the text while the omnibar edits it. At rest a click
-///   selects the whole address (it does not place a caret), so the resting
-///   field shows the arrow, as a button does.
-/// - Arrow everywhere else in the toolbar: the bar around the text, the
-///   page-info chip, the badges, the star and every button. A toolbar
-///   control is not a link, so it never shows the pointing hand.
+/// - I-beam over the bar's text area (`AddressBarView.textArea`: from the
+///   page-info chip to the first trailing badge, the bar's full height),
+///   at rest and while editing, as in Safari and Chrome (Lawrence
+///   2026-10-13). The same rectangle takes the press that focuses the
+///   field, so wherever the I-beam shows, a click focuses.
+/// - Arrow everywhere else in the toolbar: the bar beside the chip and the
+///   badges, the page-info chip, the badges, the star and every button. A
+///   toolbar control is not a link, so it never shows the pointing hand.
 /// - The toolbar row sets the arrow over its whole frame, so a cursor the
 ///   page set (a link's hand, a text I-beam) never stays when the pointer
 ///   moves up into the toolbar, and no edge between two rects shows a stale
@@ -37,8 +39,11 @@ enum OmnibarPointer {
     enum Region: String, Sendable {
         /// The omnibar's text.
         case text
-        /// The bar around the text (padding, the gap before the badges).
+        /// The bar around the text inside the text area (above and below
+        /// the line, past its end).
         case bar
+        /// The bar outside the text area (beside the chip and the badges).
+        case barEdge
         /// A chip, badge, star or button.
         case control
         /// The toolbar row outside the bar and its buttons.
@@ -52,9 +57,9 @@ enum OmnibarPointer {
         var cursor: NSCursor { self == .iBeam ? .iBeam : .arrow }
     }
 
-    /// The cursor for `region`; `editing` is whether the omnibar edits its text.
-    static func cursor(_ region: Region, editing: Bool) -> Cursor {
-        region == .text && editing ? .iBeam : .arrow
+    /// The cursor for `region`, the same at rest and while editing.
+    static func cursor(_ region: Region) -> Cursor {
+        region == .text || region == .bar ? .iBeam : .arrow
     }
 }
 
@@ -63,6 +68,6 @@ enum OmnibarPointer {
 /// omnibar text) take precedence inside it.
 final class ArrowCursorView: NSView {
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar, editing: false).cursor)
+        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar).cursor)
     }
 }

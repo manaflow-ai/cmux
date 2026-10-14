@@ -337,9 +337,8 @@ impl Started {
             }
             tr
         });
-        let codex = (spec.translator.is_none()
-            && crate::codex_app_server::is_launch(&spec.program, &spec.args))
-        .then(crate::codex_app_server::translator);
+        let codex = (spec.translator.is_none() && spec.codex_bridge)
+            .then(crate::codex_app_server::translator);
         let mut state = State {
             record,
             spec,
