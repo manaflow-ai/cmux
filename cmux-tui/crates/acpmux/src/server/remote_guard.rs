@@ -121,6 +121,10 @@ pub(super) async fn check(
     {
         return Err(crate::prompt_provenance::origin_refused());
     }
+    // And so is taking an agent message back (`hub/withdraw.rs`).
+    if m == method::MUX_PROMPT_WITHDRAW {
+        return Err(crate::prompt_provenance::withdraw_origin_refused());
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
