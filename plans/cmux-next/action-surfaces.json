@@ -19132,6 +19132,35 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "clipboard",
+      "cli_name" : "action agent-chat-copy-identifier",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab",
+        "agentChat",
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.copyIdentifier",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Agent Identifier",
+      "title_key" : "action.agentChat.copyIdentifier",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent add-harness",
       "context_menu" : "noObject",
@@ -27884,6 +27913,19 @@
 
             ]
           }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "agentChat.copyIdentifier",
+          "kind" : "action",
+          "order" : 13,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         }
       ],
       "implied" : [
@@ -33828,6 +33870,19 @@
 
                     ]
                   }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
                 }
               ],
               "folder" : "copy",
@@ -36107,6 +36162,19 @@
                   "id" : "copyWorkspaceSSHError",
                   "kind" : "action",
                   "order" : 4,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
+                  "enabled_when" : "can_perform",
+                  "id" : "agentChat.copyIdentifier",
+                  "kind" : "action",
+                  "order" : 5,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
