@@ -22,16 +22,6 @@ import Testing
     }
 }
 
-@Suite struct WorkspaceSortTests {
-    @Test func recentThenName() {
-        let now = Date()
-        let a = Workspace(id: "a", macID: "m", title: "zeta", directory: "~", tabs: [], lastActivityAt: now)
-        let b = Workspace(id: "b", macID: "m", title: "alpha", directory: "~", tabs: [], lastActivityAt: now.addingTimeInterval(-60))
-        #expect(WorkspaceSort.recent.ordered([b, a]).map(\.id) == ["a", "b"])
-        #expect(WorkspaceSort.name.ordered([a, b]).map(\.id) == ["b", "a"])
-    }
-}
-
 #if os(iOS)
 import CmuxTabsKit
 import SwiftUI

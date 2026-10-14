@@ -206,6 +206,34 @@ public final class AppStore {
         if lastTabByWorkspace.removeValue(forKey: placeholderID) != nil { tabMemory.save(lastTabByWorkspace) }
     }
 
+    /// Renames a workspace in place. Returns the previous title (for a
+    /// rollback), or nil when the workspace is unknown.
+    @discardableResult
+    public func renameWorkspace(_ workspaceID: String, to title: String) -> String? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
+        let old = workspaces[index].title
+        workspaces[index].title = title
+        return old
+    }
+
+    /// Removes a closed workspace and forgets its last tab. Returns it with
+    /// its position, so a refused close can put it back.
+    @discardableResult
+    public func removeWorkspace(_ workspaceID: String) -> (workspace: Workspace, index: Int)? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return nil }
+        let removed = workspaces.remove(at: index)
+        if lastTabByWorkspace.removeValue(forKey: workspaceID) != nil { tabMemory.save(lastTabByWorkspace) }
+        return (removed, index)
+    }
+
+    /// Puts back a workspace whose close the Mac refused.
+    public func restoreWorkspace(_ workspace: Workspace, at index: Int) {
+        guard !workspaces.contains(where: { $0.id == workspace.id }) else { return }
+        workspaces.insert(workspace, at: min(index, workspaces.count))
+    }
+
     /// Appends a tab to a workspace (new tabs go last, as in Safari).
     public func appendTab(_ tab: WorkspaceTab, to workspaceID: String) {
         let workspaceID = resolvedWorkspaceID(workspaceID)
