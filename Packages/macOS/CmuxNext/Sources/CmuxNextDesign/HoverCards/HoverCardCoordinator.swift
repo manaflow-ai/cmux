@@ -7,10 +7,18 @@ import CmuxNextWakeups
 /// timer, and turns the world into the machine's events: pointer moves from
 /// the sources, a fresh hit test of the pointer after any geometry change
 /// (content can move under a still pointer, and tracking areas then send
-/// nothing), dismissals, suppressions and removed targets. Nothing polls:
-/// the only timer is a one-shot `DemandTimer`, armed only in a pending,
+/// nothing), dismissals, suppressions and removed targets. Nothing polls
+/// while no card shows (a pointer resting on a card is the one exception,
+/// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
 /// leaving, grace or pinned phase; the event monitor for dismissals exists only
 /// while a card is pending or shown.
+///
+/// Hover intent (`HoverIntentTiming`): a pointer moving from a shown card's
+/// target toward the card (the safe triangle, `CGRect.isAimedAt`) does not hand the
+/// card to a target it crosses, and a pointer resting on the card keeps it;
+/// the card ignores the mouse, so each leave deadline looks where the
+/// pointer is (one timer per grace, about five a second, while the pointer
+/// rests on the card; any move, click, key or the app going inactive ends it).
 @MainActor
 public final class HoverCardCoordinator {
     public private(set) var machine = HoverCardMachine()
@@ -29,6 +37,8 @@ public final class HoverCardCoordinator {
     public var pointerLocation: () -> CGPoint = { NSEvent.mouseLocation }
     /// The last pointer event's location and the real mouse at that time.
     private var eventPointer: (point: CGPoint, mouse: CGPoint)?
+    /// The pointer at the last move, the safe triangle's apex for the next.
+    private var lastPointer: CGPoint?
 
     /// The pointer now: the last pointer event's location while the real
     /// mouse has not moved since (the same point for real events; the
@@ -113,8 +123,27 @@ public final class HoverCardCoordinator {
     /// coordinates, from the event) when known.
     public func pointerMoved(to point: CGPoint? = nil) {
         if let point { eventPointer = (point, pointerLocation()) }
-        send(.hit(hitTest()?.target, moved: true))
+        let now = currentPointer()
+        let timing = HoverIntentTiming.current
+        machine.leaveWindow = timing.cardGrace
+        machine.aimWindow = timing.cardAim
+        let card = shownCardFrame
+        let aiming = card?.isAimedAt(from: lastPointer, to: now) == true
+        lastPointer = now
+        // On the card the pointer is on no target (the card ignores the mouse,
+        // so the window under it hit-tests): it holds the card.
+        let onCard = card?.contains(now) == true
+        send(.hit(onCard ? nil : hitTest()?.target, moved: true, aiming: aiming))
     }
+
+    /// The shown card's frame on screen, nil while none shows.
+    private var shownCardFrame: CGRect? {
+        guard machine.shownTarget != nil, let panel, panel.isShowingCard else { return nil }
+        return panel.cardFrame
+    }
+
+    /// Whether the pointer rests on the shown card now.
+    private func pointerIsOnCard() -> Bool { shownCardFrame?.contains(currentPointer()) == true }
 
     /// Content in `window` moved or changed (layout, strip or list scroll,
     /// column scroll, an animation frame, tabs added, removed or
@@ -130,7 +159,7 @@ public final class HoverCardCoordinator {
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
-        let hit = hitTest()
+        let hit = pointerIsOnCard() ? nil : hitTest()
         send(.hit(hit?.target, moved: false))
         // A pinned card whose target went away (closed while not hovered).
         if let active = machine.activeTarget, owners[active.id]?.source?.hoverCardAnchor(for: active.id) == nil {
@@ -144,7 +173,7 @@ public final class HoverCardCoordinator {
 
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
-        send(.hit(hitTest()?.target, moved: false))
+        send(.hit(pointerIsOnCard() ? nil : hitTest()?.target, moved: false))
     }
 
     public func targetRemoved(_ id: HoverTargetID) {
@@ -200,7 +229,11 @@ public final class HoverCardCoordinator {
     private func run(_ effect: HoverCardEffect) {
         switch effect {
         case .schedule(let token, let delay):
-            timer.schedule(after: delay) { @MainActor [weak self] in self?.send(.deadline(token: token)) }
+            timer.schedule(after: delay) { @MainActor [weak self] in
+                guard let self else { return }
+                send(.pointerOnCard(pointerIsOnCard()))
+                send(.deadline(token: token))
+            }
         case .cancelTimer:
             timer.cancel()
         case .show(let target, let sliding):

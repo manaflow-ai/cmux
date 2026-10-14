@@ -48,7 +48,10 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
             agent chat with the acpmux test agent: three turns and a draft); the window at a set
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab zoomed in three Cmd-+ steps
-            from 100%), at another frame.
+            from 100%), at another frame;
+  cloud:    a Move to Cloud state of made-up machines `rj-<run>-*` (`debug.cloud.move_seed`,
+            debug builds only; no Cloud account, machine or network): two moved chats, three move
+            Retries, a Bring Back Local Retry, an "Always" folder grant and a dismissed launch offer.
 
 Restore has settled when the topology is loaded with every rj-* tab back, the launch window has
 handed over (`debug.windows`) and every shown terminal view is attached live (`debug.surfaces`).
@@ -59,7 +62,8 @@ export`), terminal ids, cwds and scrollback (rows, hash, the numbered lines), th
 the scrollback terminal, the counter (same pid, alive, still counting in the daemon and in the
 view), each page's own report of its path and scroll after the reload (no script reads a page),
 the agent chat (tab bound to its session, the session's prompts, draft and what the chat
-page shows), the focused pane, `top` still drawing (daemon and view), and each terminal pane's
+page shows), the Move to Cloud state (`debug.cloud.move_state`: each record's ids, kind and
+digest, against what was seeded), the focused pane, `top` still drawing (daemon and view), and each terminal pane's
 size and grid as the app lays it out (rj-split's ratios are uneven, so evened-out splits fail). Output: a table on stdout, `report.json`, raw dumps and window stills in --out.
 Exit 0 only when every row passes.
 
@@ -80,7 +84,10 @@ parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
-parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2")
+parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2,cloud")
+parser.add_argument("--break-cloud", choices=["moved_chat", "move_retry", "bring_back_retry", "grant", "dismissed"],
+                    help="proof the cloud rows check something: after the first relaunch, forget one seeded record of this "
+                         "kind (`debug.cloud.move_seed {drop}`), so its row must FAIL")
 parser.add_argument("--max-seconds", type=int, default=0, help="stop (restoring what it changed) after this long; 0: no limit")
 parser.add_argument("--activate", action="store_true",
                     help="relaunch as a person's launch does (activating, without CMUX_NEXT_NO_ACTIVATE), so window order and focus follow real key windows")
@@ -793,6 +800,30 @@ def seed_w2(base):
 FRAMES = [[80, 220, 1100, 700], [260, 280, 820, 560]]
 
 
+def seed_cloud():
+    """Move to Cloud's kept state, recorded through the app's own stores (`debug.cloud.move_seed`)."""
+    answer = rpc("debug.cloud.move_seed", {"run": RUN})
+    say(f"  cloud seed -> {json.dumps(answer)[:200]}")
+    if not isinstance(answer, dict) or "error" in answer:
+        raise RuntimeError(f"debug.cloud.move_seed: {answer}")
+
+
+def cloud_items():
+    """The seeded Move to Cloud records as the app reads them now: ids, kinds and digests."""
+    state = rpc("debug.cloud.move_state")
+    if not isinstance(state, dict) or "error" in state:
+        return {"cloud.state": state}
+    mine = lambda value: str(value or "").startswith(f"rj-{RUN}-")
+    return {
+        "cloud.moved_chats": [c for c in state.get("moved_chats", []) if mine(c.get("machine_id"))],
+        "cloud.move_retries": [r for r in state.get("move_retries", []) if mine(r.get("tab"))],
+        "cloud.bring_back_retries": [r for r in state.get("bring_back_retries", []) if mine(r.get("tab"))],
+        # Grants are named by their folder's digest only; a slot starts with none of its own.
+        "cloud.grants": state.get("grants", []),
+        "cloud.dismissed": [d for d in state.get("dismissed", []) if mine(d.get("tab"))],
+    }
+
+
 def cleanup_earlier():
     """Closes rj-* workspaces an earlier run left (slot state persists per tag), ending their terminals."""
     for ws in rj_workspaces(topology()):
@@ -804,7 +835,7 @@ def seed(base):
     say("seeding")
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
-                      ("agent", seed_agent), ("w2", lambda: seed_w2(base))):
+                      ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("cloud", seed_cloud)):
         if part not in SKIP:
             try:
                 run()
@@ -1129,6 +1160,8 @@ def snapshot(label):
                 v = now.get(pid_) or {}
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
+    if "cloud" not in SKIP:
+        items.update(cloud_items())
     dump(f"{label}-raw.json", raw)
     dump(f"{label}-items.json", items)
     return items
@@ -1167,6 +1200,8 @@ def area_of(item):
         return "terminal"
     if item.startswith("page[") or ".url" in item:
         return "browser"
+    if item.startswith("cloud."):
+        return "cloud move"
     return "layout"
 
 
@@ -1188,7 +1223,7 @@ def must_have(item):
             or item.endswith((".view.size", ".view.grid"))
             or item in ("windows.recency", "focus.window", "focus.workspace", "focus.pane", "agent.page", "agent.acpmux", "agent.prompts",
                         "agent.page.session", "agent.tabs_bound")
-            or item.startswith("page["))
+            or item.startswith(("page[", "cloud.")))
 
 
 def uneven(items, one, other):
@@ -1223,6 +1258,12 @@ def seeded(before):
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
                ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
+        "cloud": [("two moved chats", len(before.get("cloud.moved_chats") or []) == 2),
+                  ("three move Retries (move, show, update)",
+                   sorted(r.get("kind") for r in before.get("cloud.move_retries") or []) == ["move", "show", "update"]),
+                  ("a Bring Back Local Retry (ask first)", [r.get("kind") for r in before.get("cloud.bring_back_retries") or []] == ["ask_first"]),
+                  ("an Always folder grant", any(g.get("scope") == "folder" for g in before.get("cloud.grants") or [])),
+                  ("a dismissed offer matching its Retry", [d.get("matches_retry") for d in before.get("cloud.dismissed") or []] == [True])],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The name and pin rows compare equal emptiness as a pass: they need the seed to show.
                   ("a tab renamed rj-renamed", has(lambda k, v: k.startswith("ws[rj-split].") and k.endswith(".name") and v == "rj-renamed")),
@@ -1275,6 +1316,12 @@ def compare(variant, before, after):
             seeded_length = SEEDED.get(item, 3)
             ok = a == seeded_length
             detail = f"{b} -> {a} (seeded {seeded_length}: the address load and two link clicks)"
+        elif item.startswith("cloud."):
+            # Against what was seeded, not the last reopen: a record lost once must not pass the next variant.
+            seeded_value = SEEDED.get(item, b)
+            ok = a == seeded_value
+            detail = (f"{len(a)} records, as seeded" if ok and isinstance(a, list)
+                      else f"seeded {json.dumps(seeded_value)[:160]} -> {json.dumps(a)[:160]}")
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
             # A view re-attaching may add a prompt line, never drop rows.
             ok = a >= b
@@ -1337,6 +1384,8 @@ def back_walk(label):
 def load_rows(variant, launched):
     """How long each page took to report after the relaunch (restore time per tab, compared
     before and after a change), and that the reopened history page loaded once."""
+    if "web" in SKIP:  # no page was seeded: nothing reports, nothing reopens
+        return
     with LOCK:
         first = {}
         for page, at in REPORT_LOG:
@@ -1389,7 +1438,7 @@ def journey(base):
         before = snapshot(f"{variant}-before")
         if n == 0:
             seeded(before)
-            SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom")})
+            SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom") or k.startswith("cloud.")})
         if variant == "crash":
             # A crash comes after the last change has been saved (the browser history and record
             # writers debounce 500 ms); the rows check what was saved, not what was still in flight.
@@ -1431,6 +1480,8 @@ def journey(base):
         # The counter's next tick, in the view (it must keep counting after the reopen).
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
+        if opts.break_cloud and n == 0:
+            say(f"  --break-cloud: forgetting one {opts.break_cloud} -> {json.dumps(rpc('debug.cloud.move_seed', {'drop': opts.break_cloud}))}")
         compare(variant, before, snapshot(f"{variant}-after"))
         load_rows(variant, launched)
         back_walk(f"{variant} after the reopen")
