@@ -527,7 +527,29 @@ fn start(
         ),
     );
     crate::acpmux_daemon::set_child_env(daemon_env);
-    let instructions = crate::prompt::chief_instructions(&paths.person, &paths.instructions);
+    // Who this Chief is in the conversations (membership): its participant
+    // and which messages of the owner's other conversations wake it.
+    let membership =
+        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?;
+    log(format!(
+        "conversations: as {}{}",
+        membership.participant,
+        if membership.local_side {
+            format!(
+                ", and the local conversations it takes part in ({:?})",
+                membership.group_wake
+            )
+        } else {
+            String::new()
+        }
+    ));
+    let instructions = match (
+        crate::prompt::chief_instructions(&paths.person, &paths.instructions),
+        membership.instructions(),
+    ) {
+        (Some(base), Some(channels)) => Some(format!("{base}\n\n{channels}")),
+        (base, channels) => base.or(channels),
+    };
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -1222,6 +1244,7 @@ fn start(
         cache_ttl: cache_ttl_env,
         shared_ttl,
         home_view: Some(home_view),
+        membership: membership.clone(),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1282,6 +1305,7 @@ fn start(
                     token_file,
                     display_name,
                     title,
+                    participant: membership.participant.clone(),
                 },
                 sink,
                 brain_log,

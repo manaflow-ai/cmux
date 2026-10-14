@@ -2096,7 +2096,12 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # Not vars.MACOS_RUNNER_26: that is the pull request macOS pool
+    # (blacksmith-12vcpu-macos-26, same as MACOS_RUNNER_PR), and a signing or
+    # notarization job queued behind PR CI held nightly-next for hours on
+    # 2026-10-14. recover-nightly-next-notarization, publish-nightly-identity-legacy
+    # and generate-nightly-deltas use this pool too.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone Computer Use helper submission before Codesign apps
     # so Apple's first wait overlaps useful work; finish it before the final
     # DMG. The job budget covers both waits (see the notarize step).
@@ -2775,11 +2780,13 @@ jobs:
       - name: Notarize app ticket through final DMG
         id: notarize-nightly
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true'
-        # Every track waits at most 40m (usually a few minutes; three
-        # nightly-next builds in a row outlasted 20m). On published nightly-next
-        # an Accepted build is stapled and published by this run, and one still
-        # in Apple's queue is handed to a later nightly-next run through the
-        # recovery artifact below.
+        # Main and RC wait at most 40m (usually a few minutes). Published
+        # nightly-next waits 20m: an Accepted build is stapled and published by
+        # this run, and one still in Apple's queue is handed to a later
+        # nightly-next run through the recovery artifact below, which publishes
+        # the newest Accepted build. Nightly-next runs one at a time, so a
+        # longer wait held every newer build behind one stalled submission
+        # (submission 5912557e stayed In Progress for over 90m on 2026-10-14).
         # The helper submitted before Codesign apps finishes first: at most
         # 15m more in Apple's queue plus 20m of Gatekeeper propagation polling
         # (notarize-computer-use-helper.sh), so the step budget covers both
@@ -2788,7 +2795,7 @@ jobs:
         # covers it, and that is checked (cx-urd.68), and a slow DMG is handed off.
         timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 205 || 85 }}
         env:
-          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || '40m' }}
+          CMUX_NOTARY_WAIT_TIMEOUT: ${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}
           CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE: ${{ runner.temp }}/cmux-computer-use-notarization.state
           CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT: 15m
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -3102,7 +3109,7 @@ jobs:
             feeds+=(--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
           done
           candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
-            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 3 "${feeds[@]}")"
+            --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 "${feeds[@]}")"
           echo "candidates=$candidates" >> "$GITHUB_OUTPUT"
           if [ "$candidates" = "[]" ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -3116,7 +3123,7 @@ jobs:
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, find-nightly-next-recovery]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.find-nightly-next-recovery.outputs.found == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     permissions:
       actions: read
@@ -3770,12 +3777,19 @@ jobs:
     permissions:
       contents: write
       issues: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 80
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # TEMPORARY (hq-a3, 2026-10-14; bead cx-x7hwx follow-up): Apple's notary
+    # queue takes 90+ min, so this copy waits up to
+    # NIGHTLY_LEGACY_NOTARY_WAIT_MIN (default 150) minutes inside a 200-minute
+    # job. The next nightly-next run can wait that long behind it in the
+    # workflow concurrency group. Lower the variable (and this limit) when
+    # Apple's queue is normal again.
+    timeout-minutes: 200
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.publish-nightly.outputs.build }}
+      LEGACY_NOTARY_WAIT_MIN: ${{ vars.NIGHTLY_LEGACY_NOTARY_WAIT_MIN || '150' }}
       CHANNEL_RELEASE_TAG: nightly-next
       CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
       # Release asset names of the cmux NIGHTLY-identity copies. They start with
@@ -3893,10 +3907,12 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
+          [[ "$LEGACY_NOTARY_WAIT_MIN" =~ ^[0-9]+$ ]] && [ "$LEGACY_NOTARY_WAIT_MIN" -ge 10 ] && [ "$LEGACY_NOTARY_WAIT_MIN" -le 165 ] \
+            || { echo "NIGHTLY_LEGACY_NOTARY_WAIT_MIN must be 10..165 minutes (job limit 200; about 30 min of the job is not the wait), got '$LEGACY_NOTARY_WAIT_MIN'" >&2; exit 1; }
           mkdir -p legacy-out
           : > "$RUNNER_TEMP/unused-helper-state"
           CMUX_CHANNEL=nightly \
-            CMUX_NOTARY_WAIT_TIMEOUT=45m \
+            CMUX_NOTARY_WAIT_TIMEOUT="${LEGACY_NOTARY_WAIT_MIN}m" \
             CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$PWD/scripts/ci/keep-stapled-computer-use-helper.sh" \
             CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/unused-helper-state" \
             CMUX_NOTARY_SUBMISSION_FILE="$RUNNER_TEMP/legacy.notarization.state" \
@@ -4034,7 +4050,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     strategy:
       fail-fast: false
       matrix:
