@@ -28,6 +28,7 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
