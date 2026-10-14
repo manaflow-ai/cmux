@@ -302,7 +302,7 @@ public struct VMSummary: Equatable, Sendable {
         createdAt: Int64,
         base: VMBaseSummary? = nil,
         kind: VMMachineKind? = nil,
-        capabilities: VMCapabilities = .all,
+        capabilities: VMCapabilities = .legacy,
         displayName: String? = nil,
         slug: String? = nil,
         freeAccessExpiresAt: Int64? = nil,
@@ -369,7 +369,7 @@ public struct VMSummary: Equatable, Sendable {
     /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     public var kind: VMMachineKind? = nil
     /// Verbs the provider can honor (`GET /api/vm` → `capabilities`); none sent means everything.
-    public var capabilities: VMCapabilities = .all
+    public var capabilities: VMCapabilities = .legacy
     /// User-chosen label; the id stays the machine's address.
     public var displayName: String?
     /// Who made this machine (`GET /api/vm` → `createdBy`). Nil when the
@@ -1876,7 +1876,12 @@ public actor VMClient {
     /// now reports. A provider that cannot pause answers 501 `vm_pause_unsupported`.
     public func pause(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.pause, foreground: true) {
-            try await lifecycleTransition(id: id, action: "pause", teamID: teamID)
+            try await lifecycleTransition(
+                id: id,
+                action: "pause",
+                teamID: teamID,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
         }
     }
 
@@ -1884,17 +1889,36 @@ public actor VMClient {
     /// files come back. Plan limits apply exactly as they do to an implicit wake.
     public func resume(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.resume, foreground: true) {
-            try await lifecycleTransition(id: id, action: "resume", teamID: teamID)
+            try await lifecycleTransition(
+                id: id,
+                action: "resume",
+                teamID: teamID,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
         }
     }
 
-    private func lifecycleTransition(id: String, action: String, teamID: String?) async throws -> String {
+    /// `POST /api/vm/<id>/restart`: recover a frozen machine through the provider control plane.
+    /// This call does not probe the guest first, so it remains usable when exec and terminal access
+    /// have stopped answering. The persistent disk and machine identity are retained.
+    public func restart(id: String, teamID: String? = nil) async throws -> String {
+        return try await withOperation(.restart, foreground: true) {
+            try await lifecycleTransition(id: id, action: "restart", teamID: teamID, timeoutSeconds: 60)
+        }
+    }
+
+    private func lifecycleTransition(
+        id: String,
+        action: String,
+        teamID: String?,
+        timeoutSeconds: TimeInterval
+    ) async throws -> String {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/\(action)",
             jsonBody: [:],
-            timeoutSeconds: Self.createTimeoutSeconds,
+            timeoutSeconds: timeoutSeconds,
             teamID: teamID
         )
         if http.statusCode == 501 {

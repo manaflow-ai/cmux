@@ -1019,12 +1019,16 @@ final class MachinesPanelModelTests: XCTestCase {
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
-        XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
+        var legacy = VMCapabilities.all
+        legacy.restart = false
+        XCTAssertEqual(VMCapabilities(json: nil), legacy, "restart requires explicit server support")
+        XCTAssertTrue(VMCapabilities(json: ["restart": true]).restart)
+        XCTAssertFalse(VMCapabilities(json: ["restart": false]).restart)
         XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
         XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
                        VMCapabilities(snapshot: false, restore: true, fork: true))
         let summary = VMSummary(id: "m", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil)
-        XCTAssertEqual(summary.capabilities, .all)
+        XCTAssertEqual(summary.capabilities, legacy)
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
