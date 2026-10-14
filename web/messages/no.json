@@ -45,6 +45,16 @@
       "message": "Skyleverandøren svarte ikke i tide.",
       "action": "Prøv igjen om et øyeblikk."
     },
+    "providerCapacity": {
+      "title": "Ingen Cloud-kapasitet akkurat nå",
+      "message": "Cloud-tjenesten har ikke plass til denne maskinen akkurat nå. Ingenting ble endret.",
+      "action": "Prøv igjen om et minutt."
+    },
+    "stateConflict": {
+      "title": "Maskinen er opptatt",
+      "message": "Denne maskinen starter, settes på pause eller kjører ikke, så den kan ikke gjøre dette nå.",
+      "action": "Vent et øyeblikk og prøv igjen. Sjekk maskinens status med cmux vm ls, og gjenoppta den først hvis den er satt på pause."
+    },
     "networkRuleCapacity": {
       "title": "Nettverksregler har nådd kapasiteten",
       "message": "Nettverkspolicyen din er lagret, men ble ikke brukt: cmux Cloud har nådd kapasiteten for nettverksregler.",

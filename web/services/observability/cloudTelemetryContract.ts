@@ -20,6 +20,23 @@ export const cloudFailures = [
   "not_found", "placement", "resource_limit", "storage", "cancelled", "unknown",
 ] as const;
 export const cloudChannels = ["dev", "nightly", "production", "rc", "unknown"] as const;
+export const stackAuthEvents = ["stack_rate_limited", "stack_rate_limit_recovered"] as const;
+export const stackAuthPhases = ["sign_in_completion", "token_refresh", "session_check", "other"] as const;
+export const stackAuthBodyKinds = ["json", "html", "other"] as const;
+
+/**
+ * A sign-in service rate-limit record. Exported as the span `cmux.auth.<event>`.
+ * The endpoint is a path with ids replaced by `ID`: no query, token or address.
+ */
+export type CloudTelemetryAuth = {
+  readonly event: typeof stackAuthEvents[number];
+  readonly phase: typeof stackAuthPhases[number];
+  readonly retryAfterS?: number;
+  readonly backoffS?: number;
+  readonly bodyKind?: typeof stackAuthBodyKinds[number];
+  readonly endpoint?: string;
+  readonly limitedForS?: number;
+};
 
 export type CloudTelemetrySpan = {
   readonly eventId: string;
@@ -39,6 +56,7 @@ export type CloudTelemetrySpan = {
   readonly droppedCount?: number;
   readonly sourceFile?: string;
   readonly sourceLine?: number;
+  readonly auth?: CloudTelemetryAuth;
 };
 export type CloudTelemetryClient = {
   readonly channel: typeof cloudChannels[number];
@@ -48,6 +66,8 @@ export type CloudTelemetryClient = {
   readonly revision: string;
   readonly osVersion: string;
   readonly architecture: "arm64" | "x86_64" | "unknown";
+  /** Random per-install id, exported as `service.instance.id`. Identifies no user. */
+  readonly instanceId?: string;
 };
 export type CloudTelemetryBatch = {
   readonly version: 1;
@@ -60,9 +80,11 @@ const traceId = /^(?!0{32}$)[0-9a-f]{32}$/;
 const spanId = /^(?!0{16}$)[0-9a-f]{16}$/;
 const spanKeys = new Set([
   "eventId", "operationId", "traceId", "spanId", "parentSpanId", "operation", "phase",
-  "outcome", "startedAtMs", "endedAtMs", "attempt", "failure", "httpStatus", "errorNumber", "droppedCount", "sourceFile", "sourceLine",
+  "outcome", "startedAtMs", "endedAtMs", "attempt", "failure", "httpStatus", "errorNumber", "droppedCount", "sourceFile", "sourceLine", "auth",
 ]);
-const clientKeys = new Set(["channel", "tag", "version", "build", "revision", "osVersion", "architecture"]);
+const clientKeys = new Set(["channel", "tag", "version", "build", "revision", "osVersion", "architecture", "instanceId"]);
+const authKeys = new Set(["event", "phase", "retryAfterS", "backoffS", "bodyKind", "endpoint", "limitedForS"]);
+const MAX_LIMITED_FOR_S = 30 * 86400;
 
 export function parseCloudTelemetryBatch(value: unknown, now = Date.now()): CloudTelemetryBatch | null {
   if (!record(value) || !onlyKeys(value, new Set(["version", "client", "spans"])) || value.version !== 1) return null;
@@ -82,7 +104,8 @@ function validClient(value: unknown): value is CloudTelemetryClient {
     && textMatches(value.build, /^[0-9]{1,20}$/)
     && textMatches(value.revision, /^(?:[0-9a-f]{7,64}|unknown)$/)
     && textMatches(value.osVersion, /^[0-9.]{1,30}$/)
-    && member(value.architecture, ["arm64", "x86_64", "unknown"]);
+    && member(value.architecture, ["arm64", "x86_64", "unknown"])
+    && (value.instanceId === undefined || textMatches(value.instanceId, uuid));
 }
 
 function validSpan(value: unknown, now: number): value is CloudTelemetrySpan {
@@ -96,7 +119,22 @@ function validSpan(value: unknown, now: number): value is CloudTelemetrySpan {
     && optionalInteger(value.errorNumber, -2147483648, 2147483647)
     && optionalInteger(value.droppedCount, 0, 1000000)
     && (value.sourceFile === undefined || textMatches(value.sourceFile, /^[A-Za-z][A-Za-z0-9+_-]{0,119}\.swift$/))
-    && optionalInteger(value.sourceLine, 1, 100000);
+    && optionalInteger(value.sourceLine, 1, 100000)
+    && (value.auth === undefined || validAuth(value.auth, value.httpStatus));
+}
+
+/** A rate-limited record carries the 429 evidence; a recovered record carries its duration. */
+function validAuth(value: unknown, httpStatus: unknown): value is CloudTelemetryAuth {
+  if (!record(value) || !onlyKeys(value, authKeys)) return false;
+  if (!member(value.event, stackAuthEvents) || !member(value.phase, stackAuthPhases)) return false;
+  if (!optionalInteger(value.retryAfterS, 0, 86400) || !optionalInteger(value.backoffS, 0, 86400)) return false;
+  if (!optionalMember(value.bodyKind, stackAuthBodyKinds) || !optionalInteger(value.limitedForS, 0, MAX_LIMITED_FOR_S)) return false;
+  // A path only: segments of plain characters, never a query, fragment or address.
+  if (value.endpoint !== undefined && !textMatches(value.endpoint, /^\/[A-Za-z0-9._~/-]{0,199}$/)) return false;
+  if (value.event === "stack_rate_limited") {
+    return httpStatus === 429 && value.backoffS !== undefined && value.bodyKind !== undefined && value.endpoint !== undefined;
+  }
+  return value.limitedForS !== undefined;
 }
 
 function validSpanIdentity(value: Record<string, unknown>): boolean {
