@@ -86,9 +86,12 @@ nonisolated public struct ReleaseNotesIndexEntry: Codable, Equatable, Sendable {
     public var build: String
     public var shortVersion: String
     public var date: String
+    /// Publication timestamp for readable nightly build labels, when recorded.
+    public var publishedAt: String?
     public var highlights: Int
 
-    public init(build: String, shortVersion: String, date: String, highlights: Int) {
+    public init(build: String, shortVersion: String, date: String, highlights: Int, publishedAt: String? = nil) {
+        self.publishedAt = publishedAt
         self.build = build
         self.shortVersion = shortVersion
         self.date = date

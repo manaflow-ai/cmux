@@ -18,6 +18,13 @@ https://github.com/manaflow-ai/cmux/blob/main/docs/contributor-verification.md
 
 ## Changelog
 
+<!-- Optional nightly news in user words, one line. An area prefix is optional.
+Release note: Browser: Browser profiles can only be deleted by you.
+Release note: none explicitly hides an internal change. Without this line, a
+publish-time summarizer may propose a note for a user-visible change; raw titles
+remain in All changes. Remove these examples before filling the line below. -->
+Release note:
+
 <!--
 Keep this section. Write one line for the release notes, or `none` for internal-only changes (CI, tests, docs, refactors, build scripts).
 Start with Added:, Changed:, Fixed:, or Removed:, then say in present tense what a user sees rather than how it was built. Leave out the PR link and credit; /release adds both.

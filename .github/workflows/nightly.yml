@@ -4276,6 +4276,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      pull-requests: read
+      models: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
@@ -4313,6 +4315,8 @@ jobs:
       - name: Build and sign the release notes
         env:
           CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
+          # GitHub Models uses this job's token; no new secret or environment.
+          GH_TOKEN: ${{ github.token }}
           SPAN_SINCE: ${{ steps.span.outputs.since }}
         run: |
           set -euo pipefail
@@ -4326,7 +4330,7 @@ jobs:
           fi
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-            --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+            --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --head "$HEAD_SHA" --since "$since" --out notes
           # Extend the published index only when its signature verifies.
           previous=""

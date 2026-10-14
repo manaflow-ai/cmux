@@ -6615,5 +6615,109 @@
   "globalSearch.agent.claude": {
     "class": "brand",
     "source": "Claude"
+  },
+  "changelog.area.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Browser"
+        ]
+      },
+      "da": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Browser"
+        ]
+      },
+      "it": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Browser"
+        ]
+      }
+    }
+  },
+  "changelog.area.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "fr": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "es": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "bs": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "da": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "nb": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "pl": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "pt-BR": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      },
+      "tr": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Terminal"
+        ]
+      }
+    }
+  },
+  "changelog.area.updates": {
+    "source": "Updates",
+    "identityLocales": {
+      "de": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "Updates"
+        ]
+      }
+    }
+  },
+  "changelog.area.general": {
+    "source": "General",
+    "identityLocales": {
+      "es": {
+        "reason": "This product area uses the same established noun in this language. The translated entry remains required.",
+        "values": [
+          "General"
+        ]
+      }
+    }
   }
 }

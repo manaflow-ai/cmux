@@ -69,6 +69,9 @@ html[data-cmux-page="changelog"] body {
 
 .cl-group { margin-top: 22px; }
 .cl-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 4px;
   color: var(--page-text-3);
   font-size: var(--text-caption);
@@ -84,7 +87,8 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.cl-row-title { font-weight: 600; flex: none; max-width: 100%; }
+.cl-row-title { font-weight: 400; color: inherit; text-decoration: none; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+a.cl-row-title:hover, a.cl-row-title:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 .cl-row-summary { color: var(--page-text-2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cl-row-action {
   margin-left: auto;
@@ -156,8 +160,9 @@ html[data-cmux-page="changelog"] body {
 
 /* ---------- A: Journal ---------- */
 .clj {
-  padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
+  padding: 40px 24px 96px;
 }
+.clj > main { width: 100%; max-width: 680px; margin-inline: auto; }
 .clj-marker {
   display: flex;
   align-items: center;

@@ -9,6 +9,10 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     public var build: String
     public var shortVersion: String
     public var date: String
+    /// Publication timestamp; older notes carry only a UTC day in `date`.
+    public var publishedAt: String?
+    /// Editorial user news. Missing on older notes; raw summaries are not news.
+    public var userNotes: [ReleaseNote]?
     /// Human-written highlights (`release-notes/next/<version>.md`). A
     /// release without them shows no what's-new card (coordinator
     /// 2026-10-04); its commit-subject notes stay in the full history.
@@ -38,7 +42,10 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     public init(version: Int, build: String, shortVersion: String, date: String, highlights: [Highlight], changes: [String],
-                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil) {
+                items: [ChangeItem]? = nil, whatsNew: WhatsNewDocument? = nil, summary: [SummaryLine]? = nil,
+                publishedAt: String? = nil, userNotes: [ReleaseNote]? = nil) {
+        self.publishedAt = publishedAt
+        self.userNotes = userNotes
         self.whatsNew = whatsNew
         self.summary = summary
         self.version = version
@@ -51,7 +58,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary
+        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary, publishedAt, userNotes
     }
 
     /// A digest the app cannot read is dropped; the notes stay readable.
@@ -61,6 +68,8 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         build = try c.decode(String.self, forKey: .build)
         shortVersion = try c.decode(String.self, forKey: .shortVersion)
         date = try c.decode(String.self, forKey: .date)
+        publishedAt = try c.decodeIfPresent(String.self, forKey: .publishedAt)
+        userNotes = (try? c.decodeIfPresent([ReleaseNote].self, forKey: .userNotes)) ?? nil
         highlights = try c.decode([Highlight].self, forKey: .highlights)
         changes = try c.decode([String].self, forKey: .changes)
         items = try c.decodeIfPresent([ChangeItem].self, forKey: .items)

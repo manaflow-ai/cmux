@@ -46,6 +46,7 @@ export class MockChangelogProvider implements PageClient {
           build: n.build,
           shortVersion: n.shortVersion,
           date: n.date,
+          publishedAt: n.publishedAt,
           highlights: n.highlights.length,
         })),
       };

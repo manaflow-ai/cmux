@@ -4,8 +4,10 @@
 import { useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
+import { AreaIcon } from "./AreaIcon";
+import { buildLabel } from "./buildLabel";
 import { formatReleaseDate, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, ReleaseArea, WhatsNewCategory } from "./types";
 
 export interface PartsContext {
   strings: Strings;
@@ -86,7 +88,7 @@ export function Groups({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) 
   return (
     <>
       {view.groups.map((group) => (
-        <Group key={group.category} category={group.category} items={group.items} ctx={ctx} />
+        <Group key={group.area} area={group.area} items={group.items} ctx={ctx} />
       ))}
     </>
   );
@@ -94,16 +96,30 @@ export function Groups({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) 
 
 const GROUP_PAGE = 5;
 
-function Group({ category, items, ctx }: { category: WhatsNewCategory; items: ReleaseItem[]; ctx: PartsContext }) {
+function Group({ area, items, ctx }: { area: ReleaseArea; items: ReleaseItem[]; ctx: PartsContext }) {
   const [all, setAll] = useState(false);
   const shown = all ? items : items.slice(0, GROUP_PAGE);
   return (
-    <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
-      <h3>{categoryLabel(ctx.strings, category)}</h3>
+    <section className="cl-group" aria-label={ctx.strings.t(`changelog.area.${area}`)}>
+      <h3>
+        <AreaIcon area={area} />
+        {ctx.strings.t(`changelog.area.${area}`)}
+      </h3>
       <ul>
         {shown.map((item, index) => (
           <li key={`${item.id}-${index}`}>
-            <span className="cl-row-title">{item.title}</span>
+            {item.prs?.length ? (
+              <a
+                className="cl-row-title"
+                href={`https://github.com/manaflow-ai/cmux/pull/${item.prs[0]}`}
+                rel="noreferrer"
+                title={item.prs.map((pr) => `#${pr}`).join(", ")}
+              >
+                {item.title}
+              </a>
+            ) : (
+              <span className="cl-row-title">{item.title}</span>
+            )}
             {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
             {item.action && (
               <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
@@ -161,13 +177,15 @@ export function Maintenance({ strings }: { strings: Strings }) {
 }
 
 /** The build numbers of a section, small and selectable (copy one with a double click). */
-export function BuildNumbers({ builds }: { builds: { build: string; shortVersion: string }[] }) {
+export function BuildNumbers({ builds, language }: { builds: IndexEntry[]; language: string }) {
   return (
     <div className="cl-builds">
       {builds.map((b, i) => (
         <span key={b.build}>
           {i > 0 && <span aria-hidden="true"> · </span>}
-          <span className="cl-build">{b.shortVersion}</span>
+          <time className="cl-build" dateTime={b.publishedAt ?? b.date} title={b.shortVersion}>
+            {buildLabel(b, language)}
+          </time>
         </span>
       ))}
     </div>
