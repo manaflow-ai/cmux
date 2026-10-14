@@ -7938,10 +7938,16 @@ object{
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64,
-    since_ms?: uint64
+    since_ms?: uint64,
+    last_prompt?: string|null
   }>
 }
 ```
+
+`last_prompt` is the terminal agent's last prompt (at most 200 characters), which the
+hook helper sends beside a turn-start event (`session.journal.append` `live_prompt`).
+The daemon keeps it in memory only: it is never journaled, persisted or logged, and a
+daemon restart, a closed terminal or an ended agent session forgets it.
 
 `since_ms` is when the agent entered `state` (Unix ms): a report that keeps
 the state keeps it, so a client can show how long an agent has worked or

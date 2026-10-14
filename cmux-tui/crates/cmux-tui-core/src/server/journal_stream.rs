@@ -122,6 +122,17 @@ pub(super) fn handle_journal_extension_request(
                         )
                     })?;
             super::command_history::refuse_reserved_producer(&ingress)?;
+            // A turn-start hook's prompt rides beside the event, memory only: kept before the
+            // commit so the agent change the commit folds already carries it, never journaled.
+            if let Some(prompt) = request.fields.get("live_prompt").and_then(Value::as_str)
+                && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID
+                && let Some(terminal) =
+                    ingress.subjects.iter().find(|subject| subject.kind == "terminal").and_then(
+                        |subject| crate::resource::TerminalPublicId::parse(subject.id.clone()).ok(),
+                    )
+            {
+                mux.note_agent_prompt(&terminal, prompt);
+            }
             let idempotency_key = request
                 .envelope
                 .idempotency_key
