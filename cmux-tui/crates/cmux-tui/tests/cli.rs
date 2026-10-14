@@ -3701,6 +3701,9 @@ mod conversation_threads;
 #[path = "cli/conversation_tree.rs"]
 mod conversation_tree;
 #[cfg(unix)]
+#[path = "cli/dock_tab_placement.rs"]
+mod dock_tab_placement;
+#[cfg(unix)]
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
@@ -3712,9 +3715,6 @@ mod frontend_browser_status;
 mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
-#[cfg(unix)]
-#[path = "cli/dock_tab_placement.rs"]
-mod dock_tab_placement;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
