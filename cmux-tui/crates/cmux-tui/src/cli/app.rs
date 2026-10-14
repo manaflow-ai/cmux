@@ -462,6 +462,9 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 /// the caller reports its own usage error. One connection, one `action.run`.
 pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
     let command = run_action(name, args, ActionName::Cli).ok()?;
+    if let Some(refusal) = command_refusal(&command) {
+        return Some(super::wire::print_operation_error(&refusal, global.output));
+    }
     // A named socket that is missing or not an app (a daemon's `--socket`)
     // has no CLI action; the caller reports its own usage error.
     let mut stream = connect_command(global).ok()?;
@@ -482,6 +485,9 @@ enum Ran {
 }
 
 fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
+    if let Some(refusal) = command_refusal(&command) {
+        return Ran::Done(super::wire::print_operation_error(&refusal, global.output));
+    }
     let mut stream = match connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(super::wire::print_local_error(&error, global.output, 3)),
@@ -540,6 +546,24 @@ fn typed(code: &str, message: String, socket: Option<&AppSocket>) -> Value {
     json!({ "code": code, "message": message, "details": details, "retryable": false })
 }
 
+/// An app action that writes a Chief (cx-ebm.60.9 layer 1): refused for an
+/// agent caller like `cmux chief new|edit|delete`, before any connection.
+fn chief_action_refusal(method: &str, params: &Value) -> Option<Value> {
+    if method != "action.run" {
+        return None;
+    }
+    let action = params.get("action").and_then(Value::as_str)?;
+    super::chief::registry::agent_app_action_refusal(action)
+}
+
+/// [`chief_action_refusal`] of a command that calls one action.
+fn command_refusal(command: &AppCommand) -> Option<Value> {
+    match command {
+        AppCommand::Call { method, params, .. } => chief_action_refusal(method, params),
+        _ => None,
+    }
+}
+
 fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
     let (method, mut params, timeout, pick, screenshot_out) = match command {
         AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick, None),
@@ -575,6 +599,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             return Ran::Done(status);
         }
     };
+    if let Some(refusal) = chief_action_refusal(method, &params) {
+        return Ran::Done(super::wire::print_operation_error(&refusal, global.output));
+    }
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     // Runs that may create or close something carry a key, so a retry is not a second run.
     let keyed =
