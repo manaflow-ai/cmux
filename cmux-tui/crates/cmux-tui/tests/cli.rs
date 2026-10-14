@@ -3669,6 +3669,9 @@ mod browser_devices;
 #[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
+#[cfg(unix)]
+#[path = "cli/close_workspace_if_empty.rs"]
+mod close_workspace_if_empty;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
