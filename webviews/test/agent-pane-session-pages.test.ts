@@ -132,6 +132,15 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  const notify = (method: string, params: Record<string, unknown>) =>
+    socket!.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+  const laterPagesAsked = async (count: number) => {
+    for (let waited = 0; requests.filter((r) => r.method === "_acpmux/sessions").length < count; waited += 50) {
+      if (waited > 10_000) throw new Error(`the pane asked for ${count} later pages within 10s`);
+      await Bun.sleep(50);
+    }
+  };
+
   async function open(chat: string): Promise<Page> {
     attached = false;
     bytesBeforeAttach = 0;
@@ -158,8 +167,7 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
 
     // While a later page is on its way, a session is purged and another one changes. The page was
     // read before both, so it carries the old state; the pane keeps the newer one.
-    for (let waited = 0; !requests.some((r) => r.method === "_acpmux/sessions") && waited < 10_000; waited += 50)
-      await Bun.sleep(50);
+    await laterPagesAsked(1);
     socket!.send(
       JSON.stringify({
         jsonrpc: "2.0",
@@ -209,6 +217,67 @@ await requireBrowserLane("agent-pane-session-pages.test.ts", async () => {
     const opened = await state(page);
     expect(opened.sessionId).toBe(LATE);
     expect(opened.missingSession).toBeNull();
+    await page.close();
+  });
+
+  test("a lagged watch rereads the list in pages and keeps what changed while they came", async () => {
+    holdPages();
+    release();
+    const page = await open(NEWEST);
+    await page.getByText(`Open ${NEWEST}`, { exact: true }).waitFor({ timeout: 60_000 });
+    await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT, {
+      timeout: 60_000,
+    });
+
+    // The watch dropped notices: the pane rereads. While its later pages are on their way, a session
+    // on its first page is purged, another one there is renamed, and a new chat starts.
+    holdPages();
+    requests.length = 0;
+    notify("_acpmux/lagged", { watch: true, dropped: 3 });
+    await laterPagesAsked(1);
+    const created = { ...sessions[0]!, sessionId: id(COUNT + 1), title: "Started meanwhile", updatedAt: START + 5 };
+    notify("_acpmux/session_changed", { kind: "purged", session: { sessionId: sessions[5]!.sessionId } });
+    notify("_acpmux/session_changed", { kind: "updated", session: { ...sessions[10], title: "Renamed meanwhile" } });
+    notify("_acpmux/session_changed", { kind: "created", session: created });
+    release();
+
+    await page.waitForFunction(
+      (count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length === count,
+      COUNT,
+      { timeout: 60_000 },
+    );
+    await laterPagesAsked(Math.ceil(COUNT / 200) - 1);
+    await page.waitForTimeout(300);
+    const final = await state(page);
+    const byId = new Map<string, { title: string }>(
+      final.sessions.map((session: { sessionId: string; title: string }) => [session.sessionId, session]),
+    );
+    expect(byId.size).toBe(COUNT);
+    expect(byId.has(sessions[5]!.sessionId)).toBe(false);
+    expect(byId.get(sessions[10]!.sessionId)?.title).toBe("Renamed meanwhile");
+    expect(byId.get(created.sessionId)?.title).toBe("Started meanwhile");
+    await page.close();
+  });
+
+  test("two lagged notices in a row never leave a chat on a late page judged missing", async () => {
+    holdPages();
+    release();
+    const page = await open(LATE);
+    await page.getByText(`Open ${LATE}`, { exact: true }).waitFor({ timeout: 60_000 });
+
+    holdPages();
+    requests.length = 0;
+    notify("_acpmux/lagged", { watch: true, dropped: 1 });
+    notify("_acpmux/lagged", { watch: true, dropped: 1 });
+    await laterPagesAsked(1);
+    release();
+    await page.waitForFunction((count) => (window as any).cmuxAcpmuxDebug.chatState().sessions.length >= count, COUNT, {
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(500);
+    const after = await state(page);
+    expect(after.sessionId).toBe(LATE);
+    expect(after.missingSession).toBeNull();
     await page.close();
   });
 });
