@@ -270,7 +270,21 @@ try:
     else:
         record("cross-machine drop refused", False, "one machine on this host (no SSH or Cloud machine); refusal not driven", skip=True)
 
-    record("reorder while filtering", False, "no UI path writes SidebarModel.filterText in this tree; not driven", skip=True)
+    # Reorder while filtering: filter "o" shows Echo and Foxtrot; Foxtrot goes above Echo.
+    rpc("debug.sidebar_filter", {"text": "o"})
+    time.sleep(0.8)  # test harness: let the filtered list lay out
+    echo, fox = by_title("Echo"), by_title("Foxtrot")
+    if echo and fox:
+        drag(center(fox["window_frame"]), (echo["window_frame"]["x"] + 40, echo["window_frame"]["y"] + 2), "v2-6-reorder-filtered")
+        rpc("debug.sidebar_filter", {"text": ""})
+        time.sleep(0.8)  # test harness: let the full list lay out
+        titles = list_titles()
+        ok = "Echo" in titles and "Foxtrot" in titles and titles.index("Foxtrot") < titles.index("Echo")
+        record("reorder while filtering", ok, f"list={titles}")
+        undo("reorder while filtering", lambda: list_titles().index("Echo") < list_titles().index("Foxtrot"))
+    else:
+        rpc("debug.sidebar_filter", {"text": ""})
+        record("reorder while filtering", False, f"filtered rows={list(rows())}")
 
     # 7. The order survives a relaunch.
     before = (list_titles(), [i.get("ref") for i in section_items("sec_pinned")])
