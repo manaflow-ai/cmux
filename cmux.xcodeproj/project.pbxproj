@@ -14867,6 +14867,7 @@
 				C11757000000000000000036 /* CLIWorkspaceGroupSafetyTests.swift in Sources */,
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
+				D20329000000000000000001 /* CloudVMSizeParser.swift in Sources */,
 				D20329000000000000000002 /* CloudVMSizeParserTests.swift in Sources */,
 				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
 				D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */,
