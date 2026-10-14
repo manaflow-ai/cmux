@@ -1,5 +1,5 @@
-import CmuxNextMobile
-import Foundation
+public import CmuxNextMobile
+public import Foundation
 
 /// Test-only, DEBUG builds only: phones a tagged test instance trusts without its
 /// person-only "Allow … to connect?" prompt, so a hidden rig app can pair a simulator
