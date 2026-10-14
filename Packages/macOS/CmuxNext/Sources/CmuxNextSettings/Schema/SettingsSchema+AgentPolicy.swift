@@ -89,6 +89,7 @@ extension SettingsSchema {
         "appearance.saturation",
         "appearance.density",
         "appearance.metrics.chromeFontSize",
+        "appearance.interfaceScale",
         "appearance.borders",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
