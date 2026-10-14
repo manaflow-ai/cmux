@@ -6,13 +6,19 @@ import Foundation
 import Observation
 import QuartzCore
 
-/// One live VNC session for the remote screen: connection state, input,
-/// and live stats. Frames do not go through observation (30+ per second);
-/// the screen controller receives them through `onFrame`.
+/// One live session to a computer's screen: connection state, input, quality
+/// and live stats. Three kinds of target:
+/// - a Mac paired as a screen stream (`VNCPairing.isStream`): the screen as
+///   WebRTC video, input on data channels; reconnects on its own;
+/// - a Mac paired for RFB over WebRTC (`cmux-vnc-host` without `--stream`);
+/// - a VNC server reached directly (`VNCEndpoint`), or the built-in demo desktop.
+///
+/// Frames do not go through observation (30+ per second): `ScreenView`
+/// receives them through `onFrame` / `onVideoTrack`. Use it from the main actor.
 @MainActor
 @Observable
-final class RemoteSession {
-    enum Phase: Equatable {
+public final class ScreenSession {
+    public enum Phase: Equatable {
         case connecting
         case connected(VNCServerInfo)
         /// `needsSignIn`: the server wants credentials (or refused them).
@@ -20,31 +26,38 @@ final class RemoteSession {
         case ended
     }
 
-    struct LiveStats: Equatable {
-        var fps = 0.0
-        var kilobytesPerSecond = 0.0
-        var latencyMs: Double?
-        var decodeMs: Double?
-        var encoding = "-"
+    public struct LiveStats: Equatable, Sendable {
+        public var fps = 0.0
+        public var kilobytesPerSecond = 0.0
+        /// Round trip (stream) or update latency (RFB), in milliseconds.
+        public var latencyMs: Double?
+        public var decodeMs: Double?
+        /// The codec and decoder ("H264 HW"), or the busiest RFB encoding.
+        public var encoding = "-"
     }
 
-    let title: String
-    private(set) var phase = Phase.connecting {
+    public let title: String
+    public private(set) var phase = Phase.connecting {
         didSet { resumeWaiters() }
     }
     @ObservationIgnored private var phaseWaiters: [CheckedContinuation<Bool, Never>] = []
-    private(set) var stats = LiveStats()
-    private(set) var frameSize = CGSize.zero
-    var preferences: SessionPreferences
-    var credentials: VNCCredentials
+    public private(set) var stats = LiveStats()
+    /// The remote screen's pixel size (the streamed display, or the framebuffer).
+    public private(set) var frameSize = CGSize.zero
+    public var preferences: ScreenPreferences
+    public var credentials: VNCCredentials
+    /// Automatic reconnects after a stream drops: how many tries (0 turns them
+    /// off), backing off 0, 1, 2, 4, 8 s, before the session fails.
+    @ObservationIgnored public var reconnectLimit = 5
 
-    @ObservationIgnored var onFrame: ((VNCFrame) -> Void)?
-    @ObservationIgnored let perf = PerfLog()
+    @ObservationIgnored public var onFrame: ((VNCFrame) -> Void)?
+    /// Opt-in timing log (input → frame); nil (off) unless the app sets one.
+    @ObservationIgnored public var perf: ScreenPerfLog?
     /// The session's latest counters (for the perf log).
-    @ObservationIgnored private(set) var clientStats = VNCSessionStats()
-    @ObservationIgnored var onCursor: ((VNCCursor) -> Void)?
+    @ObservationIgnored public private(set) var clientStats = VNCSessionStats()
+    @ObservationIgnored public var onCursor: ((VNCCursor) -> Void)?
     /// The server's own screen layout (ExtendedDesktopSize), when it sends one.
-    @ObservationIgnored var onScreens: (([CGRect]) -> Void)?
+    @ObservationIgnored public var onScreens: (([CGRect]) -> Void)?
     @ObservationIgnored private var client: VNCClient?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private let endpoint: VNCEndpoint?
@@ -54,23 +67,26 @@ final class RemoteSession {
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
     /// Set for a Mac paired as a screen stream (WebRTC video + input channel).
-    @ObservationIgnored private(set) var stream: ScreenStreamViewer?
-    @ObservationIgnored var onVideoTrack: ((VideoTrackBox) -> Void)?
+    @ObservationIgnored public private(set) var stream: ScreenStreamViewer?
+    @ObservationIgnored public var onVideoTrack: ((VideoTrackBox) -> Void)?
     /// Stream displays (sizes) and the one streaming.
-    @ObservationIgnored var onStreamDisplays: (([CGSize], Int) -> Void)?
-    private(set) var streamPath = "WebRTC"
+    @ObservationIgnored public var onStreamDisplays: (([CGSize], Int) -> Void)?
+    /// "Direct" or "Relay" once WebRTC picks a path.
+    public private(set) var streamPath = "WebRTC"
     /// The stream dropped and is coming back on its own.
-    private(set) var isReconnecting = false
+    public private(set) var isReconnecting = false
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
-    var isStream: Bool { pairing?.isStream == true }
-    /// The saved host this session opened, so its menu choices are kept.
-    @ObservationIgnored var hostID: UUID?
+    public var isStream: Bool { pairing?.isStream == true }
+    /// An app's own identifier for what this session opened (a saved host),
+    /// so it can keep the session's preferences afterwards.
+    @ObservationIgnored public var hostID: UUID?
     /// The remote pointer in framebuffer pixels.
-    @ObservationIgnored private(set) var pointer = CGPoint(x: 100, y: 100)
+    @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 
-    /// A saved host.
-    init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials, preferences: SessionPreferences) {
+    /// A VNC server reached directly (LAN, tailnet).
+    public init(title: String, endpoint: VNCEndpoint, credentials: VNCCredentials = VNCCredentials(),
+                preferences: ScreenPreferences = ScreenPreferences()) {
         self.title = title
         self.endpoint = endpoint
         self.credentials = credentials
@@ -78,8 +94,10 @@ final class RemoteSession {
         pairing = nil
     }
 
-    /// A Mac paired over WebRTC (its cmux-vnc-host).
-    init(title: String, pairing: VNCPairing, credentials: VNCCredentials, preferences: SessionPreferences) {
+    /// A Mac paired over WebRTC: a screen stream host (`cmux-vnc-host
+    /// --capture`, `cmux-screen-host`) or RFB over WebRTC (`cmux-vnc-host`).
+    public init(title: String, pairing: VNCPairing, credentials: VNCCredentials = VNCCredentials(),
+                preferences: ScreenPreferences = ScreenPreferences()) {
         self.title = title
         endpoint = VNCEndpoint(host: "webrtc", port: 1)
         self.pairing = pairing
@@ -88,10 +106,10 @@ final class RemoteSession {
     }
 
     /// "WebRTC" or "Direct", for the stats line.
-    var pathLabel: String { isStream ? "Video · \(streamPath)" : (pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct")) }
+    public var pathLabel: String { isStream ? "Video · \(streamPath)" : (pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct")) }
 
     /// The built-in demo desktop on a loopback server in this app.
-    init(demoPreferences: SessionPreferences) {
+    public init(demoPreferences: ScreenPreferences = ScreenPreferences()) {
         title = "Demo desktop"
         endpoint = nil
         credentials = VNCCredentials()
@@ -99,9 +117,10 @@ final class RemoteSession {
         pairing = nil
     }
 
-    var isDemo: Bool { endpoint == nil }
+    public var isDemo: Bool { endpoint == nil }
 
-    func connect() {
+    /// Connects (again): any running connection is replaced.
+    public func connect() {
         disconnect(silently: true)
         phase = .connecting
         if let pairing, pairing.isStream {
@@ -206,7 +225,7 @@ final class RemoteSession {
     /// The stream ended without the user closing it: reconnect a few times
     /// (backing off) before showing the error.
     private func streamDropped(_ message: String) {
-        guard reconnectAttempts < 5 else {
+        guard reconnectAttempts < reconnectLimit else {
             isReconnecting = false
             phase = .failed(message: message, needsSignIn: false)
             return
@@ -225,7 +244,7 @@ final class RemoteSession {
 
     /// The app came back to the foreground: a stream that dropped while it
     /// was suspended reconnects right away.
-    func resumeIfNeeded() {
+    public func resumeIfNeeded() {
         guard isStream else { return }
         switch phase {
         case .failed(_, false), .ended:
@@ -238,7 +257,7 @@ final class RemoteSession {
     }
 
     /// Applies `preferences.quality` to the running stream.
-    func applyQuality() {
+    public func applyQuality() {
         stream?.setQuality(preferences.quality)
     }
 
@@ -262,7 +281,7 @@ final class RemoteSession {
     }
 
     /// Streams display `index` (the Mac crops to it).
-    func selectDisplay(_ index: Int) {
+    public func selectDisplay(_ index: Int) {
         stream?.send(ScreenInput(t: "display", i: index))
     }
 
@@ -272,11 +291,12 @@ final class RemoteSession {
     }
 
     /// The video's pixel size (the streamed display).
-    func setStreamFrameSize(_ size: CGSize) {
+    public func setStreamFrameSize(_ size: CGSize) {
         frameSize = size
     }
 
-    func disconnect(silently: Bool = false) {
+    /// Ends the connection; `silently` keeps the phase (no "ended" card).
+    public func disconnect(silently: Bool = false) {
         if !silently {
             reconnectTask?.cancel()
             isReconnecting = false
@@ -291,7 +311,7 @@ final class RemoteSession {
     }
 
     /// Stops everything, including the demo server.
-    func close() {
+    public func close() {
         disconnect()
         demo?.stop()
         demo = nil
@@ -314,7 +334,7 @@ final class RemoteSession {
     }
 
     /// Resumes when the session connects (true) or fails or ends (false).
-    func waitUntilConnected() async -> Bool {
+    public func waitUntilConnected() async -> Bool {
         switch phase {
         case .connected: return true
         case .failed, .ended: return false
@@ -338,7 +358,7 @@ final class RemoteSession {
     // MARK: Input
 
     /// Moves the pointer to framebuffer point `point`.
-    func movePointer(to point: CGPoint) {
+    public func movePointer(to point: CGPoint) {
         if let stream {
             pointer = clamp(point)
             let (x, y) = normalized(pointer)
@@ -351,50 +371,50 @@ final class RemoteSession {
         Task { await client.movePointer(x: Int(target.x), y: Int(target.y)) }
     }
 
-    func press(_ button: VNCButtons, down: Bool) {
+    public func press(_ button: VNCButtons, down: Bool) {
         if let stream {
-            if down { perf.input("press"); heldButtons.insert(button) } else { heldButtons.remove(button) }
+            if down { perf?.input("press"); heldButtons.insert(button) } else { heldButtons.remove(button) }
             let (x, y) = normalized(pointer)
             stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.rawValue))
             return
         }
         guard let client else { return }
-        if down { perf.input("press") }
+        if down { perf?.input("press") }
         if down { heldButtons.insert(button) } else { heldButtons.remove(button) }
         Task { await client.button(button, down: down) }
     }
 
-    func click(_ button: VNCButtons = .left) {
+    public func click(_ button: VNCButtons = .left) {
         if let stream {
-            perf.input(button == .right ? "right-click" : "click")
+            perf?.input(button == .right ? "right-click" : "click")
             let (x, y) = normalized(pointer)
             stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.union(button).rawValue))
             stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.rawValue))
             return
         }
         guard let client else { return }
-        perf.input(button == .right ? "right-click" : "click")
+        perf?.input(button == .right ? "right-click" : "click")
         Task {
             await client.button(button, down: true)
             await client.button(button, down: false)
         }
     }
 
-    func scroll(dx: Int, dy: Int) {
+    public func scroll(dx: Int, dy: Int) {
         if let stream, dx != 0 || dy != 0 {
-            perf.input("scroll")
+            perf?.input("scroll")
             let (x, y) = normalized(pointer)
             stream.send(ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy))
             return
         }
         guard let client, dx != 0 || dy != 0 else { return }
-        perf.input("scroll")
+        perf?.input("scroll")
         Task { await client.scroll(dx: dx, dy: dy) }
     }
 
-    func type(_ text: String, modifiers: [VNCKeysym] = []) {
+    public func type(_ text: String, modifiers: [VNCKeysym] = []) {
         if let stream {
-            perf.input("type")
+            perf?.input("type")
             if modifiers.isEmpty {
                 stream.send(ScreenInput(t: "text", s: text))
             } else {
@@ -405,7 +425,7 @@ final class RemoteSession {
             return
         }
         guard let client else { return }
-        perf.input("type")
+        perf?.input("type")
         if modifiers.isEmpty {
             Task { await client.type(text) }
         } else {
@@ -415,18 +435,18 @@ final class RemoteSession {
         }
     }
 
-    func tap(_ key: VNCKeysym, modifiers: [VNCKeysym] = []) {
+    public func tap(_ key: VNCKeysym, modifiers: [VNCKeysym] = []) {
         if let stream {
-            perf.input(modifiers.isEmpty ? "key" : "shortcut")
+            perf?.input(modifiers.isEmpty ? "key" : "shortcut")
             stream.send(ScreenInput(t: "chord", k: key.rawValue, m: modifiers.map(\.rawValue)))
             return
         }
         guard let client else { return }
-        perf.input(modifiers.isEmpty ? "key" : "shortcut")
+        perf?.input(modifiers.isEmpty ? "key" : "shortcut")
         Task { await client.chord(modifiers, key) }
     }
 
-    func key(_ key: VNCKeysym, down: Bool) {
+    public func key(_ key: VNCKeysym, down: Bool) {
         if let stream {
             stream.send(ScreenInput(t: "key", k: key.rawValue, d: down))
             return
@@ -435,7 +455,7 @@ final class RemoteSession {
         Task { await client.key(key, down: down) }
     }
 
-    func refresh() {
+    public func refresh() {
         if let stream {
             stream.send(ScreenInput(t: "refresh"))
             return
@@ -448,14 +468,14 @@ final class RemoteSession {
         CGPoint(x: min(max(0, point.x), max(0, frameSize.width - 1)), y: min(max(0, point.y), max(0, frameSize.height - 1)))
     }
 
-    static func message(for error: RFBError) -> String {
+    public static func message(for error: RFBError) -> String {
         switch error {
         case .passwordRequired: "This computer asks for a VNC password."
         case .credentialsRequired: "This Mac asks for an account user name and password."
         case let .authenticationFailed(reason): reason.isEmpty ? "The user name or password was not accepted." : reason
         case .connectionClosed: "The computer closed the connection."
         case let .transport(detail): "Could not reach the computer. \(detail)"
-        case let .noSupportedSecurityType(types): "This server needs a sign-in method cmux VNC does not support yet (\(types))."
+        case let .noSupportedSecurityType(types): "This server needs a sign-in method this app does not support yet (\(types))."
         case let .unsupportedProtocolVersion(version): "Not a VNC server (\(version))."
         case let .protocolViolation(detail): "The server sent something unexpected: \(detail)."
         }
@@ -472,4 +492,9 @@ final class RemoteSession {
         default: "#\(raw)"
         }
     }
+}
+
+/// Identity, so an app can present a session with `.fullScreenCover(item:)`.
+extension ScreenSession: Identifiable {
+    public nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
 }

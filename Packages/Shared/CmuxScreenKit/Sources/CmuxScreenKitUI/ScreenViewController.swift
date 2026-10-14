@@ -1,5 +1,5 @@
-import CmuxVNC
-import CmuxVNCWebRTC
+#if os(iOS)
+import CmuxScreenKit
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -12,8 +12,15 @@ import UIKit
 /// its fit and panning stays inside it. A computer with several displays
 /// shows one per page: swipe at fit (or tap the page dots) to switch. With
 /// fitted mode off, pinching zooms freely across all displays.
-final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-    let session: RemoteSession
+///
+/// SwiftUI apps use `ScreenView`; UIKit apps can host this controller directly.
+public final class ScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+    public let session: ScreenSession
+    /// Swipes at fit move between displays (and the page dots show); off
+    /// keeps the view on the current display.
+    public var allowsDisplayPaging = true {
+        didSet { pageControl.alpha = allowsDisplayPaging ? 1 : 0 }
+    }
 
     private let scrollView = UIScrollView()
     private let content = UIView()
@@ -38,7 +45,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     private var videoView: ScreenVideoView?
     private var streamDisplays: [CGSize] = []
 
-    init(session: RemoteSession) {
+    public init(session: ScreenSession) {
         self.session = session
         super.init(nibName: nil, bundle: nil)
     }
@@ -46,7 +53,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidLoad() {
+    override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
         scrollView.frame = view.bounds
@@ -98,14 +105,14 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         }
     }
 
-    override var canBecomeFirstResponder: Bool { true }
+    override public var canBecomeFirstResponder: Bool { true }
 
-    override func viewDidAppear(_ animated: Bool) {
+    override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
     }
 
-    override func viewDidLayoutSubviews() {
+    override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateZoomLimits(resetToFit: false)
     }
@@ -119,7 +126,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         content.insertSubview(video, at: 0)
         videoView = video
         video.onSize = { [weak self] size in self?.applyFrameSize(size) }
-        video.onFrame = { [weak self] in self?.session.perf.streamFrame() }
+        video.onFrame = { [weak self] in self?.session.perf?.streamFrame() }
         session.onVideoTrack = { [weak video] box in video?.attach(box) }
         session.onStreamDisplays = { [weak self] sizes, current in
             guard let self else { return }
@@ -150,7 +157,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         guard let image = frame.makeImage() else { return }
         let copyMs = (CACurrentMediaTime() - copyStart) * 1000
         let drawStart = CACurrentMediaTime()
-        defer { session.perf.frame(frame, stats: session.clientStats, copyMs: copyMs, drawMs: (CACurrentMediaTime() - drawStart) * 1000) }
+        defer { session.perf?.frame(frame, stats: session.clientStats, copyMs: copyMs, drawMs: (CACurrentMediaTime() - drawStart) * 1000) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if size != frameSize {
@@ -201,7 +208,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
 
     /// Pinned to one display (on by default): zoom out stops at its fit,
     /// panning stays inside it, and a swipe at fit changes display.
-    var fitToDisplay = true {
+    public var fitToDisplay = true {
         didSet {
             guard fitToDisplay != oldValue else { return }
             if fitToDisplay { show(page: page, animated: true) } else { paged = false; updateZoomLimits(resetToFit: false) }
@@ -292,20 +299,20 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
                        y: min(max(offset.y, y.lowerBound), y.upperBound))
     }
 
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard fitToDisplay, frameSize != .zero else { return }
         // A swipe at fit may move sideways (to page); everything else stays in the display.
-        let paging = scrollView.isDragging && (screens.count > 1 || streamDisplays.count > 1) && atFit
+        let paging = allowsDisplayPaging && scrollView.isDragging && (screens.count > 1 || streamDisplays.count > 1) && atFit
         let next = clamped(scrollView.contentOffset, allowHorizontal: paging)
         if next != scrollView.contentOffset { scrollView.contentOffset = next }
     }
 
     /// A swipe that ends at fit moves one display (or snaps back); zoomed in,
     /// panning stops at the display's edges.
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+    public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         // Stream mode: each display is its own video; a swipe at fit asks the Mac for the next one.
-        if session.isStream, streamDisplays.count > 1, atFit {
+        if session.isStream, allowsDisplayPaging, streamDisplays.count > 1, atFit {
             let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
             let moved = scrollView.contentOffset.x - home
             var target = page
@@ -319,7 +326,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
             }
             return
         }
-        let pages = paged && screens.count > 1 && (atFit || !fitToDisplay)
+        let pages = allowsDisplayPaging && paged && screens.count > 1 && (atFit || !fitToDisplay)
         guard pages else {
             if fitToDisplay { targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }
             return
@@ -333,7 +340,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         DispatchQueue.main.async { [weak self] in self?.show(page: target, animated: true) }
     }
 
-    func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+    public func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
         // Free mode: pinching leaves paging; a page dot brings it back.
         if !fitToDisplay { paged = false }
     }
@@ -359,9 +366,9 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         centerContent()
     }
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { content }
+    public func viewForZooming(in scrollView: UIScrollView) -> UIView? { content }
 
-    func scrollViewDidZoom(_ scrollView: UIScrollView) {
+    public func scrollViewDidZoom(_ scrollView: UIScrollView) {
         centerContent()
         if fitToDisplay, !scrollView.isZoomBouncing {
             let next = clamped(scrollView.contentOffset, allowHorizontal: false)
@@ -411,7 +418,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         scrollView.panGestureRecognizer.require(toFail: longPress)
     }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         // Pinch zoom and two-finger scroll may run together.
         (gestureRecognizer == twoFingerPan && other == scrollView.pinchGestureRecognizer)
@@ -470,7 +477,8 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
 
     // MARK: Keyboard
 
-    var isKeyboardVisible: Bool {
+    /// The software keyboard (with its Esc/Tab/arrows/modifier bar).
+    public var isKeyboardVisible: Bool {
         get { keyInput.isFirstResponder }
         set {
             if newValue { keyInput.becomeFirstResponder() } else { keyInput.resignFirstResponder(); becomeFirstResponder() }
@@ -478,15 +486,16 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     }
 
     /// A hardware keyboard while the software keyboard is hidden.
-    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    override public func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: true) { super.pressesBegan(presses, with: event) }
     }
 
-    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    override public func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: false) { super.pressesEnded(presses, with: event) }
     }
 
-    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    override public func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
     }
 }
+#endif

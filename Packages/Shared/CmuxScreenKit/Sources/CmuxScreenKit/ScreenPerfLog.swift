@@ -2,32 +2,33 @@ import CmuxVNC
 import Foundation
 import QuartzCore
 
-/// Per-update and per-input timings, one JSON line each, appended to
-/// Documents/perf.log (pull it with `devicectl device copy from`):
+/// Opt-in per-update and per-input timings, one JSON line each, appended to
+/// a file (default Documents/perf.log; pull it with `devicectl device copy from`).
+/// Set `ScreenSession.perf` to turn it on:
 /// - frame: server latency (request → first byte), receive+decode, pixels,
 ///   bytes since the last frame, wait on the main queue, image copy, draw;
 /// - input: what was sent, and the time until the next frame shows (input → frame).
 @MainActor
-final class PerfLog {
+public final class ScreenPerfLog {
     private let handle: FileHandle?
     private let start = CACurrentMediaTime()
     private var lastBytes = 0
     private var pendingInput: (name: String, at: CFTimeInterval)?
 
-    init() {
-        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("perf.log")
+    public init(file: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("perf.log")) {
+        let url = file
         if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
         handle = try? FileHandle(forWritingTo: url)
         _ = try? handle?.seekToEnd()
         write(["event": "session", "at": Date().ISO8601Format()])
     }
 
-    func input(_ name: String) {
+    public func input(_ name: String) {
         if pendingInput == nil { pendingInput = (name, CACurrentMediaTime()) }
         write(["event": "input", "t": ms(CACurrentMediaTime() - start), "name": name])
     }
 
-    func frame(_ frame: VNCFrame, stats: VNCSessionStats, copyMs: Double, drawMs: Double) {
+    public func frame(_ frame: VNCFrame, stats: VNCSessionStats, copyMs: Double, drawMs: Double) {
         let now = CACurrentMediaTime()
         let queued = Double(DispatchTime.now().uptimeNanoseconds &- frame.publishedAt) / 1e6 - copyMs - drawMs
         var line: [String: Any] = [
@@ -48,7 +49,7 @@ final class PerfLog {
     /// Stream mode: a rendered video frame (WebRTC) — closes an input's
     /// input → frame timing. Frames repeat while idle (refresh), so a
     /// measurement is the first frame after the input, an upper bound.
-    func streamFrame() {
+    public func streamFrame() {
         guard let input = pendingInput else { return }
         pendingInput = nil
         write(["event": "frame", "t": ms(CACurrentMediaTime() - start), "input": input.name,

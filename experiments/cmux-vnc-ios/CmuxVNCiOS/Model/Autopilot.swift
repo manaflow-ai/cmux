@@ -1,3 +1,5 @@
+import CmuxScreenKit
+import CmuxScreenKitUI
 import CmuxVNC
 import CmuxVNCWebRTC
 import Foundation
@@ -18,25 +20,25 @@ struct Autopilot {
     }
 
     @MainActor
-    func session() -> RemoteSession? {
-        if opensDemo { return RemoteSession(demoPreferences: SessionPreferences()) }
+    func session() -> ScreenSession? {
+        if opensDemo { return ScreenSession(demoPreferences: ScreenPreferences()) }
         if let raw = value("-autoLink"), let url = URL(string: raw), let pairing = VNCPairing(link: url) {
-            return RemoteSession(title: pairing.name, pairing: pairing,
+            return ScreenSession(title: pairing.name, pairing: pairing,
                                  credentials: VNCCredentials(username: value("-autoUser"), password: value("-autoPassword")),
-                                 preferences: SessionPreferences())
+                                 preferences: ScreenPreferences())
         }
         guard let address = value("-autoHost"), let parsed = VNCEndpoint.parse(address) else { return nil }
         let credentials = VNCCredentials(username: value("-autoUser") ?? parsed.credentials.username,
                                          password: value("-autoPassword") ?? parsed.credentials.password)
-        return RemoteSession(title: parsed.endpoint.label, endpoint: parsed.endpoint, credentials: credentials,
-                             preferences: SessionPreferences())
+        return ScreenSession(title: parsed.endpoint.label, endpoint: parsed.endpoint, credentials: credentials,
+                             preferences: ScreenPreferences())
     }
 
     /// `-perfScript`: realistic actions on a real Mac, paced like a person,
     /// so `perf.log` records input → frame for each: Spotlight, typing,
     /// Escape, clicks, scrolls. Five rounds.
     @MainActor
-    func playPerfScript(on session: RemoteSession) async {
+    func playPerfScript(on session: ScreenSession) async {
         guard await session.waitUntilConnected() else { return }
         try? await Task.sleep(for: .seconds(3)) // let the first full frame settle
         let size = session.frameSize
@@ -57,7 +59,7 @@ struct Autopilot {
 
     /// Paints a stroke, types a line and scrolls, with pauses a viewer can follow.
     @MainActor
-    func play(on session: RemoteSession) async {
+    func play(on session: ScreenSession) async {
         guard await session.waitUntilConnected() else { return }
         // Pacing for a person watching, not synchronization.
         try? await Task.sleep(for: .seconds(1))

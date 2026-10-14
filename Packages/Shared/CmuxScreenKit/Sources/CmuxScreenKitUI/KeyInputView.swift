@@ -1,11 +1,12 @@
-import CmuxVNC
+#if os(iOS)
+import CmuxScreenKit
 import UIKit
 
 /// The software keyboard's target: typed text goes to the remote computer.
 /// Its accessory bar adds the keys an iPhone keyboard lacks (Esc, Tab,
 /// arrows) and sticky Control, Option and Command, which apply to the next key.
 final class KeyInputView: UIView, UIKeyInput {
-    weak var session: RemoteSession?
+    weak var session: ScreenSession?
     private lazy var bar = KeyBar(owner: self)
 
     override var canBecomeFirstResponder: Bool { true }
@@ -144,3 +145,4 @@ final class KeyBar: UIInputView {
         button.isSelected = active
     }
 }
+#endif

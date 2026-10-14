@@ -11,6 +11,8 @@ packages:
     path: ../../Packages/Shared/CmuxVNC
   CmuxVNCWebRTC:
     path: ../../Packages/Shared/CmuxVNCWebRTC
+  CmuxScreenKit:
+    path: ../../Packages/Shared/CmuxScreenKit
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -29,6 +31,10 @@ targets:
         product: CmuxVNCDemoServer
       - package: CmuxVNCWebRTC
         product: CmuxVNCWebRTC
+      - package: CmuxScreenKit
+        product: CmuxScreenKit
+      - package: CmuxScreenKit
+        product: CmuxScreenKitUI
     info:
       path: CmuxVNCiOS/Info.plist
       properties:
@@ -66,6 +72,10 @@ targets:
         product: CmuxVNCDemoServer
       - package: CmuxVNCWebRTC
         product: CmuxVNCWebRTC
+      - package: CmuxScreenKit
+        product: CmuxScreenKit
+      - package: CmuxScreenKit
+        product: CmuxScreenKitUI
     info:
       path: CmuxVNCRustiOS/Info.plist
     settings:

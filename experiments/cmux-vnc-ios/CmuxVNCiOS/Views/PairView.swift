@@ -1,6 +1,7 @@
+import CmuxScreenKit
+import CmuxScreenKitUI
 import CmuxVNCWebRTC
 import SwiftUI
-import VisionKit
 
 /// Pairs a Mac running `cmux-vnc-host`: scan its QR code or paste its link,
 /// then (optionally) save the Mac account the Screen Sharing sign-in uses.
@@ -18,7 +19,7 @@ struct PairView: View {
         NavigationStack {
             Form {
                 Section {
-                    if DataScannerViewController.isSupported {
+                    if PairingScanner.isSupported {
                         Button("Scan Pairing Code", systemImage: "qrcode.viewfinder") { scanning = true }
                     }
                     TextField("cmux-vnc://pair?…", text: $link, axis: .vertical)
@@ -62,42 +63,11 @@ struct PairView: View {
                 }
             }
             .sheet(isPresented: $scanning) {
-                QRScanner { code in
+                PairingScanner { code in
                     link = code
                     scanning = false
                 }
                 .ignoresSafeArea()
-            }
-        }
-    }
-}
-
-/// VisionKit's live scanner, QR codes only; reports the first pairing link.
-struct QRScanner: UIViewControllerRepresentable {
-    let found: (String) -> Void
-
-    func makeUIViewController(context: Context) -> DataScannerViewController {
-        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], qualityLevel: .balanced,
-                                                isHighlightingEnabled: true)
-        scanner.delegate = context.coordinator
-        try? scanner.startScanning()
-        return scanner
-    }
-
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(found: found) }
-
-    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
-        let found: (String) -> Void
-        init(found: @escaping (String) -> Void) { self.found = found }
-
-        func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
-            for case let .barcode(code) in items {
-                if let value = code.payloadStringValue, value.hasPrefix("cmux-vnc://") {
-                    found(value)
-                    return
-                }
             }
         }
     }

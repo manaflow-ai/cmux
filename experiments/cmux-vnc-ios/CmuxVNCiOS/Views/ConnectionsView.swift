@@ -1,3 +1,5 @@
+import CmuxScreenKit
+import CmuxScreenKitUI
 import CmuxVNC
 import CmuxVNCWebRTC
 import SwiftUI
@@ -6,7 +8,7 @@ import SwiftUI
 struct ConnectionsView: View {
     @Environment(HostStore.self) private var store
     @State private var editing: SavedHost?
-    @State private var session: RemoteSession?
+    @State private var session: ScreenSession?
     @State private var pairingLink: PairingLink?
 
     var body: some View {
@@ -14,7 +16,7 @@ struct ConnectionsView: View {
             List {
                 Section {
                     Button {
-                        open(RemoteSession(demoPreferences: SessionPreferences()))
+                        open(ScreenSession(demoPreferences: ScreenPreferences()))
                     } label: {
                         HostRow(title: "Demo desktop", subtitle: "A desktop drawn by this app, over a real VNC connection",
                                 symbol: "sparkles.rectangle.stack")
@@ -68,7 +70,7 @@ struct ConnectionsView: View {
                 HostEditorView(host: host)
             }
             .fullScreenCover(item: $session) { session in
-                RemoteSessionView(session: session) {
+                ScreenSessionView(session: session) {
                     if let id = session.hostID { store.setOptions(session.preferences, for: id) }
                     self.session = nil
                 }
@@ -95,7 +97,7 @@ struct ConnectionsView: View {
     private func connect(_ host: SavedHost) {
         if let pairing = host.pairing {
             let password = store.password(for: host)
-            let session = RemoteSession(title: host.name, pairing: pairing,
+            let session = ScreenSession(title: host.name, pairing: pairing,
                                         credentials: VNCCredentials(username: host.username, password: password), preferences: host.options)
             session.hostID = host.id
             open(session)
@@ -104,11 +106,12 @@ struct ConnectionsView: View {
         guard let parsed = VNCEndpoint.parse(host.address) else { return }
         let password = store.password(for: host) ?? parsed.credentials.password
         let username = host.username.isEmpty ? parsed.credentials.username : host.username
-        open(RemoteSession(title: host.name.isEmpty ? parsed.endpoint.label : host.name, endpoint: parsed.endpoint,
+        open(ScreenSession(title: host.name.isEmpty ? parsed.endpoint.label : host.name, endpoint: parsed.endpoint,
                            credentials: VNCCredentials(username: username, password: password), preferences: host.options))
     }
 
-    private func open(_ session: RemoteSession) {
+    private func open(_ session: ScreenSession) {
+        session.perf = ScreenPerfLog()
         self.session = session
         session.connect()
     }
@@ -140,6 +143,3 @@ struct PairingLink: Identifiable {
     var value: String
 }
 
-extension RemoteSession: Identifiable {
-    nonisolated var id: ObjectIdentifier { ObjectIdentifier(self) }
-}

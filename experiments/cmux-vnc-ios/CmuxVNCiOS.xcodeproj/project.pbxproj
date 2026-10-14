@@ -9,35 +9,27 @@
 /* Begin PBXBuildFile section */
 		041AF974E3BE60838D074F5B /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
 		092697F98C34F4CD226C10D9 /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
-		0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516E107D77ED1D54537104D0 /* RemoteSession.swift */; };
-		11CF5B60303CF5833A2DAAFA /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
 		1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */ = {isa = PBXBuildFile; productRef = A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */; };
-		161DE86E078D8D04D95565DE /* MacShortcutsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */; };
-		21AD5EC1C4EEF48DEACB62D6 /* KeyInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3922A291E66A69D6BB43CE46 /* KeyInputView.swift */; };
-		26C0895F7E142FEE54DF3D90 /* MacShortcutsBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */; };
 		27707F70407ACBE92B626F2C /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */; };
 		2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 70719AB65CB7047B142F5467 /* CmuxVNC */; };
+		33411CC9145C936D3FDC67E0 /* CmuxScreenKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */; };
 		3DE4EA9698154D6BF09451C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
+		46D21F1C949A4E84CEDC8D03 /* CmuxScreenKit in Frameworks */ = {isa = PBXBuildFile; productRef = D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */; };
 		4A8640D01932E12BFE02CF3A /* CmuxVNCApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */; };
 		4DFAA2147426349D75E79C48 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
 		5644833820FAA7A1243B1DE1 /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789676ADCF30DB0BD93352BC /* Snapshotter.swift */; };
-		56815B7E6F93185E14F47700 /* RemoteSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */; };
 		59BC0DE35E23E1A241514C2D /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
-		6A249C94DDD4C771D8258407 /* KeyInputView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3922A291E66A69D6BB43CE46 /* KeyInputView.swift */; };
-		750E9F5A6163CDAB2F457B71 /* RemoteSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516E107D77ED1D54537104D0 /* RemoteSession.swift */; };
+		750AF2A781BF33CD4DBB639C /* CmuxScreenKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7607B560A86EF731801EA822 /* CmuxScreenKitUI */; };
 		7D7B85D5E12830EE106E7F51 /* CmuxVNCDemoServer in Frameworks */ = {isa = PBXBuildFile; productRef = 341EC55BEB52F82641855469 /* CmuxVNCDemoServer */; };
 		891CDDA3E4D9D76A5E17CA89 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B429AE6EE4AA26D818EA95CA /* Assets.xcassets */; };
+		895117D798A4A9EF21E82A92 /* CmuxScreenKit in Frameworks */ = {isa = PBXBuildFile; productRef = 96C9E082B9DF954005605AD5 /* CmuxScreenKit */; };
 		8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
-		8BFDCB10909BBD2F3C761D01 /* PerfLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */; };
 		8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
 		8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
 		99C7E63394F5D19520514332 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
-		9B1B726D7E853D9963B1F5C3 /* PerfLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */; };
 		A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
 		B1ADE045C502ECBDF703155A /* ConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */; };
-		BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
 		DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
-		E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */; };
 		E8F5AE024C1E0E4EE0F7E1AE /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
 		EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */; };
 		F35AA2738654BA48D9310F91 /* CmuxVNC in Frameworks */ = {isa = PBXBuildFile; productRef = 8955AA16B580B257152AAABB /* CmuxVNC */; };
@@ -47,18 +39,13 @@
 
 /* Begin PBXFileReference section */
 		0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfLog.swift; sourceTree = "<group>"; };
-		37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacShortcutsBar.swift; sourceTree = "<group>"; };
-		3922A291E66A69D6BB43CE46 /* KeyInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInputView.swift; sourceTree = "<group>"; };
+		3C31BB7872E2FAD260DB644C /* CmuxScreenKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxScreenKit; path = ../../Packages/Shared/CmuxScreenKit; sourceTree = SOURCE_ROOT; };
 		3E1DB2147CBCD84F34A58FA3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		3FF8B403BAE7CCD08C35184D /* SeedImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeedImport.swift; sourceTree = "<group>"; };
 		494DF156D54D5E620928A545 /* CmuxVNCRustiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCRustiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		516E107D77ED1D54537104D0 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSession.swift; sourceTree = "<group>"; };
-		62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteScreenViewController.swift; sourceTree = "<group>"; };
 		641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxVNCWebRTC; path = ../../Packages/Shared/CmuxVNCWebRTC; sourceTree = SOURCE_ROOT; };
 		763951F27B0C01E5C5523742 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
 		789676ADCF30DB0BD93352BC /* Snapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshotter.swift; sourceTree = "<group>"; };
-		803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionView.swift; sourceTree = "<group>"; };
 		AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
 		B429AE6EE4AA26D818EA95CA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BD42CD58C625DF169A1FE45A /* CmuxVNCApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxVNCApp.swift; sourceTree = "<group>"; };
@@ -76,6 +63,8 @@
 				2A6249922C218BF4446B0ED8 /* CmuxVNC in Frameworks */,
 				1300D6B7D3F5C5D99921ED6E /* CmuxVNCDemoServer in Frameworks */,
 				EF55EF7D8A926773CCA9EBCC /* CmuxVNCWebRTC in Frameworks */,
+				895117D798A4A9EF21E82A92 /* CmuxScreenKit in Frameworks */,
+				750AF2A781BF33CD4DBB639C /* CmuxScreenKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,6 +75,8 @@
 				F35AA2738654BA48D9310F91 /* CmuxVNC in Frameworks */,
 				7D7B85D5E12830EE106E7F51 /* CmuxVNCDemoServer in Frameworks */,
 				FA854B6DF943A38388A32149 /* CmuxVNCWebRTC in Frameworks */,
+				46D21F1C949A4E84CEDC8D03 /* CmuxScreenKit in Frameworks */,
+				33411CC9145C936D3FDC67E0 /* CmuxScreenKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,9 +97,7 @@
 			children = (
 				AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */,
 				F7C179D5FF8893AF8F176074 /* HostEditorView.swift */,
-				37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */,
 				C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */,
-				803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -125,6 +114,7 @@
 		4EB5F23277DB215859F2266B /* Packages */ = {
 			isa = PBXGroup;
 			children = (
+				3C31BB7872E2FAD260DB644C /* CmuxScreenKit */,
 				E233F29DA734930808AB0D11 /* CmuxVNC */,
 				641F7284DC05B04A8FF1D9BC /* CmuxVNCWebRTC */,
 			);
@@ -138,7 +128,6 @@
 				3E1DB2147CBCD84F34A58FA3 /* Info.plist */,
 				D1AA787CDD982B7EF1612CD2 /* App */,
 				AC0C8E8586ECFF00F4142739 /* Model */,
-				D16E45DB77BF79E0ECA40B21 /* Screen */,
 				0D83C7B21892D459B7BEE93F /* Views */,
 			);
 			path = CmuxVNCiOS;
@@ -149,21 +138,10 @@
 			children = (
 				E34218DA8A55EF28C184DB10 /* Autopilot.swift */,
 				763951F27B0C01E5C5523742 /* HostStore.swift */,
-				18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */,
-				516E107D77ED1D54537104D0 /* RemoteSession.swift */,
 				3FF8B403BAE7CCD08C35184D /* SeedImport.swift */,
 				789676ADCF30DB0BD93352BC /* Snapshotter.swift */,
 			);
 			path = Model;
-			sourceTree = "<group>";
-		};
-		D16E45DB77BF79E0ECA40B21 /* Screen */ = {
-			isa = PBXGroup;
-			children = (
-				3922A291E66A69D6BB43CE46 /* KeyInputView.swift */,
-				62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */,
-			);
-			path = Screen;
 			sourceTree = "<group>";
 		};
 		D1AA787CDD982B7EF1612CD2 /* App */ = {
@@ -194,6 +172,8 @@
 				8955AA16B580B257152AAABB /* CmuxVNC */,
 				341EC55BEB52F82641855469 /* CmuxVNCDemoServer */,
 				112702CB1772EEA50B796AAE /* CmuxVNCWebRTC */,
+				D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */,
+				07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */,
 			);
 			productName = CmuxVNCRustiOS;
 			productReference = 494DF156D54D5E620928A545 /* CmuxVNCRustiOS.app */;
@@ -216,6 +196,8 @@
 				70719AB65CB7047B142F5467 /* CmuxVNC */,
 				A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */,
 				4B909E452D84A68D195CB89E /* CmuxVNCWebRTC */,
+				96C9E082B9DF954005605AD5 /* CmuxScreenKit */,
+				7607B560A86EF731801EA822 /* CmuxScreenKitUI */,
 			);
 			productName = CmuxVNCiOS;
 			productReference = 0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */;
@@ -248,6 +230,7 @@
 			mainGroup = 11CCB9EDEF3A651F73071C6A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				9F40A98CA4B1960B7C61DAAE /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxScreenKit" */,
 				0142DD7E5D837B0F7D599108 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNC" */,
 				4323414C4B22920C7F4E3231 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxVNCWebRTC" */,
 			);
@@ -291,13 +274,7 @@
 				27707F70407ACBE92B626F2C /* ConnectionsView.swift in Sources */,
 				8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */,
 				DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */,
-				21AD5EC1C4EEF48DEACB62D6 /* KeyInputView.swift in Sources */,
-				26C0895F7E142FEE54DF3D90 /* MacShortcutsBar.swift in Sources */,
 				8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */,
-				9B1B726D7E853D9963B1F5C3 /* PerfLog.swift in Sources */,
-				BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */,
-				0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */,
-				E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */,
 				8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */,
 				FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */,
 			);
@@ -312,13 +289,7 @@
 				B1ADE045C502ECBDF703155A /* ConnectionsView.swift in Sources */,
 				99C7E63394F5D19520514332 /* HostEditorView.swift in Sources */,
 				59BC0DE35E23E1A241514C2D /* HostStore.swift in Sources */,
-				6A249C94DDD4C771D8258407 /* KeyInputView.swift in Sources */,
-				161DE86E078D8D04D95565DE /* MacShortcutsBar.swift in Sources */,
 				4DFAA2147426349D75E79C48 /* PairView.swift in Sources */,
-				8BFDCB10909BBD2F3C761D01 /* PerfLog.swift in Sources */,
-				11CF5B60303CF5833A2DAAFA /* RemoteScreenViewController.swift in Sources */,
-				750E9F5A6163CDAB2F457B71 /* RemoteSession.swift in Sources */,
-				56815B7E6F93185E14F47700 /* RemoteSessionView.swift in Sources */,
 				041AF974E3BE60838D074F5B /* SeedImport.swift in Sources */,
 				5644833820FAA7A1243B1DE1 /* Snapshotter.swift in Sources */,
 			);
@@ -595,9 +566,17 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../Packages/Shared/CmuxVNCWebRTC;
 		};
+		9F40A98CA4B1960B7C61DAAE /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxScreenKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxScreenKit;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		07FB08D0D7E80AC10FCCCA8B /* CmuxScreenKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKitUI;
+		};
 		112702CB1772EEA50B796AAE /* CmuxVNCWebRTC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxVNCWebRTC;
@@ -614,13 +593,25 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxVNC;
 		};
+		7607B560A86EF731801EA822 /* CmuxScreenKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKitUI;
+		};
 		8955AA16B580B257152AAABB /* CmuxVNC */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxVNC;
 		};
+		96C9E082B9DF954005605AD5 /* CmuxScreenKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKit;
+		};
 		A202773E9B5B948AA35F7918 /* CmuxVNCDemoServer */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxVNCDemoServer;
+		};
+		D043F13E142295EE3CAFF4B1 /* CmuxScreenKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxScreenKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
