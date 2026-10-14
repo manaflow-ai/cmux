@@ -279,6 +279,10 @@ extension Workspace {
         )
     }
 
+    /// Ends a stopped agent whose session moved to another machine, so neither
+    /// this run nor a relaunch resumes it on this Mac.
+    func endAgentHibernationAfterSessionMove(panelId: UUID) {}
+
     func markRestoredAgentCompleted(
         panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot

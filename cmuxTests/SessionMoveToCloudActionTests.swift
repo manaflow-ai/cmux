@@ -1,5 +1,7 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxCommandPalette
+import CmuxWorkspaces
 import Foundation
 import SwiftUI
 import Testing
@@ -18,13 +20,13 @@ private final class RecordingSessionMoveLauncher: SessionMoveCLILaunching {
     }
 
     private(set) var launches: [Launch] = []
-    private var completions: [@MainActor (Bool, String) -> Void] = []
+    private var completions: [@MainActor (Int32, String) -> Void] = []
 
     func launchSessionMove(
         arguments: [String],
         workingDirectory: URL?,
         onOutput: @escaping @MainActor (String) -> Void,
-        onCompletion: @escaping @MainActor (Bool, String) -> Void
+        onCompletion: @escaping @MainActor (Int32, String) -> Void
     ) -> Bool {
         launches.append(Launch(arguments: arguments, workingDirectory: workingDirectory))
         completions.append(onCompletion)
@@ -32,10 +34,14 @@ private final class RecordingSessionMoveLauncher: SessionMoveCLILaunching {
     }
 
     func finishAll(succeeded: Bool, output: String = "") {
+        finishAll(status: succeeded ? 0 : 1, output: output)
+    }
+
+    func finishAll(status: Int32, output: String = "") {
         let pending = completions
         completions.removeAll()
         for completion in pending {
-            completion(succeeded, output)
+            completion(status, output)
         }
     }
 }
@@ -45,6 +51,7 @@ private final class RecordingSessionMoveStopper: SessionMoveAgentStopping {
     var refusal: AgentHibernationManualRefusal?
     private(set) var stopCount = 0
     private(set) var resumedPanelIds: [UUID] = []
+    private(set) var endedPanelIds: [UUID] = []
 
     func stopAgent(workspaceId: UUID, panelId: UUID) async -> AgentHibernationManualRefusal? {
         stopCount += 1
@@ -53,6 +60,10 @@ private final class RecordingSessionMoveStopper: SessionMoveAgentStopping {
 
     func resumeAgent(workspaceId: UUID, panelId: UUID) {
         resumedPanelIds.append(panelId)
+    }
+
+    func endMovedAgent(workspaceId: UUID, panelId: UUID) {
+        endedPanelIds.append(panelId)
     }
 }
 
@@ -80,6 +91,10 @@ struct SessionMoveToCloudActionTests {
         #expect(fixture.workspace.statusEntries[SessionMoveToCloudAction.statusKey] == nil)
         #expect(fixture.stopper.resumedPanelIds.isEmpty)
         #expect(fixture.notifications.isEmpty)
+        // The session now runs on the machine: the pane keeps its hold and is
+        // ended here for good.
+        #expect(SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+        #expect(fixture.stopper.endedPanelIds == [fixture.panelId])
     }
 
     @Test
@@ -122,7 +137,7 @@ struct SessionMoveToCloudActionTests {
 
         fixture.launcher.finishAll(succeeded: false)
         await first.value
-        // The finished move no longer blocks the session.
+        // The failed move no longer blocks the session.
         let third = try #require(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: nil))
         try await waitUntil { fixture.launcher.launches.count == 2 }
         fixture.launcher.finishAll(succeeded: true)
@@ -143,6 +158,122 @@ struct SessionMoveToCloudActionTests {
         #expect(fixture.workspace.statusEntries[SessionMoveToCloudAction.statusKey] == nil)
         #expect(fixture.notifications.count == 1)
         #expect(fixture.notifications.first?.contains("cannot reach the machine") == true)
+        #expect(!SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+        #expect(fixture.stopper.endedPanelIds.isEmpty)
+        #expect(fixture.action.canMove(workspace: fixture.workspace, panelId: fixture.panelId) != nil)
+    }
+
+    @Test
+    func aPaneHeldForAMoveDoesNotWakeClaude() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let panel = try #require(fixture.workspace.terminalPanel(for: fixture.panelId))
+        try #require(fixture.workspace.enterAgentHibernation(
+            panelId: fixture.panelId,
+            agent: Fixture.claudeAgent(sessionId: fixture.sessionId, directory: fixture.directory.path),
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        let task = try #require(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: nil))
+        try await waitUntil { fixture.launcher.launches.count == 1 }
+
+        #expect(SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+        #expect(panel.prepareAgentHibernationResume() == .unavailable)
+        #expect(!fixture.workspace.resumeAgentHibernation(panelId: fixture.panelId, focus: false))
+        #expect(panel.isAgentHibernated)
+
+        fixture.launcher.finishAll(succeeded: true)
+        await task.value
+    }
+
+    @Test
+    func aFinishedMoveCannotBeMovedAgainOrReleaseItsHold() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let task = try #require(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: nil))
+        try await waitUntil { fixture.launcher.launches.count == 1 }
+        fixture.launcher.finishAll(succeeded: true)
+        await task.value
+
+        #expect(fixture.action.canMove(workspace: fixture.workspace, panelId: fixture.panelId) == nil)
+        #expect(fixture.action.movablePanelId(in: fixture.workspace) == nil)
+        #expect(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: "m-2") == nil)
+        #expect(fixture.launcher.launches.count == 1)
+        #expect(fixture.stopper.stopCount == 1)
+        #expect(SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+    }
+
+    @Test
+    func aFailedMoveOfAnAlreadyHibernatedClaudeLeavesItAsleep() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        fixture.stopper.refusal = .alreadyHibernated
+
+        let task = try #require(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: nil))
+        try await waitUntil { fixture.launcher.launches.count == 1 }
+        fixture.launcher.finishAll(status: 1, output: "Error: session move: cannot reach the machine: timed out\n")
+        await task.value
+
+        #expect(fixture.stopper.resumedPanelIds.isEmpty)
+        #expect(fixture.stopper.endedPanelIds.isEmpty)
+        #expect(!SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+        #expect(fixture.notifications.count == 1)
+    }
+
+    @Test
+    func aMoveWhoseTerminalDidNotOpenKeepsClaudeOffThisMac() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+
+        let task = try #require(fixture.action.move(workspace: fixture.workspace, panelId: fixture.panelId, machine: nil))
+        try await waitUntil { fixture.launcher.launches.count == 1 }
+        // Exit status 3: the session reached the machine, a later step failed.
+        fixture.launcher.finishAll(status: 3, output: "Error: session move: could not open the Cloud terminal: timed out\n")
+        await task.value
+
+        #expect(fixture.stopper.resumedPanelIds.isEmpty)
+        #expect(fixture.stopper.endedPanelIds == [fixture.panelId])
+        #expect(SessionMoveToCloudAction.holdsAgentResume(panelId: fixture.panelId))
+        #expect(fixture.action.canMove(workspace: fixture.workspace, panelId: fixture.panelId) == nil)
+        #expect(fixture.notifications.isEmpty)
+        #expect(fixture.movedWithoutTerminalNotifications.count == 1)
+        #expect(fixture.movedWithoutTerminalNotifications.first?.contains("could not open the Cloud terminal") == true)
+        #expect(fixture.workspace.statusEntries[SessionMoveToCloudAction.statusKey] == nil)
+    }
+
+    @Test
+    func endingAMovedClaudeLeavesNothingForARelaunchToResume() throws {
+        let workspace = Workspace(restorableAgentIndexProvider: { .empty })
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelId))
+        let sessionId = UUID().uuidString.lowercased()
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: Fixture.claudeAgent(sessionId: sessionId, directory: "/tmp/cmux-move-to-cloud"),
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        let hibernated = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: .empty)
+        try #require(hibernated.panels.first { $0.id == panelId }?.terminal?.agent?.sessionId == sessionId)
+
+        workspace.endAgentHibernationAfterSessionMove(panelId: panelId)
+
+        #expect(!panel.isAgentHibernated)
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .completedAgentExit)
+        #expect(!workspace.resumeAgentHibernation(panelId: panelId, focus: false))
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false, restorableAgentIndex: .empty)
+        let terminal = try #require(snapshot.panels.first { $0.id == panelId }?.terminal)
+        #expect(terminal.agent == nil)
+        #expect(terminal.hibernation == nil)
+
+        let relaunched = Workspace(restorableAgentIndexProvider: { .empty })
+        defer { relaunched.teardownAllPanels() }
+        relaunched.restoreSessionSnapshot(snapshot)
+        let relaunchedPanelId = try #require(relaunched.focusedPanelId)
+        let relaunchedPanel = try #require(relaunched.terminalPanel(for: relaunchedPanelId))
+        #expect(!relaunchedPanel.isAgentHibernated)
+        #expect(relaunched.restoredAgentSnapshotsByPanelId[relaunchedPanelId] == nil)
     }
 
     @Test
@@ -241,10 +372,12 @@ struct SessionMoveToCloudActionTests {
         let action: SessionMoveToCloudAction
 
         var notifications: [String] { notificationBox.bodies }
+        var movedWithoutTerminalNotifications: [String] { notificationBox.movedWithoutTerminalBodies }
 
         @MainActor
         final class NotificationBox {
             var bodies: [String] = []
+            var movedWithoutTerminalBodies: [String] = []
         }
 
         init() throws {
@@ -268,7 +401,8 @@ struct SessionMoveToCloudActionTests {
                 snapshot: snapshot,
                 launcher: launcher,
                 stopper: stopper,
-                notify: { body in box.bodies.append(body) }
+                notify: { body in box.bodies.append(body) },
+                notifyMovedWithoutTerminal: { body in box.movedWithoutTerminalBodies.append(body) }
             )
         }
 
@@ -281,14 +415,34 @@ struct SessionMoveToCloudActionTests {
             launcher: RecordingSessionMoveLauncher,
             stopper: RecordingSessionMoveStopper,
             isCloudEnabled: Bool = true,
-            notify: @escaping @MainActor (String) -> Void = { _ in }
+            notify: @escaping @MainActor (String) -> Void = { _ in },
+            notifyMovedWithoutTerminal: @escaping @MainActor (String) -> Void = { _ in }
         ) -> SessionMoveToCloudAction {
             SessionMoveToCloudAction(
                 launcher: launcher,
                 stopper: stopper,
                 resolveSnapshot: { _, _ in snapshot },
                 isCloudEnabled: { isCloudEnabled },
-                notifyFailure: { _, body in notify(body) }
+                notifyFailure: { _, body in notify(body) },
+                notifyMovedWithoutTerminal: { _, body in notifyMovedWithoutTerminal(body) }
+            )
+        }
+
+        /// A Claude this pane could resume, as hibernation records it.
+        static func claudeAgent(sessionId: String, directory: String) -> SessionRestorableAgentSnapshot {
+            SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: sessionId,
+                workingDirectory: directory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: "claude",
+                    executablePath: "/usr/local/bin/claude",
+                    arguments: ["/usr/local/bin/claude", "--model", "claude-opus-4-8"],
+                    workingDirectory: directory,
+                    environment: nil,
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                )
             )
         }
 

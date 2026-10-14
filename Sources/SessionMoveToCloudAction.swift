@@ -8,11 +8,13 @@ import Foundation
 @MainActor
 protocol SessionMoveCLILaunching: AnyObject {
     /// False when the CLI could not start; `onCompletion` then never runs.
+    /// `terminationStatus` is the CLI's exit status; a cancelled run reports
+    /// a non-zero status.
     func launchSessionMove(
         arguments: [String],
         workingDirectory: URL?,
         onOutput: @escaping @MainActor (String) -> Void,
-        onCompletion: @escaping @MainActor (_ succeeded: Bool, _ output: String) -> Void
+        onCompletion: @escaping @MainActor (_ terminationStatus: Int32, _ output: String) -> Void
     ) -> Bool
 }
 
@@ -22,6 +24,9 @@ protocol SessionMoveCLILaunching: AnyObject {
 protocol SessionMoveAgentStopping: AnyObject {
     func stopAgent(workspaceId: UUID, panelId: UUID) async -> AgentHibernationManualRefusal?
     func resumeAgent(workspaceId: UUID, panelId: UUID)
+    /// Ends the stopped agent here for good once its session lives on the
+    /// machine, so neither this run nor a relaunch resumes it on this Mac.
+    func endMovedAgent(workspaceId: UUID, panelId: UUID)
 }
 
 /// Move to Cloud: the one path behind the workspace row menu, the terminal
@@ -44,6 +49,7 @@ final class SessionMoveToCloudAction {
     private let resolveSnapshot: @MainActor (Workspace, UUID) -> SessionRestorableAgentSnapshot?
     private let isCloudEnabled: @MainActor () -> Bool
     private let notifyFailure: @MainActor (_ workspaceId: UUID, _ body: String) -> Void
+    private let notifyMovedWithoutTerminal: @MainActor (_ workspaceId: UUID, _ body: String) -> Void
     /// Lower-cased ids of sessions with a move running; a second click is a no-op.
     private var inFlightSessionIds: Set<String> = []
     /// The newest refusal shown per pane, so an older one's timer never clears it.
@@ -54,13 +60,15 @@ final class SessionMoveToCloudAction {
         stopper: (any SessionMoveAgentStopping)? = nil,
         resolveSnapshot: (@MainActor (Workspace, UUID) -> SessionRestorableAgentSnapshot?)? = nil,
         isCloudEnabled: (@MainActor () -> Bool)? = nil,
-        notifyFailure: (@MainActor (_ workspaceId: UUID, _ body: String) -> Void)? = nil
+        notifyFailure: (@MainActor (_ workspaceId: UUID, _ body: String) -> Void)? = nil,
+        notifyMovedWithoutTerminal: (@MainActor (_ workspaceId: UUID, _ body: String) -> Void)? = nil
     ) {
         self.launcher = launcher ?? CloudVMSessionMoveLauncher()
         self.stopper = stopper ?? AgentHibernationSessionMoveStopper()
         self.resolveSnapshot = resolveSnapshot ?? { workspace, panelId in Self.liveSnapshot(workspace: workspace, panelId: panelId) }
         self.isCloudEnabled = isCloudEnabled ?? { CloudMachinesFeature.isEnabled }
         self.notifyFailure = notifyFailure ?? { workspaceId, body in Self.postFailureNotification(workspaceId: workspaceId, body: body) }
+        self.notifyMovedWithoutTerminal = notifyMovedWithoutTerminal ?? { _, _ in }
     }
 
     static func holdsAgentResume(panelId: UUID) -> Bool {
@@ -153,8 +161,8 @@ final class SessionMoveToCloudAction {
                     let format = String(localized: "cloudMove.status.progress", defaultValue: "Moving to Cloud: %@")
                     self.setStatus(String(format: format, line), icon: "icloud.and.arrow.up", workspace: workspace, panelId: panelId)
                 },
-                onCompletion: { succeeded, output in
-                    continuation.resume(returning: CLIOutcome(succeeded: succeeded, output: output))
+                onCompletion: { terminationStatus, output in
+                    continuation.resume(returning: CLIOutcome(succeeded: terminationStatus == 0, output: output))
                 }
             )
             if !launched { continuation.resume(returning: nil) }
@@ -255,7 +263,7 @@ final class CloudVMSessionMoveLauncher: SessionMoveCLILaunching {
         arguments: [String],
         workingDirectory: URL?,
         onOutput: @escaping @MainActor (String) -> Void,
-        onCompletion: @escaping @MainActor (Bool, String) -> Void
+        onCompletion: @escaping @MainActor (Int32, String) -> Void
     ) -> Bool {
         CloudVMActionLauncher.shared.start(
             socketPath: TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath()),
@@ -265,7 +273,7 @@ final class CloudVMSessionMoveLauncher: SessionMoveCLILaunching {
             workingDirectory: workingDirectory,
             onOutput: onOutput,
             onCompletion: { completion in
-                onCompletion(completion.succeeded && !completion.wasCancelled, completion.output)
+                onCompletion(completion.wasCancelled ? -1 : completion.terminationStatus, completion.output)
             }
         )
     }
@@ -288,4 +296,6 @@ final class AgentHibernationSessionMoveStopper: SessionMoveAgentStopping {
     func resumeAgent(workspaceId: UUID, panelId: UUID) {
         _ = AgentHibernationController.shared.wakeNow(workspaceId: workspaceId, panelId: panelId)
     }
+
+    func endMovedAgent(workspaceId: UUID, panelId: UUID) {}
 }
