@@ -26,6 +26,12 @@ enum AgentHibernationReclaimTrigger: Equatable, Sendable {
     var allowsVisiblePanel: Bool {
         self == .sessionMove
     }
+
+    /// A request that names one pane and waits for its outcome (manual
+    /// hibernation and Move to Cloud), not routine reclaim.
+    var answersForOnePane: Bool {
+        self == .manual || self == .sessionMove
+    }
 }
 
 enum AgentHibernationPlanner {

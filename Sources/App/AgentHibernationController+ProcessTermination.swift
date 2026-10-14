@@ -501,7 +501,7 @@ extension AgentHibernationController {
             // manual request answers for this one pane, so it waits for the
             // exit to be observed and reports the pane's settled phase; the
             // commit alone is neither a hibernation nor a refusal.
-            guard request.trigger == .manual,
+            guard request.trigger.answersForOnePane,
                   let observation = committedTerminationObservationsByPanelID[panelID],
                   observation.requestID == committedTerminationRequestID else {
                 return false
