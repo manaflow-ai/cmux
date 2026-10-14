@@ -154,7 +154,12 @@ def read(tab, step):
         values = {keys[k]: v.strip() for k, _, v in (line.partition(":") for line in text.splitlines()) if k in keys}
         return values if len(values) == 4 else None
 
+    # A Chromium page is made only when its tab is shown (a background CEF tab is deferred and
+    # answers "closed"): show it first, as a person would.
+    daemon("tab", tab, "focus")
     values = quiet_wait(attempt, 45)
+    if not values:
+        diagnose(tab, f"read {step} failed")
     cli("browser", tab, "screenshot", "--out", os.path.join(opts.out, f"{step}.png"))
     print(f"READ {step}: {json.dumps(values)}", flush=True)
     return values or {}
@@ -212,7 +217,7 @@ def diagnose(tab, when):
           f"engine={record.get('browser_engine')!r} error={record.get('error')!r}", flush=True)
     logs = subprocess.run(["log", "show", "--last", "2m", "--info", "--debug", "--style", "compact", "--predicate",
                            'subsystem == "com.cmuxterm.app.next"'], capture_output=True, text=True, timeout=90).stdout
-    lines = [line for line in logs.splitlines() if "profile" in line.lower() or "frontend-browser" in line.lower()]
+    lines = [line for line in logs.splitlines() if any(w in line.lower() for w in ("profile", "frontend-browser", "cef", "reroute", "browser created"))]
     print(f"DIAG {when}: app log ({len(lines)} lines):\n" + "\n".join(lines[-25:]), flush=True)
 
 
