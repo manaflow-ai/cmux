@@ -498,7 +498,7 @@ impl Hub {
         work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
-        self.recover_background_running(session);
+        self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
             match (work.prompt_request.clone(), work.prompt_response.clone()) {
                 // The prompt never reached this host (or another host ran
