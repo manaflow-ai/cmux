@@ -71,7 +71,12 @@ async function pick(label: string) {
   if (items().length === 0) await act(async () => press(host.querySelector(".acpmux-effort .acpmux-picker-button")!));
   // The Ultracode section's rows come after the levels: its On is the first "On".
   const row = items().find((item) => item.textContent?.trim().startsWith(label));
-  expect(row, `row ${label} in ${items().map((item) => item.textContent).join(" | ")}`).toBeDefined();
+  expect(
+    row,
+    `row ${label} in ${items()
+      .map((item) => item.textContent)
+      .join(" | ")}`,
+  ).toBeDefined();
   await act(async () => press(row!));
 }
 
