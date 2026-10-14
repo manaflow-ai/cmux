@@ -144,9 +144,10 @@ jobs:
           GHOSTTY_SHA="$(git rev-parse "$HEAD_SHA:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
           # The runner wipes RUNNER_TEMP between jobs but keeps the checkout's
           # .git, so the last run's base worktree stays registered and a plain
-          # add fails ("missing but already registered worktree").
+          # add fails ("missing but already registered worktree"). A job killed
+          # mid-add leaves the entry locked, which prune skips: -f -f takes it.
           git worktree prune
-          git worktree add --force --detach "$RUNNER_TEMP/cmux-next-base" "$BASE_SHA"
+          git worktree add -f -f --detach "$RUNNER_TEMP/cmux-next-base" "$BASE_SHA"
           git -C "$RUNNER_TEMP/cmux-next-base" submodule update --init --recursive
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
@@ -207,8 +208,8 @@ jobs:
       - name: Unregister the base worktree
         if: ${{ always() }}
         run: |
-          git worktree remove --force "$RUNNER_TEMP/cmux-next-base" 2>/dev/null || true
-          git worktree prune
+          git worktree remove -f -f "$RUNNER_TEMP/cmux-next-base" 2>/dev/null || true
+          git worktree prune || true
 
   publish:
     name: Post the tour media
