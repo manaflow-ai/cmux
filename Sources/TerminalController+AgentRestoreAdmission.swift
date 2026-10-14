@@ -172,7 +172,8 @@ extension TerminalController {
                 let lockDirectory = writer.map { URL(fileURLWithPath: $0.lockPath).deletingLastPathComponent().path }
                 await AgentRestoreEvidenceObservation().wait(
                     process: liveOwner?.processIdentity,
-                    paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 }
+                    paths: [hookPath?.deletingLastPathComponent().path, lockDirectory, writer?.lockPath].compactMap { $0 },
+                    timeout: AgentRestoreEvidencePolicy().observationTimeout(writerLock: writer?.state)
                 )
             case .admitted, .targetChanged, .liveOwner, .concurrentLaunch:
                 break

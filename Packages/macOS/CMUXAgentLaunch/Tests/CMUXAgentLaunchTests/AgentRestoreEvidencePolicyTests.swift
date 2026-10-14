@@ -35,4 +35,13 @@ struct AgentRestoreEvidencePolicyTests {
             hasLiveOwner: false, indexComplete: true, writerLock: nil
         ) == .claimLaunch)
     }
+
+    @Test("Namespace changes re-probe quickly because a flock release raises no event")
+    func changingLockRefreshesSoon() {
+        let policy = AgentRestoreEvidencePolicy()
+        #expect(policy.observationTimeout(writerLock: .changing) < 1)
+        for state: CodexWriterLockInspection.State? in [.available, .active, .unavailable, nil] {
+            #expect(policy.observationTimeout(writerLock: state) == 8)
+        }
+    }
 }
