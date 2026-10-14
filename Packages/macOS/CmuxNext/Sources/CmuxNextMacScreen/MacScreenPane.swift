@@ -126,6 +126,7 @@ public final class MacScreenPane {
         actions.confirm = { [weak self] in
             guard let self else { return }
             model.gate = .open
+            view.syncInputGate()
             handlers.confirm()
             // A person pressed Connect, so the tab is on screen even if no reveal reached it.
             if visible { session.connect() } else { resume() }
@@ -228,8 +229,8 @@ public final class MacScreenPane {
         hideTimer.cancel()
         session?.close()
         model.gate = .missing
-        model.capturesKeyboard = false
         view.input.releaseKeyboard()
+        view.syncInputGate()
     }
 
     public func focus() {
@@ -271,7 +272,7 @@ public final class MacScreenPaneView: NSView {
         addSubview(chrome.toolbar)
         addSubview(chrome.card)
         input.geometry = { [weak self] in self?.geometry }
-        input.controlMode = true
+        syncInputGate()
         observe()
     }
 
@@ -309,6 +310,13 @@ public final class MacScreenPaneView: NSView {
             chrome.card.frame = CGRect(x: area.midX - size.width / 2, y: area.midY - size.height / 2,
                                        width: size.width, height: size.height).integral
         }
+    }
+
+    /// Input goes to the other Mac only while the screen is open (not behind a
+    /// confirm or missing card), and the keyboard state says exactly that.
+    func syncInputGate() {
+        input.controlMode = model.gate == .open
+        model.capturesKeyboard = input.hasKeyboard
     }
 
     #if DEBUG

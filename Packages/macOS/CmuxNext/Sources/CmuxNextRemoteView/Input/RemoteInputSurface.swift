@@ -70,4 +70,9 @@ public final class RemoteInputSurface {
 
     /// Gives the keyboard back to the viewer.
     public func releaseKeyboard() { capture.releaseKeyboard() }
+
+    /// The surface has the keyboard now: first responder, in control mode, not released.
+    public var hasKeyboard: Bool {
+        wantsControl && !isReleased && capture.window?.firstResponder === capture
+    }
 }
