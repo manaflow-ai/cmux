@@ -101,6 +101,59 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const ink = (alpha: number[]) => alpha.filter((value) => value > 20);
   /** Ink pixels only partly covered: soft edges. */
   const fuzz = (alpha: number[]) => ink(alpha).filter((value) => value < 235).length / Math.max(1, ink(alpha).length);
+  // At 2x the master's straight edges (and a ring's top) sit on pixel boundaries: these pixels, at
+  // [x, y, inked], are whole (ink or none). Half a pixel off, each glyph leaves some of them half covered.
+  const EDGES_2X: Record<string, [number, number, 0 | 1][]> = {
+    idle: [
+      [10, 0, 0],
+      [10, 1, 1],
+      [10, 2, 1],
+      [10, 3, 0],
+    ],
+    working: [
+      [9, 9, 0],
+      [10, 9, 1],
+      [9, 10, 0],
+      [10, 10, 1],
+    ],
+    waiting: [
+      [10, 1, 0],
+      [10, 2, 1],
+      [10, 3, 1],
+      [10, 4, 0],
+      [0, 8, 0],
+      [1, 8, 1],
+      [2, 8, 1],
+      [3, 8, 0],
+    ],
+    permission: [
+      [1, 6, 0],
+      [2, 6, 1],
+      [17, 6, 1],
+      [18, 6, 0],
+    ],
+    done: [
+      [10, 0, 0],
+      [10, 1, 1],
+      [0, 10, 0],
+      [1, 10, 1],
+    ],
+    error: [
+      [9, 6, 0],
+      [10, 6, 0],
+      [8, 6, 1],
+      [11, 6, 1],
+      [9, 11, 1],
+      [9, 12, 1],
+      [9, 13, 0],
+      [10, 14, 0],
+    ],
+  };
+  /** The probes of `name` that are not whole. */
+  const softEdges = (name: string, alpha: number[]) =>
+    (EDGES_2X[name] ?? [])
+      .filter(([x, y, inked]) => (inked ? alpha[y * 20 + x]! < 215 : alpha[y * 20 + x]! > 40))
+      .map(([x, y]) => `${x},${y}=${alpha[y * 20 + x]}`);
   const differ = (a: number[], b: number[]) => a.filter((value, index) => value > 127 !== b[index]! > 127).length;
 
   for (const [variant, scheme] of [
@@ -118,11 +171,10 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
           expect(`${glyph.name}: ${glyph.animations} ${glyph.motion}`).toBe(`${glyph.name}: 0 none 0s`);
           // Tinted by its theme role.
           expect(`${glyph.name}: ${glyph.color}`).toBe(`${glyph.name}: ${glyph.tint}`);
-          // At 1x every edge falls on a pixel; at 2x the straight edges do and the curves stay smooth.
-          const soft = fuzz(glyph.alpha);
-          expect(`${glyph.name} soft ${soft.toFixed(2)}`).toBe(
-            `${glyph.name} soft ${(scale === 1 ? 0 : Math.min(soft, 0.6)).toFixed(2)}`,
-          );
+          // At 1x every edge falls on a pixel (the pixel art); at 2x the straight edges do and the
+          // curves stay smooth.
+          if (scale === 1) expect(`${glyph.name} soft ${fuzz(glyph.alpha).toFixed(2)}`).toBe(`${glyph.name} soft 0.00`);
+          else expect({ [glyph.name]: softEdges(glyph.name, glyph.alpha) }).toEqual({ [glyph.name]: [] });
         }
         // Apart by shape alone: every pair differs in enough whole pixels.
         const least = scale === 1 ? 12 : 30;
