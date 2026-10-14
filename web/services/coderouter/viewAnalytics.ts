@@ -5,8 +5,9 @@
 // as a `coderouter_*_viewed` event produced about 1.3M events per event name
 // in two weeks from roughly 100 people, so those reads are not views. A
 // client marks the one request it makes when a person actually opens the
-// view with this header, and only that request emits the event. Web pages
-// that render once per navigation keep emitting unconditionally.
+// view with this header, and only that request emits the event. The web
+// dashboard sends it when a page loads the team catalog; server-rendered
+// dashboard reads that do not pass through these routes keep emitting.
 
 export const CODEROUTER_VIEW_OPEN_HEADER = "x-cmux-view-open";
 

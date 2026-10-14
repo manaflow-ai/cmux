@@ -12,7 +12,7 @@
 // VM_USAGE_HOURLY_MAX_MACHINES per run. A run that hits the cap reports it and
 // the overflow is not sent. The natural insert id makes a retried run of the
 // same hour idempotent.
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, lt, or } from "drizzle-orm";
 
 import { cloudDb } from "../../db/client";
 import { cloudVmRuntimeIntervals, cloudVms, hexclaveUsers } from "../../db/schema";
@@ -80,12 +80,20 @@ export function vmUsageHourlyEvents(
   return { events, machines: machines.length, truncated: Math.max(0, machines.length - maxMachines) };
 }
 
+/** Account deletion re-owns shared-team machines to this placeholder user id. */
+const DELETED_ACCOUNT_USER_ID = "deleted-account";
+
 function usageEvent(row: VmUsageIntervalRow, runningMs: number, window: VmUsageHourWindow): ServerEventInput {
   const reservation = vmResourceReservationFromMetadata(row.providerMetadata);
   const hourStart = window.start.toISOString();
+  // A machine of a deleted account still costs money, but its placeholder
+  // owner is not a person: send it person-less so no fake person collects
+  // every deleted user's usage.
+  const deletedOwner = row.userId === DELETED_ACCOUNT_USER_ID;
   return {
     event: VM_USAGE_HOURLY_EVENT,
     distinctId: row.userId,
+    personless: deletedOwner,
     teamId: row.billingTeamId,
     properties: {
       product: "cloud_vm",
@@ -111,7 +119,15 @@ function usageEvent(row: VmUsageIntervalRow, runningMs: number, window: VmUsageH
   };
 }
 
-/** Interval rows overlapping the window. Bounded one past the cap so truncation is visible. */
+/** Row bound of one read: a machine has at most a few intervals in an hour. */
+const MAX_INTERVAL_ROWS = VM_USAGE_HOURLY_MAX_MACHINES * 4;
+
+/**
+ * Interval rows overlapping the window, ordered by machine so a capped read
+ * drops whole machines. There is no index on `ended_at`: this is a scan of
+ * the interval table once an hour, which is small next to `cloud_vms`; add a
+ * partial index if it grows past that.
+ */
 async function loadUsageIntervals(window: VmUsageHourWindow): Promise<VmUsageIntervalRow[]> {
   const rows = await cloudDb()
     .select({
@@ -132,9 +148,8 @@ async function loadUsageIntervals(window: VmUsageHourWindow): Promise<VmUsageInt
       lt(cloudVmRuntimeIntervals.startedAt, window.end),
       or(isNull(cloudVmRuntimeIntervals.endedAt), gt(cloudVmRuntimeIntervals.endedAt, window.start)),
     ))
-    // A machine has at most a few intervals in one hour; this bounds a
-    // pathological flapping machine set without hiding a normal fleet.
-    .limit(VM_USAGE_HOURLY_MAX_MACHINES * 4);
+    .orderBy(asc(cloudVmRuntimeIntervals.vmId), asc(cloudVmRuntimeIntervals.startedAt))
+    .limit(MAX_INTERVAL_ROWS);
   return rows;
 }
 
@@ -146,6 +161,8 @@ export type VmUsageHourlySummary = {
   readonly sent: number;
   readonly failed: number;
   readonly truncated: number;
+  /** The interval read hit its row bound; machines after the last row were not read. */
+  readonly rowLimitReached?: boolean;
 };
 
 /** Emit the previous hour's usage. Throws only when the database read fails. */
@@ -158,7 +175,10 @@ export async function captureVmUsageHourly(
   if (!serverAnalyticsEnabled(dependencies.env ?? process.env)) {
     return { hourStart, enabled: false, machines: 0, sent: 0, failed: 0, truncated: 0 };
   }
-  const { events, machines, truncated } = vmUsageHourlyEvents(await loadUsageIntervals(window), window);
+  const rows = await loadUsageIntervals(window);
+  const { events, machines, truncated } = vmUsageHourlyEvents(rows, window);
   const result = await captureServerEventBatch(events, dependencies);
-  return { hourStart, enabled: true, machines, truncated, ...result };
+  // A full read may have cut machines after the last one returned.
+  const rowLimitReached = rows.length >= MAX_INTERVAL_ROWS;
+  return { hourStart, enabled: true, machines, truncated, rowLimitReached, ...result };
 }

@@ -236,7 +236,8 @@ export function captureVmProductEvent(
  * account, or this instance did earlier (rows mirrored after the response).
  */
 function isSyntheticLedgerRow(input: VmUsageEventInput): boolean {
-  return currentVmRequestContext()?.synthetic === true || isRememberedSyntheticUser(input.userId);
+  const context = currentVmRequestContext();
+  return (context?.synthetic === true && context.userId === input.userId) || isRememberedSyntheticUser(input.userId);
 }
 
 /**

@@ -11,7 +11,7 @@
 //
 // Delivery is best effort: bounded timeout, one retry on transient failure,
 // deferred past the response with `after()`, never throws into the caller.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { after } from "next/server";
 
 import { isAnalyticsTestRun, POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "./iosEventPolicy";
@@ -39,6 +39,11 @@ export type ServerEventInput = {
    */
   readonly insertId?: string;
   readonly timestamp?: Date;
+  /**
+   * Send without a person profile (`$process_person_profile: false`) for a
+   * key that is not a real person (a deleted account placeholder).
+   */
+  readonly personless?: boolean;
 };
 
 export type ServerEventTask = () => Promise<void>;
@@ -99,24 +104,32 @@ export function serverEventPayload(
   const distinctId = normalizedOpaqueId(input.distinctId);
   if (!distinctId) return null;
   const teamId = normalizedOpaqueId(input.teamId);
+  const insertId = normalizedInsertId(input.insertId);
   const properties: Record<string, unknown> = {
     ...cleanProperties(input.properties),
     $lib: SERVER_EVENT_LIB,
-    $insert_id: normalizedInsertId(input.insertId) ?? randomUUID(),
+    $insert_id: insertId ?? randomUUID(),
     // Server IPs are Vercel's, not the user's; never geolocate them.
     $geoip_disable: true,
   };
   if (teamId) properties.$groups = { [STACK_TEAM_GROUP]: teamId };
-  const set = cleanProperties(input.set);
-  if (Object.keys(set).length > 0) properties.$set = set;
-  const setOnce = cleanProperties(input.setOnce);
-  if (Object.keys(setOnce).length > 0) properties.$set_once = setOnce;
+  if (input.personless) {
+    properties.$process_person_profile = false;
+  } else {
+    const set = cleanProperties(input.set);
+    if (Object.keys(set).length > 0) properties.$set = set;
+    const setOnce = cleanProperties(input.setOnce);
+    if (Object.keys(setOnce).length > 0) properties.$set_once = setOnce;
+  }
   return {
     api_key: POSTHOG_PROJECT_KEY,
     event: input.event,
     distinct_id: distinctId,
     timestamp: (input.timestamp ?? now).toISOString(),
     properties,
+    // PostHog deduplicates on the event uuid, not `$insert_id`. A natural key
+    // maps to a stable uuid so a retry or replay of the same fact collapses.
+    ...(insertId ? { uuid: uuidFromKey(insertId) } : {}),
   };
 }
 
@@ -304,6 +317,15 @@ function cleanProperties(properties: ServerEventProperties | undefined): Record<
 function normalizedOpaqueId(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
+}
+
+/** A stable RFC 4122 version-5-shaped uuid from a natural key. */
+function uuidFromKey(key: string): string {
+  const bytes = createHash("sha1").update(`cmux-server-event:${key}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function normalizedInsertId(value: string | undefined): string | null {

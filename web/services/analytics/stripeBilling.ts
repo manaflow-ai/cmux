@@ -295,10 +295,13 @@ function refundEvent(
 
 /**
  * Who a billing event is about. A user-scope event is the user's. A team
- * event is the acting admin's, with the team as the `stack_team` group, so it
- * joins that person's funnel. A team event with no known actor (a renewal,
- * a refund) keeps the team key but must not create a fake person, so it is
- * sent with `$process_person_profile: false`; team rollups use the group.
+ * event with an actor (checkout) is the acting admin's, with the team as the
+ * `stack_team` group, so it joins that person's funnel. A team event with no
+ * actor (renewals, invoices, refunds, subscription changes) keeps the team
+ * key but must not create a fake person, so it is sent with
+ * `$process_person_profile: false`. PostHog does not link person-less events
+ * to groups, so team rollups of those events break down by the
+ * `stack_team_id` property instead of the group.
  */
 function subjectIdentity(
   subject: StripeBillingAnalyticsSubject,
@@ -315,39 +318,31 @@ function subjectIdentity(
     : { distinctId: `stack-team:${teamId}`, personless: true };
 }
 
+/** Checkout events happen while the purchasing admin is present. */
+const ACTOR_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.expired",
+]);
+
 /**
- * The purchasing admin recorded in the Stripe object's metadata (team
- * checkout writes `stackUserId` into the session and subscription metadata).
- * An explicit actor on the subject wins.
+ * The purchasing admin of a team checkout (team checkout writes
+ * `stackUserId` into the session metadata). Only checkout events take it:
+ * renewals and refunds arrive months later, possibly after that admin
+ * deleted their account, and Stripe metadata is never scrubbed, so keying
+ * them to the admin could recreate a deleted PostHog person. An explicit
+ * actor on the subject wins.
  */
 function withEventActor(
   subject: StripeBillingAnalyticsSubject,
   event: Stripe.Event,
 ): StripeBillingAnalyticsSubject {
   if (subject.scope !== "team" || normalizedStackId(subject.actorUserId)) return subject;
-  const actorUserId = normalizedStackId(eventMetadataValue(event, "stackUserId"));
+  if (!ACTOR_EVENT_TYPES.has(event.type)) return subject;
+  const metadata = (event.data.object as { readonly metadata?: Record<string, unknown> | null }).metadata;
+  const actor = metadata?.stackUserId;
+  const actorUserId = normalizedStackId(typeof actor === "string" ? actor : null);
   return actorUserId ? { ...subject, actorUserId } : subject;
-}
-
-function eventMetadataValue(event: Stripe.Event, key: string): string | null {
-  const object = event.data.object as unknown as Record<string, unknown>;
-  const candidates = [
-    object.metadata,
-    // Invoices carry their subscription's metadata here (current and older API versions).
-    recordValue(recordValue(object.parent)?.subscription_details)?.metadata,
-    recordValue(object.subscription_details)?.metadata,
-  ];
-  for (const metadata of candidates) {
-    const value = recordValue(metadata)?.[key];
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return null;
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
 }
 
 function normalizedStackId(value: string | null | undefined): string | null {
