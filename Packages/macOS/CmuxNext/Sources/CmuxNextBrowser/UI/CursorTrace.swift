@@ -12,11 +12,13 @@ public enum CursorTrace {
 
     @MainActor static func install() {
         guard enabled, original == nil, let method = class_getInstanceMethod(NSCursor.self, #selector(NSCursor.set)) else { return }
+        let known = [(ObjectIdentifier(NSCursor.iBeam), "iBeam"), (ObjectIdentifier(NSCursor.arrow), "arrow"),
+                     (ObjectIdentifier(NSCursor.pointingHand), "hand")]
         let block: @convention(block) @Sendable (NSCursor) -> Void = { cursor in
+            let id = ObjectIdentifier(cursor)
+            let name = known.first { $0.0 == id }?.1 ?? "other"
             if Thread.isMainThread {
                 MainActor.assumeIsolated {
-                    let name = cursor == NSCursor.iBeam ? "iBeam" : cursor == NSCursor.arrow ? "arrow"
-                        : cursor == NSCursor.pointingHand ? "hand" : "other"
                     let frames = Thread.callStackSymbols.dropFirst(1).prefix(10).map { line -> String in
                         let parts = line.split(separator: " ", omittingEmptySubsequences: true)
                         return parts.count > 3 ? "\(parts[1]):\(parts[3])" : line
