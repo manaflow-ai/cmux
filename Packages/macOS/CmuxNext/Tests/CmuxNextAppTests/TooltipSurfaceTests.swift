@@ -99,6 +99,10 @@ import Testing
         clock.advance(by: .milliseconds(500))
         try await settle(until: { presenter.shown != nil })
         try #require(presenter.shown != nil, "no tooltip after the delay")
+        // A loaded host can take this long to come back to the test after the tooltip shows (the
+        // macOS 27 lane, 2026-10-14, runs every suite in one process): longer than the fade in.
+        // What the test reads must not depend on how soon it gets to read it.
+        try await Task.sleep(for: .milliseconds(300))
     }
 
     /// `animation`'s value `ms` after it starts: its from-to blend at the timing curve's progress.
