@@ -30,9 +30,15 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
 
-        /// The step in script syntax, for its signpost interval.
+        /// The step in script syntax, for its signpost interval. Written
+        /// out rather than `String(describing:)`, whose first use scans
+        /// protocol conformances on the main thread mid-scroll.
         public var scriptText: String {
-            String(describing: self)
+            switch self {
+            case let .hold(seconds): return "hold:\(seconds)"
+            case let .drag(points, seconds): return "drag:\(Double(points)):\(seconds)"
+            case let .flick(velocity): return "flick:\(Double(velocity))"
+            }
         }
 
         /// UIScrollView's normal deceleration, per millisecond.
