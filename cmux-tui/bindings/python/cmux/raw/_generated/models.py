@@ -101,6 +101,10 @@ class FrontendFocusTarget(str, Enum):
     TABS_RAIL = 'tabs_rail'
     PROJECTION_RAIL = 'projection_rail'
 
+class NameSource(str, Enum):
+    USER = 'user'
+    AUTO = 'auto'
+
 class NotificationLevel(str, Enum):
     INFO = 'info'
     WARNING = 'warning'
@@ -1996,6 +2000,8 @@ class Workspace:
     name: str
     screens: List[Screen]
     key: Union[str, MissingType] = field(default=MISSING)
+    name_revision: Union[str, MissingType] = field(default=MISSING)
+    name_source: Union[NameSource, MissingType] = field(default=MISSING)
     short_id: Union[str, MissingType] = field(default=MISSING)
 
 
@@ -3800,6 +3806,8 @@ class RenameWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+    expected_name_revision: Union[str, None, MissingType] = field(default=MISSING)
+    source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5366,6 +5374,7 @@ __all__ = [
     'CursorStyle',
     'DetachReason',
     'FrontendFocusTarget',
+    'NameSource',
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',

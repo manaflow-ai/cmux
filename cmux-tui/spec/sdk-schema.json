@@ -1775,6 +1775,31 @@
      "presence": "required",
      "nullable": false
     },
+    "name_source": {
+     "type": {
+      "kind": "ref",
+      "name": "NameSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1"
+    },
+    "name_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "workspace-name-source-v1",
+     "constraints": [
+      {
+       "format": "decimal uint64"
+      }
+     ]
+    },
     "active": {
      "type": {
       "kind": "scalar",
@@ -8799,6 +8824,13 @@
     }
    },
    "additional_properties": false
+  },
+  "NameSource": {
+   "kind": "enum",
+   "values": [
+    "user",
+    "auto"
+   ]
   }
  },
  "commands": {
@@ -13528,6 +13560,35 @@
        }
       ]
      },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "description": "Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision."
+     },
+     "expected_name_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-name-source-v1",
+      "constraints": [
+       {
+        "format": "decimal uint64"
+       }
+      ],
+      "description": "The workspace name_revision the caller read; a rename since then fails."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -13575,7 +13636,8 @@
     "additional_properties": false,
     "constraints": [
      "At least one of workspace and key must be supplied; both must identify the same workspace when supplied.",
-     "origin and mutation_id are either both present or both absent."
+     "origin and mutation_id are either both present or both absent.",
+     "source auto requires expected_generation and expected_name_revision."
     ]
    },
    "result": {

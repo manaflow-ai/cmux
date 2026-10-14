@@ -323,19 +323,38 @@ pub(super) fn close_provider_managed_workspace(
     Ok(json!({"workspace": workspace, "key": key, "workspace_revision": revision}))
 }
 
+/// The `rename-workspace` fields besides the mutation envelope.
+pub(super) struct WorkspaceRenameRequest {
+    pub(super) workspace: Option<WorkspaceId>,
+    pub(super) key: Option<String>,
+    pub(super) name: String,
+    pub(super) source: Option<crate::resource_name::NameSource>,
+    pub(super) expected_name_revision: Option<String>,
+}
+
 pub(super) fn rename_workspace(
     mux: &Arc<Mux>,
     client: u64,
-    workspace: Option<WorkspaceId>,
-    key: Option<String>,
-    name: String,
+    request: WorkspaceRenameRequest,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
+    let WorkspaceRenameRequest { workspace, key, name, source, expected_name_revision } = request;
+    let name_revision = expected_name_revision
+        .as_deref()
+        .map(crate::resource_name::parse_name_revision)
+        .transpose()
+        .map_err(|error| anyhow::anyhow!("bad request: expected_name_revision: {error}"))?;
+    let name_authority = crate::resource_name::WorkspaceNameUpdate::new(
+        source,
+        mutation.expected_generation.clone(),
+        name_revision,
+    )?;
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let result = mux.rename_workspace_with_mutation(
+    let result = mux.rename_workspace_with_name_authority(
         workspace,
         key.as_deref(),
         name,
+        &name_authority,
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,

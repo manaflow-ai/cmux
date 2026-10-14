@@ -424,6 +424,11 @@ pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
 /// it in the same commit (else the default `workspace-N`).
 pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";
+/// Workspace name provenance (hq#1957): `source`, `expected_generation` and
+/// `expected_name_revision` on `rename-workspace` and `workspace.rename`, and
+/// `name_source`/`name_revision` on every workspace (`extra` in resource
+/// snapshots). An automatic rename never replaces a user name.
+pub const WORKSPACE_NAME_SOURCE_CAPABILITY: &str = "workspace-name-source-v1";
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -1976,6 +1981,13 @@ enum Command {
         #[serde(default)]
         key: Option<String>,
         name: String,
+        /// `workspace-name-source-v1`: who chose the name (absent = `user`).
+        #[serde(default)]
+        source: Option<crate::resource_name::NameSource>,
+        /// `workspace-name-source-v1`: the decimal name revision an
+        /// automatic rename read; required with `source: auto`.
+        #[serde(default)]
+        expected_name_revision: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3724,9 +3736,25 @@ fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
-        }
+        Command::RenameWorkspace {
+            workspace,
+            key,
+            name,
+            source,
+            expected_name_revision,
+            mutation,
+        } => cmd_workspaces::rename_workspace(
+            mux,
+            client,
+            cmd_workspaces::WorkspaceRenameRequest {
+                workspace,
+                key,
+                name,
+                source,
+                expected_name_revision,
+            },
+            mutation,
+        ),
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
                 mux, actor, workspace, key, name, authority,

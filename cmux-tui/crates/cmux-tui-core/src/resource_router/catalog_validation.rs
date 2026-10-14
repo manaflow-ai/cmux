@@ -532,8 +532,8 @@ pub(super) fn validate_operation_constraints(
     fields: &Map<String, Value>,
     supplied: &Map<String, Value>,
 ) -> Result<(), ResourceError> {
-    if operation == ResourceOperation::TabRename {
-        crate::resource_name::TabNameUpdate::parse(fields).map_err(resource_operation_error)?;
+    if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
+        crate::resource_name::NameUpdate::parse(fields).map_err(resource_operation_error)?;
     }
     if operation == ResourceOperation::WorkspaceCreate
         && fields.get("initial_content").and_then(Value::as_str) == Some("empty")

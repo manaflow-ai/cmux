@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719";
+pub const ir_sha256 = "62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1172,6 +1172,24 @@ pub const MoveTerminalResult = struct {
     terminal_revision: u64,
     workspace: wire.Nullable(Id),
     workspace_key: []const u8,
+};
+
+pub const NameSource = enum {
+    user,
+    auto,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "user")) return .user;
+        if (std.mem.eql(u8, value, "auto")) return .auto;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .user => "user",
+            .auto => "auto",
+        };
+    }
 };
 
 pub const NewRowResult = struct {
@@ -2922,11 +2940,15 @@ pub const Workspace = struct {
     id: Id,
     key: ?[]const u8 = null,
     name: []const u8,
+    name_revision: ?[]const u8 = null,
+    name_source: ?NameSource = null,
     screens: []const Screen,
     short_id: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "key",
+        "name_revision",
+        "name_source",
         "short_id",
     };
 };
@@ -7178,11 +7200,15 @@ pub fn renameSurface(client: anytype, request: RenameSurfaceRequest) !wire.Decod
 
 pub const RenameWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
+    /// The workspace name_revision the caller read; a rename since then fails.
+    expected_name_revision: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: []const u8,
     origin: wire.Field([]const u8) = .absent,
+    /// Who chose the name; absent is user. An automatic name never replaces a user name and needs expected_generation and expected_name_revision.
+    source: wire.Field(NameSource) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -7198,10 +7224,12 @@ pub fn renameWorkspace(client: anytype, request: RenameWorkspaceRequest) !wire.D
             .capability = null,
             .fields = &.{
                 .{ .name = "expected_generation", .since = 7, .capability = null },
+                .{ .name = "expected_name_revision", .since = 12, .capability = "workspace-name-source-v1" },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
+                .{ .name = "source", .since = 12, .capability = "workspace-name-source-v1" },
             },
         },
         request,

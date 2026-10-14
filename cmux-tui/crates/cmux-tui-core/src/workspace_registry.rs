@@ -60,6 +60,7 @@ pub(crate) use registry_intent::{
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
+pub(crate) mod workspace_name_store;
 pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
@@ -321,6 +322,12 @@ pub struct RegistryWorkspace {
     pub public_id: WorkspacePublicId,
     pub key: String,
     pub name: String,
+    /// Who chose `name`; an older registry or intent without it is user-owned.
+    #[serde(default)]
+    pub name_source: crate::resource_name::NameSource,
+    /// Advances on every rename of this workspace (an automatic rename's fence).
+    #[serde(default)]
+    pub name_revision: u64,
     pub group_key: String,
 }
 
@@ -2721,6 +2728,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
+            workspace_name_store::migrate_workspace_name_authority(&tx)?;
             tx.commit()?;
         }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
@@ -2882,7 +2890,8 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("workspace id space exhausted"))?;
         let db = self.connection.get();
         let mut statement = db.prepare(
-            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id
+            "SELECT w.numeric_id, w.workspace_key, w.name, w.group_key, rw.public_id,
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
              WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
@@ -2891,16 +2900,27 @@ impl WorkspaceRegistry {
         let workspaces = statement
             .query_map([], |row| {
                 let id: i64 = row.get(0)?;
-                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+                let provenance: (String, i64) = (row.get(5)?, row.get(6)?);
+                Ok((id, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, provenance))
             })?
             .map(|row| {
-                let (id, key, name, group_key, public_id): (i64, String, String, String, String) =
-                    row?;
+                let (id, key, name, group_key, public_id, (source, revision)): (
+                    i64,
+                    String,
+                    String,
+                    String,
+                    String,
+                    (String, i64),
+                ) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 Ok::<RegistryWorkspace, anyhow::Error>(RegistryWorkspace {
                     id: u64::try_from(id).context("stored workspace id is negative")?,
                     public_id: WorkspacePublicId::parse(public_id)?,
                     key,
                     name,
+                    name_source,
+                    name_revision,
                     group_key,
                 })
             })
@@ -2936,7 +2956,8 @@ impl WorkspaceRegistry {
                     json_extract(
                       creation.intent_json,
                       '$.workspace_reservation.workspace_public_id'
-                    )
+                    ),
+                    w.name_source, w.name_revision
              FROM workspaces w
              JOIN resource_creation_receipts creation
                ON json_extract(
@@ -2960,10 +2981,13 @@ impl WorkspaceRegistry {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
+                    (row.get::<_, String>(6)?, row.get::<_, i64>(7)?),
                 ))
             })?
             .map(|row| {
-                let (position, id, key, name, group_key, public_id) = row?;
+                let (position, id, key, name, group_key, public_id, (source, revision)) = row?;
+                let (name_source, name_revision) =
+                    workspace_name_store::stored_name_provenance(&source, revision)?;
                 let public_id = public_id.with_context(|| {
                     format!("interrupted workspace {key} omitted its reserved public id")
                 })?;
@@ -2974,6 +2998,8 @@ impl WorkspaceRegistry {
                         public_id: WorkspacePublicId::parse(public_id)?,
                         key,
                         name,
+                        name_source,
+                        name_revision,
                         group_key,
                     },
                 ))
@@ -4419,7 +4445,8 @@ fn commit_workspace_registry_in_transaction(
         .collect::<HashMap<_, _>>();
     let stored = {
         let mut statement = transaction.prepare(
-            "SELECT workspace_key, numeric_id, name, group_key, position
+            "SELECT workspace_key, numeric_id, name, group_key, position,
+                    name_source, name_revision
              FROM workspaces WHERE tombstoned = 0",
         )?;
         statement
@@ -4431,12 +4458,13 @@ fn commit_workspace_registry_in_transaction(
                         row.get::<_, String>(2)?,
                         row.get::<_, String>(3)?,
                         row.get::<_, Option<i64>>(4)?,
+                        (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
                     ),
                 ))
             })?
             .collect::<Result<HashMap<_, _>, _>>()?
     };
-    for (workspace_key, (_, _, _, stored_position)) in &stored {
+    for (workspace_key, (_, _, _, stored_position, _)) in &stored {
         match desired.get(workspace_key.as_str()) {
             None => {
                 transaction.execute(
@@ -4457,12 +4485,18 @@ fn commit_workspace_registry_in_transaction(
         }
     }
     for (position, workspace) in workspaces.iter().enumerate() {
+        let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
+            workspace.name_source,
+            workspace.name_revision,
+        )?;
         let unchanged = stored.get(&workspace.key).is_some_and(
-            |(numeric_id, name, group_key, stored_position)| {
+            |(numeric_id, name, group_key, stored_position, (source, revision))| {
                 i64::try_from(workspace.id).ok() == Some(*numeric_id)
                     && name == &workspace.name
                     && group_key == &workspace.group_key
                     && *stored_position == i64::try_from(position).ok()
+                    && source == name_source
+                    && *revision == name_revision
             },
         );
         if unchanged {
@@ -4471,8 +4505,9 @@ fn commit_workspace_registry_in_transaction(
         transaction.execute(
             "INSERT INTO workspaces(
                workspace_key, numeric_id, name, group_key, position, tombstoned,
-               created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
+               created_revision, updated_revision, deleted_revision,
+               name_source, name_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL, ?7, ?8)
              ON CONFLICT(workspace_key) DO UPDATE SET
                numeric_id=excluded.numeric_id,
                name=excluded.name,
@@ -4480,14 +4515,18 @@ fn commit_workspace_registry_in_transaction(
                position=excluded.position,
                tombstoned=0,
                updated_revision=excluded.updated_revision,
-               deleted_revision=NULL",
+               deleted_revision=NULL,
+               name_source=excluded.name_source,
+               name_revision=excluded.name_revision",
             params![
                 workspace.key,
                 i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
                 workspace.name,
                 workspace.group_key,
                 i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                sqlite_revision
+                sqlite_revision,
+                name_source,
+                name_revision
             ],
         )?;
     }

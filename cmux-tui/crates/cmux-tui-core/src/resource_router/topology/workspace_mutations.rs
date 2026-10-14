@@ -8,10 +8,13 @@ pub(super) fn rename_workspace(
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request)?;
+    let name_authority = crate::resource_name::WorkspaceNameUpdate::parse(&request.fields)
+        .map_err(resource_operation_error)?;
     let commit = mux
         .resource_rename_workspace_selected(
             request.selectors,
             required_string(&request.fields, "name")?.to_string(),
+            name_authority,
             None,
             expected_revision(&request.fields)?,
             &mutation,

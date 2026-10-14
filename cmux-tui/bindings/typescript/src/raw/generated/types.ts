@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f8b9a1584421bea336d95b15d265c6b1a3f2185a1a697c0f716a679b9be63719. */
+/* cmux-tui mux protocol 12, IR 62e6321883d459311001de28879d15034f6b9fa048a2055db7881d754d0fdb1e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -652,6 +652,8 @@ export type MoveTerminalResult = {
   "workspace": (Id) | null;
   "workspace_key": string;
 };
+
+export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
@@ -1464,6 +1466,8 @@ export type Workspace = {
   "id": Id;
   "key"?: string;
   "name": string;
+  "name_revision"?: string;
+  "name_source"?: NameSource;
   "screens": Array<Screen>;
   "short_id"?: string;
 };

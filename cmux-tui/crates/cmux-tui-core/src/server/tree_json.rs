@@ -255,6 +255,9 @@ fn workspace_json(
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        // `workspace-name-source-v1`: the revision is a decimal string, as on tabs.
+        "name_source": workspace.name_source,
+        "name_revision": workspace.name_revision.to_string(),
         "group": presentation.and_then(|presentation| presentation.group.as_deref()),
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),

@@ -337,6 +337,7 @@ fn selector_rename_and_concurrent_rename_share_one_locked_snapshot() {
             mux.resource_rename_workspace_selected(
                 selectors,
                 "renamed".into(),
+                crate::resource_name::WorkspaceNameUpdate::user(),
                 None,
                 Some(2),
                 &WorkspaceMutation::daemon("selector-race-selected", "test").unwrap(),

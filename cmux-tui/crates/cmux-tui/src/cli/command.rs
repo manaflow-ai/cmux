@@ -2196,7 +2196,8 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("name".into(), Value::String(flags.required("name")?));
-    if operation == ResourceOperation::TabRename {
+    // Tabs and workspaces share name provenance (hq#1957).
+    if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
         if let Some(source) = flags.take("source") {
             validate_one_of("--source", &source, &["user", "auto"])?;
             params.insert("source".into(), Value::String(source));

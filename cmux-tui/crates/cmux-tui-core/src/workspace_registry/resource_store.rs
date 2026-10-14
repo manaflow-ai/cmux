@@ -2721,9 +2721,14 @@ fn resource_change_is_stored(
 ) -> anyhow::Result<bool> {
     Ok(match change {
         ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
+            let (name_source, name_revision) = super::workspace_name_store::sql_name_provenance(
+                workspace.name_source,
+                workspace.name_revision,
+            )?;
             let stored = transaction
                 .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id
+                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+                            w.name_source, w.name_revision
                      FROM resource_workspaces rw
                      JOIN workspaces w ON w.workspace_key = rw.workspace_key
                      WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
@@ -2736,17 +2741,22 @@ fn resource_change_is_stored(
                             row.get::<_, String>(2)?,
                             row.get::<_, Option<i64>>(3)?,
                             row.get::<_, Option<String>>(4)?,
+                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
                         ))
                     },
                 )
                 .optional()?;
-            stored.is_some_and(|(numeric_id, name, group_key, stored_position, screen)| {
-                i64::try_from(workspace.id).ok() == Some(numeric_id)
-                    && name == workspace.name
-                    && group_key == workspace.group_key
-                    && stored_position == i64::try_from(*position).ok()
-                    && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
-            })
+            stored.is_some_and(
+                |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
+                    i64::try_from(workspace.id).ok() == Some(numeric_id)
+                        && name == workspace.name
+                        && group_key == workspace.group_key
+                        && stored_position == i64::try_from(*position).ok()
+                        && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
+                        && source == name_source
+                        && revision == name_revision
+                },
+            )
         }
         ResourceChange::UpsertScreen(screen) => {
             let stored = transaction
@@ -3350,17 +3360,24 @@ fn upsert_resource_workspace(
 ) -> anyhow::Result<()> {
     upsert_workspace_resource(transaction, workspace, revision)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
+    let (name_source, name_revision) = super::workspace_name_store::sql_name_provenance(
+        workspace.name_source,
+        workspace.name_revision,
+    )?;
     transaction.execute(
         "INSERT INTO workspaces(
            workspace_key, numeric_id, name, group_key, position, tombstoned,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
+           created_revision, updated_revision, deleted_revision,
+           name_source, name_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL, ?7, ?8)
          ON CONFLICT(workspace_key) DO UPDATE SET
            numeric_id=excluded.numeric_id,
            name=excluded.name,
            group_key=excluded.group_key,
            position=excluded.position,
-           updated_revision=excluded.updated_revision",
+           updated_revision=excluded.updated_revision,
+           name_source=excluded.name_source,
+           name_revision=excluded.name_revision",
         params![
             workspace.key,
             i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
@@ -3368,6 +3385,8 @@ fn upsert_resource_workspace(
             workspace.group_key,
             position,
             revision,
+            name_source,
+            name_revision,
         ],
     )?;
     transaction.execute(

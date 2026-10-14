@@ -227,6 +227,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.VtStateResult, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateResult, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.Workspace, "key");
+    try expectExplicitNullRejected(protocol.Workspace, "name_revision");
+    try expectExplicitNullRejected(protocol.Workspace, "name_source");
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
 }
