@@ -183,6 +183,8 @@ impl Hub {
             "harness": m.harness,
             "family": m.family,
             "cwd": m.cwd,
+            // The cmux workspace its agent works in (`session_env.rs`), or null.
+            "workspace": m.session_env.get("CMUX_WORKSPACE_ID"),
             "status": m.status.to_string(),
             "agentSessionId": m.agent_session_id,
             "createdAt": m.created_at,

@@ -1,4 +1,5 @@
 public import Foundation
+import Darwin
 
 /// Socket path conventions shared with the old app and the `cmux` CLI, so
 /// `CMUX_TAG=<tag> cmux …`, `--socket`, and implicit discovery find
@@ -6,10 +7,23 @@ public import Foundation
 ///
 /// | Build | Path |
 /// | --- | --- |
-/// | tagged debug (bundle `com.cmuxterm.app.debug.<tag>`, or a bundled tag) | `/tmp/cmux-debug-<tag>.sock` |
-/// | untagged debug | `/tmp/cmux-debug.sock` |
-/// | nightly / rc / staging (optionally tagged) | `/tmp/cmux-<channel>[-<tag>].sock` |
+/// | tagged debug (bundle `com.cmuxterm.app.debug.<tag>`, or a bundled tag) | `~/.local/state/cmux/cmux-debug-<tag>.sock` |
+/// | untagged debug | `~/.local/state/cmux/cmux-debug.sock` |
+/// | nightly / rc / staging (optionally tagged) | `~/.local/state/cmux/cmux-<channel>[-<tag>].sock` |
 /// | release | `~/.local/state/cmux/cmux.sock` |
+///
+/// The sockets live in the user's own state folder (0700), not in `/tmp`: a
+/// host's /tmp cleaner deleted a running app's `/tmp/cmux-debug-<tag>.sock`
+/// two nights running (readiness soak, hq#1870). Each non-release socket
+/// keeps a compatibility symlink at its old `/tmp` name
+/// (``compatibilityLink(bundleID:tag:isDebugBuild:home:)``), so tools that
+/// still use the old path connect. A path that would not fit `sun_path`
+/// (104 bytes, a long home or tag) stays at the old `/tmp` name.
+///
+/// The app names its socket through ``BuildIdentity/controlSocket(userHome:)``
+/// (per-build isolation S3) and then ``moved(_:home:)``: these names where
+/// they belong to one build or DEV tag, else `cmux-<kind>--<key hash>.sock`
+/// (the untagged DEV build too).
 ///
 /// The inputs are this app's own identity only. Inherited environment
 /// (`CMUX_SOCKET_PATH`, `CMUX_TAG`, `CMUX_BUNDLE_ID` from a shell inside
@@ -24,6 +38,14 @@ public struct ControlSocketPath: Sendable {
         ("com.cmuxterm.app.staging", "staging"),
     ]
 
+    /// Longest path `sockaddr_un.sun_path` holds, without its terminating NUL.
+    static let maxPathBytes = MemoryLayout.size(ofValue: sockaddr_un().sun_path) - 1
+
+    /// The state folder every cmux-next control socket lives in.
+    public func stateDirectory(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String {
+        home.appending(path: ".local/state/cmux").path
+    }
+
     /// `tag` applies to the plain debug bundle only; a tagged bundle id
     /// carries its own tag.
     public func resolve(
@@ -32,6 +54,33 @@ public struct ControlSocketPath: Sendable {
         isDebugBuild: Bool,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> String {
+        moved(tmpPath(bundleID: bundleID, tag: tag, isDebugBuild: isDebugBuild, home: home), home: home).path
+    }
+
+    /// A socket's pre-move `/tmp` name `old` in the state folder, and the
+    /// `/tmp` name the app keeps as a symlink to it (nil when not moved:
+    /// release, or a path too long for `sun_path`).
+    public func moved(_ old: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> (path: String, link: String?) {
+        guard old.hasPrefix("/tmp/") else { return (old, nil) }
+        let moved = stateDirectory(home: home) + "/" + old.dropFirst("/tmp/".count)
+        return moved.utf8.count <= Self.maxPathBytes ? (moved, old) : (old, nil)
+    }
+
+    /// The old `/tmp` name of the socket ``resolve(bundleID:tag:isDebugBuild:home:)``
+    /// moved to the state folder, where the app keeps a symlink to it; nil
+    /// when the socket was not moved (release, or a path too long to move).
+    public func compatibilityLink(
+        bundleID: String?,
+        tag: String?,
+        isDebugBuild: Bool,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> String? {
+        let old = tmpPath(bundleID: bundleID, tag: tag, isDebugBuild: isDebugBuild, home: home)
+        return resolve(bundleID: bundleID, tag: tag, isDebugBuild: isDebugBuild, home: home) == old ? nil : old
+    }
+
+    /// The pre-move path: `/tmp/cmux-…` for every build but release.
+    private func tmpPath(bundleID: String?, tag: String?, isDebugBuild: Bool, home: URL) -> String {
         let bundle = bundleID?.trimmingCharacters(in: .whitespaces) ?? ""
         for (channelID, channel) in channelBundleIDs {
             if bundle == channelID { return "/tmp/cmux-\(channel).sock" }
@@ -81,20 +130,27 @@ public struct ControlSocketPath: Sendable {
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         fileManager: FileManager = .default
     ) -> [String] {
+        let state = stateDirectory(home: home)
         var paths = Set([
             "/tmp/cmux.sock",
             "/tmp/cmux-nightly.sock",
             "/tmp/cmux-rc.sock",
             "/tmp/cmux-staging.sock",
             "/tmp/cmux-debug.sock",
-            home.appending(path: ".local/state/cmux/cmux.sock").path,
+            state + "/cmux.sock",
         ])
-        if let entries = try? fileManager.contentsOfDirectory(atPath: "/tmp") {
-            for entry in entries where ["cmux-debug-", "cmux-nightly-", "cmux-rc-", "cmux-staging-"].contains(where: entry.hasPrefix) {
-                paths.insert("/tmp/" + entry)
+        for directory in ["/tmp", state] {
+            for entry in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? []
+            where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging", "cmux-release"].contains(where: entry.hasPrefix)
+                && entry.hasSuffix(".sock") {
+                paths.insert(directory + "/" + entry)
             }
         }
-        return paths.sorted()
+        // A compatibility symlink names a socket the state folder already lists.
+        return paths.filter { path in
+            var info = stat()
+            return lstat(path, &info) != 0 || info.st_mode & S_IFMT != S_IFLNK
+        }.sorted()
     }
 }
 

@@ -493,6 +493,10 @@ path = "tests/test_cmux_next_reel.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_tour.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
@@ -1253,6 +1257,10 @@ path = "tests/test_ci_frame_pacing_app_rpc.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_frame_pacing_golden.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_republish_delta_guard.py"
 lane = "linux-guard"
 
@@ -1310,6 +1318,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tour_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 
 [[test]]

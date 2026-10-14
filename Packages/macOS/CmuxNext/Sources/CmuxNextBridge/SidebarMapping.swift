@@ -182,10 +182,19 @@ public struct SidebarMapping {
         tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
     }
 
-    /// The last message of the row's agent chat: the front tab's, else the first chat tab's.
+    /// The last message of the row's agent chat (`chatTab`).
     func lastMessage(_ front: TabModel?, _ tabs: [TabModel]) -> String? {
-        let chat = front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
-        return chat?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+        chatTab(front, tabs)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+    }
+
+    /// The row's agent chat, whose last message the row shows: the front tab's, else the first chat tab's.
+    func chatTab(_ front: TabModel?, _ tabs: [TabModel]) -> TabModel? {
+        front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
+    }
+
+    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
+    public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     /// The tab whose agent the row names: a working or waiting one first.
