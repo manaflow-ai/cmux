@@ -1,23 +1,15 @@
 import CmuxAuthRuntime
+import CmuxFoundation
 import Foundation
 
 /// Passed through tasks and explicit process/socket boundaries for one user operation.
 public struct CloudOperationContext: Sendable {
-    /// Keep the task-local payload reference-sized for macOS 14's back-deployed
-    /// `TaskLocal.withValue` implementation. Passing this larger value directly
-    /// can violate the task allocator's LIFO invariant in optimized callers.
-    private final class TaskLocalValue: Sendable {
-        let context: CloudOperationContext?
-
-        init(_ context: CloudOperationContext?) {
-            self.context = context
-        }
-    }
-
-    @TaskLocal private static var taskLocalValue: TaskLocalValue?
+    // The context holds UUIDs and Dates, whose run-time size makes macOS 14's
+    // back-deployed TaskLocal fallback abort; bind it by reference instead.
+    @TaskLocal private static var boundContext: TaskLocalReference<CloudOperationContext>?
 
     public static var current: CloudOperationContext? {
-        taskLocalValue?.context
+        boundContext?.value
     }
 
     public static func withCurrent<T>(
@@ -25,11 +17,7 @@ public struct CloudOperationContext: Sendable {
         isolation: isolated (any Actor)? = #isolation,
         _ operation: () async throws -> T
     ) async rethrows -> T {
-        try await $taskLocalValue.withValue(
-            TaskLocalValue(context),
-            operation: operation,
-            isolation: isolation
-        )
+        try await $boundContext.withReferencedValue(context, isolation: isolation, operation: operation)
     }
 
     public let recorder: CloudOperationRecorder

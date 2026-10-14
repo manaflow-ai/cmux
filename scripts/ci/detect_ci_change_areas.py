@@ -109,6 +109,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
     # imports it and ci-macos.yml runs that on a Mac, which is the same reason
     # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
+    "scripts/ci/actions_artifact_prune.py",
     "scripts/ci/app_host_failure_census.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
@@ -118,6 +119,8 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/r2_cache_prune.py",
+    "scripts/ci/cmux_binaries_prune.py",
+    "scripts/ci/r2_storage_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
@@ -226,6 +229,14 @@ def is_unowned_ci_helper(path: str) -> bool:
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     )
+
+
+# Script sources ci_helper_areas() can trace through the tree by name.
+_WALKABLE_SCRIPT_SUFFIXES = (".py", ".sh", ".bash", ".zsh", ".js", ".mjs", ".ts")
+
+
+def is_walkable_script(path: str) -> bool:
+    return path.startswith("scripts/") and path.endswith(_WALKABLE_SCRIPT_SUFFIXES)
 
 
 def forces_all_areas(path: str) -> bool:
@@ -885,6 +896,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/relocate_package_framework_rpaths.py",
     # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
+    # Initializes the ghostty submodule for cli-product-tests' shell regressions.
+    "scripts/ci/init-submodule.sh",
 })
 
 CLI_LANE_INPUT_PREFIXES = (
@@ -1786,6 +1799,7 @@ RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
     "Resources/bin/cmux-hermes-sitecustomize.py",
     "Resources/bin/cmux-sudo",
     "Resources/bin/grok",
+    "Resources/bin/muse",
     "Resources/bin/open",
     "Resources/bin/start-cmux-profiling",
     "Resources/bin/submit-cmux-profile",
@@ -1959,6 +1973,22 @@ def classify_files(paths: Iterable[str], *,
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
+            # Any other script is placed by the same walk as the scripts/ci
+            # helpers above. Whatever the walk cannot place (an Xcode build
+            # phase, app source or native test names it, a Mac job runs it,
+            # nothing names it) keeps the macOS route below.
+            script_areas = (
+                ci_helper_areas(path, helper_root, test_references, base_root=Path("."))
+                if is_walkable_script(path) else None
+            )
+            if script_areas is not None:
+                print(f"{path} runs only in routed jobs gated by: {script_areas if script_areas != NO_AREAS else 'none'}")
+                macos = macos or script_areas.macos
+                web = web or script_areas.web
+                agent_session_web = agent_session_web or script_areas.agent_session_web
+                cli = cli or script_areas.cli
+                release_build = release_build or script_areas.release_build
+                continue
             macos = True
             if not is_release_build_neutral(path):
                 release_build = True

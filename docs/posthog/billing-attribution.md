@@ -75,3 +75,17 @@ Mac events also carry `channel` (`stable`, `nightly`, `dev`) next to `app_versio
 - Churn feedback by acquisition surface: `cmux_billing_subscription_deleted` keeps the original `checkout_source` from subscription metadata.
 
 Dashboard: cmuxterm-hq `scripts/posthog-billing-dashboard.py` ("Billing attribution").
+
+## Identity of Stripe billing events (2026-10)
+
+Stripe billing events are sent only from production (`VERCEL_ENV=production`,
+or `CMUX_SERVER_ANALYTICS_FORCE=1`) and carry `livemode` and `vercel_env`.
+User-scope events are keyed by the Stack user. Team checkout events
+(`cmux_billing_checkout_started`, `_completed`, `_expired`) are keyed by the
+purchasing admin with the `stack_team` group, and the completed event sets
+that admin's `billing_plan` to `team`. Every other team event (subscription
+changes, invoices, refunds) keeps `distinct_id: stack-team:<team id>` but is
+person-less (`$process_person_profile: false`), so it creates no person.
+PostHog does not link person-less events to groups: break those down by the
+`stack_team_id` property. Funnels built on the old `stack-team:` person for
+team checkouts must switch to the admin person or the group.

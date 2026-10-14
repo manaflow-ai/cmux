@@ -75,6 +75,16 @@ struct AppDelegateDisplayConfigRestoreTests {
     // MARK: the headline round-trip
 
     @Test
+    func displayReconciliationLeavesVisibleWindowsOnInactiveSpacesToAppKit() {
+        #expect(!AppDelegate.shouldReconcileWindowAfterScreenChange(
+            isOnActiveSpace: false
+        ))
+        #expect(AppDelegate.shouldReconcileWindowAfterScreenChange(
+            isOnActiveSpace: true
+        ))
+    }
+
+    @Test
     func windowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
         // 1. Docked: built-in + external. User's window lives on the external.
         let dockedSignature = try #require(

@@ -187,6 +187,7 @@ async function failRefresh(
   (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
     provider: currentProvider(credential),
     terminal,
+    failure_code: safeFailureCode(failureCode),
   }, terminal && isRevokedSignInCode(failureCode) ? { fault: "tenant" } : {});
   await dependencies.fail(
     input.accountId,
@@ -375,8 +376,19 @@ export function isTerminalRefreshError(error: unknown): boolean {
     /invalid|expired|reused|revoked|not_found/i.test(error.code);
 }
 
+/**
+ * Codes that mean the provider revoked this sign-in. OpenAI answers
+ * `refresh_token_expired`, `refresh_token_reused`, or
+ * `refresh_token_invalidated` (logout or password change), the same set the
+ * Codex CLI maps to expired, exhausted, and revoked.
+ */
 function isRevokedSignInCode(code: string): boolean {
-  return /invalid_grant|expired|reused|revoked|credential_owner_mismatch/i.test(code);
+  return /invalid_grant|expired|reused|invalidated|revoked|credential_owner_mismatch/i.test(code);
+}
+
+/** Provider error codes are short identifiers; keep only that shape in telemetry. */
+function safeFailureCode(code: string): string {
+  return /^[a-z0-9_.-]{1,64}$/i.test(code) ? code : "unrecognized";
 }
 
 function refreshFailureCode(error: unknown): string {

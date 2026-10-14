@@ -14,7 +14,7 @@ import Testing
 /// consumer does not empty that buffer. Whatever the old client had already written is still
 /// delivered afterwards, into a connection that now belongs to the next client.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxReconnectStaleStreamTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxReconnectStaleStreamTests {
     private let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
 
     @Test func bytesBufferedFromATornDownStreamAreNotIngested() async throws {

@@ -1,5 +1,8 @@
 import AppKit
 
+// The portal anchor is entered synchronously by AppKit layout and hit testing.
+// Keep those Objective-C thunks free of the inherited MainActor executor check;
+// the portal still owns the view exclusively on AppKit's main thread.
 final class BrowserPortalAnchorView: NSView {
     private var installationConstraints: [NSLayoutConstraint] = []
     private var hasSynchronizedPortalGeometry = false
@@ -9,8 +12,8 @@ final class BrowserPortalAnchorView: NSView {
     private var lastSynchronizedSuperviewID: ObjectIdentifier?
     private var isSynchronizingPortalGeometry = false
 
-    override var acceptsFirstResponder: Bool { false }
-    override var isOpaque: Bool { false }
+    nonisolated override var acceptsFirstResponder: Bool { false }
+    nonisolated override var isOpaque: Bool { false }
 
     /// Reparents and pins this anchor to an on-window browser host.
     func install(in host: NSView) {
@@ -49,21 +52,21 @@ final class BrowserPortalAnchorView: NSView {
         markPortalGeometrySynchronizationNeeded()
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
-    override func setFrameOrigin(_ newOrigin: NSPoint) {
+    nonisolated override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         markPortalGeometrySynchronizationNeeded()
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    nonisolated override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         markPortalGeometrySynchronizationNeeded()
     }
 
-    override func viewDidMoveToSuperview() {
+    nonisolated override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil, !installationConstraints.isEmpty {
             NSLayoutConstraint.deactivate(installationConstraints)
@@ -72,12 +75,12 @@ final class BrowserPortalAnchorView: NSView {
         markPortalGeometrySynchronizationNeeded()
     }
 
-    override func viewDidMoveToWindow() {
+    nonisolated override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         markPortalGeometrySynchronizationNeeded()
     }
 
-    override func layout() {
+    nonisolated override func layout() {
         super.layout()
         synchronizePortalGeometryIfNeeded()
     }

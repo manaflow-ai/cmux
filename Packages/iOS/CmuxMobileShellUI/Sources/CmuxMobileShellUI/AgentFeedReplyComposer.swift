@@ -3,11 +3,11 @@ import CmuxMobileShellModel
 import SwiftUI
 
 /// What a Feed compose sheet answers: a free-text terminal reply to a
-/// finished turn, a question's "Other…" answer, or exit-plan revise feedback.
+/// finished turn or exit-plan revise feedback.
 struct AgentFeedComposeContext: Identifiable {
-    enum Kind {
+    enum Kind: Equatable {
         case terminalReply
-        case questionOther
+        case question
         case planRevise
     }
 
@@ -200,7 +200,13 @@ struct AgentFeedReplyComposer: View {
                 defaultValue: "Reply",
                 bundle: .module
             )
-        case .questionOther, .planRevise:
+        case .question:
+            return String(
+                localized: "mobile.agentFeed.question.answer",
+                defaultValue: "Answer",
+                bundle: .module
+            )
+        case .planRevise:
             return String(
                 localized: "mobile.agentFeed.question.send",
                 defaultValue: "Send",
@@ -217,16 +223,16 @@ struct AgentFeedReplyComposer: View {
                 defaultValue: "Reply to agent…",
                 bundle: .module
             )
-        case .questionOther:
-            return String(
-                localized: "mobile.agentFeed.question.otherPlaceholder",
-                defaultValue: "Your answer",
-                bundle: .module
-            )
         case .planRevise:
             return String(
                 localized: "mobile.agentFeed.exitPlan.revisePlaceholder",
                 defaultValue: "What should change?",
+                bundle: .module
+            )
+        case .question:
+            return String(
+                localized: "mobile.agentFeed.question.otherPlaceholder",
+                defaultValue: "Your answer",
                 bundle: .module
             )
         }
@@ -253,10 +259,10 @@ struct AgentFeedReplyComposer: View {
         switch context.kind {
         case .terminalReply:
             actions.terminalReply(context.item, text)
-        case .questionOther:
-            actions.questionReply(context.item, [text])
         case .planRevise:
             actions.exitPlanReply(context.item, "manual", text)
+        case .question:
+            actions.questionReply(context.item, [text])
         }
         dismiss()
     }

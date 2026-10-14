@@ -14,6 +14,8 @@ export async function personalPortalSession(input: {
   if (!status.customerId) throw new Error("Billing customer is unavailable");
   const canSwitch = input.target !== "go" && status.hasRecurringSubscription && status.subscriptionId &&
     ["active", "trialing"].includes(status.subscriptionStatus ?? "") &&
+    // A switch keeps a scheduled cancellation; the plain portal offers Renew.
+    !status.cancelAtPeriodEnd &&
     status.activePlanId !== input.target;
   const session = await stripe().billingPortal.sessions.create({
     customer: status.customerId,
@@ -25,7 +27,7 @@ export async function personalPortalSession(input: {
   });
   if (canSwitch) await captureBillingPlanSwitchStarted({
     sessionId: session.id, userId: input.userId, fromPlan: status.activePlanId,
-    targetPlan: input.target, attribution: input.attribution,
+    targetPlan: input.target, attribution: input.attribution, livemode: session.livemode,
   });
   return session;
 }

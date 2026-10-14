@@ -1,3 +1,4 @@
+import CmuxCloudResizeCore
 import Foundation
 
 /// The active plan: its machine ceiling, tier and free-access window.
@@ -52,6 +53,13 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         case "max", "team", "founders": return false
         default: return true
         }
+    }
+
+    /// Whether Max is a larger plan for shared vCPU and memory capacity.
+    /// Team and Founders have the same active-machine tier as Max but can still
+    /// upgrade their shared pool to Max capacity.
+    public var hasHigherResourcePoolPlan: Bool {
+        planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "max"
     }
 
     public static func isPaidPlanID(_ planId: String) -> Bool {

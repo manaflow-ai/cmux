@@ -11,18 +11,14 @@ import Observation
 /// the `AccountSection` can drive sign-in / sign-out / team selection without
 /// depending on the auth packages.
 ///
-/// A projection over the coordinator, browser flow, and feature flags. The
-/// stored Pro availability value forwards feature-flag notifications so
-/// SwiftUI views that read this adapter in `body` re-render when remote flags
-/// change after Settings is already open.
+/// A projection over the coordinator and browser flow. Upgrade entrypoints
+/// remain available independently of remote rollout configuration.
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
-    private let featureFlags = CmuxFeatureFlags.shared
-    @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
-    private(set) var isProUpgradeAvailable: Bool
+    var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
@@ -58,23 +54,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
         self.browserSignIn = browserSignIn
-        isProUpgradeAvailable = featureFlags.isProUpgradeUIEnabled
-        featureFlagsObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxFeatureFlagsDidChange,
-            object: featureFlags,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
-            }
-        }
         startCoordinatorObservation()
-    }
-
-    deinit {
-        if let featureFlagsObserver {
-            NotificationCenter.default.removeObserver(featureFlagsObserver)
-        }
     }
 
     var currentIdentity: AccountIdentity? {
@@ -146,7 +126,13 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             return .rejected
         case .cancelled:
             return .cancelled
+        case .rateLimited:
+            return .rateLimited
         }
+    }
+
+    var isRetryingAfterRateLimit: Bool {
+        browserSignIn.isRetryingAfterRateLimit
     }
 
     func startSignIn() {
@@ -193,6 +179,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             url.absoluteString,
             to: .general
         )
+    }
+
+    var lastSignInFailureDetail: String? {
+        browserSignIn.lastFailureDetail
+    }
+
+    func copyFailureDetail(_ detail: String) -> Bool {
+        GhosttyApp.terminalPasteboard.writeString(detail, to: .general)
     }
 
     func signOut() async {

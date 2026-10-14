@@ -105,6 +105,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
+        "MUSE_AUTH_PATH",
+        "MUSE_CHANNEL",
         "NODE_OPTIONS",
         "OPENCODE_CONFIG_DIR",
         "OLLAMA_EDITOR",

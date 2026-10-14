@@ -1302,22 +1302,51 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     // snapshot boundary. Treat it like any other rejected checkpoint so a
     // metadata write or journal repair cannot make startup fail permanently.
     if host.cursor > 0 {
-        let journal_head = registry.session_journal_head()?;
+        let journal_head = match registry.session_journal_head() {
+            Ok(head) => head,
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: agent roster journal head unavailable; starting empty: {error}"
+                );
+                return Ok(AgentRosterHost::default());
+            }
+        };
         if host.cursor > journal_head {
             host = AgentRosterHost::default();
             needs_repair = true;
         }
     }
     let started_at = host.cursor;
-    loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
-        if page.records.is_empty() {
-            break;
+    // The roster ignores terminal output, so replay reads only the other
+    // records up to the head and then stands on the head: startup no longer
+    // decodes every output chunk printed since the last agent event.
+    let head = match registry.session_journal_head() {
+        Ok(head) => head,
+        Err(error) => {
+            eprintln!("cmux-tui: agent roster journal head unavailable; starting empty: {error}");
+            return Ok(AgentRosterHost::default());
         }
-        for record in &page.records {
+    };
+    while host.cursor < head {
+        let (records, reached) =
+            match registry.session_journal_without_output_after(host.cursor, head, 512) {
+                Ok(page) => page,
+                Err(error) => {
+                    // The roster is derived state. A malformed history page must
+                    // not keep the daemon in a supervisor crash loop; discard the
+                    // in-memory roster and fence its cursor at the known head.
+                    eprintln!(
+                        "cmux-tui: agent roster journal tail unavailable; resetting: {error}"
+                    );
+                    host = AgentRosterHost { roster: AgentRoster::default(), cursor: head };
+                    needs_repair = true;
+                    break;
+                }
+            };
+        for record in &records {
             host.roster.apply(&RosterEvent::from_record(record));
-            host.cursor = host.cursor.max(record.sequence);
         }
+        host.cursor = host.cursor.max(reached);
     }
     if needs_repair || host.cursor != started_at {
         registry.put_journal_reducer_state(
@@ -2441,6 +2470,61 @@ struct ClientFocusRecord {
 
 /// Bounded size of the per-client focus memory.
 const CLIENT_FOCUS_MEMORY_LIMIT: usize = 64;
+const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
+const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
+const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+
+struct JournalMaintenanceControl {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+
+struct JournalMaintenance {
+    control: Arc<JournalMaintenanceControl>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl JournalMaintenance {
+    fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
+        let control = Arc::new(JournalMaintenanceControl {
+            stopped: Mutex::new(false),
+            changed: Condvar::new(),
+        });
+        let worker_control = control.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+            move || loop {
+                let mut stopped = worker_control.stopped.lock().unwrap();
+                if *stopped {
+                    return;
+                }
+                let (next, timeout) = worker_control
+                    .changed
+                    .wait_timeout(stopped, JOURNAL_MAINTENANCE_INTERVAL)
+                    .unwrap();
+                stopped = next;
+                if *stopped {
+                    return;
+                }
+                if !timeout.timed_out() {
+                    continue;
+                }
+                drop(stopped);
+                let Some(mux) = weak_mux.upgrade() else { return };
+                mux.run_journal_maintenance();
+            },
+        )?;
+        Ok(Self { control, thread: Some(thread) })
+    }
+
+    fn stop(mut self) {
+        *self.control.stopped.lock().unwrap() = true;
+        self.control.changed.notify_all();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 pub struct Mux {
     /// Serializes durable workspace commits, their in-memory projection, and
@@ -2570,6 +2654,7 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    journal_maintenance: Mutex<Option<JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -2989,6 +3074,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -3072,6 +3158,10 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        if mux.workspace_registry.lock().unwrap().session_journal_database_path().is_some() {
+            let maintenance = JournalMaintenance::start(&mux)?;
+            *mux.journal_maintenance.lock().unwrap() = Some(maintenance);
+        }
         Ok(mux)
     }
 
@@ -5902,8 +5992,16 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
+    pub(crate) fn wait_for_terminal_journal_space_until(
+        &self,
+        observed: u64,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
+    }
+
+    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
+        self.journal_ingress.durable_deadline()
     }
 
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
@@ -5978,6 +6076,41 @@ impl Mux {
             cell_width,
             cell_height,
         });
+    }
+
+    pub(crate) fn try_journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id,
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        )
+    }
+
+    pub(crate) fn try_journal_terminal_output_gap_until(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            reason,
+        };
+        if Instant::now() >= deadline {
+            return self.journal_ingress.try_send_terminal_gap(event);
+        }
+        self.journal_ingress.send_durable_until(event, deadline)
     }
 
     pub(crate) fn commit_session_journal_events<F>(
@@ -6508,19 +6641,20 @@ impl Mux {
             }
             let mut deltas = Vec::new();
             while host.cursor < commit.sequence {
-                let page = match registry.session_journal_after(host.cursor, 512) {
+                // Terminal output between agent events is skipped by the read:
+                // the roster ignores it, and this runs under the registry lock.
+                let (records, reached) = match registry.session_journal_without_output_after(
+                    host.cursor,
+                    commit.sequence,
+                    512,
+                ) {
                     Ok(page) => page,
                     Err(error) => {
                         eprintln!("cmux-tui: reading agent journal tail failed: {error}");
                         return;
                     }
                 };
-                if page.records.is_empty() {
-                    break;
-                }
-                for record in
-                    page.records.iter().take_while(|record| record.sequence <= commit.sequence)
-                {
+                for record in &records {
                     let changes = host.roster.apply(&RosterEvent::from_record(record));
                     // Hooks already use the durable, session-fenced projector.
                     // Applying their reducer delta again would bypass its
@@ -6530,8 +6664,8 @@ impl Mux {
                     {
                         deltas.extend(changes);
                     }
-                    host.cursor = record.sequence;
                 }
+                host.cursor = reached;
             }
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
@@ -6890,33 +7024,117 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
-        if let Some(commit) = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_checkpoint_receipt(origin, idempotency_key)?
-        {
-            return Ok(commit);
+        let mut last_error = None;
+        for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+            if let Some(commit) = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .journal_checkpoint_receipt(origin, idempotency_key)?
+            {
+                return Ok(commit);
+            }
+            let captured = match crate::journal_checkpoint::capture(self) {
+                Ok(captured) => captured,
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            match self.workspace_registry.lock().unwrap().create_journal_checkpoint(
+                captured.source_sequence,
+                crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
+                &captured.state,
+                &captured.blobs,
+                origin,
+                idempotency_key,
+            ) {
+                Ok(commit) => {
+                    if !commit.journal.replayed {
+                        self.publish_journal_event();
+                    }
+                    return Ok(commit);
+                }
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let captured = crate::journal_checkpoint::capture(self)?;
-        let commit = self.workspace_registry.lock().unwrap().create_journal_checkpoint(
-            captured.source_sequence,
-            crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
-            &captured.state,
-            &captured.blobs,
-            origin,
-            idempotency_key,
-        )?;
-        if !commit.journal.replayed {
-            self.publish_journal_event();
-        }
-        Ok(commit)
+        Err(last_error.expect("checkpoint retry loop must retain its last error"))
     }
 
     pub(crate) fn journal_checkpoints(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalCheckpointSummary>> {
         self.workspace_registry.lock().unwrap().journal_checkpoints()
+    }
+
+    fn run_journal_maintenance(&self) {
+        let result = (|| -> anyhow::Result<()> {
+            if self.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum()? {
+                // A legacy registry migration performs one full VACUUM. Keep
+                // that rewrite isolated to this maintenance tick before
+                // attempting checkpoint or sealing work.
+                return Ok(());
+            }
+            let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
+            let latest =
+                self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
+            let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
+            let mut sealed_through =
+                self.workspace_registry.lock().unwrap().journal_segments_end()?;
+            let pending_seal = checkpoint_source > sealed_through;
+            if !pending_seal
+                && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
+            {
+                self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+                return Ok(());
+            }
+
+            let target = if pending_seal {
+                checkpoint_source
+            } else {
+                let checkpoint_key = format!("auto_checkpoint_{head}");
+                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?
+                    .checkpoint
+                    .source_sequence
+            };
+            if target == 0 {
+                return Ok(());
+            }
+
+            for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
+                if sealed_through >= target {
+                    break;
+                }
+                let key = format!("auto_segment_{target}_{batch}_{sealed_through}");
+                let commit = self.seal_journal_segments(target, "journal-maintenance", &key)?;
+                if commit.through_sequence <= sealed_through {
+                    break;
+                }
+                sealed_through = commit.through_sequence;
+            }
+            self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
+            self.report_internal_diagnostic(
+                "journal maintenance deferred; checkpoint maintenance will retry",
+            );
+        }
     }
 
     pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
@@ -11754,6 +11972,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.stop_journal_maintenance();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
@@ -11822,6 +12041,12 @@ impl Mux {
         }
         if let Err(error) = self.journal_ingress.close_and_join() {
             eprintln!("cmux-tui: stop session journal writer during {context}: {error:#}");
+        }
+    }
+
+    fn stop_journal_maintenance(&self) {
+        if let Some(maintenance) = self.journal_maintenance.lock().unwrap().take() {
+            maintenance.stop();
         }
     }
 
@@ -18867,6 +19092,9 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        if let Some(maintenance) = self.journal_maintenance.get_mut().unwrap().take() {
+            maintenance.stop();
+        }
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop");
         self.journal_kernel.shutdown();
@@ -20124,6 +20352,252 @@ mod tests {
             true,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn journal_review_idle_maintenance_reclaims_free_pages() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-idle-vacuum-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("idle-vacuum", &root);
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let observer = rusqlite::Connection::open(database).unwrap();
+        observer
+            .execute_batch(
+                "CREATE TABLE vacuum_fixture(content BLOB);
+                 WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 1024)
+                 INSERT INTO vacuum_fixture SELECT zeroblob(4096) FROM n;
+                 DROP TABLE vacuum_fixture;",
+            )
+            .unwrap();
+        let free_pages =
+            || observer.query_row("PRAGMA freelist_count", [], |row| row.get::<_, i64>(0)).unwrap();
+        let before = free_pages();
+        assert!(before > 256);
+
+        mux.run_journal_maintenance();
+        let after_first = free_pages();
+        mux.run_journal_maintenance();
+        let after_second = free_pages();
+        assert!(after_first < before, "idle maintenance must reclaim free pages");
+        assert!(after_second < after_first, "later idle ticks must keep reclaiming pages");
+
+        drop(observer);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_legacy_vacuum_migration_runs_in_maintenance() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-legacy-vacuum-maintenance-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("legacy-vacuum-maintenance", &root);
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let legacy = rusqlite::Connection::open(database).unwrap();
+        legacy
+            .execute("DELETE FROM meta WHERE key = ?1", ["journal_auto_vacuum_migrated"])
+            .unwrap();
+        legacy.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
+        drop(legacy);
+
+        mux.run_journal_maintenance();
+
+        assert!(!mux.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum().unwrap());
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_maintenance_diagnostic_hides_upstream_errors() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-diagnostic-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("maintenance-diagnostic", &root);
+        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 43)).unwrap());
+        for _ in 0..4_100 {
+            mux.journal_terminal_output(
+                terminal_id.clone(),
+                Arc::from("diagnostic-generation"),
+                b"journal record".to_vec(),
+            );
+        }
+        mux.flush_terminal_journal().unwrap();
+        let database =
+            mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+        let injector = rusqlite::Connection::open(database).unwrap();
+        injector
+            .execute_batch(
+                "CREATE TRIGGER reject_diagnostic_test_segment BEFORE INSERT ON journal_segments
+                 BEGIN SELECT RAISE(ABORT, 'libghostty-vt: buffer too small'); END;",
+            )
+            .unwrap();
+        let diagnostics = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+
+        mux.run_journal_maintenance();
+
+        assert_eq!(
+            *diagnostics.lock().unwrap(),
+            vec!["journal maintenance deferred; checkpoint maintenance will retry"]
+        );
+        drop(injector);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_gap_admission_waits_for_commit_and_reports_failure() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-journal-gap-receipt-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = open_persistent_test_mux("gap-receipt", &root);
+        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 42)).unwrap());
+        let (entered, entered_receiver) = std::sync::mpsc::sync_channel(1);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(1);
+        mux.install_journal_before_commit_for_test(entered, release_receiver);
+        mux.journal_terminal_output(
+            terminal_id.clone(),
+            Arc::from("gap-receipt-generation"),
+            b"hold the writer".to_vec(),
+        );
+        entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let queue_full = (0..2048).any(|_| {
+            mux.try_journal_terminal_output(
+                terminal_id.clone(),
+                Arc::from("gap-receipt-generation"),
+                0,
+                b"queued output".to_vec(),
+            )
+            .unwrap()
+            .is_some()
+        });
+        let (completed, completion) = std::sync::mpsc::sync_channel(1);
+        let producer_mux = mux.clone();
+        let producer_terminal = terminal_id.clone();
+        let producer = std::thread::spawn(move || {
+            completed
+                .send(producer_mux.try_journal_terminal_output_gap(
+                    producer_terminal,
+                    Arc::from("gap-receipt-generation"),
+                    "journal_output_deadline_expired",
+                ))
+                .unwrap();
+        });
+        let early_receipt = completion.recv_timeout(Duration::from_millis(100));
+        release.send(()).unwrap();
+        producer.join().unwrap();
+        assert!(queue_full, "the gap must encounter a full terminal queue");
+        assert!(early_receipt.is_err(), "gap admission must wait for its durable receipt");
+        completion.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
+            record.kind == "terminal.output.gap"
+                && record.payload["reason"] == "journal_output_deadline_expired"
+        }));
+        assert!(!mux.daemon_shutdown_requested());
+
+        mux.journal_ingress.close_and_join().unwrap();
+        let error = mux
+            .try_journal_terminal_output_gap(
+                terminal_id,
+                Arc::from("gap-receipt-generation"),
+                "journal_output_write_failed",
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("admission is closed"));
+        assert!(!mux.daemon_shutdown_requested());
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_review_gap_after_deadline_queues_best_effort_marker() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-gap-expired-deadline-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("gap-expired-deadline", &root);
+        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 44)).unwrap());
+
+        mux.try_journal_terminal_output_gap_until(
+            terminal_id,
+            Arc::from("gap-expired-generation"),
+            "journal_output_deadline_expired",
+            Instant::now() - Duration::from_millis(1),
+        )
+        .unwrap();
+        mux.flush_terminal_journal().unwrap();
+
+        assert!(mux.session_journal_after(0, 1024).unwrap().records.iter().any(|record| {
+            record.kind == "terminal.output.gap"
+                && record.payload["reason"] == "journal_output_deadline_expired"
+        }));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn journal_maintenance_continues_sealing_a_subthreshold_tail() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-maintenance-tail-{}",
+            crate::workspace_registry::new_uuid_v4()
+        ));
+        let mux = open_persistent_test_mux("maintenance-tail", &root);
+        let manifest = crate::JournalProducerManifest {
+            producer_id: "maintenance_test".into(),
+            namespace: "plugin.maintenance_test".into(),
+            manifest_version: 1,
+            max_sensitivity: crate::JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.maintenance_test".into()],
+            events: vec![crate::JournalEventSchema {
+                kind: "plugin.maintenance_test.event".into(),
+                schema_version: 1,
+                class: crate::JournalClass::Observation,
+                replay: crate::JournalReplayPolicy::Advisory,
+                sensitivity: crate::JournalSensitivity::Metadata,
+                payload_schema: serde_json::json!({"type":"object"}),
+            }],
+        };
+        mux.put_journal_producer(&manifest, "test", "maintenance-manifest").unwrap();
+        for index in 0..1_100 {
+            let ingress = crate::JournalIngress {
+                producer_id: manifest.producer_id.clone(),
+                manifest_version: 1,
+                kind: manifest.events[0].kind.clone(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: Vec::new(),
+                sensitivity: None,
+                payload: serde_json::json!({"index": index}),
+                causation_id: None,
+                correlation_id: None,
+            };
+            mux.append_journal_ingress(&ingress, "test", &format!("maintenance-event-{index}"))
+                .unwrap();
+        }
+
+        let checkpoint = mux.create_journal_checkpoint("test", "maintenance-checkpoint").unwrap();
+        let first_seal = mux
+            .seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "test",
+                "maintenance-first-seal",
+            )
+            .unwrap();
+        assert!(first_seal.through_sequence < checkpoint.checkpoint.source_sequence);
+
+        mux.run_journal_maintenance();
+
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().journal_segments_end().unwrap(),
+            checkpoint.checkpoint.source_sequence,
+            "maintenance must finish a checkpoint even when the remaining tail is below the checkpoint threshold"
+        );
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
@@ -25664,6 +26138,45 @@ mod tests {
         let mux = open();
         assert!(mux.resource_notifications(8).is_empty());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn persistent_restart_recovers_after_notification_terminal_is_removed() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-notification-orphan-restart-{}",
+            WorkspacePublicId::random().unwrap()
+        ));
+        let session = "notification-orphan-restart";
+
+        let mux = open_persistent_test_mux(session, &root);
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("terminal identity");
+        mux.post_notification(
+            "Orphaned notification".into(),
+            "Keep this history after the terminal is removed".into(),
+            NotificationLevel::Warning,
+            Some(surface.id),
+        )
+        .unwrap();
+        let host = mux
+            .resource_terminal_host_identity(&surface)
+            .expect("test terminal has a host identity");
+        mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+        assert!(mux.surface(surface.id).is_none());
+        mux.shutdown();
+        drop(mux);
+
+        let reopened = open_persistent_test_mux(session, &root);
+        let notifications = reopened.resource_notifications(8);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title, "Orphaned notification");
+        assert_eq!(notifications[0].terminal_id, None);
+        assert_eq!(notifications[0].surface, None);
+        assert!(reopened.surface_notification(surface.id).is_none());
+        assert!(reopened.resolve_terminal(terminal_id.as_str()).unwrap().is_some());
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

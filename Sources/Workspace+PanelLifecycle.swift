@@ -472,6 +472,8 @@ extension Workspace {
         }
         clearCloudMaterializationFailure(surfaceID: panelId)
         cancelReservedCloudTerminalPane(panelID: panelId)
+        cloudBrowserCreationTasks.removeValue(forKey: panelId)?.cancel()
+        pendingCloudBrowserPanelIDs.remove(panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -560,6 +562,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        clearProgramStatusPanel(panelId: panelId)
         agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)

@@ -7,8 +7,8 @@ import Foundation
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
 // session. Every other `cmux coderouter ...` verb, and all of `cmux cr ...`,
-// is exec'd into the CodeRouter CLI before any socket is opened
-// (CMUXCLI+CoderouterPassthrough.swift, which also installs it when missing).
+// runs the CodeRouter CLI through the shared launch path, including native
+// handoff for routed providers and installation when missing.
 extension CMUXCLI {
     static let coderouterUsage = """
         Usage: cmux coderouter <status|machines|claude|agent> [options]
@@ -37,7 +37,8 @@ extension CMUXCLI {
               Add a Claude Code OAuth token (sk-ant-oat01-...). Run
               `claude setup-token` to mint one automatically, or provide it in
               CLAUDE_CODE_OAUTH_TOKEN, or pipe it in with --stdin. Never pass
-              a token as an argument. Alias: set.
+              a token as an argument. Without --label, a terminal offers your
+              Claude Code login's email as the label. Alias: set.
 
           cmux coderouter claude add api-key [--label <s>] [--stdin] [--team <id>] [--json]
               Add an Anthropic API key (sk-ant-...) from ANTHROPIC_API_KEY,
@@ -254,6 +255,10 @@ extension CMUXCLI {
         let (teamOpt, rem0) = parseOption(rest, name: "--team")
         let (labelOpt, rem1) = parseOption(rem0, name: "--label")
         var params: [String: Any] = teamParams(teamOpt)
+        // cmux-owned Claude accounts back Cloud machine routing and must be
+        // shared with the selected team, including in a personal scope where the
+        // API would otherwise keep a new import private.
+        params["visibility"] = "team"
         if let label = Self.nonEmpty(labelOpt) {
             params["label"] = label
         }
@@ -273,6 +278,16 @@ extension CMUXCLI {
             }
             params["kind"] = "anthropic_oauth"
             params["token"] = token
+            // A setup token cannot read its account's email, so offer the Claude
+            // Code login's email as the label and let the user confirm it: the
+            // browser step may have signed in to a different account.
+            if params["label"] == nil, !forceStdin, isatty(STDIN_FILENO) == 1,
+               let email = Self.claudeCodeLoginEmail() {
+                cliWriteStderr("Label (Enter for \(Self.sanitizeForTerminal(email))): ")
+                if let line = readLine(strippingNewline: true) {
+                    params["label"] = Self.nonEmpty(line.trimmingCharacters(in: .whitespaces)) ?? email
+                }
+            }
 
         case "api-key", "apikey", "anthropic-key":
             let forceStdin = rem1.contains("--stdin")
@@ -608,6 +623,18 @@ extension CMUXCLI {
 
     private static func isCoderouterFlagToken(_ value: String) -> Bool {
         value.hasPrefix("-") && value != "-"
+    }
+
+    /// The email of the account Claude Code is logged in to, from the
+    /// `oauthAccount` that `/login` writes to `.claude.json`.
+    private static func claudeCodeLoginEmail() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        let directory = nonEmpty(env["CLAUDE_CONFIG_DIR"]) ?? nonEmpty(env["HOME"]) ?? NSHomeDirectory()
+        let file = URL(fileURLWithPath: directory).appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let account = root["oauthAccount"] as? [String: Any] else { return nil }
+        return nonEmpty((account["emailAddress"] as? String)?.trimmingCharacters(in: .whitespaces))
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

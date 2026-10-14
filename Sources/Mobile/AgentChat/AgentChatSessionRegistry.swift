@@ -267,6 +267,22 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
+    /// Returns the in-memory live binding without rechecking the process table.
+    ///
+    /// Global Search uses this lightweight snapshot before doing transcript
+    /// resolution off the main actor. Liveness watchers keep the binding
+    /// current; callers that need an authoritative process check should use
+    /// ``liveSession(surfaceID:)`` instead.
+    func liveSessionSnapshot(surfaceID: String) -> AgentChatSessionRecord? {
+        guard let sessionID = liveSessionIDBySurfaceID[surfaceID],
+              let record = records[sessionID],
+              record.surfaceID == surfaceID,
+              record.state != .ended else {
+            return nil
+        }
+        return record
+    }
+
     /// The live session for a surface, or its most recently active historical session.
     ///
     /// - Parameter surfaceID: Terminal surface UUID string.

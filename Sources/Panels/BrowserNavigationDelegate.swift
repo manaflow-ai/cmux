@@ -14,31 +14,31 @@ import WebKit
     )
     private let externalNavigationHandler: BrowserExternalNavigationHandler
     private var shouldPrintAfterCurrentNavigationFinishes = false
-    var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
-    var didCommit: ((WKWebView, WKNavigation?) -> Void)?
-    var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
-    var didChooseMainFrameDownloadPolicy: ((WKWebView, WKNavigation?) -> Void)?
-    var didInterruptProvisionalNavigationByPolicy: ((WKWebView, WKNavigation?) -> Bool)?
-    var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
-    var didTerminateWebContentProcess: ((WKWebView) -> Void)?
-    var handleBlockedURLAllowlistNavigation: ((URL, WKWebView) -> Void)?
-    var openInNewTab: ((URL) -> Void)?
-    var openAppLinkInBrowserSplit: ((URL) -> Bool)?
-    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent, ((WKNavigation?) -> Void)?) -> Void)?
+    var didStartProvisionalNavigation: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didCommit: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didFinish: (@MainActor (WKWebView) -> Void)?
+    var didFailNavigation: (@MainActor (WKWebView, String, String, WKNavigation?) -> Void)?
+    var didCancelProvisionalNavigation: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didChooseMainFrameDownloadPolicy: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didInterruptProvisionalNavigationByPolicy: (@MainActor (WKWebView, WKNavigation?) -> Bool)?
+    var didCancelNavigationPolicy: (@MainActor (WKWebView, PolicyCancellationKind) -> Void)?
+    var didBecomeDownload: (@MainActor (WKWebView, Bool, UUID?) -> Void)?
+    var didTerminateWebContentProcess: (@MainActor (WKWebView) -> Void)?
+    var handleBlockedURLAllowlistNavigation: (@MainActor (URL, WKWebView) -> Void)?
+    var openInNewTab: (@MainActor (URL) -> Void)?
+    var openAppLinkInBrowserSplit: (@MainActor (URL) -> Bool)?
+    var requestNavigation: (@MainActor (URLRequest, BrowserInsecureHTTPNavigationIntent, (@MainActor (WKNavigation?) -> Void)?) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
-    var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
-    var shouldBlockInsecureHTTPSubframeDownload: ((URL) -> Bool)?
-    var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
-    var handleDroppedFileNavigation: (([URL]) -> Bool)?
-    var currentRestoreAttemptID: (() -> UUID?)?
-    var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
-    var willReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?) -> Void)?
-    var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
-    var didRenderPDFDocument: ((URL, Bool) -> Void)?
-    var didClearPDFDocument: (() -> Void)?
+    var shouldBlockInsecureHTTPNavigation: (@MainActor (URL) -> Bool)?
+    var shouldBlockInsecureHTTPSubframeDownload: (@MainActor (URL) -> Bool)?
+    var handleBlockedInsecureHTTPNavigation: (@MainActor (URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var handleDroppedFileNavigation: (@MainActor ([URL]) -> Bool)?
+    var currentRestoreAttemptID: (@MainActor () -> UUID?)?
+    var terminalPolicyCancellationReporter: (@MainActor (WKNavigationAction, WKWebView) -> @MainActor () -> Void)?
+    var willReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?, WKNavigation?) -> Void)?
+    var didRenderPDFDocument: (@MainActor (URL, Bool) -> Void)?
+    var didClearPDFDocument: (@MainActor () -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.
@@ -341,6 +341,15 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationAction"
         ).closure
 
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+        let navigationIntent: BrowserInsecureHTTPNavigationIntent = shouldOpenInNewTab ? .newTab : .currentTab
+
         // A browser REPL session's domain policy: a tab the session created
         // never loads a page the policy blocks (links, redirects, scripts).
         if navigationAction.targetFrame?.isMainFrame == true,
@@ -348,6 +357,47 @@ import WebKit
            let owner,
            BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
             decisionHandler(.cancel)
+            return
+        }
+
+        // A link, redirect or script navigation to loopback in a managed SSH
+        // workspace goes to the SSH host, never this Mac's same-port service.
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           let model = owner.cloudAccess.model,
+           model.route == .loopback,
+           BrowserURLAllowlistPolicy(defaults: .standard).allows(url),
+           let serviceURL = owner.sshLoopbackServiceURL(for: url),
+           owner.cloudAccess.owns(serviceURL),
+           let listenerURL = model.url(for: url),
+           listenerURL != url {
+            // A service may redirect back to its canonical localhost origin.
+            // Once this pane owns a live forward, rewrite that request to the
+            // existing listener instead of reconfiguring the route and
+            // reloading the forward indefinitely. Keep the original method,
+            // headers, and body intact. Preserve the service Host as well: a
+            // number of dev servers redirect a loopback listener back to
+            // localhost when the forwarded request presents the listener's
+            // ephemeral host, which would otherwise repeat this interception.
+            var request = navigationAction.request
+            request.url = listenerURL
+            if let host = serviceURL.host {
+                let hostValue = host.contains(":") ? "[\(host)]" : host
+                let port = serviceURL.port.map { ":\($0)" } ?? ""
+                request.setValue(hostValue + port, forHTTPHeaderField: "Host")
+            }
+            decisionHandler(.cancel)
+            requestNavigation?(request, navigationIntent, nil)
+            return
+        }
+
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = navigationAction.request.url,
+           let owner, owner.owningWorkspaceRoutesThroughSSHTui,
+           owner.sshLoopbackServiceURL(for: url) != nil {
+            decisionHandler(.cancel)
+            requestNavigation?(navigationAction.request, navigationIntent, nil)
             return
         }
 
@@ -382,7 +432,7 @@ import WebKit
            ),
            openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                 navigationAction,
                 webView
             ) ?? {}
@@ -404,7 +454,7 @@ import WebKit
                 targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
                 onOpened: { [self] in
                     clearAttemptedRequest(discardPendingBypasses: true)
-                    let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                    let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                         navigationAction,
                         webView
                     ) ?? {}
@@ -414,7 +464,7 @@ import WebKit
             switch openResult {
             case .failed:
                 clearAttemptedRequest(discardPendingBypasses: true)
-                let reportTerminalCancellation = terminalPolicyCancellationReporter?(
+                let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(
                     navigationAction,
                     webView
                 ) ?? {}
@@ -504,13 +554,6 @@ import WebKit
                 openInNewTab?(url)
             }
         }
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
         let hasUserActivation = browserNavigationHasSimpleUserActivation()
         subframeDownloadIntents.updateIfNeeded(navigationAction, hasUserActivation: hasUserActivation)
         if navigationAction.targetFrame?.isMainFrame == true {
@@ -536,7 +579,7 @@ import WebKit
         if let url = navigationAction.request.url,
            shouldOpenInSystemBrowser(navigationAction, url: url) {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
 #if DEBUG
             cmuxDebugLog(
@@ -584,7 +627,7 @@ import WebKit
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             // WKNavigationAction has no public WKNavigation identity. Keep the replacement
             // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(
@@ -633,7 +676,7 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
             reportTerminalCancellation()
             decisionHandler(.cancel)
@@ -650,7 +693,7 @@ import WebKit
             )
 #endif
             clearAttemptedRequest(discardPendingBypasses: true)
-            let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            let reportTerminalCancellation: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             openRequestInNewTab(navigationAction.request)
             reportTerminalCancellation()
             decisionHandler(.cancel)
@@ -743,7 +786,7 @@ import WebKit
                 decisionHandler(.cancel)
             },
             reportTerminalCancellation: { [self] in
-                let report = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+                let report: @MainActor () -> Void = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
                 report()
             },
             deliver: authCallbackNavigationPolicy.deliverAuthCallbackInApp,

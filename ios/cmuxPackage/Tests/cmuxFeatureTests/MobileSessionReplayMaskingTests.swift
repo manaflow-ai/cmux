@@ -2,6 +2,7 @@
 @testable import CmuxMobileBrowserStream
 import CmuxMobileCamera
 import CmuxMobileSimulatorStream
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import Testing
 
@@ -18,7 +19,8 @@ import Testing
         #expect(masked.contains { $0 == BrowserStreamContentView.self })
         #expect(masked.contains { $0 == SimStreamDisplayView.self })
         #expect(masked.contains { $0 == CameraPreviewHostView.self })
-        #expect(masked.count == 4)
+        #expect(masked.contains { $0 == MobileReplayPrivacyMaskView.self })
+        #expect(masked.count == 5)
     }
 }
 #endif

@@ -50,6 +50,26 @@ public struct SSHAgentSocketResolver: Sendable {
         return nil
     }
 
+    /// Returns the subprocess environment for an explicit SSH identity agent.
+    ///
+    /// Mirrors a literal absolute socket path into `SSH_AUTH_SOCK` for child
+    /// commands and clears it for `none`. OpenSSH resolves environment tokens,
+    /// tilde paths, and percent expansions using the inherited environment.
+    ///
+    /// - Parameter options: OpenSSH-style option strings, in precedence order.
+    /// - Returns: The environment snapshot with only the agent socket adjusted.
+    public func environmentForIdentityAgent(in options: [String]) -> [String: String] {
+        var result = environment
+        guard let option = options.first(where: { optionKey($0) == "identityagent" }),
+              let value = parsedOption(option)?.value else { return result }
+        if value.caseInsensitiveCompare("none") == .orderedSame {
+            result.removeValue(forKey: "SSH_AUTH_SOCK")
+        } else if value.hasPrefix("/"), !value.contains("$"), !value.contains("%") {
+            result["SSH_AUTH_SOCK"] = value
+        }
+        return result
+    }
+
     /// Parses the key and optional value forms accepted by OpenSSH's `-o` argument.
     private func parsedOption(_ option: String) -> (key: String, value: String?)? {
         let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)

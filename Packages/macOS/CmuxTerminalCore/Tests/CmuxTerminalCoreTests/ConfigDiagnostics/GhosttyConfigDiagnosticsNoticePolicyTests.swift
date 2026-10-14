@@ -37,7 +37,19 @@ import Testing
 
     @Test func unrelatedKeylessOrLocationlessDiagnosticsHaveNoKey() {
         #expect(GhosttyConfigDiagnostic(message: "/u/config:4: invalid syntax: here").key == nil)
+        #expect(GhosttyConfigDiagnostic(message: "invalid syntax: here").key == nil)
         #expect(GhosttyConfigDiagnostic(message: "font-sise: unknown field").key == nil)
+    }
+
+    @Test func parsesCmuxOwnedKeyFromLocationlessDiagnostic() {
+        let diagnostic = GhosttyConfigDiagnostic(
+            message: "surface-tab-bar-font-size: unknown field"
+        )
+
+        #expect(diagnostic.filePath == nil)
+        #expect(diagnostic.line == nil)
+        #expect(diagnostic.key == "surface-tab-bar-font-size")
+        #expect(diagnostic.isForCmuxOwnedKey)
     }
 
     @Test func parsesPathlessCmuxOwnedKey() {
@@ -148,13 +160,22 @@ import Testing
     @Test func onlyCmuxOwnedKeyDiagnosticsShowNoNotice() {
         var policy = GhosttyConfigDiagnosticsNoticePolicy()
         let messages = [
-            "/u/.config/ghostty/config:1:sidebar-font-size: unknown field",
-            "/u/.config/ghostty/config:2:surface-tab-bar-font-size: unknown field",
+            "sidebar-font-size: unknown field",
+            "surface-tab-bar-font-size: unknown field",
         ]
 
         #expect(policy.decision(forMessages: messages) == .unchanged)
         _ = policy.decision(forMessages: [unknownField])
         #expect(policy.decision(forMessages: messages) == .dismiss)
+    }
+
+    @Test func locationlessRealKeyDiagnosticStillShows() {
+        let message = "font-size: unknown field"
+
+        #expect(
+            GhosttyConfigDiagnosticsNoticePolicy.userFacingDiagnostics(fromMessages: [message])
+                .map(\.message) == [message]
+        )
     }
 
     @Test func unlistedCountExcludesCmuxOwnedKeys() {

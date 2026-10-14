@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 import Observation
@@ -40,6 +41,7 @@ final class AgentFeedProjection {
     private(set) var rows: [AgentFeedRowModel]
     private(set) var needsInputCount: Int
 
+    @ObservationIgnored private let performanceObserver: (any MobileFeedPerformanceObserving)?
     @ObservationIgnored private var sourceItems: [MobileAgentFeedItem]
     @ObservationIgnored private var rowModelCache: AgentFeedRowModelCache
     @ObservationIgnored private var requestedItemsRevision: AgentFeedItemsRevision
@@ -53,8 +55,10 @@ final class AgentFeedProjection {
         items: [MobileAgentFeedItem],
         itemsRevision: AgentFeedItemsRevision = AgentFeedItemsRevision(sourceRevision: 0),
         filter: AgentFeedFilter = .all,
-        searchText: String = ""
+        searchText: String = "",
+        performanceObserver: (any MobileFeedPerformanceObserving)? = nil
     ) {
+        self.performanceObserver = performanceObserver
         self.filter = filter
         self.searchText = searchText
         sourceItems = items
@@ -120,6 +124,7 @@ final class AgentFeedProjection {
             }
             guard !Task.isCancelled else { return }
 
+            let startedAt = ProcessInfo.processInfo.systemUptime
             let worker = Task.detached(priority: .utility) {
                 agentFeedProjectionBuild(
                     items: requestedItems,
@@ -147,6 +152,11 @@ final class AgentFeedProjection {
             self.needsInputCount = output.projection.needsInputCount
             self.publishedSourceRevision = requestedItemsRevision.sourceRevision
             self.publishedScopeRevision = requestedItemsRevision.scopeRevision
+            self.performanceObserver?.updateCompleted(
+                stage: .projection,
+                startedAt: startedAt, endedAt: ProcessInfo.processInfo.systemUptime,
+                itemCount: requestedItems.count
+            )
         }
     }
 }

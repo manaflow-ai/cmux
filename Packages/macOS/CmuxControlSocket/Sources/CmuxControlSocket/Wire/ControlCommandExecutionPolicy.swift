@@ -81,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // hop to the main actor.
         "session.agent_recovery.list",
         "session.agent_recovery.restore",
+        // Minting a hosted CodeRouter lease performs an authenticated HTTP
+        // request and must never block the main actor.
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -230,6 +233,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
+        "remote.tmux.attach_progress",
         "remote.tmux.mirror", "remote.tmux.window",
         "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
@@ -240,6 +244,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Waits for Global Search's index refresh and query, which hop to the
+        // main actor; blocking the main lane on them would deadlock.
+        "debug.global_search.query",
         // Window recording samples ScreenCaptureKit on a schedule for as long
         // as the clip lasts. The sampling loop must never own the main actor:
         // the window it is filming has to keep drawing.
@@ -266,6 +273,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Presents the Cloud tree style gallery window: one v2MainSync hop for
         // the presentation, like debug.window.screenshot's capture wait.
         "debug.cloudtree.gallery",
+        // Reads hint mode's labels: one v2MainSync hop, like the gallery.
+        "debug.window_hints",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
