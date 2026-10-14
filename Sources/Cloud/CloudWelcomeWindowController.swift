@@ -319,7 +319,8 @@ private struct CloudWelcomeAccountView: View {
             nextStep: CloudWelcomeNextStep.resolve(
                 isAuthenticated: accountFlow?.isAuthenticated == true,
                 isPlanKnown: accountFlow?.hasLoadedBillingPlan == true,
-                isPro: accountFlow?.isProActive == true
+                isPro: accountFlow?.isProActive == true,
+                hasCloudTeamAccess: !(accountFlow?.availableTeams.isEmpty ?? true)
             ),
             onNotNow: onNotNow,
             onNext: onNext,

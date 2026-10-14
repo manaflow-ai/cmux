@@ -11,11 +11,16 @@ enum CloudWelcomeNextStep: Equatable {
     /// whose own gate decides between Upgrade and Enable.
     case openCloud
 
-    static func resolve(isAuthenticated: Bool, isPlanKnown: Bool, isPro: Bool) -> CloudWelcomeNextStep {
+    static func resolve(
+        isAuthenticated: Bool,
+        isPlanKnown: Bool,
+        isPro: Bool,
+        hasCloudTeamAccess: Bool = false
+    ) -> CloudWelcomeNextStep {
         // Signed out reads like Free: Upgrade to Pro (the pricing page signs in).
         guard isAuthenticated else { return .upgrade }
         guard isPlanKnown else { return .openCloud }
-        return isPro ? .enable : .upgrade
+        return isPro || hasCloudTeamAccess ? .enable : .upgrade
     }
 }
 
