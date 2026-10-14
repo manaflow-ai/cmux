@@ -623,7 +623,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         return true
     }
 
-    /// Host.swift's Esc monitor, for the selection: the field handles its own Esc (escape()),
+    /// Host.swift's Esc monitor, for the selection (and cmux's stop): the field handles its own Esc (escape()),
     /// and an open thread or reply view has PaneThread's. cmux: only while the key focus is in
     /// this pane and the pane shows (a terminal, the sidebar or the palette keep their Esc). An
     /// open context menu's Esc is in the menu's window, so the menu keeps it (MenuHighlight).
@@ -634,7 +634,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
                   !self.host.isHiddenOrHasHiddenAncestor,
                   let focus = self.window?.firstResponder as? NSView, focus.isDescendant(of: self.host),
                   focus !== self.demo?.compose.textView.view else { return e }
-            return self.clearSelectionOnEscape() ? nil : e
+            if self.clearSelectionOnEscape() { return nil }
+            // cmux: a click on a bubble moves the focus to the transcript (focusTranscript); Esc
+            // there still stops a working Chief, as it does in the field. An open thread or reply
+            // view keeps its own Esc (PaneThread).
+            guard self.isWorking, self.store?.state.ui.openThread == nil else { return e }
+            self.onStop?()
+            return nil
         }
     }
 
