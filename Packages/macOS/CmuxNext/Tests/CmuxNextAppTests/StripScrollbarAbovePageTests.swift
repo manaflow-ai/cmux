@@ -77,3 +77,24 @@ import Testing
         #expect(strip.holes.isEmpty, "a bar that left the window: \(strip.holes)")
     }
 }
+
+/// A screen switch or an empty workspace hides the view holding the bar, not the bar (review of
+/// #20759): the old screen's thumb left a hole in the page, the new screen's had none.
+@MainActor @Suite struct StripScrollbarHiddenScreenTests {
+    @Test func aHiddenScreenLeavesNoHoleAndShowsItsThumbAgain() throws {
+        let strip = StripScrollbarAbovePageTests.Strip()
+        // The bar in its screen's view, as `ScreenContentView` holds it.
+        let screen = NSView(frame: strip.page.frame)
+        strip.page.superview?.addSubview(screen)
+        screen.addSubview(strip.bar)
+        strip.show(.always)
+        let thumb = try #require(strip.thumb)
+        #expect(strip.holes.contains { StripScrollbarAbovePageTests.same($0, thumb) }, "\(strip.holes)")
+
+        screen.isHidden = true
+        #expect(strip.holes.isEmpty, "a hidden screen's thumb: \(strip.holes)")
+
+        screen.isHidden = false
+        #expect(strip.holes.contains { StripScrollbarAbovePageTests.same($0, thumb) }, "shown again: \(strip.holes)")
+    }
+}
