@@ -188,6 +188,20 @@ test("a chat's children fold into a list under its row", async () => {
   ]);
 });
 
+// A child lists on its own when its parent is not in the list (deleted, or a summary from before
+// the daemon dropped the tag) or when it waits on the user, so no chat is hidden everywhere.
+test("a child whose parent is gone, or that waits on the user, lists on its own", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "orphan", name: "Coordinator: orphan", spawnedBy: "deleted-lane", updatedAt: T0 + 1 }),
+    lane({ sessionId: "asks", name: "Coordinator: asks", spawnedBy: "lane-1", indicator: "input", updatedAt: T0 + 2 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["Coordinator: asks", "cg-next-reds", "Coordinator: orphan"]);
+  expect(page.querySelector(".nt-card-children-toggle")).toBeNull();
+});
+
 test("a chat whose last turn failed reads Failed; one that lost its agent reads Disconnected", async () => {
   const page = await mount("a", [
     lane({ sessionId: "failed", name: "continue", lastTurn: { status: "failed" }, indicator: "failed" }),

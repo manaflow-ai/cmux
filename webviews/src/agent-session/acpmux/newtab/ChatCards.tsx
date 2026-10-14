@@ -67,7 +67,7 @@ export function ChatCards({
   );
   useListMotion(
     list,
-    ".nt-card-host > .nt-card",
+    ".nt-card-host > .nt-card, .nt-card-family > .nt-card",
     cards.map((card) => card.sessionId),
   );
   return (

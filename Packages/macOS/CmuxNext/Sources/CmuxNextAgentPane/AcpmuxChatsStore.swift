@@ -57,7 +57,7 @@ public nonisolated struct AcpmuxChatsStore: Sendable, Equatable {
         case "removed": return .removed(key: key)
         case "activity":
             return .activity(key: key, attention: params["attention"] as? String, preview: params["preview"] as? String,
-                             parent: params["parent"] as? String)
+                             parent: (params["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         default:
             guard let chat = (params["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:)) else { return nil }
             return .upserted(key: key, chat: chat)

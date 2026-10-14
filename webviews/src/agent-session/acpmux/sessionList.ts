@@ -82,7 +82,19 @@ export const SIDE_TAG = "side";
 const ASIDE_TAG = "aside";
 
 /** Whether a session belongs in the sidebar, Home and recents: neither archived nor a side chat. */
-export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side && !session.spawnedBy;
+export const listed = (session: AcpmuxSessionEntry) => !session.archived && !session.side;
+
+/** `entries` without the chats that fold under another of them (`spawnedBy`). A child whose parent
+ *  is not in `entries` (gone, archived, filtered out) or that waits on the user lists on its own,
+ *  so no chat is hidden everywhere. */
+export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  const parents = new Set(entries.filter((entry) => !entry.spawnedBy).map((entry) => entry.sessionId));
+  return entries.filter((entry) => !folded(entry, parents));
+}
+
+/** Whether `entry` folds under a parent in `parents`: it has one there and needs no answer. */
+export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) =>
+  Boolean(entry.spawnedBy && parents.has(entry.spawnedBy) && sessionMark(entry, false) !== "input");
 
 /** Whether acpmux's tags (an object of key to value; a list in older fixtures) hold `tag`. */
 function tagged(tags: unknown, tag: string): boolean {
@@ -282,7 +294,7 @@ export function sidebarSections(
   pinned: AcpmuxSessionEntry[];
   groups: SessionGroup[];
 } {
-  const sessions = all.filter(listed);
+  const sessions = withoutChildren(all.filter(listed));
   const pinned = byRecency(
     filterSessions(
       sessions.filter((session) => session.pinned),
