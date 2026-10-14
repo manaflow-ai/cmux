@@ -74,11 +74,15 @@ enum WorkspaceMovePlan {
         guard let section = window.first(where: { $0.id == position.section }) else { return position }
         let before: [String?]
         if let group = position.group {
+            // A group's index counts its member rows (`SidebarGroup.members`): workspaces and link, tab and app items.
             let members = section.nodes.lazy.compactMap { node -> SidebarGroup? in
                 if case let .group(value) = node, value.id == group { return value }
                 return nil
-            }.first?.workspaces ?? []
-            before = members.prefix(max(position.index, 0)).map(\.id.rawValue)
+            }.first?.members ?? []
+            before = members.prefix(max(position.index, 0)).map { member in
+                if case let .workspace(workspace) = member { return workspace.id.rawValue }
+                return nil
+            }
         } else {
             // Top-level slots count group headers too; only loose rows can move.
             before = section.nodes.prefix(max(position.index, 0)).map { node in
