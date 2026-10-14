@@ -955,12 +955,13 @@ async fn dispatch_request(
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
+            let max_bytes = params.get("maxBytes").and_then(Value::as_u64).map(|b| b as usize);
             let detail = hub.session_detail(&s);
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
             let newest = after.is_none() || before.is_some();
             let page = hub
-                .events_page(&s.id, after.unwrap_or(0), before, limit, newest, &filter)
+                .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             let events: Vec<Value> = page.events.iter().map(|r| event_value(&s.id, r)).collect();
             Ok(

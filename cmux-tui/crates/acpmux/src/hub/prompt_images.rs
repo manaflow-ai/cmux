@@ -73,7 +73,7 @@ impl Hub {
         }
         let filter = EventFilter::parse(Some(&json!(["user_message"])))?;
         let page = self
-            .events_page(session, 0, None, usize::MAX, false, &filter)
+            .events_page(session, 0, None, usize::MAX, None, false, &filter)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         let named = page
             .events

@@ -13,6 +13,7 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
     let before = params.get("beforeSeq").and_then(Value::as_u64);
     let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
+    let max_bytes = params.get("maxBytes").and_then(Value::as_u64).map(|b| b as usize);
     let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
     let last = s.meta().last_seq;
     if after > last {
@@ -22,7 +23,7 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
     }
     // beforeSeq pages backwards: the newest `limit` records before it.
     let page = hub
-        .events_page(&s.id, after, before, limit, before.is_some(), &filter)
+        .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
         .map_err(|e| RpcError::internal(e.to_string()))?;
     Ok(json!({
         "events": page.events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>(),
