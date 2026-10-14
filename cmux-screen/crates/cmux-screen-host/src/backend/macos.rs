@@ -46,6 +46,9 @@ struct State {
     video: Option<NativeVideoSource>,
     on_displays: Option<DisplaysCallback>,
     last: Option<(CVPixelBuffer, Instant)>,
+    /// Complete frames ScreenCaptureKit delivered, and frames it marked idle/blank/dropped.
+    complete: u64,
+    other: u64,
 }
 
 pub struct MacBackend {
@@ -69,6 +72,8 @@ impl MacBackend {
                 video: None,
                 on_displays: None,
                 last: None,
+                complete: 0,
+                other: 0,
             })),
             running: Arc::new(AtomicBool::new(false)),
             bounds: Arc::new(Mutex::new(Rect::default())),
@@ -83,13 +88,26 @@ impl Default for MacBackend {
     }
 }
 
-/// The display's size in pixels (Retina displays capture at full density).
+/// The display's size in pixels (Retina displays capture at full density),
+/// fitted to what H.264 can carry.
 fn pixel_size(display: &SCDisplay) -> DisplaySize {
     let mode = CGDisplay::new(display.display_id()).display_mode();
-    match mode {
+    let native = match mode {
         Some(mode) => DisplaySize { w: mode.pixel_width() as u32, h: mode.pixel_height() as u32 },
         None => DisplaySize { w: display.width(), h: display.height() },
-    }
+    };
+    fit_for_encoder(native)
+}
+
+/// The largest picture the viewer's H.264 level (5.2) takes: 3840x2160
+/// keeps a 16:9 4K display whole; a 5K or 6K display is scaled down by
+/// ScreenCaptureKit (on the GPU) to fit, keeping its aspect ratio. Sizes are
+/// even, as the 4:2:0 encoder needs.
+fn fit_for_encoder(size: DisplaySize) -> DisplaySize {
+    const MAX: (f64, f64) = (3840.0, 2160.0);
+    let scale = (MAX.0 / f64::from(size.w)).min(MAX.1 / f64::from(size.h)).min(1.0);
+    let even = |value: f64| (value.round() as u32) & !1;
+    DisplaySize { w: even(f64::from(size.w) * scale), h: even(f64::from(size.h) * scale) }
 }
 
 #[link(name = "CoreVideo", kind = "framework")]
@@ -125,13 +143,18 @@ fn capture(state: &Arc<Mutex<State>>, bounds: &Arc<Mutex<Rect>>, index: usize) -
     let sink = state.clone();
     stream.add_output_handler(
         move |sample: CMSampleBuffer, kind: SCStreamOutputType| {
-            if kind != SCStreamOutputType::Screen || sample.frame_status() != Some(SCFrameStatus::Complete) {
+            if kind != SCStreamOutputType::Screen {
+                return;
+            }
+            if sample.frame_status() != Some(SCFrameStatus::Complete) {
+                sink.lock().unwrap().other += 1;
                 return;
             }
             let Some(buffer) = sample.pixel_buffer() else { return };
             let video = {
                 let mut state = sink.lock().unwrap();
                 state.last = Some((buffer.clone(), Instant::now()));
+                state.complete += 1;
                 state.video.clone()
             };
             if let Some(video) = video {
@@ -175,8 +198,17 @@ impl Backend for MacBackend {
 
         let (state, running) = (self.state.clone(), self.running.clone());
         thread::Builder::new().name("cmux-screen-refresh".into()).spawn(move || {
+            let mut ticks = 0u32;
             while running.load(Ordering::SeqCst) {
                 thread::sleep(IDLE_REFRESH); // idle refresh period
+                ticks += 1;
+                if ticks.is_multiple_of(6) {
+                    let (complete, other) = {
+                        let mut state = state.lock().unwrap();
+                        (std::mem::take(&mut state.complete), std::mem::take(&mut state.other))
+                    };
+                    log(format!("capture: {complete} complete frames, {other} idle in 3 s"));
+                }
                 let stale = {
                     let state = state.lock().unwrap();
                     match (&state.last, &state.video) {
@@ -454,6 +486,18 @@ fn plain(character: char) -> Option<CGKeyCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_displays_are_fitted_to_h264_and_small_ones_kept() {
+        let fit = |w, h| fit_for_encoder(DisplaySize { w, h });
+        assert_eq!(fit(1920, 1080), DisplaySize { w: 1920, h: 1080 });
+        assert_eq!(fit(3840, 2160), DisplaySize { w: 3840, h: 2160 });
+        assert_eq!(fit(5120, 2880), DisplaySize { w: 3840, h: 2160 }, "Studio Display 5K");
+        assert_eq!(fit(6016, 3384), DisplaySize { w: 3840, h: 2160 }, "Pro Display XDR 6K");
+        assert_eq!(fit(3456, 2234), DisplaySize { w: 3342, h: 2160 }, "MacBook Pro 16 keeps its aspect");
+        assert_eq!(fit(2560, 1664), DisplaySize { w: 2560, h: 1664 }, "MacBook Air 13");
+        assert_eq!(fit(1001, 667), DisplaySize { w: 1000, h: 666 }, "odd sizes are made even");
+    }
 
     #[test]
     fn keysyms_map_to_the_same_key_codes_as_the_swift_host() {
