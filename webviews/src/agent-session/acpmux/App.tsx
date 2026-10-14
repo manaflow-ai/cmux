@@ -133,6 +133,7 @@ import { UserBubble } from "./conversation/UserBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
+  FIND_ACTIVE_HIGHLIGHT,
   FindReveal,
   findRowIndex,
   paintFindHighlights,
@@ -941,6 +942,18 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
 /// the frames it has left once shown.
 const FIND_REVEAL_MS = 600;
 const FIND_REVEAL_FRAMES = 36;
+/// ...and until the match has not moved for this many frames: on a starved page the fold it opened
+/// measures for seconds, each measure pushing the match down (chat-find, op-next-cmdclick 10-13).
+const FIND_REVEAL_STILL_FRAMES = 12;
+/// A layout that never settles (a reply streaming above the match) ends the hold after this many.
+const FIND_REVEAL_MAX_FRAMES = 600;
+/// Where the current Find match sits in `scroller`'s content, if it is drawn.
+function findMatchOffset(scroller: HTMLElement): number | undefined {
+  const highlights = (globalThis.CSS as unknown as { highlights?: Map<string, Set<Range>> } | undefined)?.highlights;
+  const range = [...(highlights?.get(FIND_ACTIVE_HIGHLIGHT) ?? [])][0];
+  if (!range) return undefined;
+  return range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+}
 /// A scroll that rests this long is where the chat reopens (cx-6bgzj), reported once, not per frame.
 export const SCROLL_ANCHOR_SETTLE_MS = 400;
 /// Where a chat's transcript rests: the row at the top of the view and how far into it; null is the
@@ -1668,10 +1681,22 @@ export function VirtualTranscript({
       const opened = (revealWindow.current = ++revealWindows.current);
       const start = performance.now();
       let frames = 0;
+      let still = 0;
+      let placed: number | undefined;
       const tick = () => {
         if (revealWindow.current !== opened) return;
+        // The reader's own scroll, click or key ends the hold: the match is theirs to leave.
+        if (readerAt.current > start) {
+          revealing.current = undefined;
+          return;
+        }
+        // Where the match sits in the transcript's content: it moves while what is above it measures.
+        const at = findMatchOffset(node);
+        still = at !== undefined && placed !== undefined && Math.abs(at - placed) < 0.5 ? still + 1 : 0;
+        placed = at;
         const elapsed = performance.now() - start;
-        if (++frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS) revealing.current = undefined;
+        const settled = frames >= FIND_REVEAL_FRAMES && elapsed >= FIND_REVEAL_MS && still >= FIND_REVEAL_STILL_FRAMES;
+        if (settled || ++frames >= FIND_REVEAL_MAX_FRAMES) revealing.current = undefined;
         else requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
