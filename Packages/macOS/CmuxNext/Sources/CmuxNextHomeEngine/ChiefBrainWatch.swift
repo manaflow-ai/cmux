@@ -6,7 +6,8 @@ import os
 /// `ChiefHome`). It waits on the kernel's exit event of the host process
 /// (no polling). When the host exits and another `optchat-chief` holds the
 /// home's lock (one the `cmux chief` CLI started), it watches that one
-/// instead. A host that dies three times within a minute is not started
+/// instead. A host that `cmux chief shutdown` stopped (its marker,
+/// `ChiefHome.shutdownMarker`) is not started again until asked. A host that dies three times within a minute is not started
 /// again until Home or Settings asks, so a host that cannot start never loops.
 @MainActor
 public final class ChiefBrainWatch {
@@ -79,6 +80,11 @@ public final class ChiefBrainWatch {
         if let other = ChiefHostStop.runningHostPID(home: home), other != pid {
             logger.info("chief brain \(pid, privacy: .public) exited; host \(other, privacy: .public) holds the lock")
             watch(other)
+            return
+        }
+        // concurrency-allow: one small stat at a brain exit
+        if FileManager.default.fileExists(atPath: home.shutdownMarker.path) {
+            logger.info("chief brain \(pid, privacy: .public) stopped by cmux chief shutdown; not restarting until asked")
             return
         }
         let now = clock.now
