@@ -8,9 +8,10 @@
 //! connection bound with `conversation-bind` to the participant id of a live
 //! record. The person's page (`chief-profile-ws-v1`): an authenticated
 //! WebSocket acting as `user_local` that is no remote client and no bound
-//! agent, and is either page `home-channels` (Origin
-//! `cmux-page://cmux.home-channels`) or no page with the daemon's own
-//! credential (a pairing-store credential with no page is a paired device);
+//! agent, and is either page `home-channels` admitted with a credential
+//! bound to that page (`page-credential {page}`, the app's Channels page on
+//! its Chief owner) or no page with the daemon's own credential (a
+//! pairing-store credential is refused: a paired device can send any Origin);
 //! it lists, reads, creates and edits profile text and avatars, but a grant
 //! field (tools, harnesses, engine, self_edit) or a delete needs the
 //! person's gesture, which a WebSocket never carries (`gesture_required`;
@@ -271,21 +272,20 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
     }
     if !unix {
         // The person's page (chief-profile-ws-v1): an authenticated WebSocket
-        // as `user_local`, no paired device, no bound agent, no other page.
-        let websocket =
-            matches!(mux.control_clients.transport_of(client), Some(ClientTransport::WebSocket));
-        // A pairing-store credential is a paired device unless the app's own
-        // page web view (Origin cmux-page://cmux.home-channels) presents it:
-        // the app's `page-credential` and an approved pairing share the store.
-        let page = super::origin_gate::connection_page(mux, client);
-        let allowed_page = match page.as_deref() {
-            Some(page) => page == "home-channels",
-            None => !mux.control_clients.is_websocket_person(client),
-        };
-        let person_page = websocket
-            && principal == LOCAL_USER
-            && mux.bound_conversation_participant(client).ok().flatten().is_none()
-            && allowed_page;
+        // as `user_local`, no bound agent, and either no page with the
+        // daemon's own credential, or page home-channels admitted with a
+        // credential bound to that page. A pairing-store credential (an
+        // approved pairing; the app's person credential shares the store) is
+        // refused with or without a page Origin: a native client can send any
+        // Origin. Every lock read fails closed.
+        let admitted = super::origin_gate::websocket_admission(mux, client).is_some_and(|ws| {
+            match ws.page.as_deref() {
+                None => !ws.person,
+                Some(page) => page == "home-channels" && ws.scoped_page && !ws.person,
+            }
+        });
+        let unbound = matches!(mux.bound_conversation_participant(client), Ok(None));
+        let person_page = admitted && unbound && principal == LOCAL_USER;
         return if person_page { Ok(Caller::Page) } else { Err(forbidden()) };
     }
     if principal == LOCAL_USER {

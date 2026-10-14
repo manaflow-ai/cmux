@@ -1167,10 +1167,12 @@ The callers are the owner (the rule of Chief control above) and the Chiefs: a
 Unix connection bound with `conversation-bind` to a live record's id. With
 `chief-profile-ws-v1` the person's page is a caller too: an authenticated
 WebSocket acting as `user_local` that is no remote client and no bound agent,
-and is either page `home-channels` (handshake Origin
-`cmux-page://cmux.home-channels`) or a connection with no page that presented
-the daemon's own credential (a pairing-store credential with no page is a
-paired device and is refused). It may list, read, create and edit the profile
+and is either page `home-channels` admitted with a credential bound to that
+page (`page-credential {page}`: the app's Channels page on its Chief owner) or
+a connection with no page Origin that presented the daemon's own credential.
+A pairing-store credential (an approved pairing, and the app's person page
+credential, which shares the store) is refused with or without a page Origin:
+a native client can send any Origin. It may list, read, create and edit the profile
 text and avatar. A create or update that names a grant field (`tools`,
 `harnesses`, `harness`, `model`, `effort`, `self_edit`) and every delete need
 the person's gesture: `origin.forbidden` reason `gesture_required` on the

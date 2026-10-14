@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use crate::request_origin::params_sha256;
 use crate::server::origin_gate::{
-    set_page, set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
+    set_page, set_peer_key_for_test, set_role_for_test, set_scoped_page, set_verified_app_for_test,
 };
 use crate::server::*;
 
@@ -34,11 +34,13 @@ fn connect(mux: &Arc<Mux>, transport: ClientTransport) -> Conn {
     Conn { client, writer, outbound, scheduler }
 }
 
-/// A WebSocket that presented the daemon's own credential, serving `page`.
+/// A WebSocket that presented the daemon's own credential (no page), or a
+/// credential bound to `page` (`page-credential {page}`, the app's Channels
+/// page on its Chief owner).
 fn websocket(mux: &Arc<Mux>, page: Option<&str>) -> Conn {
     let conn = connect(mux, ClientTransport::WebSocket);
     if let Some(page) = page {
-        set_page(mux, conn.client, page.to_owned());
+        set_scoped_page(mux, conn.client, page.to_owned());
     }
     conn
 }
@@ -164,29 +166,60 @@ fn a_paired_device_a_bound_agent_and_another_page_are_refused() {
     let list = v2("chief.profile.list", &params(json!({})), None, None);
     let make = v2("chief.profile.create", &params(json!({"display_name": "X"})), Some("r-1"), None);
 
-    // A paired device: a pairing-store credential with no page.
+    // A paired device: a pairing-store credential, with no page Origin and
+    // with a home-channels Origin it sent itself (a native client can).
     let paired = websocket(&mux, None);
     mux.control_clients.mark_person(paired.client);
-    for request in [&list, &make] {
-        assert_eq!(forbidden_reason(&send(&mux, &paired, request)), "chief_registry_caller");
+    let spoofed = connect(&mux, ClientTransport::WebSocket);
+    mux.control_clients.mark_person(spoofed.client);
+    set_page(&mux, spoofed.client, "home-channels".to_owned());
+    // The daemon's own credential with a page Origin but no page-bound credential.
+    let unscoped = connect(&mux, ClientTransport::WebSocket);
+    set_page(&mux, unscoped.client, "home-channels".to_owned());
+    for conn in [&paired, &spoofed, &unscoped] {
+        for request in [&list, &make] {
+            assert_eq!(forbidden_reason(&send(&mux, conn, request)), "chief_registry_caller");
+        }
     }
 
-    // An agent bound to its participant on a WebSocket.
+    // An agent bound to its participant on the page's WebSocket.
     let agent = websocket(&mux, Some("home-channels"));
     mux.bind_conversation_principal(agent.client, "agent_other".to_owned()).unwrap();
     for request in [&list, &make] {
         assert_eq!(forbidden_reason(&send(&mux, &agent, request)), "chief_registry_caller");
     }
 
-    // Another page: its allow list names no Chief operation.
+    // Another page: its allow list names no Chief operation, on a WebSocket
+    // and on the host's page relay; a page relay with no page calls nothing.
     let history = websocket(&mux, Some("history"));
-    for request in [&list, &make] {
-        assert_eq!(forbidden_reason(&send(&mux, &history, request)), "page_not_allowed");
+    let history_relay = connect(&mux, ClientTransport::Unix);
+    set_role_for_test(&mux, history_relay.client, "page_relay");
+    set_page(&mux, history_relay.client, "history".to_owned());
+    for conn in [&history, &history_relay] {
+        for request in [&list, &make] {
+            assert_eq!(forbidden_reason(&send(&mux, conn, request)), "page_not_allowed");
+        }
     }
-    // The person's own page connection with the app's page credential is the person.
-    let app_page = websocket(&mux, Some("home-channels"));
-    mux.control_clients.mark_person(app_page.client);
-    ok(&send(&mux, &app_page, &list));
+    let anonymous_relay = connect(&mux, ClientTransport::Unix);
+    set_role_for_test(&mux, anonymous_relay.client, "page_relay");
+    for request in [&list, &make] {
+        assert_eq!(send(&mux, &anonymous_relay, request)["error"]["code"], "origin.forbidden");
+    }
+}
+
+#[test]
+fn a_poisoned_bindings_lock_refuses_the_page() {
+    let mux = mux("poisoned");
+    let page_ws = websocket(&mux, None);
+    let list = v2("chief.profile.list", &params(json!({})), None, None);
+    ok(&send(&mux, &page_ws, &list));
+    let bindings = Arc::clone(&mux);
+    let _ = std::thread::spawn(move || {
+        let _held = bindings.conversation_bindings().lock().unwrap();
+        panic!("poison the bindings lock");
+    })
+    .join();
+    assert_eq!(send(&mux, &page_ws, &list)["ok"], false);
 }
 
 #[test]
