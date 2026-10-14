@@ -361,15 +361,13 @@ final class ScreenContentView: NSView {
             // Pointer and scroll focus should not leave a keyboard-only focus ring behind.
             && context.model.lastFocusSource != .pointer
             && context.model.lastFocusSource != .scroll
+        let dim = style.inactiveDim(dimsInactive: dimsInactive)
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
-                // With appearance.borders none the ring is off; the dim stands in
-                // for it when the indicator asked for the border and nothing else.
-                dim: multiple && (dimsInactive || (!style.drawsLines && style.focusIndicator == .border)) && !isFocused
-                    ? style.inactivePaneDimming : 0,
+                dim: multiple && !isFocused ? dim.amount : 0, dimFill: dim.fill,
                 focusRing: style.focusRing,
                 ringAlphaOverride: style.focusRingAlphaOverride,
                 tabEmphasis: .forPane(isFocused: isFocused, paneCount: paneFrames.count, indicator: style.focusIndicator,
