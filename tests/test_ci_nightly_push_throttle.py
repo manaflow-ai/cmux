@@ -2,11 +2,11 @@
 """Behavioral contract for the Nightly build decision in nightly.yml `decide`.
 
 Runs the real `decide` github-script under Node with a mocked GitHub API and
-checks that only pushes to main are throttled, by the age of the commit the
-`nightly` tag points at; that a push whose changed paths cannot reach the app
-skips the build; and that every lookup failure builds. The build-input check
-runs the real `scripts/ci/nightly_build_inputs.py`, so the classification it
-asserts is the one the workflow gets.
+checks that pushes to main are throttled by the age of the commit the `nightly`
+tag points at; publishing-track pushes skip when their changed paths cannot
+reach the app; and every lookup failure builds. The build-input check runs the
+real `scripts/ci/nightly_build_inputs.py`, so the classification it asserts is
+the one the workflow gets.
 """
 
 import json
@@ -469,6 +469,12 @@ def test_nightly_next_publishes_its_own_track() -> None:
     assert outputs["release_tag"] == "nightly-next"
     assert outputs["dmg_prefix"] == "cmux-nightly-next-macos"
     assert outputs["feed_base"] == "https://files-next.cmux.com/nightly-next/next"
+    neutral = run_decide(event="push", ref="refs/heads/nightly-next",
+                         tag_age_hours=0.1, interval="0", comparison=NEUTRAL_CHANGE,
+                         extra_env=NEXT_ENV)
+    assert not should_build(neutral)
+    assert summary_values(neutral)["app build inputs changed"] == "false"
+    assert "nothing that reaches the app changed" in summary_values(neutral)["reason"]
     # The same commit is not rebuilt.
     assert not should_build(run_decide(event="push", ref="refs/heads/nightly-next",
                                        tag_sha=HEAD_SHA, extra_env=NEXT_ENV))

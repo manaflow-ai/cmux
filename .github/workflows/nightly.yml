@@ -486,15 +486,16 @@ jobs:
             // and CI-only merges land between the changes that can alter app
             // bytes, and each one otherwise costs a full publishing build, so
             // compare the paths changed since the published commit rather than
-            // the commit itself. Only a proven-neutral change skips: a partial
-            // comparison, an unknown path, or an API failure builds, force and
-            // manual dispatch never consult this, and the daily catch-up
-            // schedule still publishes main HEAD as a backstop.
+            // the commit itself. Apply this to both publishing tracks. Only a
+            // proven-neutral change skips: a partial comparison, an unknown
+            // path, or an API failure builds, force and manual dispatch never
+            // consult this, and the daily catch-up schedule still publishes
+            // main HEAD as a backstop.
             let unchangedBuildInputs = false;
             let buildInputReason = null;
             if (
               shouldBuild &&
-              isMainRef &&
+              (isMainRef || isNextRef) &&
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
