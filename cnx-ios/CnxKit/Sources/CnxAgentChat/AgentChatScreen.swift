@@ -486,6 +486,11 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
+                // Pinned plan progress while a turn runs (ACP web UI parity).
+                if let progress = store.runningPlan, let entries = store.runningPlanEntries {
+                    PlanProgressBar(progress: progress, entries: entries)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
                 if !store.queue.isEmpty {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))

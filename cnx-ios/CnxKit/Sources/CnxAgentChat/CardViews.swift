@@ -161,7 +161,8 @@ public struct PermissionActionBar: View {
                 Button("Reply instead", action: replyInstead)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .frame(height: 32)
+                    .frame(minWidth: 120, minHeight: 44)
+                    .contentShape(.rect)
             }
         }
     }
