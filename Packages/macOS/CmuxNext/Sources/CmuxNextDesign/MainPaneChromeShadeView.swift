@@ -18,9 +18,10 @@ public final class MainPaneChromeShadeView: NSView {
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
-            guard paneCards !== oldValue else { return }
-            cardsObservation = paneCards?.observePaneCards { [weak self] in
-                if Metrics.floatingPanes { self?.rebuild() }
+            if paneCards !== oldValue {
+                cardsObservation = paneCards?.observePaneCards { [weak self] in
+                    if Metrics.floatingPanes { self?.rebuild() }
+                }
             }
             rebuild()
         }
@@ -64,15 +65,23 @@ public final class MainPaneChromeShadeView: NSView {
             shade.path = nil
             return
         }
-        let path = CGMutablePath()
-        path.addRect(bounds)
-        let holes = Metrics.floatingPanes ? (paneCards?.paneCardsInWindow ?? []).map { (convert($0.rect, from: nil), $0.radius) }
-            : [(card, radius)]
-        for (rect, radius) in holes where !rect.isEmpty {
-            let corner = min(radius, rect.width / 2, rect.height / 2)
-            path.addRoundedRect(in: rect, cornerWidth: corner, cornerHeight: corner)
+        // Floating panes leave out each pane's card (content with no panes,
+        // a top page, keeps the main pane's card), as one union so holes
+        // that overlap mid-motion stay unshaded.
+        if Metrics.floatingPanes, let paneCards {
+            let cut = paneCards.paneCardsInWindow.reduce(CGMutablePath()) { union, card in
+                let rect = convert(card.rect, from: nil), corner = min(card.radius, rect.width / 2, rect.height / 2)
+                let path = CGPath(roundedRect: rect, cornerWidth: corner, cornerHeight: corner, transform: nil)
+                return (union.isEmpty ? path : union.union(path)).mutableCopy() ?? union
+            }
+            shade.path = CGPath(rect: bounds, transform: nil).subtracting(cut)
+        } else {
+            let path = CGMutablePath()
+            path.addRect(bounds)
+            let corner = min(radius, card.width / 2, card.height / 2)
+            path.addRoundedRect(in: card, cornerWidth: corner, cornerHeight: corner)
+            shade.path = path
         }
-        shade.path = path
         shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
     }
 }
