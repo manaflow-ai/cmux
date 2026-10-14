@@ -2005,7 +2005,7 @@ fn codex_session_hook_settings_with_context(
         ));
         let mut entry = toml_edit::InlineTable::new();
         entry.insert("trusted_hash", hash.into());
-        state.insert(&format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)
