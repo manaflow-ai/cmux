@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# Refuse generated-file repairs from a pull-request tree that is stale on an
-# input the generator reads.  Running a generator on the PR head is otherwise
-# unsafe: a current base can have added a default that the head's schema does
-# not contain, and the generated snapshot would delete that base default.
+# Check the immutable merge tree used by cmux-next PR autofix.  Generators must
+# see the PR merged with the base snapshot supplied for this workflow run; the
+# moving base branch is deliberately not consulted.
 #
-# Usage: check-generator-inputs.sh --base-ref REF [--head-ref REF]
+# Usage: check-generator-inputs.sh --base-ref REF --merge-ref REF
 set -euo pipefail
 
 base_ref=""
-head_ref=HEAD
+merge_ref=""
 while (( $# )); do
   case "$1" in
     --base-ref) base_ref="${2:?missing ref after --base-ref}"; shift 2 ;;
-    --head-ref) head_ref="${2:?missing ref after --head-ref}"; shift 2 ;;
-    *) echo "usage: $0 --base-ref REF [--head-ref REF]" >&2; exit 2 ;;
+    --merge-ref) merge_ref="${2:?missing ref after --merge-ref}"; shift 2 ;;
+    *) echo "usage: $0 --base-ref REF --merge-ref REF" >&2; exit 2 ;;
   esac
 done
-[[ -n "$base_ref" ]] || { echo "usage: $0 --base-ref REF [--head-ref REF]" >&2; exit 2; }
+[[ -n "$base_ref" && -n "$merge_ref" ]] || { echo "usage: $0 --base-ref REF --merge-ref REF" >&2; exit 2; }
 
 # These are the inputs read by defaults_guard.py.  The Swift source directory
 # is a pathspec because the guard scans it for Ghostty keybinds and feature
@@ -28,66 +27,58 @@ paths=(
   scripts/ci/defaults_guard.py
 )
 
-merge_base="$(git merge-base "$base_ref" "$head_ref")" || {
-  echo "generator inputs unknown: cannot find a merge base for $base_ref and $head_ref; refusing autofix" >&2
+read -r _ first_parent second_parent < <(git rev-list --parents -n1 "$merge_ref")
+[[ -n "${second_parent:-}" ]] || {
+  echo "generator merge snapshot is not a merge commit; refusing autofix" >&2
   exit 1
 }
 
-mapfile -t base_changed < <(git diff --name-only "$merge_base" "$base_ref" -- "${paths[@]}")
-stale=()
-for path in "${base_changed[@]}"; do
-  # A head that still has the merge-base version has not incorporated the
-  # current base's input change. A head that changed the input itself is left
-  # to its author: it has an explicit source edit to review and regenerate.
-  if git diff --quiet "$merge_base" "$head_ref" -- "$path"; then
-    stale+=("$path (base changed after the branch point)")
-  fi
-done
-
-# A merge commit can hide the same stale tree: #20121 merged the current base
-# but resolved settings-schema.json away from the newer base parent. Any merge
-# resolution that changes a generator input from the base parent is ambiguous;
-# require an explicit follow-up source refresh before autofix runs.
-while IFS= read -r merge; do
-  [[ -n "$merge" ]] || continue
-  read -r _ first second < <(git rev-list --parents -n1 "$merge")
-  [[ -n "${second:-}" ]] || continue
-  base_parent=""; pr_parent=""
-  first_on_base=1; second_on_base=1
-  git merge-base --is-ancestor "$first" "$base_ref" && first_on_base=0 || true
-  git merge-base --is-ancestor "$second" "$base_ref" && second_on_base=0 || true
-  if (( first_on_base == 0 && second_on_base != 0 )); then
-    base_parent="$first"; pr_parent="$second"
-  elif (( second_on_base == 0 && first_on_base != 0 )); then
-    base_parent="$second"; pr_parent="$first"
-  elif (( first_on_base == 0 && second_on_base == 0 )); then
-    # Both parents can be old base commits. The one nearest the current base
-    # is the parent this merge brought in from base.
-    first_distance="$(git rev-list --count "$first..$base_ref")"
-    second_distance="$(git rev-list --count "$second..$base_ref")"
-    if (( first_distance <= second_distance )); then
-      base_parent="$first"; pr_parent="$second"
-    else
-      base_parent="$second"; pr_parent="$first"
-    fi
+# GitHub's merge ref uses base, then PR, while a local fixture or another
+# merge producer may use the opposite order. Identify the parent containing
+# the supplied immutable base snapshot instead of relying on parent position.
+if git merge-base --is-ancestor "$base_ref" "$first_parent" && \
+   ! git merge-base --is-ancestor "$base_ref" "$second_parent"; then
+  base_parent="$first_parent"; pr_parent="$second_parent"
+elif git merge-base --is-ancestor "$base_ref" "$second_parent" && \
+     ! git merge-base --is-ancestor "$base_ref" "$first_parent"; then
+  base_parent="$second_parent"; pr_parent="$first_parent"
+else
+  first_distance="$(git rev-list --count "$first_parent..$base_ref")"
+  second_distance="$(git rev-list --count "$second_parent..$base_ref")"
+  if (( first_distance <= second_distance )); then
+    base_parent="$first_parent"; pr_parent="$second_parent"
   else
+    base_parent="$second_parent"; pr_parent="$first_parent"
+  fi
+fi
+
+# The event payload gives us the immutable base commit used to make the merge
+# snapshot.  Keep the ancestry check so a malformed or stale ref cannot make
+# the guard silently approve the wrong tree.
+if ! git merge-base --is-ancestor "$base_ref" "$base_parent"; then
+  echo "generator merge snapshot does not contain the supplied base snapshot" >&2
+  exit 1
+fi
+merge_base="$(git merge-base "$base_ref" "$pr_parent")"
+stale=()
+while IFS= read -r path; do
+  [[ -n "$path" ]] || continue
+  # If the base changed a generator input after the PR branch point but the
+  # merge tree kept the PR side verbatim, generation would drop a base key.
+  if git diff --quiet "$merge_base" "$base_ref" -- "$path"; then
     continue
   fi
-  for path in "${paths[@]}"; do
-    if ! git diff --quiet "$pr_parent" "$base_parent" -- "$path" && \
-       ! git diff --quiet "$base_parent" "$merge" -- "$path" && \
-       git diff --quiet "$merge" "$head_ref" -- "$path"; then
-      stale+=("$path (merge $merge resolved away from the base parent)")
-    fi
-  done
-done < <(git rev-list --merges "$merge_base..$head_ref")
+  if git diff --quiet "$pr_parent" "$merge_ref" -- "$path"; then
+    stale+=("$path (merge snapshot kept the PR side)")
+  fi
+done < <(git diff --name-only "$merge_base" "$base_ref" -- "${paths[@]}")
 
 if (( ${#stale[@]} )); then
   mapfile -t stale < <(printf '%s\n' "${stale[@]}" | sort -u)
   {
-    echo "generator inputs are stale; rebase onto $base_ref before running autofix:"
+    echo "generator merge snapshot is stale: it kept the PR side for a base input:"
     printf '  %s\n' "${stale[@]}"
-    echo "refusing to regenerate generated files from the PR head"
+    echo "refusing to regenerate generated files"
   } >&2
   exit 1
 fi
