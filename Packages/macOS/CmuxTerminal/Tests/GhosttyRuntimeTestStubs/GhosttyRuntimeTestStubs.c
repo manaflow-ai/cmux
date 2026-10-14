@@ -310,6 +310,8 @@ static GhosttyRuntimeTestTerminationCount* cmux_test_surface_request_process_ter
 
 void cmux_test_ghostty_surface_request_process_termination_reset(void* surface) {
     pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    // Arm only the surface whose ordering a test is asserting. Other tests
+    // may retire many surfaces concurrently, and do not need a counter slot.
     GhosttyRuntimeTestTerminationCount* entry =
         cmux_test_surface_request_process_termination_count_for(surface, true);
     if (entry != NULL) entry->count = 0;
@@ -633,7 +635,7 @@ void ghostty_surface_config_new(void) {}
 void ghostty_surface_request_process_termination(void *surface) {
     pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
     GhosttyRuntimeTestTerminationCount* entry =
-        cmux_test_surface_request_process_termination_count_for(surface, true);
+        cmux_test_surface_request_process_termination_count_for(surface, false);
     if (entry != NULL) entry->count++;
     pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
 }
