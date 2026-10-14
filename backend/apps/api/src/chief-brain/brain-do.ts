@@ -1,18 +1,20 @@
 import { DurableObject } from "cloudflare:workers"
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
-import { Type, type AssistantMessage } from "@earendil-works/pi-ai"
-import { createRegistry, GenerationTask, Harness, hook, section, ToolTask, type ToolRegistration } from "@earendil-works/pi-durable"
+import type { AssistantMessage } from "@earendil-works/pi-ai"
+import { createRegistry, GenerationTask, Harness, hook, section, ToolTask } from "@earendil-works/pi-durable"
 import { PiHarness } from "agents/harness/pi"
 import { Lifecycle, type LifecycleJobContext, type LifecycleJobOutcome } from "agents/lifecycle"
 import type { Env } from "../env.ts"
 import { ackWake, chiefPrincipal, chiefRecord, postReply, readConversation, runChanged, typing } from "./brain-io.ts"
 import { clip, clipInput, lastTalk, readRun, readRuns, readSteps, type Run, type Step, type StepPatch, upsertStep } from "./brain-runs.ts"
-import { type BrainConfig, PROFILE_LIMITS, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
+import { type BrainConfig, patchError, readConfig, SCHEMA, writeConfig } from "./brain-store.ts"
+import { AUTH_FAILED, holderAuth, HOLDER } from "./claude-auth.ts"
 import { Compactor, type CallRecord } from "./compactor.ts"
 import { capText, cutAtMarks, type Kind, Memory, RETRY_MS } from "./memory.ts"
-import { brainModels, FAKE, validModelName } from "./models.ts"
+import { brainModels, CLAUDE, FAKE, validModelName } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget, systemFirst, textParts } from "./brain-text.ts"
-import { AGENT, DATE_DESCRIPTION, systemPrompt, ZOOM_DESCRIPTION } from "./prompts.ts"
+import { AGENT, systemPrompt } from "./prompts.ts"
+import { memoryTools } from "./brain-tools.ts"
 
 /**
  * ChiefBrainDO, one per chief (name = the chief's agent id): a Chief that answers in Cloud
@@ -34,11 +36,6 @@ import { AGENT, DATE_DESCRIPTION, systemPrompt, ZOOM_DESCRIPTION } from "./promp
  * (enabled, the chief record live and not placed on a server, under the daily turn limit). The
  * Worker forwards wakes only where CHIEF_BRAIN_ENABLED is "1".
  */
-const ZoomArgs = Type.Object({
-  id: Type.Integer({ description: "First message id of the line (the number before +)." }),
-  n: Type.Integer({ description: "How many messages the line covers (the number after +); a power of 2." })
-})
-const DateArgs = Type.Object({ id: Type.Integer({ description: "A message id." }) })
 /** Post retries after the loop guard's agent_rate (another agent spoke under 2 s ago). */
 const POST_RETRY_MS = 2_500
 const MAX_POST_TRIES = 6
@@ -56,7 +53,7 @@ export type ConfigPatch = Partial<Pick<BrainConfig, "enabled" | "model" | "compa
 
 export class ChiefBrainDO extends DurableObject<Env> {
   private readonly sql = this.ctx.storage.sql
-  readonly models = brainModels(this.env.AI, this.ctx.id.toString())
+  readonly models = brainModels(this.env.AI, this.ctx.id.toString(), () => this.claudeAuthValue(), this.env.CHIEF_BRAIN_CLAUDE_URL || undefined)
   readonly registry = createRegistry()
   memory: Memory
   compactor: Compactor
@@ -64,27 +61,14 @@ export class ChiefBrainDO extends DurableObject<Env> {
   private turnConversation: string | undefined
   private draining: Promise<void> | undefined
   private readonly posting = new Set<string>()
+  private authing: Promise<string> | undefined
 
   readonly harness = new PiHarness({
     harness: ({ storage, context }) => {
-      const zoom: ToolRegistration<typeof ZoomArgs> = {
-        name: "zoom",
-        description: ZOOM_DESCRIPTION,
-        parameters: ZoomArgs,
-        replay: "safe",
-        execute: async ({ id, n }) => ({ content: [{ type: "text", text: this.memory.zoom(id, n) }] })
-      }
-      const date: ToolRegistration<typeof DateArgs> = {
-        name: "date",
-        description: DATE_DESCRIPTION,
-        parameters: DateArgs,
-        replay: "safe",
-        execute: async ({ id }) => ({ content: [{ type: "text", text: this.memory.date(id, "UTC") }] })
-      }
       this.registry.install({
         name: "chief",
         sections: [section("chief", () => systemPrompt(this.config()), { tag: false })],
-        tools: [zoom, date],
+        tools: memoryTools(() => this.memory),
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }) => {
@@ -147,24 +131,30 @@ export class ChiefBrainDO extends DurableObject<Env> {
   // ------------------------------------------------------------------ settings object (name = agent)
 
   private defaults() {
-    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: this.env.CHIEF_BRAIN_COMPACTOR_MODEL || this.env.CHIEF_BRAIN_MODEL || FAKE }
+    const fallback = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
+    return { model: this.env.CHIEF_BRAIN_MODEL || FAKE, compactor_model: this.env.CHIEF_BRAIN_COMPACTOR_MODEL || (this.env.CHIEF_BRAIN_MODEL === CLAUDE ? fallback : this.env.CHIEF_BRAIN_MODEL) || FAKE }
   }
   config(): BrainConfig {
     return readConfig(this.sql, this.defaults())
   }
+
+  /** Holder object (name HOLDER) only: the metered Claude route's sign-in, refreshed in this object's storage; one refresh at a time. */
+  async claudeAuth(): Promise<string> {
+    if (!this.authing) {
+      this.authing = holderAuth(this.env, this.sql).finally(() => (this.authing = undefined))
+      this.authing.catch(() => undefined)
+    }
+    return this.authing
+  }
+  private claudeAuthValue = (): Promise<string> => this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(HOLDER)).claudeAuth()
 
   /** The owner's settings (the Worker checked the caller owns `agent`). Turning it on needs a live chief that no server runs. */
   async configure(agent: string, owner: string, patch: ConfigPatch): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> {
     await this.lifecycle.start()
     const cur = this.config()
     if ((cur.agent !== null && cur.agent !== agent) || (cur.owner !== null && cur.owner !== owner)) return { ok: false, code: "auth.forbidden", message: "this brain belongs to another chief" }
-    const bad = (m: string) => ({ ok: false as const, code: "validation.invalid", message: m })
-    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") return bad("enabled must be a boolean")
-    for (const k of ["model", "compactor_model"] as const) if (patch[k] !== undefined && !validModelName(patch[k])) return bad(`${k} must be "fake" or a Workers AI id @cf/<vendor>/<model>`)
-    for (const k of ["role", "personality", "instructions"] as const) {
-      const v = patch[k]
-      if (v !== undefined && (typeof v !== "string" || [...v].length > PROFILE_LIMITS[k] || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(v))) return bad(`${k} must be text of at most ${PROFILE_LIMITS[k]} characters`)
-    }
+    const invalid = patchError(patch, validModelName)
+    if (invalid) return { ok: false, code: "validation.invalid", message: invalid }
     if (patch.enabled === true) {
       const record = await chiefRecord(this.env, owner, agent)
       if (!record) return { ok: false, code: "chief_archived", message: "the chief is archived or unknown" }
@@ -387,6 +377,12 @@ export class ChiefBrainDO extends DurableObject<Env> {
     try {
       if (!row.submitted) {
         const blocks = JSON.parse(row.input ?? "[]") as Array<string>
+        // Claude needs the route's sign-in; without it this turn runs on the fallback model (no token bytes logged).
+        if (row.model === CLAUDE && !(await this.claudeAuthValue().then(() => true, () => false))) {
+          console.warn(AUTH_FAILED)
+          row.model = this.env.CHIEF_BRAIN_FALLBACK_MODEL || FAKE
+          this.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)
+        }
         const model = this.models.model(row.model)
         const root = await (await this.harness.pi()).root(BACKGROUND_CONTEXT)
         await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: this.models.thinking(row.model) }, BACKGROUND_CONTEXT)
