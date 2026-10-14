@@ -159,6 +159,45 @@ pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> 
     if home.starts_with(&cwd) { Err(Refusal::AboveHome) } else { Ok(()) }
 }
 
+/// `agent_session.trust.get` and `agent_session.trust.set`: the verb for a
+/// page, as a routed v2 operation (page-router.json namespace
+/// `agent_session`, hq-6d). The page router already applied the page's allow
+/// list (only page `agent` reads or answers) and, for a set, the person's
+/// gesture (a host confirmation for exactly this request) and origin user.
+/// The rest is the verb's: a trusted local connection, the machine kind
+/// gate, an agent tab of this store, the home folder rule.
+pub(super) fn routed(
+    mux: &Mux,
+    client: u64,
+    operation: &str,
+    mut params: serde_json::Map<String, Value>,
+) -> Result<Value, crate::resource::ResourceError> {
+    let fail = |refusal: Refusal| {
+        crate::resource::ResourceError::operation_failed(
+            operation,
+            refusal.message(),
+            json!({"code": refusal.code()}),
+        )
+    };
+    let setting = operation == "agent_session.trust.set";
+    params.remove("idempotency_key");
+    let params: TrustParams =
+        serde_json::from_value(Value::Object(params)).map_err(|_| fail(Refusal::BadRequest))?;
+    if !params.valid() || params.level.is_some() != setting {
+        return Err(fail(Refusal::BadRequest));
+    }
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return Err(fail(Refusal::NotTrusted));
+    }
+    mux.agent_host_gate().map_err(fail)?;
+    if !own_agent_tab(mux, params.surface) {
+        return Err(fail(Refusal::UnknownTab));
+    }
+    let socket = mux.control_clients.agent_sessions.socket().ok_or(fail(Refusal::Unavailable))?;
+    let Some(_slot) = CallSlot::take() else { return Err(fail(Refusal::Limit)) };
+    run(mux, &socket, &params).map_err(fail)
+}
+
 fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Value, Refusal> {
     if params.level.as_deref() == Some("trusted") {
         home_rule(&params.cwd, params.home_confirmed)?;

@@ -538,6 +538,16 @@ fn trust(
     agent_session_trust::trust(mux, id, socket, params, writer)
 }
 
+/// The page router's owner `agent_session.trust` (page_router.rs).
+pub(super) fn routed_trust(
+    mux: &Arc<Mux>,
+    client: u64,
+    operation: &str,
+    params: serde_json::Map<String, Value>,
+) -> Result<Value, crate::resource::ResourceError> {
+    agent_session_trust::routed(mux, client, operation, params)
+}
+
 fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
     match command {
         AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
