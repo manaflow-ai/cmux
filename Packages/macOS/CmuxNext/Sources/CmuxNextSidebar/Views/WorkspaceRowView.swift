@@ -180,7 +180,7 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.time, shown.time ?? "", shown.meta ?? "")
+        (isExpanded, timeText, timeLabel.stringValue, metaLabel.stringValue) = (shown.expanded, shown.trailingText, shown.trailingText ?? "", shown.meta ?? "")
         activity.configure(shown.activity, style: ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
