@@ -182,8 +182,8 @@ def main():
     tabs_before = len(browsers(workspace, chat))
     click(chat, f'a[href="http://127.0.0.1:{PORT}/pr/1"]')
     time.sleep(1.5)  # test harness: a wrong open would land by now
-    again = len(browsers(workspace, chat)) == tabs_before and len(panes_of(workspace)) == panes_after_first
-    row("a link already open beside the chat opens no other tab", f"{tabs_before} browser tabs, {panes_after_first} panes",
+    again = tabs_before == 2 and len(browsers(workspace, chat)) == tabs_before and len(panes_of(workspace)) == panes_after_first
+    row("a link already open beside the chat opens no other tab", f"still 2 browser tabs, {panes_after_first} panes",
         f"panes {brief(workspace)}", again)
 
     # 4. The file ref: its page in that same pane.
