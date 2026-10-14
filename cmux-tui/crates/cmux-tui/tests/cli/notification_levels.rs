@@ -31,4 +31,10 @@ fn every_notification_level_the_help_lists_is_one_the_daemon_takes() {
             String::from_utf8_lossy(&created.stderr),
         );
     }
+    // And the CLI refuses a level the help doesn't list before it reaches the daemon.
+    let refused = json_cli(
+        &server,
+        &["notification", "create", "--title", "Build", "--body", "done", "--level", "success"],
+    );
+    assert_eq!(refused.status.code(), Some(2), "{}", String::from_utf8_lossy(&refused.stderr));
 }
