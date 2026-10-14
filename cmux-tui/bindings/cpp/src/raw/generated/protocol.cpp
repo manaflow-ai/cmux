@@ -15033,6 +15033,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("expected_revision", std::move(encoded).value());
     }
+    if (value.if_empty) {
+        auto encoded = encode_value(*value.if_empty);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("if_empty", std::move(encoded).value());
+    }
     if (!value.key.is_absent()) {
         auto encoded = encode_value(value.key);
         if (!encoded) return std::move(encoded).error();
@@ -15093,6 +15098,12 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.expected_revision = Field<std::uint64_t>(std::move(decoded).value());
         }
+    }
+    const Json* field_if_empty = value.find("if_empty");
+    if (field_if_empty) {
+        auto decoded = decode_value<bool>(*field_if_empty);
+        if (!decoded) return std::move(decoded).error();
+        result.if_empty = std::move(decoded).value();
     }
     const Json* field_key = value.find("key");
     if (field_key) {
@@ -25754,9 +25765,16 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("paste", std::move(encoded).value());
     }
-    auto encoded_surface = encode_value(value.surface);
-    if (!encoded_surface) return std::move(encoded_surface).error();
-    object.emplace("surface", std::move(encoded_surface).value());
+    if (!value.surface.is_absent()) {
+        auto encoded = encode_value(value.surface);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("surface", std::move(encoded).value());
+    }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     if (!value.text.is_absent()) {
         auto encoded = encode_value(value.text);
         if (!encoded) return std::move(encoded).error();
@@ -25786,13 +25804,24 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
         result.paste = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
-    if (!field_surface) {
-        return make_error(ErrorCode::decode, "missing required field 'surface'");
-    }
     if (field_surface) {
-        auto decoded = decode_value<Id>(*field_surface);
-        if (!decoded) return std::move(decoded).error();
-        result.surface = std::move(decoded).value();
+        if (field_surface->is_null()) {
+            result.surface = Field<Id>::null();
+        } else {
+            auto decoded = decode_value<Id>(*field_surface);
+            if (!decoded) return std::move(decoded).error();
+            result.surface = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_text = value.find("text");
     if (field_text) {
@@ -25803,6 +25832,30 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.text = Field<std::string>(std::move(decoded).value());
         }
+    }
+    return result;
+}
+
+Result<Json> Codec<SendResult>::encode(const SendResult& value) {
+    (void)value;
+    Json::Object object;
+    if (value.queued) {
+        auto encoded = encode_value(*value.queued);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("queued", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<SendResult> Codec<SendResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SendResult result{};
+    const Json* field_queued = value.find("queued");
+    if (field_queued) {
+        auto decoded = decode_value<bool>(*field_queued);
+        if (!decoded) return std::move(decoded).error();
+        result.queued = std::move(decoded).value();
     }
     return result;
 }
@@ -34268,6 +34321,65 @@ Result<TerminalClipboardReadCancelledEvent> Codec<TerminalClipboardReadCancelled
     return result;
 }
 
+Result<Json> Codec<TerminalInputUnclaimedEvent>::encode(const TerminalInputUnclaimedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("terminal-input-unclaimed")));
+    auto encoded_bytes_base64 = encode_value(value.bytes_base64);
+    if (!encoded_bytes_base64) return std::move(encoded_bytes_base64).error();
+    object.emplace("bytes_base64", std::move(encoded_bytes_base64).value());
+    auto encoded_reason = encode_value(value.reason);
+    if (!encoded_reason) return std::move(encoded_reason).error();
+    object.emplace("reason", std::move(encoded_reason).value());
+    auto encoded_terminal_id = encode_value(value.terminal_id);
+    if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
+    object.emplace("terminal_id", std::move(encoded_terminal_id).value());
+    return Json(std::move(object));
+}
+
+Result<TerminalInputUnclaimedEvent> Codec<TerminalInputUnclaimedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalInputUnclaimedEvent result{};
+    const Json* field_bytes_base64 = value.find("bytes_base64");
+    if (!field_bytes_base64) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes_base64'");
+    }
+    if (field_bytes_base64) {
+        auto decoded = decode_value<Base64>(*field_bytes_base64);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes_base64 = std::move(decoded).value();
+    }
+    const Json* field_reason = value.find("reason");
+    if (!field_reason) {
+        return make_error(ErrorCode::decode, "missing required field 'reason'");
+    }
+    if (field_reason) {
+        auto decoded = decode_value<std::string>(*field_reason);
+        if (!decoded) return std::move(decoded).error();
+        result.reason = std::move(decoded).value();
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("terminal-input-unclaimed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalReapedEvent>::encode(const TerminalReapedEvent& value) {
     (void)value;
     Json::Object object;
@@ -36894,6 +37006,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "terminal-input-unclaimed") {
+        auto decoded = decode_value<TerminalInputUnclaimedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "terminal-reaped") {
         auto decoded = decode_value<TerminalReapedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -36986,10 +37103,11 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand30FieldRequirements{{
     {"reason", 0U, "close-reason-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand32FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand32FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
+    {"if_empty", 0U, "close-workspace-if-empty-v1"},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
@@ -37092,8 +37210,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand181FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand185FieldRequirements{{
     {"key", 9U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand192FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand192FieldRequirements{{
     {"paste", 7U, ""},
+    {"terminal_id", 0U, "terminal-input-while-creating-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand196FieldRequirements{{
     {"device_id", 12U, "shared-sizing-v1"},
@@ -37414,7 +37533,7 @@ constexpr std::array<CommandMetadata, 256> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 75> kEvents{{
+constexpr std::array<EventMetadata, 76> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
@@ -37478,6 +37597,7 @@ constexpr std::array<EventMetadata, 75> kEvents{{
     {"tab-renamed", 7U, "", "subscribe-deltas", "emitted"},
     {"terminal-clipboard-read", 12U, "terminal-clipboard-read-v1", "control", "emitted"},
     {"terminal-clipboard-read-cancelled", 12U, "terminal-clipboard-read-v1", "control", "emitted"},
+    {"terminal-input-unclaimed", 12U, "terminal-input-while-creating-v1", "control", "emitted"},
     {"terminal-reaped", 12U, "terminal-reap-v1", "subscribe", "emitted"},
     {"terminal-registry-changed", 9U, "", "subscribe", "emitted"},
     {"title-changed", 5U, "", "subscribe", "emitted"},
@@ -39622,7 +39742,7 @@ Result<EmptyResult> Client::select_workspace(
     return decode_value<EmptyResult>(response.value());
 }
 
-Result<EmptyResult> Client::send(
+Result<SendResult> Client::send(
     const SendRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -39630,7 +39750,7 @@ Result<EmptyResult> Client::send(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("send", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<EmptyResult>(response.value());
+    return decode_value<SendResult>(response.value());
 }
 
 Result<EmptyResult> Client::send_key(

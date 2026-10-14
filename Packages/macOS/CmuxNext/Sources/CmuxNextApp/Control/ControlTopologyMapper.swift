@@ -178,7 +178,7 @@ enum ControlTopologyMapper {
         info.agent = model.agent?.agent
         info.remoteSessionID = model.remote?.sessionID
         info.remoteTerminalID = model.remote?.terminalID.rawValue
-        if model.kind == .browser { info.browserProfileID = model.snapshot.browserProfileID ?? "default" }
+        if model.kind == .browser { info.browserProfileID = model.browserProfileID ?? "default" }  // tracked: a move re-publishes
         info.agentSessionID = model.agentSession?.session
         // A store page tab (`page-tabs-v1`): the daemon titles it about:blank; the page names it.
         if let page = model.page {

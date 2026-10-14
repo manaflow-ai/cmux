@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85'
+IR_SHA256 = 'c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d'
 
 
 @dataclass(frozen=True)
@@ -473,6 +473,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'batch-close-v1'),
             'expected_generation': CommandFieldMetadata(7, None),
             'expected_revision': CommandFieldMetadata(7, None),
+            'if_empty': CommandFieldMetadata(None, 'close-workspace-if-empty-v1'),
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
@@ -2615,6 +2616,7 @@ COMMANDS = {
             'bytes': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
             'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
         },
     ),
@@ -3529,6 +3531,7 @@ EVENTS = {
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'terminal-clipboard-read': EventMetadata('terminal-clipboard-read', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
     'terminal-clipboard-read-cancelled': EventMetadata('terminal-clipboard-read-cancelled', 12, 'terminal-clipboard-read-v1', ('control',), 'emitted'),
+    'terminal-input-unclaimed': EventMetadata('terminal-input-unclaimed', 12, 'terminal-input-while-creating-v1', ('control',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),

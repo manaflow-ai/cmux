@@ -36,6 +36,7 @@
     "browser.reload",
     "browser.tab.emulate",
     "browser.tab.emulate.clear",
+    "browser.tab.set_profile",
     "caffeinate.cycle_variant",
     "caffeinate.keep_awake",
     "caffeinate.keep_awake_hour",
