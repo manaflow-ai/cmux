@@ -337,7 +337,7 @@ impl Hub {
             }
         }
 
-        self.record_launch_roots(session, profile).await;
+        self.record_spawn_inputs(session, profile).await;
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already

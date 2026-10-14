@@ -199,7 +199,7 @@ extension HomeService {
         let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A placed chief's brain runs on its server: no local brain host for its tab.
-        if conversation != cloudChief?.mainConversation { homeDidOpen() }
+        if conversation != cloudChief?.mainConversation { homeDidOpen(asked: true) }
         return view
     }
 

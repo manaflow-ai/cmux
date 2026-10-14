@@ -6,9 +6,12 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AttachmentService } from "./attachmentService";
+import { AvatarService } from "./avatars";
 import { DraftBook, type HomeDraft } from "./drafts";
 import { hashLink, mergeMessages, threadOf } from "./model";
+import { conversationHash, hashConversation, setHash } from "./panes";
 import { RunBook } from "./runs";
+import { HomeSheets } from "./sheets";
 import {
   HomeOps,
   type HomeAttachment,
@@ -17,9 +20,11 @@ import {
   type HomeEventBatch,
   type HomeHistory,
   type HomeInbox,
+  type HomeMarkUnreadRequest,
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomePinRequest,
   type HomeResolvedLink,
   type HomeRun,
   type HomeRunList,
@@ -102,6 +107,8 @@ export interface HomeSnapshot {
   /** Participants typing or writing a reply, by conversation (every conversation, not only the
    * open one): a Chief's row shows it as working. */
   activity: ReadonlyMap<string, ReadonlySet<string>>;
+  /** The owner keeps my pins and marks (Pin and Mark as Unread are offered only then). */
+  inboxState: boolean;
   /** Which owners take files through this host (asked once at start; absent until it answers). */
   fileSupport?: HomeAttachmentSupport;
   error?: string;
@@ -129,14 +136,31 @@ export class HomeChannelsStore {
   /** Who types in each conversation (typing events); activity adds the running drafts. */
   private readonly typingBy = new Map<string, Set<string>>();
 
+  /** Participants' pictures through this store's client (none without a client: initials). */
+  readonly avatars: AvatarService | undefined;
   /** Uploads and reads of attachments through this store's client (none without a client). */
   readonly attachments: AttachmentService | undefined;
+  /** The page's sheets (new message, new Chief, invite, archive) and the Chief records. */
+  readonly sheets: HomeSheets;
 
+  /** `host`: the page's host, when there is one (the app): it relays the person's click for a
+   * Chief's grant and delete. */
   constructor(
     private readonly client: PageClient | null,
     private readonly carry: PendingCarry = new PendingCarry(),
+    host: PageClient | null = null,
   ) {
     this.attachments = client ? new AttachmentService(client) : undefined;
+    this.avatars = client ? new AvatarService(client) : undefined;
+    this.sheets = new HomeSheets(client, host, {
+      open: async (conversation) => {
+        await this.reloadInbox();
+        await this.select(conversation);
+        // The page shows the conversation the sheet made (the narrow page's pane follows the hash).
+        if (this.routed) setHash(conversationHash(conversation), true);
+      },
+      fail: (message) => this.set({ error: message }),
+    });
     this.snapshot = {
       connection: client ? "connecting" : "offline",
       loading: client !== null,
@@ -151,6 +175,7 @@ export class HomeChannelsStore {
       // store knows: it shows as failed, with Retry (the same idempotency key, never twice).
       pending: carry.entries.map((entry) => ({ ...entry, failed: true })),
       activity: new Map(),
+      inboxState: false,
     };
     carry.entries = this.snapshot.pending;
   }
@@ -194,6 +219,7 @@ export class HomeChannelsStore {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    void this.sheets.start();
     this.followHash();
   }
 
@@ -202,6 +228,16 @@ export class HomeChannelsStore {
   private followHash(): void {
     if (typeof window === "undefined") return;
     const open = () => {
+      // A sheet route (routes.ts) opens its sheet over the open conversation.
+      if (this.sheets.follow(window.location.hash)) return;
+      // A conversation the page knows opens at once (no link read: a Cloud conversation's link
+      // has no resolver yet); a message link, or one the page does not know, is resolved.
+      const known = hashConversation(window.location.hash);
+      if (known && this.snapshot.conversations.has(known)) {
+        // The page opened it already (a row click records the hash after it selects).
+        if (known !== this.snapshot.selected) void this.select(known);
+        return;
+      }
       const link = hashLink(window.location.hash);
       if (link) void this.openLink(link);
     };
@@ -279,8 +315,15 @@ export class HomeChannelsStore {
         this.snapshot.selected && conversations.has(this.snapshot.selected)
           ? this.snapshot.selected
           : defaultSelection(inbox.conversations);
-      this.set({ me: inbox.me, conversations, connection: "online", loading: false, error: undefined });
-      if (selected && selected !== this.snapshot.selected) await this.select(selected);
+      this.set({
+        me: inbox.me,
+        conversations,
+        connection: "online",
+        loading: false,
+        error: undefined,
+        inboxState: inbox.inboxState === true,
+      });
+      if (selected && selected !== this.snapshot.selected) await this.select(selected, false);
       else if (selected) await this.reloadPage(selected);
     } catch (error) {
       this.set({ error: describe(error), loading: false });
@@ -288,8 +331,11 @@ export class HomeChannelsStore {
   }
 
   /** Opens a conversation: its newest page, then marks it read. */
-  async select(id: string): Promise<void> {
+  async select(id: string, opened = true): Promise<void> {
     if (id === this.snapshot.selected && this.snapshot.messages.length > 0) return;
+    // Opening a conversation I marked unread reads it: the mark goes (not the page's own first
+    // pick at load: a mark stays until I open the conversation).
+    if (opened && this.snapshot.conversations.get(id)?.markedUnread) void this.setMarkedUnread(id, false);
     this.set({
       selected: id,
       messages: [],
@@ -341,7 +387,7 @@ export class HomeChannelsStore {
       });
       this.runs.noteMessages(messages);
       void this.loadRuns(id, messages, true);
-      this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
+      if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
     }
@@ -493,26 +539,6 @@ export class HomeChannelsStore {
     return left.length === this.snapshot.pending.length ? undefined : left;
   }
 
-  /** Creates a channel (a titled group) with these members and opens it. Resolves true when the
-   * owner created it. */
-  async createChannel(title: string, participants: readonly string[]): Promise<boolean> {
-    const name = title.trim();
-    if (!this.client || !name || participants.length === 0) return false;
-    try {
-      const result = await this.client.call<{ conversation?: string }>(HomeOps.createGroup, {
-        title: name,
-        participants,
-        idempotencyKey: this.key("create"),
-      });
-      await this.reloadInbox();
-      if (result.conversation) await this.select(result.conversation);
-      return true;
-    } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
-    }
-  }
-
   /** Adds my reaction, or takes it back when I already reacted with it. */
   async react(message: HomeMessage, value: string): Promise<void> {
     if (!this.client) return;
@@ -571,6 +597,70 @@ export class HomeChannelsStore {
     }
   }
 
+  /** Pins or unpins a conversation in my list. Optimistic: the row moves at once (a new pin goes
+   * last); the owner's change replaces it, and a refusal puts the row back. Resolves true when the
+   * owner took it. */
+  async setPinned(id: string, pinned: boolean): Promise<boolean> {
+    const before = this.snapshot.conversations.get(id);
+    if (!this.client || !before || before.pinned === pinned) return false;
+    const last = Math.max(0, ...[...this.snapshot.conversations.values()].map((c) => c.pinPosition ?? 0));
+    this.patchConversation(
+      id,
+      pinned ? { pinned, pinPosition: Math.max(Date.now(), last + 1) } : { pinned, pinPosition: undefined },
+    );
+    try {
+      await this.client.call(HomeOps.pin, {
+        conversation: id,
+        pinned,
+        idempotencyKey: this.key("pin"),
+      } satisfies HomePinRequest);
+      return true;
+    } catch (error) {
+      // Back, unless the owner's own change came meanwhile.
+      if (this.snapshot.conversations.get(id)?.pinned === pinned)
+        this.patchConversation(id, { pinned: before.pinned, pinPosition: before.pinPosition });
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Flags a conversation unread (the read cursor stays) or clears the flag. Optimistic, as a pin. */
+  async setMarkedUnread(id: string, unread: boolean): Promise<boolean> {
+    const before = this.snapshot.conversations.get(id);
+    if (!this.client || !before || (before.markedUnread === true) === unread) return false;
+    this.patchConversation(id, { markedUnread: unread });
+    try {
+      await this.client.call(HomeOps.markUnread, {
+        conversation: id,
+        unread,
+        idempotencyKey: this.key("unread"),
+      } satisfies HomeMarkUnreadRequest);
+      return true;
+    } catch (error) {
+      if ((this.snapshot.conversations.get(id)?.markedUnread === true) === unread)
+        this.patchConversation(id, { markedUnread: before.markedUnread });
+      this.set({ error: describe(error) });
+      return false;
+    }
+  }
+
+  /** Mark as Read: my read cursor to the newest message, and my unread mark cleared. */
+  markConversationRead(id: string): void {
+    const conversation = this.snapshot.conversations.get(id);
+    if (!conversation) return;
+    if (conversation.markedUnread) void this.setMarkedUnread(id, false);
+    this.markRead(conversation, conversation.lastSeq);
+  }
+
+  private patchConversation(id: string, patch: Partial<HomeConversation>): void {
+    const current = this.snapshot.conversations.get(id);
+    if (!current) return;
+    const next: HomeConversation = { ...current, ...patch };
+    if (next.pinPosition === undefined) delete next.pinPosition;
+    if (!next.markedUnread) delete next.markedUnread;
+    this.set({ conversations: new Map(this.snapshot.conversations).set(id, next) });
+  }
+
   /** Deletes my message for everyone (the owner keeps a "deleted" row). */
   async retract(message: HomeMessage): Promise<void> {
     if (!this.client) return;
@@ -589,8 +679,21 @@ export class HomeChannelsStore {
     this.set({ error: undefined });
   }
 
+  /** Whether the open conversation is on screen: the narrow page's list pane hides it, and a
+   * conversation nobody sees is not read (its unread count stays). */
+  private shown = true;
+  /** The page's hash names the open conversation (false: the gallery, which owns its window hash). */
+  routed = true;
+
+  setShown(shown: boolean): void {
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (shown) this.readOpen();
+  }
+
   /** Reads the open conversation through its newest loaded message. */
   private readOpen(): void {
+    if (!this.shown) return;
     const { selected, messages } = this.snapshot;
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
@@ -620,6 +723,7 @@ export class HomeChannelsStore {
     for (const entry of batch.typing ?? []) if (!entry.on) this.drafts.typingOff(entry.conversation, entry.participant);
     for (const message of batch.messages ?? []) this.drafts.posted(message);
     if (batch.runs?.length) this.runs.apply(batch.runs);
+    if (batch.avatars?.length) this.avatars?.changed(batch.avatars);
     if (batch.messages?.length) this.runs.noteMessages(batch.messages);
     let conversations: Map<string, HomeConversation> | undefined;
     for (const conversation of batch.conversations ?? []) {
@@ -629,6 +733,17 @@ export class HomeChannelsStore {
     for (const id of batch.removed ?? []) {
       conversations ??= new Map(this.snapshot.conversations);
       conversations.delete(id);
+    }
+    for (const change of batch.inbox ?? []) {
+      const current = (conversations ?? this.snapshot.conversations).get(change.conversation);
+      if (!current) continue;
+      conversations ??= new Map(this.snapshot.conversations);
+      const next: HomeConversation = { ...current, pinned: change.pinned };
+      delete next.pinPosition;
+      delete next.markedUnread;
+      if (change.pinPosition !== undefined) next.pinPosition = change.pinPosition;
+      if (change.markedUnread) next.markedUnread = true;
+      conversations.set(change.conversation, next);
     }
     if (conversations) patch.conversations = conversations;
     const selected = this.snapshot.selected;
@@ -664,7 +779,7 @@ export class HomeChannelsStore {
     this.set(patch);
     const open = selected ? this.snapshot.conversations.get(selected) : undefined;
     if (open && incoming.length > 0 && document.visibilityState === "visible") {
-      this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
+      if (this.shown) this.markRead(open, Math.max(...incoming.map((m) => m.seq)));
     }
     if (batch.inboxStale) void this.reloadInbox();
     else if (selected && batch.stale?.includes(selected)) void this.reloadPage(selected);

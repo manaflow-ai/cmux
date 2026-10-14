@@ -108,9 +108,12 @@ import Testing
         let h = await make()
         defer { h.close() }
         try #require(!h.card.isHidden, "no Now Playing card while a track plays")
-        h.card.playPauseButton.performClick(nil)
-        h.card.nextButton.performClick(nil)
-        h.card.previousButton.performClick(nil)
+        // sendAction, not performClick: performClick leaves AppKit work queued that can outlive the
+        // closed window on a display host and take the test process down in a later test.
+        for button in [h.card.playPauseButton, h.card.nextButton, h.card.previousButton] {
+            #expect(button.isEnabled, "\(button.accessibilityLabel() ?? "a control") is disabled while a track plays")
+            _ = button.sendAction(button.action, to: button.target)
+        }
         // A click a quarter of the way along the scrubber seeks to a quarter of the track.
         let scrubber = h.card.scrubber
         let point = scrubber.convert(NSPoint(x: scrubber.bounds.width / 4, y: scrubber.bounds.midY), to: nil)

@@ -10,6 +10,8 @@ public struct SidebarMapping {
     public static let shared = Self()
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
+    /// Supplies a row in place of mapping it now: the workspace, its machine, and the mapping to run later.
+    public typealias RowSource = (WorkspaceModel, MachineID, @escaping SidebarRowFeed.Make) -> SidebarWorkspace
 
     /// What a browser workspace's row shows of its front tab's page
     /// (cx-e32b): the title in place of a name the user never gave, and the
@@ -34,18 +36,22 @@ public struct SidebarMapping {
     /// list as its strip does (the App's `TabTitleResolver`); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
     /// icon (`image:` / `svg:sha256-<hex>`); nil while it loads.
+    /// `rowSource`, when given, supplies each row instead of mapping it here:
+    /// it gets the workspace and the mapping to run later (`SidebarRowFeed`),
+    /// so a structural pass reads no row's status.
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 muted: Set<String> = [],
-                                statusLine: (String) -> String? = { _ in nil },
-                                selectedTab: (PaneModel) -> String? = { _ in nil },
+                                statusLine: @escaping (String) -> String? = { _ in nil },
+                                selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
-                                pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
-                                tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
-                                iconAsset: (String) -> SidebarFavicon? = { _ in nil },
-                                groupIconAsset: ((String) -> SidebarFavicon?)? = nil) -> [SidebarRowSection] {
+                                pageFace: @escaping (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                                tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
+                                iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
+                                groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
+                                rowSource: RowSource? = nil) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
@@ -54,9 +60,13 @@ public struct SidebarMapping {
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, muted: muted.contains($0.id),
-                           selectedTab: selectedTab, newTabPages: newTabPages, newTabTitle: newTabTitle, pageFace: pageFace,
-                           tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset) }
+                .map { workspace in
+                    let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
+                                     muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
+                                     newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
+                                     notificationText: notificationText, iconAsset: iconAsset) }
+                    return rowSource.map { $0(workspace, machine.id, make) } ?? make()
+                }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -172,10 +182,19 @@ public struct SidebarMapping {
         tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
     }
 
-    /// The last message of the row's agent chat: the front tab's, else the first chat tab's.
+    /// The last message of the row's agent chat (`chatTab`).
     func lastMessage(_ front: TabModel?, _ tabs: [TabModel]) -> String? {
-        let chat = front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
-        return chat?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+        chatTab(front, tabs)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+    }
+
+    /// The row's agent chat, whose last message the row shows: the front tab's, else the first chat tab's.
+    func chatTab(_ front: TabModel?, _ tabs: [TabModel]) -> TabModel? {
+        front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
+    }
+
+    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
+    public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     /// The tab whose agent the row names: a working or waiting one first.
@@ -316,5 +335,12 @@ public struct SidebarMapping {
     public func color(_ name: String?) -> GroupColor? {
         guard let name else { return nil }
         return GroupColor(rawValue: name.lowercased()) ?? (name.lowercased() == "gray" ? .grey : nil)
+    }
+}
+
+extension SidebarRowFeed {
+    /// This feed as the mapping's row source (`SidebarMapping.sections(rowSource:)`).
+    public var rowSource: SidebarMapping.RowSource {
+        { workspace, machine, make in self.row(SidebarWorkspaceID(workspace.id), machine: machine, make: make) }
     }
 }

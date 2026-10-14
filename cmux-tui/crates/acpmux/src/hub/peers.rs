@@ -189,10 +189,9 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
-        // A peer from before `indicator` sends none: decide it here.
-        if summary.get("indicator").is_none() {
-            summary["indicator"] =
-                super::views::status_indicator(&summary).map_or(Value::Null, Value::from);
+        // A peer from before `indicator` or `lane` sends none: decide them here.
+        if summary.get("indicator").is_none() || summary.get("lane").is_none() {
+            super::views::decide(&mut summary);
         }
         summary
     }
@@ -248,8 +247,7 @@ impl Hub {
                             .filter(|r| r.peer == peer)
                             .map(|r| {
                                 r.summary["status"] = Value::String("unreachable".into());
-                                r.summary["indicator"] = super::views::status_indicator(&r.summary)
-                                    .map_or(Value::Null, Value::from);
+                                super::views::decide(&mut r.summary);
                                 r.summary.clone()
                             })
                             .collect()
@@ -478,12 +476,8 @@ impl Hub {
     pub fn all_session_summaries(&self) -> Vec<Value> {
         let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
         v.extend(self.remote_sessions());
-        v.sort_by(|a, b| {
-            b.get("updatedAt")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .cmp(&a.get("updatedAt").and_then(Value::as_u64).unwrap_or(0))
-        });
+        // Newest first, ties by sessionId: the order session list pages keep.
+        super::session_pages::sort_session_summaries(&mut v);
         v
     }
 }

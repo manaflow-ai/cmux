@@ -1,4 +1,5 @@
-//! `_acpmux/presets`: read or change presets.
+//! The presets request (`_acpmux/presets`): read or change presets,
+//! `{name?, set?: {harness, model, effort, policy, env, args}, clear?: bool}`.
 
 use super::*;
 

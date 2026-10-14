@@ -47,6 +47,32 @@ export function channelIds(conversations: Iterable<HomeConversation>, me?: strin
   return channels;
 }
 
+/** The conversations with each Chief's current name (its record) on its direct messages: the
+ * title and the participant's name. A channel keeps its own title; the same map comes back when
+ * nothing changes. */
+export function withChiefNames(
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+): ReadonlyMap<string, HomeConversation> {
+  if (chiefs.size === 0) return conversations;
+  let changed: Map<string, HomeConversation> | undefined;
+  for (const c of conversations.values()) {
+    if (channels.has(c.id)) continue;
+    const others = c.participants.filter((p) => p.id !== me);
+    const record = others.length === 1 && others[0]!.chief ? chiefs.get(others[0]!.id) : undefined;
+    if (!record || (c.title === record.name && others[0]!.name === record.name)) continue;
+    changed ??= new Map(conversations);
+    changed.set(c.id, {
+      ...c,
+      title: record.name,
+      participants: c.participants.map((p) => (p.id === others[0]!.id ? { ...p, name: record.name } : p)),
+    });
+  }
+  return changed ?? conversations;
+}
+
 export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
   const list = [...conversations];
   const ids = channelIds(list, me);
@@ -426,6 +452,25 @@ export function pendingMessages(
 /** Every conversation, newest activity first (the one chronological list: rooms and people). */
 export function chronological(conversations: Iterable<HomeConversation>): HomeConversation[] {
   return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
+}
+
+/** The list as it shows: my pinned conversations first, in my pin order (lower position first),
+ * then every other conversation newest activity first. */
+export function listOrder(conversations: Iterable<HomeConversation>): {
+  pinned: HomeConversation[];
+  rest: HomeConversation[];
+} {
+  const pinned: HomeConversation[] = [];
+  const rest: HomeConversation[] = [];
+  for (const conversation of chronological(conversations)) (conversation.pinned ? pinned : rest).push(conversation);
+  // Stable: equal positions (an owner without positions) keep the chronological order.
+  pinned.sort((a, b) => (a.pinPosition ?? 0) - (b.pinPosition ?? 0));
+  return { pinned, rest };
+}
+
+/** Unread as the list shows it: messages after my read cursor, or my own unread mark. */
+export function isUnread(conversation: HomeConversation): boolean {
+  return (conversation.unread > 0 || conversation.markedUnread === true) && !conversation.muted;
 }
 
 /** A conversation's last activity: its last message, else its last change (a new, empty room). */
