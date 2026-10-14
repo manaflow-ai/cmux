@@ -122,7 +122,7 @@ final class SidebarBridge {
         // one slide, not a slide of the old rows and then a row reload.
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
-        sameTurn.observe({
+        sameTurn.observe(listsRows: true, {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
             feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])

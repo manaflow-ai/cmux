@@ -205,8 +205,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         if let current = content { park(current) }
-        let controller: WorkspaceContentController
-        if let index = parked.firstIndex(where: { $0.workspace === workspace && $0.daemon === daemon }) {
+        let controller: WorkspaceContentController, index = parked.firstIndex { $0.workspace === workspace && $0.daemon === daemon }
+        if let index {
             controller = parked.remove(at: index)
             controller.unpark()
         } else {
@@ -214,8 +214,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
-        // one draws in the same frame, its sidebar row already listed and selected.
-        sidebar.sameTurn.syncNow()
+        // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
+        sidebar.sameTurn.syncNow(rows: index == nil)
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once; no
         // crossfade, which would fade the swap itself.

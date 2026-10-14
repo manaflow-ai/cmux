@@ -13,23 +13,26 @@ import CmuxNextSidebar
 @MainActor
 final class SidebarSameTurn {
     private let view: SidebarView
-    private var passes: [@MainActor () -> Void] = []
+    private var passes: [(listsRows: Bool, run: @MainActor () -> Void)] = []
     private var tasks: [Task<Void, Never>] = []
 
     init(view: SidebarView) {
         self.view = view
     }
 
-    /// Observes `compute`, handing each value to `apply`; `syncNow` runs it too.
-    func observe<Value: Sendable>(_ compute: @escaping @MainActor @Sendable () -> Value,
+    /// Observes `compute`, handing each value to `apply`; `syncNow` runs it too. `listsRows`
+    /// marks the rows pass, which walks every workspace.
+    func observe<Value: Sendable>(listsRows: Bool = false, _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void) {
-        passes.append { apply(compute()) }
+        passes.append((listsRows, { apply(compute()) }))
         tasks.append(Task { for await value in ObservationStream(compute) { apply(value) } })
     }
 
-    /// Runs every pass in order (rows, then selection) and draws the sidebar now.
-    func syncNow() {
-        for pass in passes { pass() }
+    /// Runs the passes in order (rows, then selection) and draws the sidebar now. `rows` false
+    /// skips the rows pass: a workspace shown before is listed already, and a switch to it
+    /// should not pay a walk of every workspace.
+    func syncNow(rows: Bool) {
+        for pass in passes where rows || !pass.listsRows { pass.run() }
         view.renderNow()
     }
 
