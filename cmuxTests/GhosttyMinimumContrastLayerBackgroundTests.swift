@@ -65,6 +65,11 @@ struct GhosttyMinimumContrastLayerBackgroundTests {
             terminal.window.orderFrontRegardless()
             terminal.window.makeKeyAndOrderFront(nil)
             terminal.window.displayIfNeeded()
+            // AppKit's occlusion notifications are not guaranteed for the
+            // off-screen test window used by the hosted runner. Tell the
+            // renderer explicitly that this fixture has established its
+            // visible-window precondition before requesting a frame.
+            terminal.surface.setRendererWindowVisible(true)
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
             var sample: TextPixelSample?
             while ContinuousClock.now < deadline {
