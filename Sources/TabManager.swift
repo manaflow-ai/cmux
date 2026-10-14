@@ -3002,7 +3002,7 @@ class TabManager: ObservableObject {
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         } else {
             showsBatchConfirmation = shouldConfirmWorkspaceClose(requiresConfirmation: true, source: .tabClose)
-                || hasActiveProcess
+                || (hasActiveProcess && CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWorkspace)
             dontAskAgain = .workspace
             if hasActiveProcess { dontAskAgain.insert(.safety) }
         }
@@ -3294,7 +3294,11 @@ class TabManager: ObservableObject {
             && AppDelegate.shared?.existingWindowDock(for: self)?.needsConfirmClose() == true
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
             || windowDockNeedsConfirmation
+        // warnBeforeClosingWorkspace (and its "Don't ask again") also covers
+        // the running-process prompt; pinned workspaces keep their own gate.
+        let warnsBeforeClosingWorkspace = CloseTabWarningStore(defaults: closeTabWarningDefaults).warnsBeforeClosingWorkspace
         let showsCloseConfirmation = requiresConfirmation
+            && warnsBeforeClosingWorkspace
             && (needsCloseConfirmation
                 || shouldConfirmWorkspaceClose(
                     requiresConfirmation: needsCloseConfirmation,
