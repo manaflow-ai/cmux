@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use super::CloudError;
 use super::contract::{
     self, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data, mutation_data,
-    read_body, read_value, require_conversation, snapshot_data,
+    read_body, read_value, require_agent, require_conversation, snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -67,6 +67,18 @@ pub trait CloudBackend: Send + Sync {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
+    /// `GET url` with the bearer (the Chief brain's run reads, plain HTTP
+    /// routes outside the op catalog). A backend without it answers that it
+    /// cannot.
+    fn get(
+        &self,
+        url: &str,
+        bearer: &str,
+        client_version: Option<&str>,
+    ) -> Result<HttpReply, TransportError> {
+        let _ = (url, bearer, client_version);
+        Err(TransportError("this cloud backend sends no GET requests".into()))
+    }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
     /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
     fn connect(
@@ -489,6 +501,76 @@ impl CloudConversations {
     /// errors answer at once and only network work runs elsewhere.
     pub fn check_op(&self, request: &OpRequest) -> Result<(), CloudError> {
         contract::op_body(request).map(|_| ())
+    }
+
+    /// `cloud-conversation-runs`: a Chief's runs in a conversation, newest
+    /// first (`GET /v1/chiefs/<agent>/runs`, members only), the owner's value
+    /// unchanged (`runs`, `has_more`).
+    pub fn chief_runs(
+        &self,
+        agent: &str,
+        conversation: &str,
+        before: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        require_agent(agent)?;
+        let mut path = format!("/v1/chiefs/{agent}/runs?conversation={conversation}");
+        if let Some(before) = before {
+            path.push_str(&format!("&before={before}"));
+        }
+        if let Some(limit) = limit {
+            if !(1..=100).contains(&limit) {
+                return Err(CloudError::BadRequest("limit must be 1-100".into()));
+            }
+            path.push_str(&format!("&limit={limit}"));
+        }
+        let (value, _) = read_value(self.get(&path)?)?;
+        Ok(value)
+    }
+
+    /// `cloud-conversation-run`: one run of a Chief and its steps after
+    /// `after_seq` (`GET /v1/chiefs/<agent>/runs/<run>`), the owner's value
+    /// unchanged (`run`, `steps`, `has_more`).
+    pub fn chief_run(
+        &self,
+        agent: &str,
+        conversation: &str,
+        run: &str,
+        after_seq: Option<u64>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        require_agent(agent)?;
+        // The brain's run ids (`run_<n>`, CHIEF_BRAIN_PATH): never a dot segment in the path.
+        let valid_run = run
+            .strip_prefix("run_")
+            .is_some_and(|n| (1..=15).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()));
+        if !valid_run {
+            return Err(CloudError::BadRequest("run must be a run id".into()));
+        }
+        let mut path = format!("/v1/chiefs/{agent}/runs/{run}?conversation={conversation}");
+        if let Some(after_seq) = after_seq {
+            path.push_str(&format!("&after_seq={after_seq}"));
+        }
+        let (value, _) = read_value(self.get(&path)?)?;
+        Ok(value)
+    }
+
+    fn get(&self, path: &str) -> Result<HttpReply, CloudError> {
+        let session = self.inner.usable_session()?;
+        let reply = self
+            .inner
+            .backend
+            .get(&session.http_url(path), session.bearer(), session.client_version.as_deref())
+            .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        if reply.status == 401 {
+            self.inner.emit(CloudEvent::SessionNeeded {
+                reason: "unauthenticated",
+                expires_at: Some(session.expires_at),
+            });
+            return Err(CloudError::Unauthenticated);
+        }
+        Ok(reply)
     }
 
     fn post(&self, path: &str, body: &Value) -> Result<HttpReply, CloudError> {
