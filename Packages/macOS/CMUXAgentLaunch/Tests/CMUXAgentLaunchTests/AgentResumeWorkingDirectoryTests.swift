@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import Foundation
 import Testing
 
 @Suite("AgentResumeWorkingDirectory")
@@ -35,6 +36,28 @@ struct AgentResumeWorkingDirectoryTests {
             runtimeCwd: "/Users/a/my_proj.v2/home/é",
             launchWorkingDirectory: "/Users/a",
             transcriptPath: transcript
+        ) == "/Users/a/my_proj.v2/home/é")
+    }
+
+    @Test("Claude recovers the launch cwd from a transcript when both candidates drift")
+    func claudeTranscriptRecoversRecordedWorkingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-cwd-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root
+            .appendingPathComponent("projects/-Users-a-my-proj-v2-home--/session.jsonl")
+        try FileManager.default.createDirectory(
+            at: transcript.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let record = Data(#"{"cwd":"/Users/a/my_proj.v2/home/é"}"#.utf8)
+        try record.write(to: transcript, options: .atomic)
+
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/a/other-worktree",
+            launchWorkingDirectory: "/Users/a/repo",
+            transcriptPath: transcript.path
         ) == "/Users/a/my_proj.v2/home/é")
     }
 
