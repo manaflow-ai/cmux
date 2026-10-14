@@ -72,6 +72,12 @@ final class DragLiftView: NSView {
         badgeBackground.frame = NSRect(x: bounds.maxX - w + Metrics.space3, y: -h / 2, width: w, height: h)
         badgeBackground.layer?.cornerRadius = Metrics.chipCornerRadius(height: h)
         countBadge.frame = NSRect(x: badgeBackground.frame.minX, y: badgeBackground.frame.midY - size.height / 2, width: w, height: size.height)
+        if lifted {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer?.sublayerTransform = liftTransform(true)
+            CATransaction.commit()
+        }
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
     }
 
@@ -108,6 +114,7 @@ final class DragLiftView: NSView {
         let offset = CGSize(width: 0, height: lifted ? style.shadowOffset : Metrics.space1)
         guard animated else {
             Motion.transaction(nil) {
+                layer.sublayerTransform = liftTransform(lifted)
                 layer.shadowOpacity = opacity
                 layer.shadowRadius = radius
                 layer.shadowOffset = offset
@@ -116,6 +123,8 @@ final class DragLiftView: NSView {
         }
         // Each property fades from what is on screen, so a quick drop during
         // the lift continues from the current shadow.
+        // The card rises in place (DESIGN "Drag feel" 1): a 1.03 scale about its centre, back to 1 as it settles.
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: liftTransform(lifted)), spring: .move)
         Motion.set(layer, "shadowOpacity", to: opacity, fade: .lift)
         Motion.set(layer, "shadowRadius", to: radius, fade: .lift)
         Motion.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
@@ -152,6 +161,15 @@ final class DragLiftView: NSView {
     }
 
     private var morphs = 0
+
+    /// The lifted scale about the card's centre (identity at rest).
+    private func liftTransform(_ lifted: Bool) -> CATransform3D {
+        guard lifted else { return CATransform3DIdentity }
+        let (cx, cy) = (bounds.midX, bounds.midY)
+        return CATransform3DTranslate(CATransform3DScale(CATransform3DMakeTranslation(cx, cy, 0), Self.liftScale, Self.liftScale, 1), -cx, -cy, 0)
+    }
+
+    static let liftScale: CGFloat = 1.03
 
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {

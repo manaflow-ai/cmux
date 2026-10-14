@@ -34,6 +34,10 @@ SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
 if not APP or not STOP:
     sys.exit("run inside `nx-remote --needs gui --app-from-fleet cmux` (NX_APP, NX_APP_STOP)")
+if opts.real_pointer and not shutil.which("cliclick"):
+    # cmux-lawrence-2 has no cliclick; its real-input tool is ~/.local/bin/cua-driver (`call drag`, foreground,
+    # window-local screenshot pixels, no hold before the release). Port `mouse()` to it before an input run.
+    sys.exit("--real-pointer needs cliclick on PATH (or a cua-driver port of mouse())")
 JUMP_PT = 12.0
 SCRATCH = tempfile.mkdtemp(prefix=f"sbv2-rec-{TAG}-")
 CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
