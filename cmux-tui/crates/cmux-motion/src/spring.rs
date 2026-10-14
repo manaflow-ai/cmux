@@ -49,9 +49,9 @@ impl SpringParameters {
     }
 
     /// This tuning with a non-finite or non-positive response, or a
-    /// non-finite damping fraction, replaced by `fallback`'s. A NaN damping
-    /// would otherwise become 0 (an undamped spring that never settles, so
-    /// the clock never idles).
+    /// non-finite damping fraction, replaced by `fallback`'s, and a negative
+    /// damping fraction clamped to 0. A NaN damping would otherwise become 0
+    /// (an undamped spring that never settles, so the clock never idles).
     pub fn finite_or(self, fallback: SpringParameters) -> Self {
         let response = if self.response.is_finite() && self.response > 0. {
             self.response
@@ -59,7 +59,7 @@ impl SpringParameters {
             fallback.response
         };
         let damping_fraction = if self.damping_fraction.is_finite() {
-            self.damping_fraction
+            self.damping_fraction.max(0.)
         } else {
             fallback.damping_fraction
         };
