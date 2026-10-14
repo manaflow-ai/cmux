@@ -410,6 +410,10 @@ def doc_slice_4(binary: Path, seed_state: Path, state: Path, sock: Path, seeded:
         work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
         check("doc4: section.update sets align and gap",
               (work.get("align"), work.get("gap")) == ("fill", 10), work)
+        old_work = next((s for s in daemon.ok("sidebar_layout.get")["sections"] if s["id"] == "sec_work"), {})
+        check("doc4: old sidebar_layout.get shows the document's align and gap",
+              (old_work.get("arrangement") or {}).get("align") == "fill"
+              and (old_work.get("arrangement") or {}).get("gap") == 10, old_work)
         daemon.ok("sidebar.section.update", {"id": "sec_work", "patch": {"gap": None}}, mutate=True)
         work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
         check("doc4: section.update gap null clears it and keeps align",
@@ -530,6 +534,14 @@ def doc_slice_4(binary: Path, seed_state: Path, state: Path, sock: Path, seeded:
               [s["id"] for s in old_reset["sections"]] == expected and top(old_reset, "sec_pinned") == []
               and (ws_item(old_reset, local, ids["w6"]) or {}).get("section") == home,
               [s["id"] for s in old_reset["sections"]])
+        # The old layout is the defaults now; a section only the document has
+        # still goes with an old layout.reset.
+        daemon.ok("sidebar.section.add", {"section": {"id": "sec_doc_only", "kind": {"type": "custom"},
+                                                      "title": "Doc only"}}, mutate=True)
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "layout.reset"}}, mutate=True)
+        check("doc4: an old layout.reset of a default old layout still resets the document",
+              "sec_doc_only" not in sections_of(daemon.ok("sidebar.get")),
+              [s["id"] for s in daemon.ok("sidebar.get")["sections"]])
     finally:
         daemon.stop()
 

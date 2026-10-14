@@ -171,10 +171,28 @@ pub(crate) fn legacy_input(connection: &Connection) -> anyhow::Result<LegacyInpu
 }
 
 /// The old layout with the document's Pinned items as the `sec_pinned`
-/// tiles (groups are not shown: the old layout has no group tile).
+/// tiles (groups are not shown: the old layout has no group tile), and each
+/// section's `align` and `gap` from the document (the workspaces section's
+/// from the first machine section).
 pub(crate) fn project_layout(stored: &Document, doc: &Doc) -> Document {
     let mut projected = stored.clone();
     projected.revision = stored.revision + doc.revision;
+    let first_machine = doc
+        .sections()
+        .iter()
+        .filter(|s| s.kind.machine().is_some())
+        .min_by(|a, b| (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id)));
+    for section in &mut projected.sections {
+        let source = if section.content == sidebar_layout::Content::Workspaces {
+            first_machine
+        } else {
+            doc.section(&section.id)
+        };
+        if let Some(source) = source {
+            section.arrangement.align = source.align.clone();
+            section.arrangement.gap = source.gap;
+        }
+    }
     let items: Vec<sidebar_layout::Item> = doc
         .children(PINNED_SECTION_ID, None)
         .into_iter()

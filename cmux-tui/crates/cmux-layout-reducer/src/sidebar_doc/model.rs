@@ -122,6 +122,13 @@ fn leading() -> Alignment {
     Alignment::Leading
 }
 
+/// An `align` that may be null: leading (as the old layout reads it).
+fn align_or_leading<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Alignment, D::Error> {
+    Ok(Option::<Alignment>::deserialize(deserializer)?.unwrap_or(Alignment::Leading))
+}
+
 /// Whether a section stays visible (`fixed`: in the fixed stack at the top,
 /// or at the bottom for the bottom region) or scrolls with the main list
 /// (`flow`). DESIGN.md "Scrolling model".
@@ -205,7 +212,7 @@ struct SectionWire {
     look: Look,
     #[serde(default = "list_layout")]
     arrangement: ArrangementLayout,
-    #[serde(default = "leading")]
+    #[serde(default = "leading", deserialize_with = "align_or_leading")]
     align: Alignment,
     #[serde(default)]
     gap: Option<i64>,

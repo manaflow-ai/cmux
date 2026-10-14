@@ -8,8 +8,9 @@
 //! recent agent chats, and the account band at the bottom. It keeps the
 //! user's workspaces and groups: those already in a machine section stay in
 //! place, and those in Pinned or a removed section go to the end of their
-//! machine section. Both ops scan the document once (they are rare user
-//! actions, not per-frame work).
+//! machine section (a group without workspaces to the first machine
+//! section); other items there go, also inside a moved group. Both ops scan
+//! the document once (they are rare user actions, not per-frame work).
 
 use std::collections::HashSet;
 
@@ -22,20 +23,20 @@ use crate::sidebar_layout::{self, Content};
 /// The default sections, in display order, each with its default items;
 /// the machine sections are named by session at the place of the old
 /// workspaces section.
-enum Default {
+enum DefaultSection {
     Section(Box<Section>, Vec<Item>),
     Machines,
 }
 
-fn defaults() -> Vec<Default> {
+fn defaults() -> Vec<DefaultSection> {
     let mut out = Vec::new();
     for section in sidebar_layout::defaults().sections {
         match &section.content {
-            Content::Workspaces => out.push(Default::Machines),
+            Content::Workspaces => out.push(DefaultSection::Machines),
             Content::App => {
                 let contribution = section.contribution.clone().unwrap_or_default();
                 let new = section_from_layout(&section, SectionKind::App { contribution });
-                out.push(Default::Section(Box::new(new), Vec::new()));
+                out.push(DefaultSection::Section(Box::new(new), Vec::new()));
             }
             Content::Items | Content::Other(_) => {
                 let kind = kind_of_layout_items_section(&section);
@@ -53,9 +54,9 @@ fn defaults() -> Vec<Default> {
                     })
                     .collect();
                 let is_top = section.id == "sec_top";
-                out.push(Default::Section(Box::new(new), items));
+                out.push(DefaultSection::Section(Box::new(new), items));
                 if is_top {
-                    out.push(Default::Section(Box::new(Section::pinned()), Vec::new()));
+                    out.push(DefaultSection::Section(Box::new(Section::pinned()), Vec::new()));
                 }
             }
         }
@@ -65,18 +66,35 @@ fn defaults() -> Vec<Default> {
 
 pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
     let defaults = defaults();
+    let by_display = |a: &Section, b: &Section| {
+        (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id))
+    };
     // The machine sections in their current order.
     let mut machines: Vec<Section> =
         tx.doc.sections().iter().filter(|s| s.kind.machine().is_some()).cloned().collect();
-    machines.sort_by(|a, b| {
-        (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id))
-    });
+    machines.sort_by(by_display);
+    // Sections whose items are cleared: every non-machine section, in
+    // display order (Pinned first, so pinned workspaces come first).
+    let mut cleared: Vec<Section> =
+        tx.doc.sections().iter().filter(|s| s.kind.machine().is_none()).cloned().collect();
+    cleared.sort_by(by_display);
+    // A machine whose workspace sits only outside a machine section (a
+    // forgotten session) gets its section here, so the keys below hold it
+    // and a second reset finds the same order.
+    for section in &cleared {
+        for item in tx.doc.list(&section.id, None) {
+            let Some(machine) = tx.doc.item_machine(item) else { continue };
+            if !machines.iter().any(|m| m.kind.machine() == Some(machine.as_str())) {
+                machines.push(Section::machine(&machine));
+            }
+        }
+    }
     // The sections of the reset document, in order, with default items.
     let mut layout: Vec<(Section, Option<Vec<Item>>)> = Vec::new();
     for default in defaults {
         match default {
-            Default::Section(section, items) => layout.push((*section, Some(items))),
-            Default::Machines => {
+            DefaultSection::Section(section, items) => layout.push((*section, Some(items))),
+            DefaultSection::Machines => {
                 for old in &machines {
                     let session = old.kind.machine().unwrap_or_default().to_string();
                     let mut section = Section::machine(&session);
@@ -115,13 +133,6 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
         }
     }
     let kept: HashSet<SectionId> = layout.iter().map(|(section, _)| section.id.clone()).collect();
-    // Sections whose items are cleared: every non-machine section, in
-    // display order (Pinned first, so pinned workspaces come first).
-    let mut cleared: Vec<Section> =
-        tx.doc.sections().iter().filter(|s| s.kind.machine().is_none()).cloned().collect();
-    cleared.sort_by(|a, b| {
-        (a.region_rank(), &a.order, &a.id).cmp(&(b.region_rank(), &b.order, &b.id))
-    });
     for (section, _) in &layout {
         if tx.doc.section(&section.id) != Some(section) {
             tx.put_section(section.clone());
@@ -131,6 +142,19 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
     for section in &cleared {
         let top: Vec<ItemId> = tx.doc.list(&section.id, None).map(|item| item.id.clone()).collect();
         for id in top {
+            let Some(item) = tx.doc.item(&id) else { continue };
+            if item.body.is_group() {
+                // Only workspaces stay in a moved group.
+                let others: Vec<ItemId> = tx
+                    .doc
+                    .list(&section.id, Some(id.as_str()))
+                    .filter(|child| child.body.workspace().is_none())
+                    .map(|child| child.id.clone())
+                    .collect();
+                for child in others {
+                    tx.remove_item(&child);
+                }
+            }
             let Some(item) = tx.doc.item(&id) else { continue };
             let machine = match &item.body {
                 Body::Workspace { reference } => Some(reference.session_id.clone()),
@@ -170,6 +194,25 @@ pub(super) fn reset(tx: &mut Tx) -> Result<(), Refusal> {
             let mut item = item.clone();
             item.section = section.id.clone();
             item.order = key;
+            if let Some(existing) = tx.doc.item(&item.id).cloned()
+                && existing != item
+            {
+                // A user item with a default id (a group named itm_home):
+                // its items stay, after it, before it is replaced.
+                let children: Vec<ItemId> = tx
+                    .doc
+                    .list(&existing.section, Some(existing.id.as_str()))
+                    .map(|child| child.id.clone())
+                    .collect();
+                if !children.is_empty() {
+                    let to = Target {
+                        section: existing.section.clone(),
+                        after: Some(existing.id.clone()),
+                        ..Target::default()
+                    };
+                    place(tx, &children, &to)?;
+                }
+            }
             if tx.doc.item(&item.id) != Some(&item) {
                 tx.put_item(item);
             }
@@ -204,7 +247,17 @@ pub(super) fn remove_ref(tx: &mut Tx, reference: &LayoutRef) -> Result<(), Refus
         return Err(Refusal::UnknownItem);
     }
     for id in ids {
+        let Some(item) = tx.doc.item(&id).cloned() else { continue };
         tx.remove_item(&id);
+        // As `close`: a group it leaves empty goes, except in a section
+        // that keeps closed items and empty groups.
+        if let Some(parent) = &item.parent
+            && tx.doc.section(&item.section).is_some_and(|section| !section.keeps_closed)
+            && tx.doc.list_len(&item.section, Some(parent.as_str())) == 0
+            && tx.doc.item(parent).is_some()
+        {
+            tx.remove_item(parent);
+        }
     }
     Ok(())
 }

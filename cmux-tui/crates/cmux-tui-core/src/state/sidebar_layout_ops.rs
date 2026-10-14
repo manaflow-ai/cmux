@@ -65,7 +65,11 @@ impl Mux {
                         if migrated { project_layout(&stored, doc) } else { stored.clone() };
                     let reduced = sidebar_layout::reduce(&current, &parsed)
                         .map_err(|reject| anyhow::anyhow!("bad request: {}", reject.as_str()))?;
-                    if reduced.revision == current.revision {
+                    let layout_changed = reduced.revision != current.revision;
+                    // The document's reset runs also when the old layout is
+                    // already the defaults (the document may still differ).
+                    let doc_reset = migrated && matches!(parsed, Op::Reset);
+                    if !layout_changed && !doc_reset {
                         return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
                     }
                     let mut ops = if !migrated {
@@ -79,6 +83,7 @@ impl Mux {
                     };
                     crate::state::sidebar_doc_ops::closes_for_reset(transaction, doc, &mut ops)?;
                     let mut events = Vec::new();
+                    let mut doc_changed = false;
                     if !ops.is_empty() {
                         let previous_revision = doc.revision;
                         let mut mint = mint_item_id;
@@ -86,7 +91,8 @@ impl Mux {
                             reduce::apply_in_place(doc, &ops, &mut mint).map_err(|refusal| {
                                 anyhow::anyhow!("bad request: {}", refusal.as_str())
                             })?;
-                        if !applied.changes.is_empty() {
+                        doc_changed = !applied.changes.is_empty();
+                        if doc_changed {
                             events = doc_store::write_changes(
                                 transaction,
                                 previous_revision,
@@ -97,9 +103,17 @@ impl Mux {
                         }
                         crate::state::sidebar_doc_sync::write_back(transaction, doc, &applied)?;
                     }
-                    let mut next = reduced;
-                    next.revision = stored.revision + 1;
-                    store::write_document(transaction, &next)?;
+                    if !layout_changed && !doc_changed {
+                        return Ok(StateChanges::new(store::snapshot_value(&current)?, Vec::new()));
+                    }
+                    let next = if layout_changed {
+                        let mut next = reduced;
+                        next.revision = stored.revision + 1;
+                        store::write_document(transaction, &next)?;
+                        next
+                    } else {
+                        stored.clone()
+                    };
                     let shown = if migrated { project_layout(&next, doc) } else { next.clone() };
                     let value = store::snapshot_value(&shown)?;
                     // Raw-protocol clients (the Mac app) follow personal
