@@ -260,7 +260,10 @@ struct TabOverview: View {
                             .opacity(swipes.opacity(tab.id))
                             // Lifted about the card's centre while dragged.
                             .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
-                            .zIndex(swipes.isRaised(tab.id) ? 1 : 0)
+                            // Explicit stacking in grid order (a swiped card on
+                            // top): cards crossing in a reflow keep their order
+                            // for the whole move (Safari; audit D9).
+                            .zIndex(swipes.isRaised(tab.id) ? 10_000 : Double(index))
                             .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
                             // A swiped card's departing copy carries on off screen;
                             // the card itself leaves without a fade.
@@ -275,7 +278,7 @@ struct TabOverview: View {
                             .opacity(swipes.departingOpacity(d.id))
                             .scaleEffect(swipes.scale(d.id), anchor: UnitPoint(x: 0.5, y: d.rect.height / 2 / max(1, d.rect.height + 25)))
                             .offset(x: d.rect.minX + swipes.offset(d.id), y: d.rect.minY)
-                            .zIndex(2)
+                            .zIndex(20_000)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                             .transition(.identity)
@@ -290,6 +293,7 @@ struct TabOverview: View {
                                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
                                 snapshotHidden: placeholderId == hiddenTabId, onClose: {})
                             .offset(x: r.minX, y: r.minY)
+                            .zIndex(Double(tabs.items.count))
                             .allowsHitTesting(false)
                     }
                 }
