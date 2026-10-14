@@ -46,6 +46,7 @@ pub mod peer;
 mod platform;
 pub mod probe_cleanup;
 pub mod prompt_context;
+pub mod prompt_provenance;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;

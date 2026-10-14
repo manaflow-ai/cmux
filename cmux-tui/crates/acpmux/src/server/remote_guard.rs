@@ -76,6 +76,11 @@ pub(super) fn mark_forwarded(
     params: &Value,
     forwarded: &mut Value,
 ) {
+    // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
+    // the prompt goes there without it.
+    if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        mux.remove("provenance");
+    }
     if control_of(origin, auth, params) == crate::hub::Control::Web {
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": "web"}));
     } else if origin == super::Origin::LocalApp {
@@ -109,6 +114,12 @@ pub(super) async fn check(
         && crate::session_env::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::session_env::origin_refused());
+    }
+    // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    if m == method::SESSION_PROMPT
+        && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
+    {
+        return Err(crate::prompt_provenance::origin_refused());
     }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
