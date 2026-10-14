@@ -243,8 +243,7 @@ pub(super) fn ledger_descendants<'v>(
     roots.sort_unstable_by(|a, b| {
         b.0.started_ms.cmp(&a.0.started_ms).then_with(|| a.0.pid.cmp(&b.0.pid))
     });
-    let started: HashMap<u32, u64> =
-        links.iter().map(|link| (link.pid, link.started_ms)).collect();
+    let started: HashMap<u32, u64> = links.iter().map(|link| (link.pid, link.started_ms)).collect();
     let mut owned =
         descendants(links, roots.into_iter().map(|(link, terminal)| (link.pid, terminal)));
     owned.retain(|(pid, terminal)| {
