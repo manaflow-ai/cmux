@@ -124,7 +124,7 @@ describe("VM review regressions", () => {
             Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
           )),
         ));
-        if (allowance === 20 || allowance === undefined) {
+        if (allowance !== null) {
           expect(result._tag).toBe("Left");
           // Without an explicit allowance, a Team row without seat data gets the flat Team machine allowance.
           const limit = allowance ?? PAID_MAX_ACTIVE_VMS_DEFAULT;

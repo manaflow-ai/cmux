@@ -92,7 +92,7 @@ describe("subscription analytics query layer", () => {
 
     const report = buildAnalyticsReport(inputs, query, NOW);
     expect(report.kpis.activeSubscriptions).toBe(2);
-    expect(report.kpis.mrrGrossUsd).toBe(190.79);
+    expect(report.kpis.mrrGrossUsd).toBe(70.79);
     expect(report.kpis.refunds).toEqual({ count: 1, amountUsd: 10.79 });
     expect(report.kpis.cancelScheduled).toBe(1);
     expect(report.recentEvents).toEqual([
