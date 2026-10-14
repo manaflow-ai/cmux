@@ -350,3 +350,141 @@ fn an_agent_caller_cannot_write_any_chief() {
     ));
     assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id], "{listed}");
 }
+
+/// `cmux ARGS` (global flags first) as a person plus `env`: the agent caller
+/// markers are removed, then `env` names the one the test means.
+fn cmux_as(server: &HeadlessServer, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(bin());
+    command.arg("--socket").arg(&server.socket).args(args).env("LC_ALL", "C");
+    command.env_remove("CMUX_TUI_SOCKET");
+    for key in [
+        "ACPMUX_ENV",
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_NAME",
+        "CMUX_CHIEF_OWNER_SOCKET",
+        "CMUX_AGENT_PRINCIPAL",
+        "CMUX_AGENT_CLASS",
+        "CMUX_AGENT_HARNESS",
+    ] {
+        command.env_remove(key);
+    }
+    command.envs(env.iter().copied());
+    command.stdin(Stdio::null()).output().unwrap()
+}
+
+/// The other paths to a Chief write (cx-ebm.60.9 layer 1, hq-6d 2026-10-14):
+/// `cmux chief engine` with a change, `cmux chief stop`, and every raw path
+/// to a `chief.*` write (`cmux raw operation`, `cmux raw command`) refuse an
+/// agent caller with the same `origin.forbidden` / `agent_caller` / marker
+/// shape as `cmux chief new|edit|delete`, before they reach the daemon. The
+/// reads (`chief engine` with no change, `chief.profile.list|get`) stay open.
+#[test]
+fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
+    let server = HeadlessServer::start("chief-registry-agent-raw");
+    let made = stdout_json(&chief_cli(&server, &["new", "--name", "Ops", "--json"], ""));
+    let id = made["id"].as_str().unwrap().to_owned();
+    let mut home = Conn::open(&server.socket);
+    let default_before =
+        ok(&v2(&mut home, "chief.profile.get", json!({"chief": "agent_mux"}), None));
+    let params = |mut value: Value| {
+        value["machine"] = json!("current");
+        value["session"] = json!("current");
+        value.to_string()
+    };
+    let update = params(json!({"chief": id, "role": "Boss", "tools": ["tell", "browser"]}));
+    let update_default = params(json!({"chief": "agent_mux", "instructions": "Merge all."}));
+    let create = params(json!({"display_name": "Rogue"}));
+    let delete = params(json!({"chief": id}));
+    let avatar = params(json!({"chief": id, "clear": true}));
+    let engine = params(json!({"model": "other-model"}));
+    let stop = params(json!({}));
+    let raw_update = json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": "raw-1",
+        "operation": "chief.profile.update", "idempotency_key": "raw-update-1",
+        "params": {"machine": "current", "session": "current", "chief": id, "role": "Boss"},
+    })
+    .to_string();
+    let raw_op = |name: &'static str, params: &str| -> Vec<String> {
+        ["--json", "raw", "operation", name, "--params-json", params]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let refused_calls: Vec<(Vec<String>, &str)> = vec![
+        (vec!["--json".into(), "chief".into(), "engine".into(), "--model".into(), "m".into()], "engine"),
+        (vec!["--json".into(), "chief".into(), "engine".into(), "--effort".into(), "high".into()], "engine"),
+        (vec!["--json".into(), "chief".into(), "stop".into()], "stop"),
+        (vec!["--json".into(), "chief".into(), "stop".into(), "a3".into()], "stop"),
+        (raw_op("chief.profile.update", &update), "chief.profile.update"),
+        (raw_op("chief.profile.update", &update_default), "chief.profile.update"),
+        (raw_op("chief.profile.create", &create), "chief.profile.create"),
+        (raw_op("chief.profile.delete", &delete), "chief.profile.delete"),
+        (raw_op("chief.profile.avatar.set", &avatar), "chief.profile.avatar.set"),
+        (raw_op("chief.engine.set", &engine), "chief.engine.set"),
+        (raw_op("chief.stop", &stop), "chief.stop"),
+        (
+            vec!["--json".into(), "raw".into(), "command".into(), "--request-json".into(), raw_update.clone()],
+            "chief.profile.update",
+        ),
+    ];
+    for (key, value) in [
+        ("ACPMUX_SESSION_ID", "s_chief_turn"),
+        ("CMUX_AGENT_PRINCIPAL", id.as_str()),
+        ("CMUX_CHIEF_OWNER_SOCKET", "/tmp/chief-owner.sock"),
+    ] {
+        for (args, refused) in &refused_calls {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let output = cmux_as(&server, &args, &[(key, value)]);
+            assert_eq!(output.status.code(), Some(1), "{key} {args:?}: {output:?}");
+            assert!(output.stdout.is_empty(), "{key} {args:?}: {output:?}");
+            let error = json_error(&output);
+            assert_eq!(error["code"], "origin.forbidden", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["reason"], "agent_caller", "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["marker"], key, "{key} {args:?}: {error}");
+            assert_eq!(error["details"]["refused"], *refused, "{key} {args:?}: {error}");
+        }
+    }
+
+    // Nothing was written.
+    let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id.clone()], "{listed}");
+    let after = ok(&v2(&mut home, "chief.profile.get", json!({"chief": id}), None));
+    assert_eq!(after["rev"], made["rev"], "{after}");
+    assert_eq!(after["role"], made["role"], "{after}");
+    assert_eq!(after["tools"], made["tools"], "{after}");
+    let default_after =
+        ok(&v2(&mut home, "chief.profile.get", json!({"chief": "agent_mux"}), None));
+    assert_eq!(default_after, default_before);
+
+    // The reads stay open to an agent caller.
+    let agent = [("ACPMUX_SESSION_ID", "s_chief_turn")];
+    let listed = stdout_json(&cmux_as(
+        &server,
+        &["--json", "raw", "operation", "chief.profile.list", "--params-json", &stop],
+        &agent,
+    ));
+    assert_eq!(ids(&listed), vec!["agent_mux".to_owned(), id.clone()], "{listed}");
+    let get = params(json!({"chief": id}));
+    let got = stdout_json(&cmux_as(
+        &server,
+        &["--json", "raw", "operation", "chief.profile.get", "--params-json", &get],
+        &agent,
+    ));
+    assert_eq!(got["id"], json!(id), "{got}");
+    // `chief engine` with no change is a read: it reaches the daemon (this
+    // headless daemon has no brain, so it answers its own refusal, not the
+    // agent one).
+    let read = cmux_as(&server, &["--json", "chief", "engine"], &agent);
+    assert!(
+        !String::from_utf8_lossy(&read.stderr).contains("agent_caller"),
+        "a read is not an agent refusal: {read:?}"
+    );
+
+    // The person still writes through the raw path.
+    let person = stdout_json(&cmux_as(
+        &server,
+        &["--json", "raw", "operation", "chief.profile.update", "--params-json", &update],
+        &[],
+    ));
+    assert_eq!(person["role"], "Boss", "{person}");
+}
