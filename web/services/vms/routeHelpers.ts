@@ -45,6 +45,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -707,7 +708,7 @@ export async function vmResourcePoolExceededResponse(
   error: VmResourcePoolExceededError,
   locale: Locale,
 ): Promise<Response> {
-  const upgradePlanId = error.planId === "max" ? null : "max";
+  const upgradePlanId = planIncludes(error.planId, "max") ? null : "max";
   const memory = error.resource === "memoryMb";
   const copy = await vmResourcePoolCopy(locale, {
     resource: error.resource,

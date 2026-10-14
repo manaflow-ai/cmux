@@ -8,6 +8,7 @@ import {
   TEAM_PLAN_ID,
   isPaidPlanId,
 } from "../billing/pro";
+import { planIncludes } from "../billing/planTier";
 import {
   MAX_PLAN_RESOURCE_POOL,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
@@ -208,8 +209,8 @@ export const GO_MEMORY_UPGRADE_PLAN_ID = PRO_PLAN_ID;
 /** Return the first paid plan that can create the requested ladder size. */
 export function upgradePlanForMemory(memoryMb: number, currentPlanId: string, env: Record<string, string | undefined> = process.env): string | null {
   const current = normalizedPlanId(currentPlanId);
-  if (current === MAX_PLAN_ID) return null;
-  if ((current === GO_PLAN_ID || current === "free" || !isPaidPlanId(current)) && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
+  if (planIncludes(current, "max")) return null;
+  if (!planIncludes(current, "pro") && memoryMb <= maxMemoryMbForPlan(PRO_PLAN_ID, env)) return PRO_PLAN_ID;
   return memoryMb <= maxMemoryMbForPlan(MAX_PLAN_ID, env) ? MAX_PLAN_ID : null;
 }
 
@@ -284,9 +285,9 @@ export function lockedMemoryOptionsMbForPlan(
   const max = maxMemoryMbForPlan(planId, env);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
-  const candidateUpgradePlanId = normalized === GO_PLAN_ID || normalized === "free" || !isPaidPlanId(normalized)
-    ? GO_MEMORY_UPGRADE_PLAN_ID
-    : MEMORY_UPGRADE_PLAN_ID;
+  const candidateUpgradePlanId = planIncludes(normalized, "pro")
+    ? MEMORY_UPGRADE_PLAN_ID
+    : GO_MEMORY_UPGRADE_PLAN_ID;
   const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
       maxMemoryMbForPlan(candidateUpgradePlanId, env) >= locked[0]
     ? candidateUpgradePlanId

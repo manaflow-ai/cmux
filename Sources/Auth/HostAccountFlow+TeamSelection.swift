@@ -1,4 +1,5 @@
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettingsUI
 import Foundation
@@ -96,12 +97,24 @@ extension HostAccountFlow {
         _ = teamObservationRevision
         let team = activeTeamDisplayName
             ?? String(localized: "sidebar.account.noTeam", defaultValue: "No team")
-        if isProActive {
+        switch planTier {
+        case .max:
+            return String(
+                format: String(localized: "sidebar.account.teamWithMaxPlan", defaultValue: "%1$@ · Max"),
+                team
+            )
+        case .pro:
             return String(
                 format: String(localized: "sidebar.account.teamWithPlan", defaultValue: "%1$@ · Pro"),
                 team
             )
+        case .go:
+            return String(
+                format: String(localized: "sidebar.account.teamWithGoPlan", defaultValue: "%1$@ · Go"),
+                team
+            )
+        case .free, nil:
+            return team
         }
-        return team
     }
 }

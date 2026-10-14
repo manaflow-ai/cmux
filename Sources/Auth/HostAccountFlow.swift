@@ -2,6 +2,7 @@ import CmuxCloud
 import CmuxProductAnalytics
 import AppKit
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettingsUI
 import Foundation
@@ -19,15 +20,25 @@ import Observation
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
-    var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
+    /// The signed-in account's tier, or nil while it is unknown.
+    var planTier: CmuxPlanTier? { hasLoadedBillingPlan ? billingPlanState.tier : nil }
+    /// The tier every upgrade entrypoint offers, or nil to hide them.
+    var upgradeOffer: CmuxPlanTier? {
+        CmuxPlanTier.upgradeOffer(isSignedIn: currentIdentity != nil, knownTier: planTier)
+    }
+    /// The Settings plan row renders for every tier; it picks its own copy
+    /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
+    var isProUpgradeAvailable: Bool { true }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
+    /// The account and team the current plan answer belongs to.
+    @ObservationIgnored private var billingPlanScope: String?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let billingPlanIdentityID else { return false }
@@ -276,8 +287,14 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         billingPlanRequestID = requestID
         // Do not project the previous team/account's entitlement while this
         // request is in flight. Unknown keeps Cloud enabled until a verified
-        // response arrives and avoids a false Free/Upgrade state.
-        billingPlanState = .unknown
+        // response arrives and avoids a false Free/Upgrade state. A refresh
+        // of the same account and team keeps its answer, so a failed refresh
+        // does not hide every upgrade entrypoint until the next change.
+        let scope = "\(identityID):\(confirmedTeamID ?? "personal")"
+        if billingPlanScope != scope {
+            billingPlanState = .unknown
+            billingPlanScope = scope
+        }
         let tokens = try? await coordinator.currentTokens()
 
         do {
@@ -290,7 +307,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
                 isPro: details.isPro,
-                canManageBilling: details.canManageBilling
+                canManageBilling: details.canManageBilling,
+                tier: details.tier
             )
             analytics.notePlan(accountID: identityID, isPaid: details.isPro)
             return true
