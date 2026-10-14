@@ -325,7 +325,7 @@ struct BrowserScreen: View {
                         ScaledPage(image: content.image, topColor: content.topColor, startPage: content.startPage, tabs: model.tabs,
                                    pageSize: size, safeTop: safeTop, strip: g.strip, terminal: content.terminal)
                             // Safari's new start page sharpens as it grows.
-                            .blur(radius: isNewTabZoom ? 8 * min(1, max(0, zoomState.progress)) : 0)
+                            .blur(radius: isNewTabZoom && newTabZoom.blurs ? 8 * min(1, max(0, zoomState.progress)) : 0)
                     }
                 }
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))

@@ -58,11 +58,12 @@ struct TabZoomStateTests {
         #expect(o.spring == .toPage)
     }
 
-    /// The last tab closed: the fresh start page settles about 200 ms later.
-    @Test func lastTabStartPageSettlesInAboutTwoHundredMs() {
+    /// The last tab closed: the fresh start page is at rest (0.5 pt of the
+    /// 0.84 -> 1 growth, about 64 pt) about 275 ms after it starts.
+    @Test func lastTabStartPageSettlesLikeSafari() {
         var s = TabZoomState(overview: true)
         s.openNewTab(spring: .afterLastClose)
-        #expect(abs(timeTo(0.01, &s) - 200) <= 1000.0 / 60)
+        #expect(abs(timeTo(0.5 / 64, &s) - 275) <= 1000.0 / 60)
     }
 
     @Test func newTabGrowsFromTheCentre() {
@@ -70,7 +71,7 @@ struct TabZoomStateTests {
         let r = NewTabZoom.plus.rect(in: full)
         #expect(abs(r.midX - 201) < 0.01 && abs(r.midY - 437) < 0.01)
         #expect(abs(r.width / full.width - 0.7) < 0.001)
-        #expect(NewTabZoom.lastTabClosed.scale == 0.95)
+        #expect(NewTabZoom.lastTabClosed.scale == 0.84 && !NewTabZoom.lastTabClosed.blurs)
     }
 
     /// Safari (browser-springs-verify.md): a one-frame jump toward the new
