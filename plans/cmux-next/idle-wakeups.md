@@ -58,6 +58,7 @@ Status: **fixed** (this work), **ok** (event-driven, one-shot, or stops itself),
 | DebugFrameProbe | App | `debug.frames start` | `stop` only | ran every frame forever if no `stop` | fixed: FrameClient + 10 min DemandTimer expiry |
 | TerminalMirrorView | Terminal debug window | shown | hidden | every frame while shown | reviewed: FrameClient, debug window only |
 | ControlSocketServer accept | Control | listener readable | `stop()` | **spun at 100% on EMFILE/ENFILE** (1,070,431 accepts in 500 ms) | fixed: EAGAIN waits, other failures suspend the source with Backoff 50 ms-2 s (red/green ControlSocketAcceptTests) |
+| ControlSocketPathWatch | Control | kqueue write/rename/delete on the socket's directory | `stop()` | one `lstat` per directory change by any process; no timer. A restore that keeps failing re-triggers itself (its bind stages a directory beside the path), so after 3 failed restores in a row it ignores events and retries on a DemandTimer with Backoff 1-60 s until one works | reviewed (red/green ControlSocketPathRestoreTests) |
 | ControlConnection read/write sources | Control | readable/writable | EOF, error, close | ok (EAGAIN keeps the source armed; backpressure suspends) | ok |
 | ControlConnection drain timer | Control | half-close | fires once / close | one-shot | reviewed |
 | Event stream heartbeat | Control | `events.stream` client | hangup | 15 s keepalive the client requested (`include_heartbeats`) | reviewed (protocol) |
