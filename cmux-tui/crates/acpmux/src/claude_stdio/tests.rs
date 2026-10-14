@@ -59,9 +59,7 @@ async fn text_chunks_carry_their_message_id() {
 /// nothing (cosmic-gray, 2026-10-14). Lines as Claude Code 2.1.299 prints them.
 #[tokio::test]
 async fn a_local_command_result_ends_the_prompt() {
-    let local_result = |text: &str| {
-        json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "result": text})
-    };
+    let local_result = |text: &str| json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 0, "duration_api_ms": 0, "result": text});
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let prompt = |id: i64, text: &str| {
         Message::request(
