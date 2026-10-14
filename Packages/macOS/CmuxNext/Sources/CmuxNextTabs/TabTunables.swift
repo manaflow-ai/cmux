@@ -14,8 +14,6 @@ public nonisolated enum TabTunables {
 
     public static let compactTabWidth = points("compactTabWidth", "Compact style tab width", help: "Width of every unpinned tab in compact style. Default: 3/4 of the max width.",
                                                range: 40...400) { (Metrics.tabMaxWidth * 3 / 4).rounded() }
-    public static let minFitTabWidth = points("minFitTabWidth", "Shortest fitted tab", help: "Narrowest a tab sized to its title gets while the strip has room. Default: half the max width.",
-                                              range: 32...400) { (Metrics.tabMaxWidth / 2).rounded() }
     public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab.") { Metrics.space2 }
     public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
@@ -66,7 +64,7 @@ public nonisolated enum TabTunables {
         "tabs.hoverCard.maximumDelay", .hover, "Hover card delay (wide tabs)", help: "Delay over full-width tabs.",
         default: 0, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
     public static var all: [TunableDescriptor] {
-        [compactTabWidth, minFitTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
+        [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, separatorOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
