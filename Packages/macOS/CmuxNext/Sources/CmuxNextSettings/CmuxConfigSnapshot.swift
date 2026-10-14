@@ -10,9 +10,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var root: JSONValue
     /// `appearance.density`, when present and valid.
     public var density: String?
-    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting().fallback
-    /// `appearance.interfaceScale`, applied to chrome only when Labs is enabled.
     public var interfaceScale: Double = InterfaceScaleSetting().fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
@@ -86,8 +85,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
-    /// `sidebar.border` and `sidebar.borderWidth`.
+    /// `sidebar.border` and `sidebar.borderWidth`; an unset border follows
+    /// `chromeStyle`.
     public var sidebarBorder = SidebarBorder()
+    /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
+    public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
@@ -174,6 +176,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
     public var computerUse = ComputerUseSettings()
+    /// `freeModel.*`: the free AI model while signed out (cx-ds09i).
+    public var freeModel = FreeModelSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -238,7 +242,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
+                                                            diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
         CmuxConfigSnapshot.parseWorkspaceList(root, into: &snapshot)
@@ -312,6 +318,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
@@ -328,10 +335,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
-
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
-
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
                 if let density = members["density"] {

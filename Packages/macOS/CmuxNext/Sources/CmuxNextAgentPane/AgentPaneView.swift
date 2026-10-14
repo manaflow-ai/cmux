@@ -248,14 +248,8 @@ public final class AgentPaneView: NSView {
     }
 
     func applyZoom() {
-        let scale = Double(DesignSettings.shared.uiScale) * zoom
-        if let page {
-            page.additionalZoom = zoom
-        } else {
-            webView.pageZoom = scale
-        }
-        let chromeScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
-        webView.evaluateJavaScript("document.documentElement.style.setProperty('--cmux-interface-scale', '\(chromeScale)')", completionHandler: nil)
+        if let page { page.additionalZoom = zoom } else { webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom }
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.

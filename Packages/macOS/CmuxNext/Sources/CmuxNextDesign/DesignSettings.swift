@@ -35,6 +35,10 @@ public final class DesignSettings {
     public var interfaceScale: CGFloat = 1
     /// Set by the settings applier from `labs.previewFeatures`.
     public var interfaceScaleEnabled = false
+    /// Sets the `--cmux-interface-scale` token web chrome reads: the Labs multiplier, or 1 when Labs is off.
+    public var interfaceScaleScript: String {
+        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
@@ -95,6 +99,9 @@ public final class DesignSettings {
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
+    /// `appearance.chromeStyle`: the window look whose defaults the finer
+    /// keys refine (`ChromeStyle`).
+    public var chromeStyle: ChromeStyle = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .both
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

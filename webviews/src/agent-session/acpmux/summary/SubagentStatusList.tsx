@@ -135,8 +135,8 @@ export function SubagentStatusList({
       {autoOpen && (
         <label className="acpmux-summary-row acpmux-summary-autoopen">
           <input
-            aria-label={t("summary.subagents.openPanes")}
             type="checkbox"
+            aria-label={t("summary.subagents.openPanes")}
             checked={autoOpen.on}
             onChange={(event) => autoOpen.set(event.currentTarget.checked)}
           />

@@ -261,12 +261,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Keeps document zoom separate from the Labs chrome multiplier. The latter is
-    /// exposed as a token so transcript/document content remains at its own scale.
+    /// Page zoom follows `uiScale`; the Labs chrome multiplier is only the `--cmux-interface-scale` token.
     func applyUIScale() {
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * additionalZoom
-        let chromeScale = DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1
-        webView.evaluateJavaScript("document.documentElement.style.setProperty('--cmux-interface-scale', '\(chromeScale)')", completionHandler: nil)
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -277,12 +275,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
-        guard let window else { return }
-        switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
-        case "Minimize": window.miniaturize(nil)
-        case "None": break
-        default: window.zoom(nil)
-        }
+        WindowTitlebar.performDoubleClick(in: window)
     }
 
     public override var isFlipped: Bool { true }
