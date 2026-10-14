@@ -294,11 +294,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // turns, engine.rs); Claude Code reads only CLAUDE.md, which only the
     // old layout of a Claude harness keeps.
     let chief = paths.bin.join("chief").display().to_string();
-    let agents = chief_system_text(
-        setup.instructions.as_deref(),
-        &Tools::Cli(chief),
-        setup.profile_tool,
-    );
+    let agents =
+        chief_system_text(setup.instructions.as_deref(), &Tools::Cli(chief), setup.profile_tool);
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
     match setup.tools {
         Tools::Mcp => {
