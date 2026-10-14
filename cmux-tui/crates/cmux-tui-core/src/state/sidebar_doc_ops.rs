@@ -87,6 +87,11 @@ impl Mux {
                     "sidebar document unavailable: its migration did not complete"
                 );
                 let before = store::read_doc(transaction)?;
+                anyhow::ensure!(
+                    !reduce::changes_app_kind(&before, &ops),
+                    "bad request: {}",
+                    cmux_layout_reducer::sidebar_doc::Refusal::InvalidValue.as_str()
+                );
                 let mut mint = mint_item_id;
                 let outcome = reduce::apply(&before, &ops, &mut mint)
                     .map_err(|refusal| anyhow::anyhow!("bad request: {}", refusal.as_str()))?;

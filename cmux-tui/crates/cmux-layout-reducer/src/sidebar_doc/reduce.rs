@@ -277,12 +277,6 @@ pub fn apply_one(doc: &mut Doc, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Re
         }
         Op::SectionPut { section } => {
             match doc.sections.iter_mut().find(|existing| existing.id == section.id) {
-                // No op changes a section's kind, so no inverse does: a put
-                // that does would turn an app section into one that takes
-                // drops (`provider_owned`).
-                Some(existing) if existing.kind != section.kind => {
-                    return Err(Refusal::ProviderOwned);
-                }
                 Some(existing) => *existing = section.clone(),
                 None => doc.sections.push(section.clone()),
             }
@@ -379,6 +373,22 @@ pub fn check(doc: &Doc) -> Result<(), Refusal> {
         }
     }
     Ok(())
+}
+
+/// Whether a client-sent `ops` list turns an app section into another kind
+/// or another kind into an app section (raw `section.put`, `sidebar.apply`):
+/// that would make a provider's section take drops. Echoes and inverses
+/// never do it, so only the daemon's ingress checks it, not [`apply_one`]
+/// (the client mirror applies echoed rows with it).
+pub fn changes_app_kind(doc: &Doc, ops: &[Op]) -> bool {
+    ops.iter().any(|op| match op {
+        Op::SectionPut { section } => doc.section(&section.id).is_some_and(|existing| {
+            existing.kind != section.kind
+                && (matches!(existing.kind, SectionKind::App { .. })
+                    || matches!(section.kind, SectionKind::App { .. }))
+        }),
+        _ => false,
+    })
 }
 
 /// `title` cut to the document limit (old stores allow longer names).

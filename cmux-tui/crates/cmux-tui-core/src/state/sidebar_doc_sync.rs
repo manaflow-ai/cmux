@@ -757,8 +757,15 @@ pub(crate) fn write_back(
         }
         // A loose workspace in Pinned or a custom section keeps its old row
         // (group and place), as a pinned tile did: the old model has no
-        // place for it, and unpin then finds the row where it was.
+        // place for it. Coming back loose into its machine section (unpin),
+        // the row also stays: old clients see it where it was before the
+        // pin, as they did with tiles; the document places it at the end.
         if item.parent.is_none() && !in_machine_section(after, item) {
+            continue;
+        }
+        let came_back = item.parent.is_none()
+            && before.item(&item.id).is_some_and(|old| !in_machine_section(before, old));
+        if came_back {
             continue;
         }
         transaction.execute(
