@@ -71,6 +71,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   let seq = opening.length;
   const prompts: Record<string, any>[] = [];
   const cancels: Record<string, any>[] = [];
+  /// `_acpmux/events` reads: a lag resync's refetch, which rebuilds the transcript.
+  let eventReads = 0;
 
   function answer(method: string): unknown {
     switch (method) {
@@ -84,6 +86,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       case "_acpmux/attach":
         return { session: summary, lastSeq: opening.length, events: opening };
       case "_acpmux/events":
+        eventReads += 1;
         return { events: [], hasMore: false, lastSeq: seq };
       default:
         return null;
@@ -136,6 +139,16 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
       }),
     );
+
+  /// acpmux dropped events for the page: it refetches and replays the whole transcript.
+  async function lag(page: Page): Promise<void> {
+    const before = eventReads;
+    socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [SESSION] } }));
+    const deadline = Date.now() + 5_000;
+    while (eventReads === before && Date.now() < deadline) await page.waitForTimeout(50);
+    expect(eventReads).toBeGreaterThan(before);
+    await page.waitForTimeout(300);
+  }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -300,6 +313,27 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.waitForTimeout(6_000);
       expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      await page.close();
+    });
+
+    test("a transcript rebuild inside Stop's grace does not cancel it", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      // The replay passes the stopped turn's own turn_started again; it is not a new turn.
+      await lag(page);
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+      await page.close();
+    });
+
+    test("a turn Stop gave up on stays not working after a transcript rebuild", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 10_000 });
+      await lag(page);
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
       await page.close();
     });
 
