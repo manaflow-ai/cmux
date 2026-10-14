@@ -96,6 +96,7 @@ describe("VM route answer deadlines", () => {
 describe("remaining VM routes", () => {
   const expected: Array<[VmRouteDeadlineOperation, number, boolean]> = [
     ["rename", 55_000, true],
+    ["restart", 55_000, true],
     ["tunnelEnroll", 55_000, true],
     ["tunnelRevoke", 15_000, true],
     ["attach", 955_000, true],
@@ -151,9 +152,11 @@ describe("remaining VM routes", () => {
 
 describe("client-stated budgets", () => {
   test("a stated budget replaces the legacy caller's, less the margin", async () => {
-    const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000);
+    // About a hundred virtual-time steps, as above: each step costs real time
+    // on CI, which runs these under a 5 s per-test limit.
+    const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000, 1_250);
     expect(virtualMs).toBeGreaterThanOrEqual(115_000);
-    expect(virtualMs).toBeLessThanOrEqual(115_250);
+    expect(virtualMs).toBeLessThanOrEqual(116_250);
   });
 
   test("the stated budget is read from the client timeout header", () => {
@@ -167,8 +170,8 @@ describe("client-stated budgets", () => {
 
   test("a stated budget is clamped to the 10 s floor and below the route's maxDuration", async () => {
     expect((await underDeadline("pause", Effect.never, 0, 1_000)).virtualMs).toBeLessThanOrEqual(10_250);
-    const capped = await underDeadline("pause", Effect.never, 0, 3_600_000, 1_000);
-    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000 + 1_000);
+    const capped = await underDeadline("pause", Effect.never, 0, 3_600_000, 3_000);
+    expect(capped.virtualMs).toBeLessThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000 + 3_000);
     expect(capped.virtualMs).toBeGreaterThanOrEqual(VM_ROUTE_DEADLINES.pause.maxDurationMs - 5_000);
   });
 });

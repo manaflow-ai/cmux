@@ -190,9 +190,6 @@ describe("access-grant session revocation", () => {
         "x-hexclave-access-type": "server",
         "x-hexclave-project-id": "00000000-0000-4000-8000-0000000000cc",
         "x-hexclave-secret-server-key": "ssk_test",
-        "x-stack-access-type": "server",
-        "x-stack-project-id": "00000000-0000-4000-8000-0000000000cc",
-        "x-stack-secret-server-key": "ssk_test",
       },
       body: null,
     }]);

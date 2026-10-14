@@ -63,6 +63,30 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Antigravity resumes the captured conversation and preserves launch options")
+    func antigravityResumeUsesConversationID() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "antigravity",
+                sessionId: "conversation-123",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--dangerously-skip-permissions",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                ]
+            ) == [
+                "/Users/example/.local/bin/agy",
+                "--conversation",
+                "conversation-123",
+                "--dangerously-skip-permissions",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+    }
+
     @Test("OpenCode resume drops internal TUI settings selector")
     func opencodeResumeDropsInternalTUISettingsSelector() {
         #expect(

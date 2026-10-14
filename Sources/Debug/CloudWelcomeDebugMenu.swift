@@ -7,10 +7,10 @@ extension cmuxApp {
     @ViewBuilder
     var cloudWelcomeDebugMenuItems: some View {
         Button(String(localized: "debug.menu.showCloudWelcome", defaultValue: "Show Cloud Welcome…")) {
-            AppDelegate.shared?.cloudWelcomeWindowController.present(over: NSApp.mainWindow)
+            AppDelegate.shared?.cloudWelcomeWindowController.presentForDebug(over: NSApp.mainWindow)
         }
         Button(String(localized: "debug.menu.showCloudWelcomeFBadge", defaultValue: "Show Cloud Welcome (F, New Badge)…")) {
-            AppDelegate.shared?.cloudWelcomeWindowController.present(
+            AppDelegate.shared?.cloudWelcomeWindowController.presentForDebug(
                 over: NSApp.mainWindow,
                 posterShowsTitle: false,
                 showsNewBadge: true,
@@ -18,7 +18,7 @@ extension cmuxApp {
             )
         }
         Button(String(localized: "debug.menu.showCloudWelcomeFOnClip", defaultValue: "Show Cloud Welcome (F, On Clip)…")) {
-            AppDelegate.shared?.cloudWelcomeWindowController.present(
+            AppDelegate.shared?.cloudWelcomeWindowController.presentForDebug(
                 over: NSApp.mainWindow,
                 posterShowsIcon: false,
                 footerHasNotNow: true
