@@ -41,6 +41,12 @@ impl Drop for Scratch {
     }
 }
 
+/// The test home's global config: the `upper` filter upper-cases what it
+/// cleans and makes `global-marker` beside the repository. Values are
+/// quoted: `;` starts a comment in a config file.
+const GLOBAL_CONFIG: &str =
+    "[filter \"upper\"]\n\tclean = \"touch ../global-marker; tr a-z A-Z\"\n\tsmudge = cat\n";
+
 /// Points HOME and XDG_CONFIG_HOME at an empty folder for the whole test
 /// process, so the developer's own git config never changes what the reads
 /// under test do.
@@ -50,6 +56,10 @@ fn isolate_home() {
         let home =
             std::env::temp_dir().join(format!("cmux-git-hostile-home-{}", std::process::id()));
         std::fs::create_dir_all(&home).expect("create the test home");
+        // A driver only the user's own config defines, as `git lfs install`
+        // does. git runs filters at the top level, so the marker lands next
+        // to a test's repository.
+        std::fs::write(home.join(".gitconfig"), GLOBAL_CONFIG).expect("write the global config");
         // SAFETY: every test calls this before it spawns anything or reads
         // the environment, and `Once` blocks them until it has run.
         unsafe {
@@ -251,4 +261,79 @@ fn submodule_filter_search_is_bounded_by_gitlinks_not_files() {
     let searched = repository.with_submodule_filters_limited(1024);
 
     assert!(searched.is_ok(), "{:?}", searched.err());
+}
+
+/// A repository with `file.txt` committed through no filter, marked for the
+/// global `upper` filter and changed to `two` in the work tree.
+fn upper_filtered_repository(scratch: &Scratch) -> PathBuf {
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    std::fs::write(root.join(".gitattributes"), "*.txt filter=upper\n").expect("write attributes");
+    std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "one"]);
+    std::fs::write(root.join("file.txt"), "two\n").expect("write file");
+    root
+}
+
+fn uncommitted_patch(root: &Path) -> String {
+    let repository = Repository::open(root).expect("open repository");
+    let repository = repository.with_submodule_filters().expect("blank submodule filters");
+    let comparison = comparison(&repository, "uncommitted").expect("comparison");
+    let output = repository
+        .run(&diff_args(&comparison, &["--patch"], &[]), 1024 * 1024)
+        .expect("diff the work tree");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// A driver only the user's global config defines (git-lfs's, say) is the
+/// user's own program, which a repository cannot write: reads keep it, so
+/// the diff shows the filtered content git would.
+#[test]
+fn global_filter_driver_still_runs() {
+    let scratch = Scratch::new("global-filter");
+    let root = upper_filtered_repository(&scratch);
+
+    let patch = uncommitted_patch(&root);
+
+    assert!(patch.contains("+TWO"), "the global clean filter did not run: {patch}");
+    assert!(scratch.0.join("global-marker").exists(), "the global clean filter did not run");
+}
+
+/// Repository config that redefines any key of a global driver blanks the
+/// whole driver, so the repository never picks the command.
+#[test]
+fn hostile_repository_local_override_of_global_filter_never_runs() {
+    let scratch = Scratch::new("global-filter-override");
+    let root = upper_filtered_repository(&scratch);
+    let clean = format!("{}; cat", scratch.touch_marker());
+    git(&root, &["config", "filter.upper.clean", clean.as_str()]);
+
+    let patch = uncommitted_patch(&root);
+
+    assert_no_marker(&scratch);
+    assert!(!scratch.0.join("global-marker").exists(), "the overridden global filter ran");
+    assert!(patch.contains("+two"), "{patch}");
+}
+
+/// A file the repository's config includes is repository config too.
+#[test]
+fn hostile_repository_included_filter_driver_never_runs() {
+    let scratch = Scratch::new("included-filter");
+    let root = scratch.0.join("repository");
+    new_repository(&root);
+    std::fs::write(root.join(".gitattributes"), "* filter=inc\n").expect("write attributes");
+    std::fs::write(root.join("file.txt"), "one\n").expect("write file");
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "--quiet", "-m", "one"]);
+    let included = scratch.0.join("included.config");
+    let clean = format!("{}; cat", scratch.touch_marker());
+    std::fs::write(&included, format!("[filter \"inc\"]\n\tclean = \"{clean}\"\n"))
+        .expect("write the included config");
+    git(&root, &["config", "include.path", &included.to_string_lossy()]);
+    std::fs::write(root.join("file.txt"), "two\n").expect("write file");
+
+    read_changes(&root, "uncommitted");
+
+    assert_no_marker(&scratch);
 }

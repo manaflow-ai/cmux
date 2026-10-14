@@ -187,6 +187,36 @@ async fn hostile_repository_filter_driver_name_with_equals_sign_never_runs() {
     scratch.assert_no_marker();
 }
 
+/// A file the repository's config includes is repository config too: its
+/// filter driver never runs. (A driver only the user's global config
+/// defines still runs; cmux-git's tests cover that, with an isolated home.)
+#[tokio::test]
+async fn hostile_repository_included_filter_driver_never_runs() {
+    let scratch = Scratch::new("filter-include");
+    let repo = scratch.0.join("repository");
+    new_repository(&repo);
+    std::fs::write(repo.join(".gitattributes"), "* filter=inc\n").expect("write attributes");
+    git(&repo, &["add", ".gitattributes"]);
+    git(&repo, &["commit", "--quiet", "-m", "attributes"]);
+    let included = scratch.0.join("included.config");
+    let clean = format!("{}; cat", scratch.touch_marker());
+    std::fs::write(
+        &included,
+        format!("[filter \"inc\"]\n\tclean = \"{clean}\"\n"),
+    )
+    .expect("write the included config");
+    git(
+        &repo,
+        &["config", "include.path", &included.to_string_lossy()],
+    );
+    make_stat_dirty(&repo.join("file.txt"));
+    std::fs::write(repo.join("untracked.txt"), "new\n").expect("write untracked file");
+
+    open(&scratch, &unstaged(&repo), &repo).await;
+
+    scratch.assert_no_marker();
+}
+
 /// A long-running `process` filter starts on the first file git filters.
 #[tokio::test]
 async fn hostile_repository_process_filter_never_starts() {
