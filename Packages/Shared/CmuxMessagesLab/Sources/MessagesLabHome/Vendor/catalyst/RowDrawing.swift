@@ -58,6 +58,40 @@ enum RowDraw {
         if !p.outgoing, fixedSpanKeys { return rightFits }
         return x - 36 - (p.outgoing ? extra : 0) >= 0 && rightFits
     }
+    /// Whether row `b` draws exactly the pixels of row `a`'s bitmap, counted from each one's span start
+    /// (`drawSpan`), with nothing but transparent columns past the narrower span's end: a live resize keeps
+    /// `a`'s bitmap for `b` (RowCell.configure, cx-3cb resize-drops2). The same row at another width, and:
+    /// - an outgoing plain text bubble (its fill is the cell's gradient layer, its bitmap only the text, drawn
+    ///   at the body's left plus the padding) whose lines and everything but the bubble width are the same and
+    ///   whose span no row edge cuts at either width (a wrapped line's trailing space clamps the bubble to the
+    ///   column, so the bubble narrows with the window while its lines stay);
+    /// - an incoming "N Replies" or label row, or an incoming thread preview: drawn at fixed x from the left
+    ///   edge in a span from 0 to the row width.
+    static func samePixels(_ a: RowSpec, _ b: RowSpec) -> Bool {
+        guard a.key == b.key, a.height == b.height else { return false }
+        switch (a.kind, b.kind) {
+        case let (.part(p), .part(q)):
+            guard p.outgoing, q.outgoing, case .text = p.part, p.markdown == nil, q.markdown == nil,
+                  !TiledBubble.applies(a), !TiledBubble.applies(b) else { return false }
+            var r = q
+            r.size.width = p.size.width
+            guard r == p else { return false }
+            func uncut(_ s: RowSpec, _ w: CGFloat) -> Bool {
+                let x = s.metrics.rightEdge - w
+                return x - 36 >= 0 && x + w + 20 <= s.width
+            }
+            return uncut(a, p.size.width) && uncut(b, q.size.width)
+        case let (.replies(n, root, o), .replies(m, root2, o2)):
+            return !o && !o2 && n == m && root == root2
+        case let (.label(t, o, c), .label(t2, o2, c2)):
+            return !o && !o2 && t == t2 && c == c2
+        case let (.threadPreview(x), .threadPreview(y)):
+            return !x.outgoing && x == y
+        default:
+            return false
+        }
+    }
+
     static let fixedSpanKeys: Bool = {
         let exp = (ProcessInfo.processInfo.environment["MLAB_EXP"] ?? "").split(separator: ",")
         return !(CommandLine.arguments.contains("--row-width-keys") || exp.contains("rowwidthkeys"))

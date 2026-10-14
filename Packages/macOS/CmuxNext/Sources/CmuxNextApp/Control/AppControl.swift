@@ -135,8 +135,10 @@ final class AppControl {
                 return .value(DebugLayers.report(services: services))
             },
             // The one hover card: machine phase, card window, timer, monitor.
-            .mainActor("debug.hover_cards") { [weak services] _ in
+            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
                 return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
