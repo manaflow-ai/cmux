@@ -323,18 +323,21 @@ def test_artifacts_macos_legs_take_the_side_lane_on_attempt_one() -> None:
         )
 
 
-DOGFOOD_MACOS_RUNNER = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    "vars.CI_DOGFOOD_MACOS_RUNNER || 'blacksmith-6vcpu-macos-15' }}"
-)
+def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
+    """The release-path dogfood build goes straight to Blacksmith macOS.
 
-
-def test_release_path_dogfood_artifacts_stay_off_the_shared_side_lane() -> None:
-    """The workflow_dispatch dogfood build takes CI_DOGFOOD_MACOS_RUNNER (or Blacksmith) on
-    every attempt, never the owned minis' side label."""
+    On the owned side lane, focused runs' dogfood builds sat queued until the
+    run was cancelled (up to 120 min; one success waited 92 min for a 25 min
+    build) while the fast tier queued behind them. They take the PR pool, as
+    cmux-tui artifacts' macOS legs do on a re-run.
+    """
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    job = workflow["jobs"]["build-artifacts"]
-    assert job["name"] == "release-path dogfood artifacts"
-    assert job["with"]["macos_runner"] == DOGFOOD_MACOS_RUNNER
-    assert job["with"]["macos_retry_runner"] == DOGFOOD_MACOS_RUNNER
-    assert "CI_SIDE_LANE_RUNNER" not in str(job["with"])
+    build = workflow["jobs"]["build-artifacts"]["with"]
+
+    for route in (build["macos_runner"], build["macos_retry_runner"]):
+        assert "CI_SIDE_LANE_RUNNER" not in route
+        assert "glaeda-" not in route
+        assert route == (
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}"
+        )

@@ -254,7 +254,6 @@ class FastLaneVariable(unittest.TestCase):
                 self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
         # Other runner variables still may not name one.
         self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-fast-std-xcode-26.6"}))
-        self.assertTrue(drifted_runner_variables({"CI_DOGFOOD_MACOS_RUNNER": "glaeda-fast-std-xcode-26.6"}))
 
 
 class AwsSideRunnerVariable(unittest.TestCase):
