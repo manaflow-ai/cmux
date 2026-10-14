@@ -98,11 +98,10 @@ def main():
            "tree-owner-wait exports unmarked")
 
     publish = all_jobs["publish-tree"]
-    _check("needs.tree-preflight.outputs.daemon_tests != 'true'" in str(publish["if"]),
-           "a lane-branch push publishes its tree without the daemon tests")
-    mark = next(step for step in publish["steps"] if step.get("name") == "Mark the tree daemon-tested before publishing it")
-    _check(mark.get("if") == "${{ github.ref != 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.daemon_tests == 'true' }}",
-           f"an untested publish writes no daemon-tests marker ({mark.get('if')!r})")
+    _check("cmux-next-daemon-tests" not in publish["needs"] and "daemon_tests" not in str(publish["if"]),
+           "a lane-branch push publishes its tree without the daemon tests, like every ref (cx-y0nf2)")
+    _check("cmux-tui-mark-daemon-tested.sh" not in str(publish["steps"]),
+           "a publish writes no daemon-tests marker; publish-tree-tested does, after the tests pass")
 
     marker_if = str(all_jobs["publish-tree-tested"]["if"])
     _check("needs.tree-preflight.outputs.tree_ready == 'true'" in marker_if
