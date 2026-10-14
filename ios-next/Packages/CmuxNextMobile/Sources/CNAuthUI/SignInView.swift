@@ -63,10 +63,12 @@ public struct SignInView: View {
     /// window applies it a few hundred milliseconds after the first frame;
     /// this view resolves its colours in it from the first frame instead.
     private let appearance: ColorScheme?
-    /// Opacity of the launch-appearance cover: 1 on the first frame so it
-    /// matches the launch screen exactly, then cross-fades to the app's
-    /// resolved appearance.
-    @State private var launchCover = 1.0
+    /// Opacity of the launch-appearance cover. Only on a cold launch, and
+    /// only for the first frame, so that frame continues the launch screen
+    /// (which follows the system appearance). Every following frame, and
+    /// every other presentation (sign out, revoked session), is drawn in the
+    /// app's own appearance.
+    @State private var launchCover: Double
     @Environment(\.colorScheme) private var colorScheme
     private var targetScheme: ColorScheme { appearance ?? colorScheme }
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -89,6 +91,7 @@ public struct SignInView: View {
         self.notice = notice
         self.appearance = appearance
         self.launchScheme = Self.systemScheme()
+        _launchCover = State(initialValue: initialMode == .methods && controller.isColdLaunchPresentation ? 1 : 0)
         _email = State(initialValue: initialEmail)
         switch initialMode {
         case .methods:
@@ -130,10 +133,17 @@ public struct SignInView: View {
         return Color(uiColor: CNTheme.shared.palette[keyPath: key].resolvedColor(with: UITraitCollection(userInterfaceStyle: style)))
     }
 
-    /// Starts the cross-fade from the launch appearance to the resolved one.
-    private func fadeLaunchCover(force: Bool = false) {
-        guard launchCover > 0, force || targetScheme != launchScheme else { return }
-        withAnimation(reduceMotion ? .easeOut(duration: 0.2) : .easeInOut(duration: 0.3)) { launchCover = 0 }
+    /// Drops the launch cover once the first frame is on screen: the main
+    /// queue runs this block after the current run-loop turn has committed
+    /// that frame.
+    private func dropLaunchCoverAfterFirstFrame() {
+        controller.markSignInPresented()
+        guard launchCover > 0 else { return }
+        DispatchQueue.main.async {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { launchCover = 0 }
+        }
     }
 
     /// The animation the app root uses for the hand-over to the signed-in
@@ -173,7 +183,6 @@ public struct SignInView: View {
                 }
                 .onChange(of: intro.handedOff) { _, handedOff in
                     if handedOff, illustrationStart == nil { illustrationStart = timeline.date }
-                    if handedOff { fadeLaunchCover(force: true) }
                 }
                 .onChange(of: intro.finished) { _, finished in
                     if finished { introFinished = true }
@@ -184,11 +193,8 @@ public struct SignInView: View {
         .cnStatusBarStyle(launchCover > 0.5 ? (launchScheme == .dark ? .lightContent : .darkContent) : nil)
         .onAppear {
             startIntroIfReady()
-            fadeLaunchCover()
+            dropLaunchCoverAfterFirstFrame()
         }
-        // The window picks up the app's Light/Dark setting after the first
-        // frame; cross-fade to it from the launch appearance.
-        .onChange(of: colorScheme) { fadeLaunchCover() }
         .environment(\.colorScheme, targetScheme)
         .onChange(of: controller.isRestoringSession) { startIntroIfReady() }
         .sensoryFeedback(.impact(weight: .light), trigger: tapTrigger)

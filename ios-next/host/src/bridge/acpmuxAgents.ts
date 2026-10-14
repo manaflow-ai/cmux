@@ -164,6 +164,17 @@ export class AcpmuxAgents extends EventEmitter<AcpmuxAgentsEvents> {
     }
   }
 
+  /** The last assistant text of an attached session's transcript. */
+  lastReply(sessionId: string): { id: string; text: string } | undefined {
+    const t = this.transcripts.get(sessionId);
+    if (!t) return undefined;
+    for (let i = t.items.length - 1; i >= 0; i--) {
+      const it = t.items[i]!;
+      if (it.kind === "assistant" && it.text.trim()) return { id: it.id, text: it.text.trim() };
+    }
+    return undefined;
+  }
+
   /** Uses the last assistant message of an attached transcript as the preview. */
   private withPreview(session: AgentSession): AgentSession {
     const t = this.transcripts.get(session.id);

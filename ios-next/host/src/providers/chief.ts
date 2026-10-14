@@ -27,6 +27,22 @@ interface Store {
   chiefSessionId?: string;
   chiefPrimed?: boolean;
   deleted: string[];
+  /** Bridge mode: acpmux sessions Chief started, which have agent:<id> conversations. */
+  bridged?: string[];
+}
+
+/**
+ * Bridge mode: Chief's /spawn starts acpmux (cmux-next) sessions, which the
+ * host's own AgentsProvider never sees. These hooks let Chief keep their
+ * agent:<sessionId> conversations: start them, prompt them, and read the
+ * final reply of a turn. The host feeds session changes in through
+ * bridgedSession / bridgedRemoved.
+ */
+export interface BridgedSessions {
+  create(harness: string, task: string): Promise<{ session: AgentSession; harnessName?: string }>;
+  prompt(sessionId: string, text: string): Promise<void>;
+  /** The last assistant message of the session's transcript (item id and text), if attached. */
+  lastReply(sessionId: string): { id: string; text: string } | undefined;
 }
 
 export function chiefInstructions(host: string): string {
@@ -96,16 +112,19 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
        * everywhere; otherwise the host's own agents.
        */
       spawn?: (harness: string, task: string) => Promise<{ title: string; harnessName?: string }>;
+      bridged?: BridgedSessions;
     } = {},
   ) {
     super();
     this.spawnSession = opts.spawn;
+    this.bridgedSessions = opts.bridged;
     this.path = opts.path ?? join(stateDir(), "conversations.json");
     this.log = opts.log ?? (() => {});
     this.hostName = opts.hostName ?? hostname();
     this.store = readJson<Store>(this.path, { conversations: [], messages: {}, deleted: [] });
     this.store.deleted ??= [];
     this.store.messages ??= {};
+    this.store.bridged ??= [];
     this.ensureChief();
     // Messages that were "sending" when the host stopped never completed.
     for (const list of Object.values(this.store.messages)) {
@@ -132,6 +151,11 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
 
   private readonly hostName: string;
   private readonly spawnSession?: (harness: string, task: string) => Promise<{ title: string; harnessName?: string }>;
+  private readonly bridgedSessions?: BridgedSessions;
+  /** Bridged sessions currently shown as typing (running). */
+  private readonly bridgedTyping = new Set<string>();
+  /** The last reply (transcript item id, or error text) added per bridged session (avoid repeats). */
+  private readonly bridgedLastReply = new Map<string, string>();
 
   // ---------------------------------------------------------------- queries
 
@@ -163,7 +187,8 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
     } else if (conv.kind === "agent") {
       const sessionId = conv.id.slice("agent:".length);
       try {
-        await this.agents.prompt(sessionId, text);
+        if (this.bridgedSessions && this.store.bridged!.includes(sessionId)) await this.bridgedSessions.prompt(sessionId, text);
+        else await this.agents.prompt(sessionId, text);
         this.updateStatus(message, "delivered");
       } catch (err) {
         this.updateStatus(message, "failed");
@@ -313,9 +338,13 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
       this.addMessage(CHIEF_ID, { sender: CHIEF, text: "I hit an error. Check the agent CLI login on the Mac.", status: "delivered" });
     }
     for (const sp of spawns) {
-      const harness = this.spawnSession ? sp.harness : this.agents.spec(sp.harness) ? sp.harness : "claude";
+      const harness = this.spawnSession || this.bridgedSessions ? sp.harness : this.agents.spec(sp.harness) ? sp.harness : "claude";
       try {
-        const session = this.spawnSession ? await this.spawnSession(harness, sp.task) : await this.agents.create({ harness, prompt: sp.task });
+        const session = this.bridgedSessions
+          ? await this.spawnBridged(harness, sp.task)
+          : this.spawnSession
+            ? await this.spawnSession(harness, sp.task)
+            : await this.agents.create({ harness, prompt: sp.task });
         const name = ("harnessName" in session && session.harnessName) || this.agents.spec(harness)?.name || harness;
         this.addMessage(CHIEF_ID, {
           sender: CHIEF,
@@ -332,6 +361,59 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
     this.emit("event", "conv.typing", { conversationId: CHIEF_ID, senderId: CHIEF.id, typing });
   }
 
+  // ---------------------------------------------------------------- bridged sessions
+
+  private async spawnBridged(harness: string, task: string): Promise<{ title: string; harnessName?: string }> {
+    const { session, harnessName } = await this.bridgedSessions!.create(harness, task);
+    if (!this.store.bridged!.includes(session.id)) this.store.bridged!.push(session.id);
+    const conv = this.ensureAgentConversation(session);
+    if (conv) this.addMessage(conv.id, { sender: ME, text: task, status: "sent" });
+    // A quick turn may already have ended before session/new's caller got here.
+    this.bridgedSession(session, true);
+    return { title: session.title, harnessName };
+  }
+
+  /**
+   * A session change from acpmux. For sessions Chief started: keep the
+   * conversation's title, show typing while the agent runs, and post the
+   * turn's final reply (or its error) when it stops.
+   */
+  bridgedSession(session: AgentSession, initial = false): void {
+    if (!this.store.bridged!.includes(session.id)) return;
+    const conv = this.ensureAgentConversation(session);
+    if (!conv) return;
+    const running = session.status === "running";
+    const wasRunning = this.bridgedTyping.has(session.id);
+    if (running === wasRunning && !initial) return;
+    if (running !== wasRunning) {
+      if (running) this.bridgedTyping.add(session.id);
+      else this.bridgedTyping.delete(session.id);
+      this.emit("event", "conv.typing", { conversationId: conv.id, senderId: conv.id, typing: running });
+    }
+    if (running) return;
+    const reply =
+      session.status === "error"
+        ? session.preview
+          ? { id: `error:${session.updatedAt}`, text: `Error: ${session.preview}` }
+          : undefined
+        : this.bridgedSessions?.lastReply(session.id);
+    if (reply && this.bridgedLastReply.get(session.id) !== reply.id) {
+      this.bridgedLastReply.set(session.id, reply.id);
+      const spec = this.agents.spec(session.harness);
+      this.addMessage(conv.id, { sender: { id: conv.id, name: spec?.name ?? session.harness, isMe: false }, text: reply.text, status: "delivered" });
+      this.markAnswered(conv.id);
+    }
+  }
+
+  bridgedRemoved(sessionId: string): void {
+    const idx = this.store.bridged!.indexOf(sessionId);
+    if (idx < 0) return;
+    this.store.bridged!.splice(idx, 1);
+    this.bridgedTyping.delete(sessionId);
+    this.bridgedLastReply.delete(sessionId);
+    this.removeConversation(`agent:${sessionId}`);
+  }
+
   // ---------------------------------------------------------------- agent conversations
 
   private onTurnEnd(info: TurnEndInfo): void {
@@ -343,8 +425,12 @@ export class ChiefProvider extends EventEmitter<ChiefProviderEvents> {
       const spec = this.agents.spec(this.agents.getMeta(info.sessionId)?.harness ?? "");
       this.addMessage(conv.id, { sender: { id: `agent:${info.sessionId}`, name: spec?.name ?? "Agent", isMe: false }, text: last, status: "delivered" });
     }
-    // The user's prompt has been answered.
-    const msgs = this.store.messages[conv.id] ?? [];
+    this.markAnswered(conv.id);
+  }
+
+  /** The user's latest prompt has been answered. */
+  private markAnswered(conversationId: string): void {
+    const msgs = this.store.messages[conversationId] ?? [];
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!;
       if (m.sender.isMe && m.status !== "read") {

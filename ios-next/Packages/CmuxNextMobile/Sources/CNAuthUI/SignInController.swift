@@ -59,6 +59,19 @@ public final class SignInController {
     /// placeholder token, which only the in-process mock backend accepts.
     /// For recording the choreography without a real inbox.
     @ObservationIgnored private let demo: SignInDemo?
+    /// When the app process created its sign-in controller (cold launch).
+    @ObservationIgnored private let createdAt = Date()
+    /// Set once the sign-in screen has been shown in this process.
+    @ObservationIgnored private var hasPresentedSignIn = false
+
+    /// True only for the sign-in screen shown right after a cold launch: its
+    /// first frame continues the system launch screen. Every later
+    /// presentation (sign out, revoked session) uses the app's appearance.
+    var isColdLaunchPresentation: Bool {
+        !hasPresentedSignIn && Date().timeIntervalSince(createdAt) < 2
+    }
+
+    func markSignInPresented() { hasPresentedSignIn = true }
 
     public init(auth: AuthSession, environment: StackAuthEnvironment = .current(), urlSession: URLSession = .shared,
                 processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {

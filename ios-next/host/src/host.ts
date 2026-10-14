@@ -10,6 +10,7 @@ import { ChiefProvider } from "./providers/chief.ts";
 import { FilesProvider, type FilesOptions } from "./providers/files.ts";
 import { TerminalProvider, type TerminalOptions } from "./providers/terminal.ts";
 import { VERSION, type Logger } from "./util.ts";
+import type { AgentSession } from "./protocol.ts";
 import type { AcpmuxAgents } from "./bridge/acpmuxAgents.ts";
 import type { DaemonTerminals } from "./bridge/daemonTerminals.ts";
 import { DaemonLayout, registerLayout, StandaloneLayout, type LayoutSource } from "./layout/index.ts";
@@ -58,15 +59,24 @@ export class HostCore {
       log,
       hostName: this.hostName,
       path: opts.conversationsPath,
-      // Bridge mode: Chief's /spawn starts a real cmux-next (acpmux) session.
+      // Bridge mode: Chief's /spawn starts a real cmux-next (acpmux) session
+      // and keeps an agent:<sessionId> conversation for it.
       ...(bridgedAgents
         ? {
-            spawn: async (harness: string, task: string) => {
-              const session = await bridgedAgents.create({ harness, prompt: task });
-              return { title: session.title, harnessName: HARNESS_DISPLAY[harness] ?? harness };
+            bridged: {
+              create: async (harness: string, task: string) => ({
+                session: await bridgedAgents.create({ harness, prompt: task }),
+                harnessName: HARNESS_DISPLAY[harness] ?? harness,
+              }),
+              prompt: (sessionId: string, text: string) => bridgedAgents.prompt(sessionId, text, []),
+              lastReply: (sessionId: string) => bridgedAgents.lastReply(sessionId),
             },
           }
         : {}),
+    });
+    bridgedAgents?.on("event", (topic, payload) => {
+      if (topic === "agent.session") this.chief.bridgedSession((payload as { session: AgentSession }).session);
+      else if (topic === "agent.removed") this.chief.bridgedRemoved((payload as { sessionId: string }).sessionId);
     });
     this.browser = new BrowserProvider({ log, ...opts.browser });
     this.files = new FilesProvider({ log, ...opts.files });

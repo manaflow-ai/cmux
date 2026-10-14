@@ -377,13 +377,20 @@ async function fakeAcpmux() {
         return ok({ session: sessions.find((s) => s.sessionId === p.sessionId), events: events[p.sessionId] ?? [], hasMore: false, lastSeq: 5 });
       case "session/prompt": {
         const rec = (kind: string, dir: string, msg: unknown) => ({ jsonrpc: "2.0", method: "_acpmux/event", params: { sessionId: p.sessionId, seq: ++seq, at: Date.now(), dir, kind, msg } });
+        const sess = sessions.find((x) => x.sessionId === p.sessionId)!;
+        const setStatus = (status: string) => {
+          sess.status = status;
+          srv.broadcast({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { sessionId: sess.sessionId, kind: "updated", session: { ...sess } } });
+        };
+        setStatus("running");
         conn.send(rec("user_message", "mux", { text: p.prompt[0].text, promptId: `pp${seq}`, turnId: "t2" }));
         conn.send(rec("turn_started", "mux", { turnId: "t2" }));
         conn.send(rec("permission_request", "mux", { permissionId: "perm9", request: { toolCall: { toolCallId: "tc1", title: "Edit a.txt" }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "deny", name: "Deny", kind: "reject_once" }] } }));
         conn.send(rec("tool_call", "in", { params: { update: { sessionUpdate: "tool_call", toolCallId: "tc1", title: "echo hi", kind: "execute", status: "in_progress", content: [{ type: "terminal", terminalId: "x" }] } } }));
         conn.send(rec("tool_call_update", "in", { params: { update: { sessionUpdate: "tool_call_update", toolCallId: "tc1", status: "completed", _meta: { terminal_output_delta: { data: "hi\n" }, terminal_exit: { exit_code: 0 } } } } }));
-        conn.send(rec("agent_message_chunk", "in", { params: { update: { sessionUpdate: "agent_message_chunk", messageId: "m2", content: { type: "text", text: "Done." } } } }));
+        conn.send(rec("agent_message_chunk", "in", { params: { update: { sessionUpdate: "agent_message_chunk", messageId: `m${seq}`, content: { type: "text", text: "Done." } } } }));
         conn.send(rec("turn_result", "mux", { turnId: "t2", status: "completed", stopReason: "end_turn" }));
+        setStatus("idle");
         return ok({ stopReason: "end_turn" });
       }
       case "_acpmux/permission_respond":
@@ -518,6 +525,40 @@ describe("Chief in bridge mode", () => {
     expect(sessions.map((s: any) => s.id)).toContain(created[0].params ? a.sessions.at(-1)!.sessionId : "");
     // The host's own agents never started it.
     expect(core.agents.list()).toEqual([]);
+
+    // Home lists an agent:<sessionId> conversation for it with the task and the agent's reply.
+    const sessionId = a.sessions.at(-1)!.sessionId;
+    const convId = `agent:${sessionId}`;
+    const { conversations } = await client.request("conv.list");
+    expect(conversations.find((c: any) => c.id === convId)).toMatchObject({ kind: "agent", title: "phone session", subtitle: "Codex" });
+    const history = async () => (await client.request("conv.history", { conversationId: convId })).messages.map((m: any) => [m.sender.isMe, m.text]);
+    await waitFor(async () => (await history()).length >= 2);
+    expect(await history()).toEqual([
+      [true, "fix the flaky test"],
+      [false, "Done."],
+    ]);
+
+    // Texting it prompts the acpmux session; typing follows its running state.
+    const typing: any[] = [];
+    client.peer.on("event", (t, p) => t === "conv.typing" && p.conversationId === convId && typing.push(p.typing));
+    await client.request("conv.send", { conversationId: convId, text: "and the other one", clientId: "c2" });
+    expect(a.calls.some((c) => c.method === "session/prompt" && c.params.sessionId === sessionId && c.params.prompt[0].text === "and the other one")).toBe(true);
+    await waitFor(() => typing.length >= 2);
+    expect(typing).toEqual([true, false]);
+    await waitFor(async () => (await history()).length >= 4);
+    const msgs = (await client.request("conv.history", { conversationId: convId })).messages;
+    expect(msgs.map((m: any) => [m.sender.isMe, m.text, m.status])).toEqual([
+      [true, "fix the flaky test", "read"],
+      [false, "Done.", "delivered"],
+      [true, "and the other one", "read"],
+      [false, "Done.", "delivered"],
+    ]);
+
+    // Removed on the Mac: the conversation goes too.
+    const removed: string[] = [];
+    client.peer.on("event", (t, p) => t === "conv.removed" && removed.push(p.conversationId));
+    a.srv.broadcast({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { sessionId, kind: "purged", session: { sessionId } } });
+    await waitFor(() => removed.includes(convId));
   });
 });
 
