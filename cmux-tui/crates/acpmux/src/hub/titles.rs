@@ -13,6 +13,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// `SessionMeta.title_source` values.
+const PROMPT: &str = "prompt";
 pub(super) const HARNESS: &str = "harness";
 const ASKED: &str = "asked";
 const GENERATED: &str = "generated";
@@ -24,6 +25,17 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 const SYSTEM: &str = "You title chats. Reply with a title of 3 to 6 words for the chat and nothing else: no quotes, no trailing punctuation.";
 const MAX_WORDS: usize = 6;
 const MAX_CHARS: usize = 60;
+
+/// A chat's first prompt titles it until a better title comes.
+pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
+    let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    if m.title.is_some() || first.is_empty() {
+        return;
+    }
+    m.title = Some(short_text(first, 80));
+    m.title_source = Some(PROMPT.to_owned());
+    m.title_prompt = Some(short_text(text.trim(), 2000));
+}
 
 impl Hub {
     /// Title chats as their turns complete (a local `turn_result` with
@@ -58,14 +70,18 @@ impl Hub {
     fn title_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
         let (harness, request) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.title_source.is_some() || m.title.is_none() {
+            if m.title_source.as_deref() != Some(PROMPT) {
                 return;
             }
-            let Some(prompt) = m.last_prompt.clone().filter(|p| !p.trim().is_empty()) else {
+            let Some(prompt) = m.title_prompt.take().or_else(|| m.title.clone()) else {
                 return;
             };
             m.title_source = Some(ASKED.to_owned());
-            let reply = m.preview.as_deref().map(|p| short_text(p.trim(), 600)).unwrap_or_default();
+            // The reply is the first turn's only while no later turn has started.
+            let reply = match m.turn_count {
+                1 => m.preview.as_deref().map(|p| short_text(p.trim(), 600)).unwrap_or_default(),
+                _ => String::new(),
+            };
             (m.harness.clone(), request(&prompt, &reply))
         };
         let hub = self.clone();
@@ -94,6 +110,8 @@ impl Hub {
         if let Some(argv) = argv {
             let mut cmd = tokio::process::Command::new(&argv[0]);
             cmd.args(&argv[1..]);
+            #[cfg(unix)]
+            cmd.process_group(0);
             return Some(cmd);
         }
         // The chat's own Claude Code: the sign-in and route its turn just used.
@@ -116,6 +134,9 @@ impl Hub {
                 "",
                 "--strict-mcp-config",
                 "--disable-slash-commands",
+                // The person's Claude hooks (notifications, Stop) are not for this call.
+                "--settings",
+                r#"{"disableAllHooks":true}"#,
                 "--system-prompt",
                 SYSTEM,
             ]
@@ -159,6 +180,7 @@ fn request(prompt: &str, reply: &str) -> String {
 async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> {
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
     let mut child = cmd.spawn().map_err(|e| tracing::debug!("title command: {e}")).ok()?;
+    let pid = child.id();
     let mut stdin = child.stdin.take()?;
     let mut stdout = child.stdout.take()?;
     let request = request.to_owned();
@@ -170,8 +192,17 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         let status = child.wait().await.ok()?;
         status.success().then_some(out)
     };
-    let out = tokio::time::timeout(TIMEOUT, answer).await.ok()??;
-    clean(&out)
+    let Ok(out) = tokio::time::timeout(TIMEOUT, answer).await else {
+        // The command runs in its own group (a wrapper's children too): end it all.
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            unsafe {
+                libc::killpg(pid as i32, libc::SIGKILL);
+            }
+        }
+        return None;
+    };
+    clean(&out?)
 }
 
 /// The title in a model's answer: its first line without quotes, a

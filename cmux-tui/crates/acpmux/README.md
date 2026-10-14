@@ -177,7 +177,8 @@ event) gets a 3-6 word title once, after its first completed turn, logged as `ti
 `titles.command` (an argv reading the request on stdin and printing the title; env
 `ACPMUX_TITLE_COMMAND` wins) makes it; unset, the chat's own Claude Code profile runs
 `-p --model haiku` (`titles.model`) with no tools, MCP or session file. A harness title
-always wins, and `titles.generate: false` turns it off.
+always wins, a chat titled before this (or adopted) keeps its title, and
+`titles.generate: false` turns it off.
 
 ## TUI
 
