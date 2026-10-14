@@ -73,4 +73,15 @@ enum ConfirmationStrings {
     static var userOnlySettingButton: String {
         String(localized: "confirm.userOnlySetting.button", defaultValue: "Change", table: "Handlers", bundle: .module)
     }
+
+    /// A command's Set Workspace Localhost (`cmux workspace set-remote-localhost`).
+    static var remoteLocalhostTitle: String {
+        String(localized: "confirm.remoteLocalhost.title", defaultValue: "Change this workspace's localhost?", table: "Handlers", bundle: .module)
+    }
+
+    static func remoteLocalhostBody(_ workspace: String, _ choice: String) -> String {
+        String(format: String(localized: "confirm.remoteLocalhost.body",
+                              defaultValue: "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first.",
+                              table: "Handlers", bundle: .module), workspace, choice)
+    }
 }

@@ -384,8 +384,6 @@ final class BrowserTabService {
         historyStarts.forget(key)
     }
 
-    func isTracking(_ key: String) -> Bool { writers[key] != nil }
-
     /// Sends every page change still waiting out the write-back delay, so
     /// the record reopened at relaunch is the page the user last saw.
     func flushRecords() async {

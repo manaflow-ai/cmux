@@ -10,20 +10,4 @@ extension HomeService {
     static var localUser: ConversationParticipant {
         ConversationParticipant(id: ConversationParticipant.localUserID, kind: .human, displayName: HomeChiefName.localUserName)
     }
-
-    /// A new local conversation with the mux (user origin; the owner assigns the id).
-    func createConversation(title: String = HomeStrings.newConversationTitle) {
-        guard let connection else { return }
-        let request = CreateConversationRequest(idempotencyKey: "create:" + UUID().uuidString.lowercased(), title: title,
-                                                participants: [Self.localUser, Self.mux])
-        // task-owner: one conversation-create write; ends with its reply
-        Task { [weak self] in
-            do {
-                _ = try await ConversationClient(connection).create(request)
-                self?.reloadList(connection)
-            } catch {
-                self?.logger.error("conversation-create: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
 }

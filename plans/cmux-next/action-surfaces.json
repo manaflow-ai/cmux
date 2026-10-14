@@ -20713,6 +20713,33 @@
       "title_table" : "RemoteActions"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "workspace set-remote-localhost",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.setRemoteLocalhost",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Localhost…",
+      "title_key" : "action.workspace.setRemoteLocalhost",
+      "title_table" : "RemoteActions"
+    },
+    {
       "cli" : "clipboard",
       "cli_name" : "action remote-copy-error",
       "context_menu" : "offered",
@@ -35101,14 +35128,51 @@
                   }
                 },
                 {
+                  "choices" : {
+                    "argument" : "localhost",
+                    "more_opens_palette" : false,
+                    "values" : [
+                      {
+                        "title" : "The Workspace's Machine",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "machine"
+                      },
+                      {
+                        "title" : "This Mac",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "thisMac"
+                      },
+                      {
+                        "title" : "Follow Settings",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "setting"
+                      }
+                    ]
+                  },
+                  "enabled_when" : "can_perform",
+                  "id" : "workspace.setRemoteLocalhost",
+                  "kind" : "choices",
+                  "order" : 17,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : "remoteHosts",
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 17
+                  "order" : 18
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
