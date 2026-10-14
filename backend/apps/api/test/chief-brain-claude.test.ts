@@ -32,8 +32,9 @@ const http = async (method: string, path: string, token: string, body?: unknown)
 const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
 const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
 
-const sse = (text: string) =>
-  [
+/** The Messages stream events of one answer, as Bedrock's binary event stream (frame CRCs zero: the reader skips them). */
+const eventStream = (text: string): Uint8Array => {
+  const events = [
     { type: "message_start", message: { id: "msg_fake", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, usage: { input_tokens: 12, output_tokens: 1 } } },
     { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
     { type: "content_block_delta", index: 0, delta: { type: "text_delta", text } },
@@ -41,10 +42,20 @@ const sse = (text: string) =>
     { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 6 } },
     { type: "message_stop" }
   ]
-    .map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)
-    .join("")
+  const frames = events.map((e) => {
+    const payload = new TextEncoder().encode(JSON.stringify({ bytes: btoa(JSON.stringify(e)) }))
+    const frame = new Uint8Array(16 + payload.length)
+    new DataView(frame.buffer).setUint32(0, frame.length)
+    frame.set(payload, 12)
+    return frame
+  })
+  const out = new Uint8Array(frames.reduce((n, f) => n + f.length, 0))
+  let at = 0
+  for (const f of frames) [out.set(f, at), (at += f.length)]
+  return out
+}
 
-interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly body: any }
+interface Seen { readonly url: string; readonly stackAuth: { accessToken?: string; refreshToken?: string } | null; readonly apiKey: string | null; readonly beta: string | null; readonly body: any }
 /** The route and the refresh at their HTTP boundary; everything else goes to the real fetch. */
 const fakeRoute = (refresh: "ok" | "fail") => {
   const real = globalThis.fetch
@@ -63,8 +74,8 @@ const fakeRoute = (refresh: "ok" | "fail") => {
     if (req.url.startsWith("https://claude.test/")) {
       const raw = req.headers.get("x-stack-auth")
       const body = await req.json()
-      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), body })
-      return new Response(sse(`Opus answers turn ${seen.length}`), { headers: { "content-type": "text/event-stream" } })
+      seen.push({ url: req.url, stackAuth: raw ? JSON.parse(raw) : null, apiKey: req.headers.get("x-api-key"), beta: req.headers.get("anthropic-beta"), body })
+      return new Response(eventStream(`Opus answers turn ${seen.length}`), { headers: { "content-type": "application/vnd.amazon.eventstream" } })
     }
     return real(input, init)
   })
@@ -100,7 +111,7 @@ const replies = async (token: string, conversation: string, chief: string, n: nu
 const forgetRefreshed = () => runInDurableObject(testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName("claude-david-auth")), async (_i, state) => void state.storage.sql.exec("DELETE FROM cb_config WHERE name = 'claude.access'"))
 
 describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }, () => {
-  it("signs each streamed Opus request with a refreshed X-Stack-Auth and posts the answer; no token reaches a reply or run", async () => {
+  it("signs each streamed Opus request (Bedrock body, event stream answer) with a refreshed X-Stack-Auth and posts the answer; no token reaches a reply or run", async () => {
     const route = fakeRoute("ok")
     const { token, chief } = await ownerWithClaudeChief("brain-claude-ok")
     for (const [i, text] of ["first question", "second question"].entries()) {
@@ -114,9 +125,16 @@ describe("Cloud Chief on Claude through the metered route", { timeout: 120_000 }
     for (const s of route.seen) {
       // The Anthropic client adds ?beta=true; the route matches the path.
       expect(new URL(s.url).origin + new URL(s.url).pathname).toBe("https://claude.test/api/claude-david/v1/messages")
-      expect(s.body).toMatchObject({ model: "claude-opus-5-5", stream: true })
+      // Bedrock's body: its version, streamed, no model or metadata key (the route names Opus in its Bedrock URL).
+      expect(s.body).toMatchObject({ anthropic_version: "bedrock-2023-05-31", stream: true })
+      expect(s.body.model).toBeUndefined()
+      expect(s.body.metadata).toBeUndefined()
+      // The system prompt is Bedrock's top-level system; no system-role message, no output_config.
+      expect(JSON.stringify(s.body.system)).toContain("You are a Chief")
+      expect(s.body.messages.some((m: { role: string; output_config?: unknown }) => m.role === "system" || m.output_config !== undefined)).toBe(false)
       expect(s.stackAuth).toEqual({ accessToken: route.fresh, refreshToken: REFRESH })
       expect(s.apiKey).toBeNull()
+      expect(s.beta).toBeNull()
       expect(JSON.stringify(s.body)).not.toContain(REFRESH)
     }
     // The expired configured token was refreshed once; the second turn used the stored one.
