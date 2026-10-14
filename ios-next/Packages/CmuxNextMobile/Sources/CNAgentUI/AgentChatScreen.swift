@@ -25,6 +25,13 @@ struct AgentChatScreen: View {
     /// Set on send until the scroll reaches the new prompt; while set, growth
     /// does not unpin.
     @State private var followingSend = false
+    /// Height of the pinned approval card (and its spacing), as last laid out.
+    @State private var cardHeight: CGFloat = 0
+    /// Minimum transcript height. When the approval card leaves, the bottom
+    /// inset shrinks at once; without a floor the scroll offset would be
+    /// clamped in one frame (the transcript jumps). The floor keeps the rows
+    /// still; new rows and streaming text fill the space.
+    @State private var contentFloor: CGFloat = 0
     /// Latest scroll metrics, unobserved (written every scroll frame).
     @State private var latest = LatestMetrics()
     @State private var position = ScrollPosition(edge: .bottom)
@@ -141,7 +148,7 @@ struct AgentChatScreen: View {
                 // After a send here, the last turn reserves a full screen below
                 // its prompt, laid out in the same pass as the rows (no
                 // one-frame lag). Opened history ends at its last row.
-                TranscriptLayout(tailMinHeight: model.sendTick > 0 ? reserveHeight : 0) { rowViews(shaped) }
+                TranscriptLayout(tailMinHeight: model.sendTick > 0 ? reserveHeight : 0, minHeight: contentFloor) { rowViews(shaped) }
                     .padding(.top, 4)
                     .frame(minHeight: viewportHeight, alignment: .top)
             } else {
@@ -208,6 +215,7 @@ struct AgentChatScreen: View {
             // target resolves against the final layout.
             pinned = true
             followingSend = true
+            contentFloor = 0
         }
     }
 
@@ -258,8 +266,10 @@ struct AgentChatScreen: View {
         return VStack(spacing: 8) {
             if let pending {
                 PermissionCard(pending: pending, allowOnMac: model.allowRequiresMac(pending.item)) { option in
+                    holdTranscriptForCardExit()
                     withAnimation(motion.move) { model.answer(pending.item, option: option) }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 + 8 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .accessibilityIdentifier("agent.permissionCard")
             }
@@ -295,10 +305,22 @@ struct AgentChatScreen: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .animation(reduceMotion ? nil : motion.move, value: pending?.item.id)
+        // Resolved elsewhere (the Mac, a host echo): hold the rows the same way.
+        .onChange(of: pending?.item.id) { old, new in
+            if old != nil, new == nil { holdTranscriptForCardExit() }
+        }
         .animation(motion.appear, value: pending.map { model.allowRequiresMac($0.item) })
         .animation(motion.appear, value: slash.count)
 
         .animation(motion.move, value: model.queue.count)
+    }
+
+    /// Raises the transcript's minimum height by the card about to leave, so
+    /// the inset shrink cannot clamp the scroll offset (no jump).
+    private func holdTranscriptForCardExit() {
+        guard cardHeight > 0 else { return }
+        let content = latest.value.content - 4 // the stack's top padding
+        contentFloor = max(contentFloor, content + cardHeight)
     }
 
     private var placeholder: String {
@@ -399,6 +421,8 @@ struct TurnStartKey: LayoutValueKey {
 /// the end: the screen reserved for the last turn's reply.
 struct TranscriptLayout: Layout {
     var tailMinHeight: CGFloat
+    /// Floor for the whole height (see `contentFloor`).
+    var minHeight: CGFloat = 0
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
@@ -409,6 +433,7 @@ struct TranscriptLayout: Layout {
             y += v.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
         }
         if let tailTop { y = max(y, tailTop + tailMinHeight) }
+        y = max(y, minHeight)
         return CGSize(width: width, height: y)
     }
 

@@ -192,7 +192,7 @@ struct AgentSessionRow: View {
                     // VoiceOver label built from it) is plain text.
                     Text(session.preview.map { MarkdownPlainText()($0) } ?? session.cwd)
                         .font(.subheadline)
-                        .foregroundStyle(.cn(\.textSecondary))
+                        .foregroundStyle(.cn(session.status == .error ? \.danger : \.textSecondary))
                         .lineLimit(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     status
@@ -222,7 +222,13 @@ struct AgentSessionRow: View {
                 .frame(height: 22)
                 .background(.cn(\.attention).opacity(0.14), in: .capsule)
         case .error:
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.cn(\.danger)).padding(.top, 2)
+            Label("Error", systemImage: "exclamationmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(.cn(\.danger))
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(.cn(\.danger).opacity(0.12), in: .capsule)
         default:
             if unread {
                 Circle().fill(.cn(\.ink)).frame(width: 9, height: 9).padding(.top, 6)
