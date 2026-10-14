@@ -530,3 +530,50 @@ fn codex_daemon_hooks_never_post_to_the_terminal_whose_environment_the_daemon_in
         "{received}"
     );
 }
+
+/// Codex reads `-c key=value` by splitting the key on every `.` (it does not
+/// parse TOML quoting there), so a quoted key such as
+/// `hooks.state."/<session-flags>/config.toml:stop:0:0".trusted_hash` lands
+/// on the wrong path: the launch's hooks stay untrusted (Codex asks to review
+/// 11 hooks at every start and skips them) and the installed cmux hooks stay
+/// enabled. Every override key must be a path of bare segments; quoted keys
+/// belong inside the TOML value.
+#[test]
+fn codex_wrapper_overrides_use_key_paths_that_codex_splits_on_dots() {
+    let launch = Launch::new();
+    let home = launch.root.path().join("codex home");
+    fs::create_dir(&home).unwrap();
+    fs::write(
+        home.join("hooks.json"),
+        serde_json::json!({"hooks":{"Stop":[{"hooks":[
+            {"type":"command","command":"echo {};#cmux-tui-journal-hook"}
+        ]}]}})
+        .to_string(),
+    )
+    .unwrap();
+    let argv = launch.argv(launch.command().env("CODEX_HOME", &home).args(["exec", "hello"]));
+    let overrides: Vec<&str> =
+        argv.windows(2).filter(|pair| pair[0] == "-c").map(|pair| pair[1].as_str()).collect();
+    assert!(!overrides.is_empty(), "{argv:?}");
+    for setting in overrides {
+        let (key, _) = setting.split_once('=').unwrap();
+        assert!(
+            key.split('.').all(|segment| {
+                !segment.is_empty()
+                    && segment
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+            }),
+            "Codex splits this override key on dots and misplaces it: {key}"
+        );
+    }
+    // The values still carry both the trust and the disabled installed copy.
+    let config = settings(&argv);
+    let state = config["hooks"]["state"].as_table().unwrap();
+    assert!(state.contains_key("/<session-flags>/config.toml:stop:0:0"), "{state:?}");
+    assert!(
+        state.iter().any(|(key, value)| key.ends_with("hooks.json:stop:0:0")
+            && value["enabled"].as_bool() == Some(false)),
+        "{state:?}"
+    );
+}
