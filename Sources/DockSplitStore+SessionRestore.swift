@@ -317,7 +317,13 @@ extension DockSplitStore {
             : nil
         let claudeBackgroundAttach = claudeBackgroundRestore?.attach
         let suppressesResumeForBackgroundSession = claudeBackgroundRestore != nil
-        let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunning &&
+        let shouldAutoResumeNormallyEndedClaude = Workspace.shouldAutoResumeNormallyEndedClaude(
+            restorableAgent: restorableAgent,
+            resumeBinding: resumeBinding,
+            wasAgentRunning: terminalSnapshot.wasAgentRunning
+        )
+        let shouldAutoResumeAgent = autoResumeAgentSessions &&
+            (agentWasRunning || shouldAutoResumeNormallyEndedClaude) &&
             !suppressesResumeForBackgroundSession
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
