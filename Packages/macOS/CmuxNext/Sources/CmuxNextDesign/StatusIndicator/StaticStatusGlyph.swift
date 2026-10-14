@@ -14,6 +14,12 @@ nonisolated extension StaticStatusGlyph {
         }
     }
 
-    /// The indicator plan that draws this glyph: no animation, its theme role.
-    public var plan: StatusIndicatorPlan { StatusIndicatorPlan(glyph: .mark(.vector(self)), animation: nil, tint: tint) }
+    /// The indicator plan that draws this glyph in the default style: no animation, its theme role.
+    public var plan: StatusIndicatorPlan { plan(style: .still) }
+
+    /// The indicator plan that draws this glyph in `style`: no animation, its theme role (the same in
+    /// every style).
+    public func plan(style: Style) -> StatusIndicatorPlan {
+        StatusIndicatorPlan(glyph: .mark(.vector(self, style)), animation: nil, tint: tint)
+    }
 }

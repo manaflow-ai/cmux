@@ -15,8 +15,9 @@ public nonisolated enum StatusMark: Hashable, Sendable {
     case letter(String)
     /// An SF Symbol, drawn as a template.
     case symbol(String)
-    /// A static status glyph (`StaticStatusGlyph`), drawn from its vectors, pixel art at 10 pt 1x.
-    case vector(StaticStatusGlyph)
+    /// A static status glyph (`StaticStatusGlyph`) in one of its styles, drawn from its vectors, pixel
+    /// art at 10 pt 1x.
+    case vector(StaticStatusGlyph, StaticStatusGlyph.Style)
 
     public enum Container: Hashable, Sendable {
         case circle, roundedSquare, triangle, octagon
