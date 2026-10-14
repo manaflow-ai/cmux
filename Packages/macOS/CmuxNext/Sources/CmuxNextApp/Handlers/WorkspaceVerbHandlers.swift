@@ -51,11 +51,6 @@ enum WorkspaceVerbHandlers {
             try sidebar(showing: workspace, context).groupFlow.newGroup(of: [SidebarWorkspaceID(workspace.id)], name: invocation["name"]?.stringValue ?? "",
                                                               byUser: invocation.origin == .user)
         })
-        registry.bind("workspace.closeOthersInGroup", run: { invocation in
-            let workspace = try context.workspace(invocation).model
-            guard let group = try group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
-            WorkspaceBulkClose.close(group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }.compactMap(context.services.machines.workspace(id:)))
-        })
 
         registry.bind("workspace.selectFirst", run: { _ in try select(context) { $0.first } })
         registry.bind("workspace.selectLast", run: { _ in try select(context) { $0.last } })

@@ -32,10 +32,12 @@ enum WorkspaceGroupClose {
         let services = context.services
         // The closed items carry the workspace's name, not its id: match on
         // the members' names among the items this close adds (never older ones).
-        let names = members(of: group, context).map { $0.0.name }
+        let closing = members(of: group, context)
+        let names = closing.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         sidebar.handle(.closeGroup(CmuxNextSidebar.GroupID(group.id.rawValue)))
-        guard invocation.origin == .user, !names.isEmpty, let window = context.activeWindow?.window else { return }
+        guard invocation.origin == .user, !names.isEmpty,
+              let window = WorkspaceBulkClose.survivor(closing: closing.map(\.0.id), context) else { return }
         offerUndo(toastID, closedToast(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name), group: group.id.rawValue,
                   names: names, after: seen, in: window, services)
     }
