@@ -922,6 +922,22 @@ mark {
   border-color: var(--border);
 }
 
+/* A macOS wallpaper that is not downloaded: its tile, then Get in System Settings. */
+.backdrop-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.backdrop-get {
+  padding: 0;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  text-align: left;
+  white-space: normal;
+}
+
 /* Choose Image… (cx-t2x.8): an empty tile with a plus. */
 .backdrop-choose {
   display: flex;

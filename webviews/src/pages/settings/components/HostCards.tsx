@@ -131,8 +131,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     </button>
   );
   // Art arrives grouped by collection (Dark Art, Museum Icons, Calm, Doré), each under its
-  // title, then the person's own images ("Your images"); the desktop picture and system
-  // wallpapers follow in one untitled group.
+  // title, then the person's own images ("Your images"), the desktop picture in an untitled
+  // group, and every macOS wallpaper ("Apple Wallpapers").
   const groups: Array<{ key: string; title: string | null; choices: typeof backdrops }> = [];
   for (const choice of backdrops) {
     const key = choice.collection ?? "";
@@ -205,7 +205,24 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         <div key={group.key || "other"} className="backdrop-group" data-collection={group.key || undefined}>
           {group.title && <h4 className="row-help backdrop-group-title">{group.title}</h4>}
           <div className="backdrop-grid">
-            {group.choices.map((choice) => tile(choice.id, choice.title, choice.attribution))}
+            {group.choices.map((choice) =>
+              choice.downloaded === false ? (
+                // A macOS wallpaper macOS has not downloaded: the window shows its thumbnail until
+                // the person gets the full picture in the Wallpaper pane.
+                <div key={choice.id} className="backdrop-cell">
+                  {tile(choice.id, choice.title, t("settingsWindow.backdropPicker.notDownloaded"))}
+                  <button
+                    type="button"
+                    className="link-button backdrop-get"
+                    onClick={() => void store.openWallpaperSettings()}
+                  >
+                    {t("settingsWindow.backdropPicker.getInSystemSettings")}
+                  </button>
+                </div>
+              ) : (
+                tile(choice.id, choice.title, choice.attribution)
+              ),
+            )}
           </div>
         </div>
       ))}

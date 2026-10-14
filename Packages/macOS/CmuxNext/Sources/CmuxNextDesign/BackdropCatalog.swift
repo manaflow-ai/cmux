@@ -3,8 +3,10 @@ public import Foundation
 /// The wallpaper choices displayed by Appearance settings.
 public nonisolated struct BackdropCatalog: Sendable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
-    /// images, then the desktop picture, then a bounded starter set of macOS wallpapers.
+    /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``).
     public let choices: [BackdropSelection]
+    /// The macOS wallpapers among ``choices``, by path.
+    public let appleWallpapers: [String: AppleWallpaper]
 
     /// The bundled art in picker order: by collection, darkest works first within each.
     public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
@@ -16,18 +18,13 @@ public nonisolated struct BackdropCatalog: Sendable {
     /// - Parameters:
     ///   - systemDirectory: The macOS wallpaper directory.
     ///   - fileManager: The file manager used to enumerate it.
-    ///   - systemLimit: Maximum number of system wallpapers shown initially.
+    ///   - assets: The macOS wallpapers downloaded in full.
     ///   - userImages: The person's own images (``BackdropUserImages``), if any.
-    public init(systemDirectory: URL, fileManager: FileManager, systemLimit: Int = 12, userImages: BackdropUserImages? = nil) {
-        let extensions = Set(["jpg", "jpeg", "png", "heic", "heif", "avif"])
-        let system = (try? fileManager.contentsOfDirectory(
-            at: systemDirectory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ))?.filter { extensions.contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
-            .prefix(max(0, systemLimit))
-            .map { BackdropSelection.system(path: $0.path) } ?? []
-        choices = Self.bundled + (userImages?.list(fileManager: fileManager) ?? []) + [.desktop] + system
+    public init(systemDirectory: URL, fileManager: FileManager, assets: AppleWallpaperAssets = AppleWallpaperAssets(),
+                userImages: BackdropUserImages? = nil) {
+        let apple = AppleWallpapers(directory: systemDirectory, assets: assets, fileManager: fileManager).wallpapers
+        appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        choices = Self.bundled + (userImages?.list(fileManager: fileManager) ?? []) + [.desktop]
+            + apple.map { BackdropSelection.system(path: $0.path) }
     }
 }

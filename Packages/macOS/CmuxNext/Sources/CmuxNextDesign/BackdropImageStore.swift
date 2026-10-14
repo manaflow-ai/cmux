@@ -29,10 +29,32 @@ public final class BackdropImageStore {
     private var images: [Key: NSImage] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
+    /// Whether each selection draws differently in light and dark, read once per id.
+    private var follows: [String: Bool] = [:]
 
     private struct Key: Hashable {
         let id: String
         let texture: BackdropTexture
+        /// The appearance a dynamic wallpaper was decoded for; nil for every other image.
+        let appearance: BackdropAppearance?
+    }
+
+    /// The app's appearance now.
+    public static var currentAppearance: BackdropAppearance {
+        NSApp.map { BackdropAppearance($0.effectiveAppearance) } ?? .light
+    }
+
+    /// Whether `selection` draws differently in light and dark (a dynamic macOS wallpaper).
+    public func followsAppearance(_ selection: BackdropSelection) -> Bool {
+        if let known = follows[selection.id] { return known }
+        let known = selection.followsAppearance
+        follows[selection.id] = known
+        return known
+    }
+
+    private func key(_ selection: BackdropSelection, _ texture: BackdropTexture, _ appearance: BackdropAppearance?) -> Key {
+        Key(id: selection.id, texture: texture,
+            appearance: followsAppearance(selection) ? (appearance ?? Self.currentAppearance) : nil)
     }
 
     /// A decoded bitmap handed from the decoding task to the main actor.
@@ -70,18 +92,19 @@ public final class BackdropImageStore {
         return Int((sizes.max() ?? 2560).rounded(.up))
     }
 
-    /// The decoded image of `selection`, or nil until it has loaded.
-    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? {
-        images[Key(id: selection.id, texture: texture)]
+    /// The decoded image of `selection` for `appearance` (nil: the app's), or nil until it has loaded.
+    func cached(_ selection: BackdropSelection, texture: BackdropTexture = .default, appearance: BackdropAppearance? = nil) -> NSImage? {
+        images[key(selection, texture, appearance)]
     }
 
     /// A small copy of an earlier launch's snapshot of `selection`, decoded now, for the frames
     /// before ``image(_:texture:)`` finishes; without one, the art's bundled thumbnail (art that
     /// still has to download shows it at once). Nil when there is neither.
-    func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default) -> NSImage? {
+    func preview(_ selection: BackdropSelection, texture: BackdropTexture = .default, appearance: BackdropAppearance? = nil) -> NSImage? {
         let size = min(Self.previewPixelSize, maxPixelSize)
-        let image = snapshotURL(selection, texture: texture).flatMap { Self.decode($0, maxPixelSize: size) }
-            ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size) }
+        let key = key(selection, texture, appearance)
+        let image = snapshotURL(selection, key: key).flatMap { Self.decode($0, maxPixelSize: size, appearance: .light) }
+            ?? Self.thumbnail(of: selection).flatMap { Self.decode($0, maxPixelSize: size, appearance: .light) }
         return image.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
     }
 
@@ -91,10 +114,11 @@ public final class BackdropImageStore {
     }
 
     /// Starts loading `selection` so the first window that shows it finds it decoded.
-    public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default) {
-        guard let selection, cached(selection, texture: texture) == nil else { return }
+    public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default, appearance: BackdropAppearance? = nil) {
+        guard let selection, cached(selection, texture: texture, appearance: appearance) == nil else { return }
+        let appearance = appearance ?? Self.currentAppearance
         // task-owner: one load per prewarm, kept in `warming` so tests can wait for it
-        warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture) })
+        warming.append(Task { [weak self] in _ = await self?.image(selection, texture: texture, appearance: appearance) })
     }
 
     /// Waits for the loads ``prewarm(_:texture:)`` started (tests).
@@ -105,8 +129,9 @@ public final class BackdropImageStore {
     }
 
     /// The decoded, textured image of `selection`, loading it off the main actor once.
-    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default) async -> NSImage? {
-        let key = Key(id: selection.id, texture: texture)
+    func image(_ selection: BackdropSelection, texture: BackdropTexture = .default, appearance: BackdropAppearance? = nil) async -> NSImage? {
+        let key = key(selection, texture, appearance)
+        let appearance = key.appearance ?? .light
         if let image = images[key] { return image }
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
@@ -117,10 +142,10 @@ public final class BackdropImageStore {
         if let running = loads[key] {
             load = running
         } else {
-            let source = selection.resolvedImageURL(), snapshot = snapshotURL(selection, texture: texture)
+            let source = selection.resolvedImageURL(for: appearance), snapshot = snapshotURL(selection, key: key)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
-                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture)
+                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, appearance: appearance)
             }
             loads[key] = load
         }
@@ -134,24 +159,27 @@ public final class BackdropImageStore {
         return image
     }
 
-    /// The snapshot file of `selection` at this store's size and `texture`. Its name carries the
-    /// source file's size and modification date, so a replaced file never matches an old one.
-    private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture) -> URL? {
-        guard let snapshots, let source = selection.resolvedImageURL(),
+    /// The snapshot file of `selection` at this store's size and the texture and appearance of
+    /// `key`. Its name carries the source file's path, size and modification date, so a replaced
+    /// file (or a wallpaper downloaded since) never matches an old one.
+    private func snapshotURL(_ selection: BackdropSelection, key: Key) -> URL? {
+        guard let snapshots, let source = selection.resolvedImageURL(for: key.appearance ?? .light),
               let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0
-        let identity = "\(selection.id)|\(texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
+        var identity = "\(selection.id)|\(key.texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
+        // Only images that follow the appearance name it and their source, so other snapshots keep their names.
+        if let appearance = key.appearance { identity += "|\(appearance.rawValue)|\(source.path)" }
         return snapshots.appendingPathComponent(Self.digest(identity) + ".jpg")
     }
 
     /// The snapshot when there is one, else the source decoded, textured and snapshotted.
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
-                                         texture: BackdropTexture) -> Decoded? {
-        if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
+                                         texture: BackdropTexture, appearance: BackdropAppearance) -> Decoded? {
+        if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize, appearance: .light) {
             return Decoded(image: image, rendered: false)
         }
-        guard let source, let image = decode(source, maxPixelSize: maxPixelSize) else { return nil }
+        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, appearance: appearance) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
@@ -159,8 +187,9 @@ public final class BackdropImageStore {
         return Decoded(image: result, rendered: textured != nil)
     }
 
-    /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`.
-    private nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`:
+    /// the frame for `appearance` of a dynamic wallpaper, the only frame of any other image.
+    private nonisolated static func decode(_ url: URL, maxPixelSize: Int, appearance: BackdropAppearance) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -168,7 +197,7 @@ public final class BackdropImageStore {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        return CGImageSourceCreateThumbnailAtIndex(source, appearance.frame(in: source), options as CFDictionary)
     }
 
     /// Writes `image` as a JPEG at `file`, through a temporary file so a reader never sees half.

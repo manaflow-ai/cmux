@@ -1,5 +1,6 @@
 public import AppKit
 public import Foundation
+import ImageIO
 
 /// A selectable image source for the window backdrop. Each case is one source: the bundled art,
 /// a macOS wallpaper file, the person's own image, or their current desktop picture. Each has its
@@ -43,7 +44,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         case .art(let art): return art.attribution
         case .system(let path):
             return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
+                .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
@@ -72,10 +73,14 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         return nil
     }
 
-    /// A small image of the selection that is always here: the bundled thumbnail for art.
+    /// A small image of the selection that is always here: the bundled thumbnail for art, the
+    /// Desktop Pictures thumbnail for a macOS wallpaper.
     public var thumbnailURL: URL? {
-        if case .art(let art) = self { return art.thumbnailURL }
-        return imageURL
+        switch self {
+        case .art(let art): return art.thumbnailURL
+        case .system(let path): return appleWallpaper(path).map(\.thumbnail) ?? imageURL
+        case .file, .desktop: return imageURL
+        }
     }
 
     /// The least theme tint over this image at full opacity (``BackdropArtMetadata/minimumTintOpacity``).
@@ -89,20 +94,41 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         resolvedImageURL().flatMap(NSImage.init(contentsOf:))
     }
 
-    /// The selected image file; nil for ``desktop``, which only the main actor can resolve.
-    public var imageURL: URL? {
+    /// The selected image file in the light appearance; nil for ``desktop``, which only the main
+    /// actor can resolve.
+    public var imageURL: URL? { imageURL(for: .light) }
+
+    /// The selected image file for `appearance`. A macOS wallpaper that is not downloaded yet is
+    /// its thumbnail (for that appearance when it is dynamic) until the person downloads it.
+    public func imageURL(for appearance: BackdropAppearance) -> URL? {
         switch self {
         case .art(let art): return art.imageURL
-        case .system(let path), .file(let path): return URL(fileURLWithPath: path)
+        case .system(let path): return appleWallpaper(path)?.imageURL(for: appearance) ?? URL(fileURLWithPath: path)
+        case .file(let path): return URL(fileURLWithPath: path)
         case .desktop: return nil
         }
     }
 
+    /// Whether the selection draws differently in light and dark: a dynamic macOS wallpaper,
+    /// downloaded or not, or a picture with a frame for each appearance.
+    public var followsAppearance: Bool {
+        guard case .system(let path) = self else { return false }
+        if let wallpaper = appleWallpaper(path), wallpaper.isDynamic { return true }
+        guard let url = imageURL(for: .light), let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return false }
+        return BackdropAppearance.light.frame(in: source) != BackdropAppearance.dark.frame(in: source)
+    }
+
     /// The selected image file, reading the desktop picture of the main screen for ``desktop``.
-    @MainActor public func resolvedImageURL() -> URL? {
-        guard case .desktop = self else { return imageURL }
+    @MainActor public func resolvedImageURL(for appearance: BackdropAppearance = .light) -> URL? {
+        guard case .desktop = self else { return imageURL(for: appearance) }
         guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         return NSWorkspace.shared.desktopImageURL(for: screen)
+    }
+
+    /// The macOS wallpaper a `.madesktop` description names (other system files are pictures).
+    private func appleWallpaper(_ path: String) -> AppleWallpaper? {
+        guard path.lowercased().hasSuffix(".madesktop") || path.contains("/Desktop Pictures/") else { return nil }
+        return AppleWallpaper(path: path, assets: path.lowercased().hasSuffix(".madesktop") ? AppleWallpaperAssets() : .none)
     }
 
     /// Decodes a persisted selection, accepting the legacy `backdropArt` value.
