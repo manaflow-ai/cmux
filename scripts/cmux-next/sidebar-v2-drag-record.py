@@ -409,22 +409,32 @@ try:
         # failed on a None tile frame): wheel the list back to its top before the drags.
         def at_top():
             alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
-            return bool(alpha and alpha.get("window_frame") and pinned and all(i.get("window_frame") for i in pinned))
-        for _ in range(60):
+            frame = (alpha or {}).get("window_frame") or {}
+            return bool(frame and 0 <= frame.get("y", -1) < 800 and pinned and all(i.get("window_frame") for i in pinned))
+        # Focus Alpha first (the list reveals the selected row), then wheel up in trackpad phases (hitch8: plain 4000 px
+        # wheel events did not move the list).
+        focused = cli("workspace", row_id(rows().get("Alpha")), "focus")
+        for attempt in range(40):
             if at_top():
                 break
-            anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")), None)
+            anchor = next((r for r in window().get("rows", []) if r.get("in_list") and r.get("window_frame")
+                           and 0 <= r["window_frame"]["y"] < 800), None)
             if not anchor:
                 break
-            rpc("debug.mouse", {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll",
-                                "dy": 4000})
+            point = {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll"}
+            for phase, dy in (("began", 0), ("changed", 600), ("changed", 600), ("ended", 0)):
+                reply = rpc("debug.mouse", {**point, "dy": dy, "phase": phase})
+            if attempt < 2:
+                print("scroll", attempt, "reply", reply, "anchor y", anchor["window_frame"]["y"], flush=True)
             time.sleep(0.2)  # test harness: let the scroll apply
-        print("list at top:", at_top(), flush=True)
+        alpha = rows().get("Alpha") or {}
+        print("list at top:", at_top(), "focus:", focused[:120], "alpha frame:", alpha.get("window_frame"),
+              "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
     trace = trace_start()
 
     # 1. A workspace row into Pinned tiles (between the two tiles).
     alpha, pinned = rows().get("Alpha"), section_items("sec_pinned")
-    if "1" in WANTED and alpha and len(pinned) >= 2:
+    if "1" in WANTED and alpha and alpha.get("window_frame") and len(pinned) >= 2 and pinned[0].get("window_frame"):
         start, first = center(alpha["window_frame"]), pinned[0]["window_frame"]
         record("1-row-into-pinned", [start, (start[0], start[1] - 30), (first["x"] + first["width"] * 0.85, first["y"] + first["height"] / 2)],
                {f"workspace({row_id(alpha)})"})
