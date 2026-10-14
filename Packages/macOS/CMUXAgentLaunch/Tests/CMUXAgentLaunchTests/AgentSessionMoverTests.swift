@@ -329,6 +329,38 @@ struct AgentSessionMoverTests {
         #expect(outcome.destinationWorkingDirectory == f.remoteHome + "/proj-wt")
     }
 
+    @Test func freshMachineGetsTheCheckoutAndFolderCreated() throws {
+        // A new Cloud machine has neither the repository nor the cwd.
+        let f = try MoveFixture()
+        try f.makeRepositories()
+        try f.sh("rm -rf \(f.remoteHome)/proj; git -C \(f.localHome)/proj remote add origin https://example.invalid/proj.git")
+        let cwd = f.localHome + "/proj"
+        try f.sh("cd \(cwd); printf 'two\\n' > a.txt; printf 'new\\n' > c.txt")
+        try f.writeSession(cwd: cwd)
+        let outcome = try AgentSessionMover(runner: f.runner).move(AgentMoveRequest(
+            sessionID: f.sessionID, source: .local, destination: f.remote, localHome: f.localHome, createsMissingCheckout: true
+        ))
+        let remoteCwd = f.remoteHome + "/proj"
+        #expect(outcome.destinationWorkingDirectory == remoteCwd)
+        #expect(f.read(remoteCwd + "/a.txt") == "two\n")
+        #expect(f.read(remoteCwd + "/c.txt") == "new\n")
+        #expect(try f.sh("git -C \(remoteCwd) symbolic-ref --short HEAD") == "feature")
+        #expect(try f.sh("git -C \(remoteCwd) rev-parse HEAD") == f.sh("git -C \(cwd) rev-parse HEAD"))
+        #expect(try f.sh("git -C \(remoteCwd) remote get-url origin") == "https://example.invalid/proj.git")
+        #expect(f.read(outcome.destinationTranscriptPath) != nil)
+
+        // A cwd outside any checkout: the folder is created and the session data moves.
+        let plain = f.localHome + "/plain"
+        try FileManager.default.createDirectory(atPath: plain, withIntermediateDirectories: true)
+        try f.sh("rm -rf \(f.localHome)/.claude")
+        try f.writeSession(cwd: plain)
+        let second = try AgentSessionMover(runner: f.runner).move(AgentMoveRequest(
+            sessionID: f.sessionID, source: .local, destination: f.remote, localHome: f.localHome, createsMissingCheckout: true
+        ))
+        #expect(FileManager.default.fileExists(atPath: f.remoteHome + "/plain"))
+        #expect(second.code == .notGitCheckout(path: plain))
+    }
+
     @Test func refusesNewerDestinationTranscript() throws {
         let f = try MoveFixture()
         let cwd = f.localHome + "/plain"
