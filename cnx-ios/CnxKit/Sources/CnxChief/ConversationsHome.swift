@@ -145,20 +145,24 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
                 .listRowBackground(theme.colors.bg.color)
                 .alignmentGuide(.listRowSeparatorLeading) { _ in 83 }
-                .swipeActions(edge: .leading) {
-                    Button(unread.contains(conversation.id) ? "Read" : "Unread",
-                           systemImage: unread.contains(conversation.id) ? "message" : "message.badge") {
-                        toggle(&unread, conversation.id)
-                    }
-                    .tint(Color(white: 0.35))
-                }
+                // Trailing only: a rightward pan on a tab root opens the team
+                // drawer (SPEC swipe rules). Messages' set, outermost first.
                 .swipeActions(edge: .trailing) {
                     Button("Delete", systemImage: "trash", role: .destructive) { deleted.insert(conversation.id) }
+                        // The shell tints every tab with the label color (white in
+                        // dark mode); clear it so the destructive role draws the
+                        // system red, as in Mail.
+                        .tint(nil)
                     Button(muted.contains(conversation.id) ? "Show Alerts" : "Hide Alerts",
                            systemImage: muted.contains(conversation.id) ? "bell" : "bell.slash") {
                         toggle(&muted, conversation.id)
                     }
-                    .tint(.indigo)
+                    .tint(Color(uiColor: .systemIndigo))
+                    Button(unread.contains(conversation.id) ? "Read" : "Unread",
+                           systemImage: unread.contains(conversation.id) ? "message" : "message.badge") {
+                        toggle(&unread, conversation.id)
+                    }
+                    .tint(Color(uiColor: .systemBlue))
                 }
                 .contextMenu {
                     Button(unread.contains(conversation.id) ? "Mark as Read" : "Mark as Unread", systemImage: "message.badge") {

@@ -1,168 +1,151 @@
-# Workspaces list and Mac filter: verification
+# Workspaces list (ChatGPT-style): verification
 
-Branch `feat-cnx-ios-wslist`, 2026-10-13. Evidence is git-ignored, in
-`verify/evidence/2026-10-13/wslist/`.
+Branch `feat-cnx-ios-wslist2`, 2026-10-13. Evidence is git-ignored, in
+`verify/evidence/2026-10-13/wslist2/`.
 
-User feedback: "redo the per MacBook workspaces list UX. the folder icon is
-unnecessary, there should be a way to select a specific device to only see
-that device's workspaces."
+The user rejected the previous redesign (an "All Macs ⌄" title menu, sticky
+per-Mac headers, three-line rows with branch, tab glyphs and a status line).
+They chose a "ChatGPT-style sidebar list":
+
+```
+[All] [Studio] [mini 2]
+Today
+● cmux
+  cmux.com
+Yesterday
+  fleet
+  notes
+```
+
+References: `~/Downloads/cmux-native-references/ChatGPT/chatgpt-03-sidebar`
+and `chatgpt-23-sidebar-selected-expanded` (one-line names in `body`, about
+44 pt per row, no icons or separators, text about 30 pt from the edge, a
+rounded fill on the selected row), and ChatGPT's history grouping (Today,
+Yesterday, Previous 7 Days, Previous 30 Days, then months, by last activity).
 
 ## What changed
 
-### Choosing a Mac: the title menu
+- **Mac chips** replace the title menu: All, then one chip per Mac, online
+  first. The chosen chip is filled with the foreground color; offline Macs'
+  chips are dimmed. Remembered per team (`MacFilter`, unchanged key
+  `cnx.workspaces.macFilter.<team>`). All mixes every Mac with no per-Mac
+  headers. Holding a Mac chip shows its presence (and the live link line) as
+  the menu header, with Show Workspaces and Reconnect (live only). The row is
+  a `safeAreaInset` with an opaque background.
+- **Rows**: one line, the name in `body`, 46 pt minimum. A 7 pt dot in a
+  leading gutter only when an agent needs the user (`warning`) or is working
+  (foreground color, breathing; static with Reduce Motion). A mini spinner
+  while a new workspace is created. No icon, subtitle, time or chevron.
+  Pressing shows a rounded fill like ChatGPT's selected chat.
+- **Recency sections** (`RecencyBucket`): Today, Yesterday, Previous 7 Days
+  (2–7 calendar days), Previous 30 Days (8–30), then by month ("August";
+  "December 2025" in an earlier year). Headers are small `footnote`
+  semibold secondary rows that scroll with the list, not pinned.
+- **Search**: `.searchable` in the navigation bar drawer, tucked under the bar
+  at launch and revealed by a pull-down, as in ChatGPT and Mail. Matches the
+  name, branch and directory within the chosen chip. No results uses
+  `ContentUnavailableView.search`.
+- **Row menu** (long press), headed "<Mac> · <branch or directory>"
+  ("· Offline"): Open, Rename (alert with a field), Close Workspace
+  (destructive, confirmed).
+- **Swipe left**: Close (system destructive style, confirmed). There are no
+  leading swipe actions, because a rightward edge swipe opens the team drawer.
+- **Rename and close** are new: `WorkspaceCreator.rename` / `close` apply at
+  once and are undone if the Mac refuses (a toast through
+  `onManageFailure`). The backend protocol gained `canManage`, `rename` and
+  `close`, with "unsupported" defaults. The mock supports both. Live sends
+  `rename-workspace {key, name}` and `close-workspace {key}` to the linked
+  Mac's daemon (both allowed by the cnx-hostd phone lane), then relists.
+- **Offline Macs' workspaces** are dimmed, have no dot and no menu actions. A
+  tap explains: "MacBook Pro is offline. Last seen 2h ago. “notes” opens when
+  the Mac is awake with cmux running."
+- **New Workspace** is unchanged: a tap creates at once on the chosen chip's
+  Mac (or the preferred Mac under All) and pushes it. A hold opens the start
+  options, with the Mac picker only under All. It is disabled while the chosen
+  Mac is offline.
+- **Empty states per chip**: online Mac with none ("No workspaces on
+  <Mac>", New Workspace), offline Mac with none ("<Mac> is offline", last
+  seen), All with none, every Mac asleep, and no search results. The chips
+  stay visible above each one.
+- **Removed**: the title menu and subtitle, the More menu (Sort, Show
+  Offline Macs), sticky per-Mac headers with Reconnect, the three-line row,
+  `WorkspaceSort`, `TabKindSummary`, `WorkspaceActivity` and `MacSection`.
+- `MockData`: four older workspaces (3, 12, 45 and 80 days), so every
+  recency section shows.
 
-The navigation title is the filter: "All Macs ⌄" or the chosen Mac's name.
-The subtitle says "3 of 5 Macs online", or the chosen Mac's "Online" /
-"Last seen 2h ago". Tapping the title opens the menu:
+## Bugs found while verifying
 
-- All Macs, with the workspace count
-- Macs: each Mac with a filled dot (online) or a hollow one (offline) and a
-  subtitle ("Online · 2 workspaces", "Last seen 3d ago"). Online Macs come
-  first, as in the list.
-
-Patterns considered:
-
-| Pattern | Precedent | Verdict |
-| --- | --- | --- |
-| Title menu | Mail's mailbox title ("All Inboxes"), the Codex title menu (`chatgpt-07-codex-title-menu`), Notes and Files folder titles | **Chosen.** The title already names what the list shows, so naming the Mac there answers "whose workspaces are these?" at a glance. It is the system `toolbarTitleMenu`, so the chevron, glass menu, VoiceOver and Dynamic Type are native. It costs no vertical space and adds no toolbar button next to New Workspace and More |
-| Toolbar filter `Menu` | ChatGPT Scheduled (`chatgpt-31-filter-menu`), Mail's filter button | Less discoverable for a scope that changes the whole list. A third trailing button crowds the capsule, and the current Mac stays hidden until the menu opens |
-| Horizontal chip row | ChatGPT Library, Photos collections | Takes about 44 pt above the list on every scroll. It does not scale to a team of 8 to 10 minis (the Build Fleet mock), and chips cannot show presence and last seen without truncating |
-
-The choice is remembered per team (`MacFilter`, key
-`cnx.workspaces.macFilter.<team>`). It is an account preference, so it is
-cleared on sign-out. A Mac that leaves the team reads as All Macs.
-
-### Layout per filter
-
-- **All Macs**: one section per Mac under a pinned header: dot, name,
-  presence and workspace count, with Reconnect (live only) and the live link
-  line as before. The header is opaque, so pinned headers no longer show rows
-  through them. Online Macs come first. Show Offline Macs (More menu) still
-  applies.
-- **One Mac**: a flat list with no header. An offline Mac adds a line above
-  the rows: "Offline. Workspaces open when <Mac> is back." In live mode, an
-  online Mac shows the link line there, and Reconnect moves into the More
-  menu.
-- **Offline Macs' workspaces** are greyed, show "Unavailable while offline",
-  and are not links (VoiceOver reads them as static text).
-
-### Rows (no icon)
-
-The 36 pt folder or glyph square is gone. Rows follow Mail and Messages:
-
-1. An unread dot in a 16 pt leading gutter, the title (`body` semibold) and
-   the relative time (`meta`).
-2. The branch in mono after `arrow.triangle.branch`, or the directory after
-   `folder` when there is no branch. Then the tab kinds as glyphs with
-   counts: agent `sparkle`, terminal `apple.terminal`, browser `globe`.
-3. Activity (`subheadline`):
-   - "**Needs you** · Claude: Refactor transport layer", after a `warning` dot
-   - "Codex is working · Fix pricing page", after an animated `ellipsis`
-     (variable color; static with Reduce Motion)
-   - otherwise the agent's or first tab's subtitle, unless it repeats line 2
-   - "Creating…" with a spinner for an optimistic row
-
-VoiceOver reads one sentence per row, for example "cmux, Unread,
-feat-cnx-ios, 1 agent, 1 terminal, 1 browser tab, Needs you · Claude:
-Refactor transport layer, 1m".
-
-### Empty states per filter
-
-| Filter | Shows |
-| --- | --- |
-| One online Mac, no workspaces | "No workspaces on <Mac>", "New workspaces open right away.", **New Workspace** (creates on that Mac and pushes), Show All Macs |
-| One online Mac the backend cannot create on | The same title with "can't take new workspaces from this iPhone yet", no create button |
-| One offline Mac, no workspaces | "<Mac> is offline", "Last seen 3d ago. Open cmux on it to see its workspaces.", Show All Macs |
-| All Macs, an online Mac with none | An inline row: "No workspaces", **+ New Workspace** (that Mac). It stacks at accessibility sizes |
-| All Macs, nothing anywhere | "No workspaces yet" with New Workspace on the target Mac |
-| All Macs, all offline, offline hidden | Unchanged ("Your Macs are asleep") |
-| No Macs | Unchanged (Connect your Mac) |
-
-### New Workspace follows the filter
-
-- With one Mac chosen, a tap creates on that Mac. A hold opens the menu
-  headed "On <Mac>", without the Mac picker; the title menu is where the
-  Mac changes.
-- With an offline Mac chosen, the button is disabled rather than silently
-  creating on another Mac.
-- Under All Macs it behaves as before: the preferred Mac, with the picker.
-
-### Other files
-
-- `Screens.swift`: the Workspaces stack no longer adds the principal
-  "Workspaces" title; `WorkspacesList` owns the title.
-- `MockData.swift`: Manaflow gains "MacBook Air" (online, no workspaces) and
-  "Office mini" (offline 3 days, no workspaces), for the empty states.
-- `Discovery.swift`: the filter key is an account preference.
+- **Pull-down never came back.** With the chips in a `safeAreaBar`, a long
+  list that had hidden the search drawer never showed it again on a pull.
+  It worked with a short list. With a `safeAreaInset` the pull works on both.
+- **Blank white swipe button.** The app tints controls with the foreground
+  color (`RootView` `.tint(label)`), so the destructive swipe action drew a
+  white pill with a white label in dark mode. `.tint(nil)` on the button
+  restores the system red. This is the same root cause as the Home and Feed
+  swipe fix.
+- **Chips were missing from accessibility** under an
+  `.accessibilityElement(children: .contain)` wrapper, so VoiceOver and axe
+  could not reach them. The wrapper is gone; each chip is a button with an
+  id, its presence as the value, and the selected trait.
 
 ## How it was verified
 
-- **Unit tests** (Swift Testing, `swift test --filter
-  'CnxWorkspacesTests|CnxModelTests|CnxLiveTests'` on macOS; `nx-remote`
-  could not resolve `cmux-lawrence-2`): 14, 35 and 40 passed, before and
-  after merging `origin/feat-cnx-ios`. New in `MacFilterTests.swift`:
-  - `MacFilter`: All Macs by default, the Mac remembered per team across a
-    relaunch, a departed or foreign Mac reads as All Macs, the key is cleared
-    on sign-out
-  - `WorkspaceListLayout`: online-first grouping with per-Mac sorting,
-    Show Offline Macs, one Mac flat and shown even when offline Macs are
-    hidden, an empty Mac, a missing Mac
-  - the title, and the New Workspace target (the filtered Mac wins; an
-    offline filtered Mac gives none)
-  - `TabKindSummary` order, counts and spoken form; `WorkspaceActivity`
-- **Simulators**: `cnx-wsl-ios26` (iOS 26.5) and `cnx-wsl-ios27`
-  (iOS 27.0), iPhone 17 Pro, headless (Simulator.app never opened),
-  `CNX_MOCK_AUTH=1`, Debug build from `verify/build.sh`.
+- **Unit tests** (Swift Testing on macOS): `swift test --filter
+  CnxWorkspacesTests` (17 passed), `CnxModelTests` (36 passed) and
+  `CnxLiveTests` (passed). `MacFilterTests.swift` now covers:
+  - the filter memory (unchanged)
+  - recency buckets on calendar days, with a fixed time zone and midnight
+    edges
+  - section titles, including a month in an earlier year
+  - All mixing every Mac newest first, one Mac (online or offline)
+  - search on name, branch and directory
+  - chip order, and the New Workspace target
+  - rename and close applied at once, a refusal undone with
+    `onManageFailure`, and offline or blank-name refusals
+- **Simulator**: `cnx-wl2-ios26` (iPhone 17 Pro, iOS 26.5), headless
+  (Simulator.app never opened), `CNX_MOCK_AUTH=1`, Debug build with
+  `xcodebuild -jobs 4`. Only one simulator ran at a time, by the
+  coordinator's rule after the Mac ran out of processes. The iOS 27
+  simulator was not run in the end. The first iOS 27 screenshot, before the
+  process-limit incident, matched iOS 26.
 - **Real touches**: `verify/record-wslist.sh <udid> <dir> [dark|light]
-  [content-size]` drives HID taps and an edge drag with `axe` while
-  `simctl io recordVideo` records. The steps:
-  1. All Macs, then open the title menu
-  2. Pick Aziz's Mac Studio, MacBook Pro (offline with a workspace), Office
-     mini (offline, empty), then MacBook Air (online, empty)
-  3. Tap the empty state's New Workspace; an edge swipe goes back
-  4. Relaunch; the menu goes back to All Macs
+  [content-size]` drives HID taps, swipes, a long press and typing with
+  `axe` while `simctl io recordVideo` records. It saves a screenshot per step
+  and 2 fps frames. Chips are tapped by accessibility id; the chip row is
+  scrolled first when the chip is off screen.
 
-  It saved a screenshot per step and 2 fps frames.
+| Check | Result | Evidence (`wslist2/`) |
+| --- | --- | --- |
+| All: chips, recency headers, one-line rows, dots on cmux (needs you) and cmux.com (working), offline rows dimmed | Yes | `ios26-dark/01-all.png` |
+| Search tucked at launch, revealed by a pull-down | Yes | `01-all`, `02-pulled-search` |
+| Search "cm" matches names and directories, keeps the headers | Yes | `03-search-results` |
+| Studio chip: only its workspaces, chip filled | Yes | `04-studio` |
+| Offline Mac chip (dimmed, filled at lower opacity) with dimmed rows; a tap explains | Yes | `05-offline-mac`, `06-offline-explained` |
+| Offline empty and online empty states, chips still shown | Yes | `07-offline-empty`, `08-online-empty` |
+| Empty state's New Workspace creates on MacBook Air and pushes; edge swipe back shows it under Today | Yes | `09-created-pushed`, `10-back-on-air` |
+| Long press: header "Aziz's Mac Studio · main", Open, Rename, Close Workspace | Yes | `11-row-menu` |
+| Rename alert prefilled; renamed in place | Yes | `12-rename`, `13-renamed` |
+| Swipe left: red Close, confirmed popover "Close “fleet”? Its tabs close on cmux mini 2." | Yes | `14-swipe-close`, `15-close-confirm`, `16-closed` |
+| Chip survives a relaunch, scrolled into view | Yes | `17-mini2`, `18-relaunched` |
+| Light mode: chips, rows, red swipe action | Yes | `light/*.png` |
+| `accessibility-large`: rows and headers scale, chips scroll | Yes | `ax/*.png` |
+| Recording | Yes | `ios26-dark/walk.mp4`, `ios26-dark/frames/` |
+| After merging `origin/feat-cnx-ios` (swipe tint fix landed there too): list and red Close, tests 17/40/44 passed | Yes | `merged/swipe.png` |
 
-| Check | iOS 26 | iOS 27 | Evidence |
-| --- | --- | --- | --- |
-| All Macs grouped, pinned opaque headers, no icons | Yes | Yes | `*-dark/01-all.png`, `large/*scrolled.png` |
-| Title menu: dots, subtitles, Macs section, checkmark | Yes | Yes | `*/02-menu.png` |
-| One Mac: flat list, title and presence subtitle | Yes | Yes | `*/03-studio.png` |
-| Offline Mac: greyed rows, note, New Workspace disabled | Yes | Yes | `*/04-offline-with-workspaces.png` |
-| Offline empty and online empty states | Yes | Yes | `*/05-*.png`, `*/06-*.png` |
-| Empty-state New Workspace creates on MacBook Air and pushes; back shows the row under MacBook Air | Yes | Yes | `*/07-*.png`, `*/08-*.png`, `walk.mp4`, `frames/` |
-| Filter survives a relaunch | Yes | Yes | `*/09-relaunched.png` |
-| Hold on New Workspace: "On <filtered Mac>", no Mac picker | Yes (MacBook Air) | Yes (cmux mini 2) | `hold/sheet.png` |
-| Light mode | Yes | Yes | `*-light/`, `light.png` |
-| Large Dynamic Type (`accessibility-large`): rows wrap cleanly, headers truncate the name, the inline empty row stacks | Yes | Yes | `large/sheet.png` |
-| After merging `origin/feat-cnx-ios` | Yes | Yes | `ios27-dark-merged/sheet.png` |
-
-Reference comparison:
-
-- The title menu matches the Codex title menu (`chatgpt-07`): a chevron
-  title, a glass menu dropping from the title, and a leading checkmark.
-- The rows match Mail's density: a bold first line with a trailing time, a
-  secondary line, a one-line preview, an unread dot in the gutter, and a
-  disclosure chevron.
-
-Review fixes found during the runs:
-
-- Menu rows dropped their subtitle, colored dot and section with `Picker` +
-  `Label`, so the menu uses `Toggle` with plain `Text`s.
-- "0 workspaces" now reads "No workspaces".
-- Pinned headers were transparent.
-- The inline New Workspace wrapped at accessibility sizes.
-- A new terminal workspace repeated "~" on line 3.
+Side by side with `chatgpt-03-sidebar` and `chatgpt-23`: the same one-line
+`body` rows at the same rhythm (46 pt here, about 44 pt there), the same text
+inset (30 pt), no separators or icons, and a rounded fill on press. ChatGPT
+has no recency headers in its current drawer; their names and grouping follow
+its full history list.
 
 ## Known gaps
 
-- Menu icons render monochrome, so online and offline read from filled and
-  hollow dots plus the subtitle, not the green color. iOS menus ignore the
-  tint.
-- Live mode: the menu lists the team's Macs from presence, but creating on a
-  Mac other than the linked one still needs the link to switch (as in
-  `verify/workspace-create.md`). The New Workspace button is disabled for
-  such a Mac rather than retargeted.
-- iOS 26 centers or leads a long title depending on the trailing capsule
-  width ("Aziz's Mac Studio" sits leading). This is system behavior.
+- Live mode was not exercised on a device: no real cmux-next Mac app build
+  was attached in this round, and live verification must not use helpers or
+  stubs. Rename and close reach only the linked Mac, as creation does.
+  `canManage` hides the actions elsewhere.
+- Live workspaces carry no activity time from the Mac
+  (`DaemonTree` stamps first sight), so in live mode most rows sit under
+  Today until the daemon reports activity times.
+- The swipe action hides the row's name while open (the row slides by the
+  action's width). This is system behavior.

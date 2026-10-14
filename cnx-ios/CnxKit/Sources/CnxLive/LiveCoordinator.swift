@@ -449,7 +449,8 @@ public final class LiveCoordinator {
                 await acpmux.bind(nil)
             }
             if chiefLive {
-                ChiefSession.shared.use(ChiefMockBackend())
+                // Live mode never falls back to the mock Chief.
+                ChiefSession.shared.use(ChiefOfflineBackend())
                 chiefLive = false
             }
             return
@@ -513,6 +514,7 @@ public final class LiveCoordinator {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         }
+        session.macName = link.target?.name
         terminals.removeAll { $0.session == nil }
         terminals.append(WeakTerminal(session: session))
         return session

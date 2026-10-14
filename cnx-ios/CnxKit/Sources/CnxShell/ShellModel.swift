@@ -5,6 +5,7 @@ import CnxDesign
 import CnxLive
 import CnxModel
 import CnxSettings
+import CnxTerminal
 import Observation
 import OSLog
 import SwiftUI
@@ -26,10 +27,15 @@ final class ShellModel {
     let settings: SettingsStore
     @ObservationIgnored let terminalTabs = GhosttyTerminalTabContent()
     let sidebar: SidebarModel
-    /// New workspaces: mock until live data starts, then the linked Mac's daemon.
+    /// New workspaces: the linked Mac's daemon once live data starts; before
+    /// that nothing can be created (the mock only in DEBUG mock mode).
     let creator: WorkspaceCreator
+    #if DEBUG
     /// The mock backend (DEBUG demos make it refuse once).
-    let mockCreation = MockWorkspaceCreationBackend()
+    let mockCreation: MockWorkspaceCreationBackend
+    #endif
+    /// The backend with no live data.
+    private let offlineCreation: any WorkspaceCreationBackend
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
@@ -61,14 +67,33 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
-        creator = WorkspaceCreator(store: store, backend: mockCreation)
+        // Mock content only in DEBUG mock mode (mock auth); a live account
+        // never falls back to it.
+        let mockMode = TerminalSessionChoice.mockCompiledIn && auth.isMock
+        #if DEBUG
+        let mock = MockWorkspaceCreationBackend()
+        mockCreation = mock
+        offlineCreation = mockMode ? mock : UnavailableWorkspaceCreationBackend()
+        #else
+        offlineCreation = UnavailableWorkspaceCreationBackend()
+        #endif
+        creator = WorkspaceCreator(store: store, backend: offlineCreation)
+        terminalTabs.mockDataEnabled = mockMode
+        terminalTabs.macName = { [weak store] workspace in
+            store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
+        }
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
+        creator.onManageFailure = { [weak self] _, what, message in
+            self?.toast = CnxToast(symbol: "exclamationmark.circle", text: what)
+            theme.haptics.error()
+            shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
+        }
     }
 
-    /// Points terminal tabs and new workspaces at `live`, or back at the mocks
-    /// when it is nil. RootView creates the coordinator when the account
+    /// Points terminal tabs and new workspaces at `live`, or back at the
+    /// offline fallbacks when it is nil (the mocks only in DEBUG mock mode). RootView creates the coordinator when the account
     /// resolves, which can be after this shell was built (a restored session,
     /// a DEBUG auto sign-in), so this runs on every change, not once.
     func attach(live: LiveCoordinator?) {
@@ -81,7 +106,7 @@ final class ShellModel {
         } else {
             terminalTabs.sessionProvider = nil
             terminalTabs.artifactSourceProvider = nil
-            creator.backend = mockCreation
+            creator.backend = offlineCreation
         }
     }
 

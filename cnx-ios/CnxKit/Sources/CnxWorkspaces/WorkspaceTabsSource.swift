@@ -136,7 +136,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// Shown by TabsKit as a glass toast (a tab that could not be created).
+    public private(set) var notice: String?
+    public func clearNotice() { notice = nil }
+
     public func createTab(_ option: TabsKitNewTabOption) async -> TabsKitTab.ID? {
+        guard workspace != nil else {
+            notice = "This workspace is no longer on the Mac."
+            return nil
+        }
         let id = "t-\(UUID().uuidString.prefix(8).lowercased())"
         let tab: WorkspaceTab
         switch option.id {
@@ -344,6 +352,10 @@ struct WorkspaceTabAccessory: View {
     let context: TabsKitContentContext
 
     var body: some View {
+        row.modifier(AccessoryFloor(context: context))
+    }
+
+    @ViewBuilder private var row: some View {
         if let workspace = source.workspace, let tab = workspace.tabs.first(where: { $0.id == tabID }) {
             switch tab.kind {
             case .agent:
@@ -357,6 +369,30 @@ struct WorkspaceTabAccessory: View {
                 EmptyView()
             }
         }
+    }
+}
+
+/// Keeps the accessory row from going below its resting place above the
+/// expanded toolbar. TabsKit places the row at the keyboard's height while
+/// the keyboard is up; an interactive dismissal drags the keyboard under the
+/// toolbar before it reports 0, so the row followed it down, then jumped
+/// back up. This lifts the row by however far it would sink, as a render
+/// effect (no layout feedback). A collapsed toolbar rests lower, so the
+/// floor applies only with the toolbar expanded.
+struct AccessoryFloor: ViewModifier {
+    let context: TabsKitContentContext
+
+    func body(content: Content) -> some View {
+        let floor = context.pageSize.height - context.safeAreaInsets.bottom
+        let applies = !context.isToolbarCollapsed && floor > 0
+        content.visualEffect { effect, proxy in
+            effect.offset(y: applies ? -Self.overshoot(maxY: proxy.frame(in: .global).maxY, floor: floor) : 0)
+        }
+    }
+
+    /// Points the row's bottom sits below the floor (0 when above it).
+    nonisolated static func overshoot(maxY: CGFloat, floor: CGFloat) -> CGFloat {
+        max(0, maxY - floor)
     }
 }
 

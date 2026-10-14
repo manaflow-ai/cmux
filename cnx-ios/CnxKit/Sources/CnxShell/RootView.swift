@@ -66,10 +66,12 @@ public struct RootView: View {
 
     public init(auth: CnxAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
         _auth = State(initialValue: auth)
-        // Live auth: teams come only from Stack (the mock list stays for mock mode).
+        // Live auth: teams, Macs and workspaces come only from Stack and the
+        // Mac (the sample data stays only for mock mode).
         if !auth.isMock {
             store.teams = []
             store.activeTeamID = ""
+            store.workspaces = []
         }
         _store = State(initialValue: store)
         self.options = options
@@ -216,6 +218,7 @@ public struct RootView: View {
             setupPlan = nil
             return
         }
+        #if DEBUG
         if auth.isMock, store.teams.isEmpty {
             // Mock mode signed in again after a sign-out: the sample data comes back.
             let sample = AppStore.mock()
@@ -223,6 +226,7 @@ public struct RootView: View {
             store.activeTeamID = sample.activeTeamID
             store.workspaces = sample.workspaces
         }
+        #endif
         guard live == nil, !auth.isMock, let base = auth.apiBaseURL else { return }
         let api = LiveAPI(baseURL: base) { [auth] in try await auth.accessToken(forceRefresh: $0) }
         let coordinator = LiveCoordinator(

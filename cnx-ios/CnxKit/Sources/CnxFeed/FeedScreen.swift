@@ -42,8 +42,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
-                            let actions = item.swipeActions(store: store, open: { open(item) })
-                            FeedSwipeRow(id: item.id, leading: actions.leading, trailing: actions.trailing, coordinator: swipe) {
+                            FeedSwipeRow(id: item.id, actions: item.swipeActions(store: store, open: { open(item) }), coordinator: swipe) {
                                 FeedCell(item: item, store: store, open: { open(item) }, expanded: Binding(
                                     get: { expanded.contains(item.id) },
                                     set: { if $0 { expanded.insert(item.id) } else { expanded.remove(item.id) } }
@@ -228,8 +227,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, let edge):
-            swipe.demoReveal = (id, edge == "leading")
+        case .feedSwipe(let id, _):
+            swipe.demoReveal = id
             swipe.demoPerform = nil
             swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):

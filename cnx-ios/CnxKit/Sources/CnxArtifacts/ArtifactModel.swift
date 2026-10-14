@@ -101,6 +101,20 @@ public struct ArtifactUnavailable: Error, LocalizedError, Equatable {
     public var errorDescription: String? { message }
 }
 
+/// Files and Links with no Mac to read from (a terminal or chat that is not
+/// connected yet): every preview says so instead of showing sample files.
+public struct UnavailableArtifactSource: ArtifactSource {
+    public let message: String
+
+    public init(message: String = "Connect to your Mac to preview this.") {
+        self.message = message
+    }
+
+    public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
+        throw ArtifactUnavailable(message)
+    }
+}
+
 /// Finds paths and URLs in terminal output: strips escape sequences, keeps a
 /// partial last line across chunks, and reports each reference once.
 public struct ArtifactExtractor: Sendable {
