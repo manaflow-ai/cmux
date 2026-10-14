@@ -12,6 +12,7 @@ Socket only, no system input. Runs on cmux-lawrence-2; ends with the DEBUG quit 
 Usage: home-empty-send.py --tag <tag> [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -125,7 +126,7 @@ finally:
     if not (isinstance(reply, dict) and reply.get("quitting") == "end-sessions"):
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
