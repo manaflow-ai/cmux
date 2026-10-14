@@ -36598,10 +36598,12 @@ function looksLikeOpenCodeScript(value) {
   return lower.includes("opencode") || lower.includes("open-code");
 }
 
+// Compiled OpenCode reports Bun's virtual entry (src/index.js on 1.x, the TUI
+// worker on V2) as an argument. It is never a user argument.
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
+  return normalized.includes("/$bunfs/") || normalized.includes("/~BUN/");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
@@ -36640,7 +36642,9 @@ function base64NulSeparated(values) {
 function hookEnvironment(cwd) {
   const env = { ...process.env };
   delete env.AMP_API_KEY;
-  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+  // A shell started inside another agent inherits that agent's launch
+  // capture. Only reuse a capture that already describes OpenCode.
+  if (env.CMUX_AGENT_LAUNCH_KIND !== "opencode" || !env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
     env.CMUX_AGENT_LAUNCH_KIND = "opencode";
     env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("opencode");
