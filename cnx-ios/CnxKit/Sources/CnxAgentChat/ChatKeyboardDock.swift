@@ -606,8 +606,16 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             let screen = scrollView.bounds.height
             let distance = target.y - scrollView.contentOffset.y
             if abs(distance) > screen * 1.5 {
+                // The cut lands with no implicit animations, and the transcript stays hidden
+                // for the frame SwiftUI needs to draw the new rows (a tile was drawn over the
+                // composer for one frame); it fades back in with the final animation.
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                contentHost.view.alpha = 0
                 scrollView.contentOffset = CGPoint(x: 0, y: target.y - (distance > 0 ? screen : -screen))
                 scrollView.layoutIfNeeded()
+                CATransaction.commit()
+                UIView.animate(withDuration: 0.15, delay: 0.05) { self.contentHost.view.alpha = 1 }
             }
             UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
         } else {

@@ -34,7 +34,13 @@ transport or models.
   on screen. Your content is laid out at full size inside the moving rect; it
   is never re-laid out or rebuilt. On the settled grid the active tab's card
   is that same live view (no hand-off to a snapshot), so nothing on screen
-  swaps at either end of a zoom. Return false from `isContentReady` while a
+  swaps at either end of a zoom. To keep the grid static instead (no live
+  renderer under a card, for heat and scroll performance), return true from
+  `showStaticCard(for:)` after pausing the content on its last frame and
+  putting that frame in its card; `resumeLiveContent(_:)` restarts it when
+  the grid is left, so the zoom still starts from the same pixels.
+  `overviewVisibilityChanged(_:)` and `overviewScrollingChanged(_:)` tell
+  you when to stop or hold card updates. Return false from `isContentReady` while a
   tab's content would still be blank (a terminal attaching) and its card
   covers it.
 - **Close buttons and titles.** They arrive and leave as in Safari (measured

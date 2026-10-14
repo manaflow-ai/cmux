@@ -195,14 +195,14 @@ struct ChatComposer: View {
                 }
                 Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
                 Button("Files", systemImage: "paperclip") { showFiles = true }
-                Button("Mention a file", systemImage: "at") {
+                Button("Mention a File", systemImage: "at") {
                     text += text.isEmpty || text.last?.isWhitespace == true ? "@" : " @"
                     expand()
                 }
             }
             Section {
                 if let plan = store.planModeSwitch {
-                    Toggle("Plan mode", systemImage: "checklist", isOn: Binding(
+                    Toggle("Plan Mode", systemImage: "checklist", isOn: Binding(
                         get: { plan.isOn(currentModeID: store.currentModeID) },
                         set: { store.setMode(plan.mode(on: $0)) }
                     ))
@@ -217,7 +217,7 @@ struct ChatComposer: View {
                         }
                         .pickerStyle(.inline)
                     } label: {
-                        Label("Permission mode", systemImage: "lock.shield")
+                        Label("Permission Mode", systemImage: "lock.shield")
                     }
                 }
                 if !store.availableCommands.isEmpty {
@@ -373,7 +373,7 @@ struct ChatComposer: View {
         .contextMenu {
             if state == .queue {
                 Button("Queue (send after this turn)", systemImage: "text.line.last.and.arrowtriangle.forward") { send(steer: false) }
-                Button("Steer now (interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
+                Button("Steer Now (Interrupt)", systemImage: "arrow.uturn.right") { send(steer: true) }
             }
         }
         .accessibilityLabel(state == .stop ? "Stop" : "Send")
@@ -545,14 +545,18 @@ struct AttachmentThumb: View {
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
             if let remove {
                 Button(action: remove) {
+                    // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                     Image(systemName: "xmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.cnxOnAccent)
-                        .frame(width: 20, height: 20)
-                        .background(Color.cnxAccent, in: .circle)
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color(white: 0.18), in: .circle)
+                        .overlay(Circle().strokeBorder(Color(uiColor: .systemBackground), lineWidth: 1.5))
+                        .frame(width: 44, height: 44)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .offset(x: 6, y: -6)
+                .offset(x: 17, y: -17)
                 .accessibilityLabel("Remove attachment")
             }
         }

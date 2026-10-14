@@ -102,7 +102,7 @@ public final class AgentChatSurface {
         var unique: [String: DiffFile] = [:]
         for file in files { unique[file.id] = file }
         let ordered = files.map(\.id).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.compactMap { unique[$0] }
-        return DiffChangeSet(id: "session", title: "Agent edits", subtitle: "Edits in this chat", files: ordered)
+        return DiffChangeSet(id: "session", title: "Agent Edits", subtitle: "Edits in this chat", files: ordered)
     }
 
     /// Whether the chat has agent edits to open.
@@ -242,11 +242,11 @@ public struct AgentChatScreen: View {
         ToolbarItem(placement: .principal) {
             Menu {
 
-                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
-                Button("Agent edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
+                Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
+                Button("Agent Edits", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
                     .disabled(!AgentChatSurface.hasAgentEdits(store))
                 AgentParityMenuItems(store: store, surface: surface)
-                Button("Copy session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
+                Button("Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
                 if !store.modes.isEmpty {
                     Section("Mode") {
                         Picker("Mode", selection: Binding(get: { store.currentModeID ?? "" }, set: { store.setMode($0) })) {
@@ -271,14 +271,14 @@ public struct AgentChatScreen: View {
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Menu {
-                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
-                ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share transcript", systemImage: "square.and.arrow.up") }
-                Button("Stop agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
+                Button("Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true }
+                ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share Transcript", systemImage: "square.and.arrow.up") }
+                Button("Stop Agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
                     .disabled(!store.isRunning)
             } label: {
-                Image(systemName: "ellipsis")
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
+                // A Label, not a sized Image: the bar hosts a native button whose touch area
+                // covers the whole 44 pt glass circle (a custom label view was cut to 36 pt).
+                Label("More", systemImage: "ellipsis")
             }
             .accessibilityLabel("More")
         }
@@ -771,9 +771,9 @@ struct UserBubble: View {
                 .contextMenu {
                     Section(AgentTurn.menuTimestamp(turn.promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
-                        Button("Select text", systemImage: "selection.pin.in.out") { selecting = true }
+                        Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and resend", systemImage: "pencil") { resend(turn.prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { resend(turn.prompt) }
                         }
                         ShareLink(item: turn.prompt) { Label("Share", systemImage: "square.and.arrow.up") }
                     }

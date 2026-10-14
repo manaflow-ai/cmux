@@ -41,7 +41,7 @@ public struct DiffFileScreen: View {
         Group {
             if isViewed {
                 ScrollView {
-                    Label("Viewed. Tap Unmark to show the diff again.", systemImage: "checkmark.circle.fill")
+                    Label("Viewed. Tap Viewed to show the diff again.", systemImage: "checkmark.circle.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(20)
@@ -82,7 +82,8 @@ public struct DiffFileScreen: View {
                 Button {
                     withAnimation(.cnxSmooth) { state.toggleViewed(file) }
                 } label: {
-                    Label(isViewed ? "Unmark" : "Mark viewed", systemImage: isViewed ? "checkmark.circle.fill" : "checkmark.circle")
+                    // The same name as the header's check ("Viewed"), so the copy above matches it.
+                    Label(isViewed ? "Viewed" : "Mark Viewed", systemImage: isViewed ? "checkmark.circle.fill" : "checkmark.circle")
                         .labelStyle(.titleAndIcon)
                         .fixedSize()
                 }
@@ -249,20 +250,20 @@ public struct DiffFileScreen: View {
     /// Mark viewed and File actions (44 pt each). At accessibility sizes the counts and
     /// buttons move to a second line so the file name keeps the width.
     private func stickyHeader(isViewed: Bool) -> some View {
-        let path = HStack(spacing: 0) {
-            if !file.directory.isEmpty {
-                // `directory` already ends in "/".
-                Text(file.directory)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .layoutPriority(0)
-            }
+        // The folder takes only the width the whole name leaves, and is left out under
+        // about three characters (no sliver or lone glyph).
+        let path = FolderNameLayout(folderFirst: true) {
+            // `directory` already ends in "/".
+            Text(file.directory)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(minWidth: 0, alignment: .leading)
+                .clipped()
             Text(file.fileName)
                 // At accessibility sizes a long name wraps to a second line instead of losing its middle.
                 .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                 .truncationMode(.middle)
-                .layoutPriority(1)
         }
         .font(.footnote.monospaced())
         .accessibilityElement(children: .combine)
@@ -271,7 +272,7 @@ public struct DiffFileScreen: View {
                 .padding(.trailing, 4)
             ViewedToggle(isViewed: isViewed) { withAnimation(.cnxSmooth) { state.toggleViewed(file) } }
             Menu {
-                Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
             } label: {
                 Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(.rect)
             }
@@ -590,8 +591,8 @@ struct UnifiedCode: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(line.rowColor)
             .contextMenu {
-                Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
-                Button("Copy with line number", systemImage: "number") {
+                Button("Copy Line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
+                Button("Copy with Line Number", systemImage: "number") {
                     UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
                 }
             }
@@ -635,8 +636,8 @@ struct UnifiedDiffRow: View {
         .background(line.rowColor)
         .fixedSize(horizontal: false, vertical: true)
         .contextMenu {
-            Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
-            Button("Copy with line number", systemImage: "number") {
+            Button("Copy Line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
+            Button("Copy with Line Number", systemImage: "number") {
                 UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
             }
         }
