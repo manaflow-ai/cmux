@@ -11,7 +11,9 @@ import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import {
   HomeOps,
+  type HomeAttachment,
   type HomeConversation,
+  type HomeDerivedImage,
   type HomeEventBatch,
   type HomeMessage,
   type HomeParticipant,
@@ -29,6 +31,10 @@ type Json = Record<string, unknown>;
 const LOCAL_USER = "user_local";
 /** `thread.update`, `Message.thread` and the thread object fields of the stats. */
 const THREAD_OBJECTS_CAPABILITY = "conversation-thread-objects-v1";
+/** Attachment uploads, reads and download links on this WebSocket (local conversations). */
+const WS_ATTACHMENTS_CAPABILITY = "ws-attachments-v1";
+/** The attachment steps the page may send (the owner checks every field). */
+const UPLOAD_STEPS = new Set(["begin", "chunk", "commit", "cancel"]);
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
   love: "❤️",
@@ -82,18 +88,60 @@ function part(raw: Json): HomePart {
       };
     }
     case "attachment":
-      return {
-        type: "attachment",
-        name: String(raw.name ?? ""),
-        mimeType: String(raw.mime_type ?? ""),
-        byteCount: num(raw.byte_count),
-        hash: String(raw.hash ?? ""),
-      };
+      return attachmentPart(raw);
     case "link_preview":
       return { type: "other", text: String(raw.url ?? "") };
     default:
       return { type: "other", text: String(raw.type ?? "") };
   }
+}
+
+function derivedImage(raw: unknown): HomeDerivedImage | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const image = raw as Json;
+  return { hash: String(image.hash ?? ""), mimeType: String(image.mime_type ?? ""), byteCount: num(image.byte_count) };
+}
+
+function attachmentPart(raw: Json): HomeAttachment {
+  const part: HomeAttachment = {
+    type: "attachment",
+    name: String(raw.name ?? ""),
+    mimeType: String(raw.mime_type ?? ""),
+    byteCount: num(raw.byte_count),
+    hash: String(raw.hash ?? ""),
+  };
+  if (typeof raw.width === "number") part.width = raw.width;
+  if (typeof raw.height === "number") part.height = raw.height;
+  if (typeof raw.duration_ms === "number") part.durationMs = raw.duration_ms;
+  const poster = derivedImage(raw.poster);
+  if (poster) part.poster = poster;
+  const preview = derivedImage(raw.preview);
+  if (preview) part.preview = preview;
+  return part;
+}
+
+/** The owner's wire form of an attachment part the page sends. */
+function wireAttachment(value: unknown): Json {
+  if (!value || typeof value !== "object") throw pageError("cmux.page.invalid_params", "attachments");
+  const part = value as HomeAttachment;
+  const image = (derived: HomeDerivedImage) => ({
+    hash: String(derived.hash),
+    mime_type: String(derived.mimeType),
+    byte_count: num(derived.byteCount),
+  });
+  const wire: Json = {
+    type: "attachment",
+    hash: String(part.hash),
+    name: String(part.name),
+    mime_type: String(part.mimeType),
+    byte_count: num(part.byteCount),
+  };
+  if (typeof part.width === "number") wire.width = part.width;
+  if (typeof part.height === "number") wire.height = part.height;
+  if (typeof part.durationMs === "number") wire.duration_ms = part.durationMs;
+  if (part.poster) wire.poster = image(part.poster);
+  if (part.preview) wire.preview = image(part.preview);
+  return wire;
 }
 
 function reaction(raw: Json): HomeReaction {
@@ -236,10 +284,14 @@ export function runStep(raw: Json): HomeRunStep {
 
 function plain(raw: Json | undefined): string | undefined {
   if (!raw || raw.retracted_at) return undefined;
-  return ((raw.parts as Json[] | undefined) ?? [])
+  const parts = (raw.parts as Json[] | undefined) ?? [];
+  const text = parts
     .map((item) => (item.type === "text" ? String(item.text ?? "") : ""))
     .join(" ")
-    .slice(0, 200);
+    .trim();
+  // A message of files only previews their names (the page has no wording here).
+  const files = parts.filter((item) => item.type === "attachment").map((item) => String(item.name ?? ""));
+  return (text || files.join(", ")).slice(0, 200);
 }
 
 export function conversation(raw: Json, me: string): HomeConversation {
@@ -488,9 +540,12 @@ export class DaemonHomeClient implements PageClient {
         });
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
-        if (!text || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
+        const files = Array.isArray(params.attachments) ? params.attachments.map(wireAttachment) : [];
+        if (files.length > 10) throw pageError("cmux.page.invalid_params", "attachments");
+        if ((!text && files.length === 0) || text.length > 40_000) throw pageError("cmux.page.invalid_params", "text");
         const key = this.key(params, options);
-        const send: Json = { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text }] };
+        const parts: Json[] = [...(text ? [{ type: "text", text }] : []), ...files];
+        const send: Json = { kind: "message.send", client_msg_id: key, parts };
         if (typeof params.threadRoot === "string" && params.threadRoot) send.thread_root = params.threadRoot;
         // The reply's parent at any depth (conversation-tree-v1): the owner keeps the top root.
         if (typeof params.replyTo === "string" && params.replyTo)
@@ -573,9 +628,73 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.createGroup:
         return this.createGroup(params, options);
+      case HomeOps.attachmentSupport:
+        // Cloud conversations take attachments once the daemon proxies the cloud upload.
+        return { local: await this.capable(WS_ATTACHMENTS_CAPABILITY), cloud: false };
+      case HomeOps.attachmentUpload:
+        return this.attachmentUpload(params);
+      case HomeOps.attachmentRead: {
+        const id = str(params, "conversation");
+        this.localAttachments(id);
+        const read: Json = { conversation: id, hash: str(params, "hash", 64) };
+        if (typeof params.variant === "string") read.variant = params.variant;
+        if (typeof params.offset === "number") read.offset = params.offset;
+        if (typeof params.length === "number") read.length = params.length;
+        const bytes = await this.daemon.request<Json>("conversation-attachment-read", read);
+        return {
+          mimeType: String(bytes.mime_type ?? ""),
+          byteCount: num(bytes.byte_count),
+          offset: num(bytes.offset),
+          data: String(bytes.data ?? ""),
+          eof: bytes.eof === true,
+        };
+      }
+      case HomeOps.attachmentUrl: {
+        const id = str(params, "conversation");
+        this.localAttachments(id);
+        const request: Json = { conversation: id, hash: str(params, "hash", 64) };
+        if (typeof params.variant === "string") request.variant = params.variant;
+        if (typeof params.name === "string" && params.name) request.name = params.name;
+        const link = await this.daemon.request<Json>("conversation-attachment-link", request);
+        // The link is a path on the daemon's own listener: this connection's origin.
+        const base = this.daemon.url.replace(/^ws/, "http");
+        return { url: new URL(String(link.path), base).toString(), expiresInMs: num(link.expires_in_ms) };
+      }
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
+  }
+
+  /** Attachments of a Cloud conversation need the daemon's cloud upload (not yet): say so. */
+  private localAttachments(conversationId: string): void {
+    if (this.cloud.owns(conversationId))
+      throw pageError("cmux.page.unavailable", "attachments of cloud conversations are not available here yet");
+  }
+
+  /** One upload step for the local owner (`conversation-attachment-upload`), fields as the owner names them. */
+  private async attachmentUpload(params: Json): Promise<unknown> {
+    const op = str(params, "op", 16);
+    if (!UPLOAD_STEPS.has(op)) throw pageError("cmux.page.invalid_params", "op");
+    if (op === "begin") this.localAttachments(str(params, "conversation"));
+    const request: Json = { op };
+    for (const field of [
+      "conversation",
+      "sha256",
+      "byte_count",
+      "mime_type",
+      "name",
+      "width",
+      "height",
+      "duration_ms",
+      "poster",
+      "preview",
+      "upload",
+      "piece",
+      "offset",
+      "data",
+    ])
+      if (params[field] !== undefined) request[field] = params[field];
+    return this.daemon.request("conversation-attachment-upload", request);
   }
 
   /** A Cloud conversation's runs: each Chief of it keeps its own (the Cloud brain's reads, by
