@@ -97,7 +97,18 @@ const settledSummary = async (side: Side, usd: number) => {
   }
   return { seconds: null, value: null }
 }
+/**
+ * A test clock stays at its frozen time, and the payment service refuses a meter event dated more than a few
+ * minutes after the customer's clock time. The sync dates events at real time (live mode has no clock), so
+ * before a sync in the running period the clock moves up to real time (never back, never past the period).
+ */
+const catchUp = async () => {
+  const c = await stripe("GET", `/v1/test_helpers/test_clocks/${st.clock}`)
+  const now = Math.floor(Date.now() / 1000)
+  if (c.frozen_time < now - 60 && now < Math.min(st.team.end, st.seat.end) - 900) await advance(st.clock, now)
+}
 const syncAndLevel = async (label: string) => {
+  await catchUp()
   for (const side of SIDES) {
     log(`${label}-${side}`, await sync(side))
     st[side].level = await levelNow(side)

@@ -22,11 +22,9 @@ enum DragTunables {
 
     /// A pane edge splits only once the pointer has stayed on it this long (cmuxterm-hq#1829:
     /// Chrome's split targets were too eager); before that the drop joins the pane.
-    // @intent familiar first (Leo 2026-10-14, cx-jin7d): classic's bonsplit splits on an edge drop
-    // at once, so the dwell is opt-in (default 0) until Labs; a quick drop on an edge splits.
     static let splitDwell = Tunable<Double>.number(
         "tabDrag.splitDwell", .tabDrag, "Split dwell",
-        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once.",
+        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once (classic).",
         default: 0, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
 
     /// The sidebar slot between two rows opens its new-workspace gap only once the pointer has

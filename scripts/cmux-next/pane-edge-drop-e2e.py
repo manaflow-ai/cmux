@@ -4,7 +4,7 @@
 The golden split-drag case `edge.new-split-below` (classic's bonsplit passes it): a tab dragged
 from the strip to a pane's bottom edge band and released there makes a new pane below with
 that tab. cmux NEXT used to join the pane instead unless the pointer rested on the edge for
-`tabDrag.splitDwell`; the dwell is now opt-in (default 0).
+`tabDrag.splitDwell`; the dwell is opt-in (default 0) since cx-imr7n.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket, opens a workspace with two terminal tabs and splits it right (`action.run`), the

@@ -108,7 +108,6 @@
     "optchat-inspector/TreeView.tsx#TreeView",
     "pages/changelog/surface.tsx#SurfaceOps",
     "pages/home-channels/DaemonGate.tsx#DaemonGate",
-    "pages/home-channels/DaemonGate.tsx#InstanceBar",
     "pages/markdown/linkOverlays.tsx#LinkCardView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
     "pages/markdown/linkOverlays.tsx#LinkPopoverView",
