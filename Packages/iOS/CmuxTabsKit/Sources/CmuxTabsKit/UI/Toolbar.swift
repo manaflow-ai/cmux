@@ -95,6 +95,16 @@ struct TabsToolbar: View {
         // shapes together and ignores per-shape opacity, which the side
         // circles need for Safari's fade while they slide inward.
         ZStack(alignment: .topLeading) {
+            // The whole bar row takes touches, gaps included: a touch between
+            // the controls must not reach the page under the toolbar.
+            let row = layout.back.union(layout.capsule).union(layout.right)
+            Color.clear
+                .frame(width: row.width, height: row.height)
+                .contentShape(.rect)
+                .onTapGesture {}
+                .position(x: row.midX, y: row.midY)
+                .allowsHitTesting(!collapsed)
+                .accessibilityHidden(true)
             backButton(layout.back)
                 .scaleEffect(collapsed ? 0.8 : 1)
                 .opacity(features.contains(.history) ? sideOpacity : 0)

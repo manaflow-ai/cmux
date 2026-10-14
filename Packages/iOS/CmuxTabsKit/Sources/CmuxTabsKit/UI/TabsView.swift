@@ -106,7 +106,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         controlsInteractive: overviewVisible && zoomState.headingToOverview,
                         scrollOffset: $overviewScroll, position: $overviewPosition,
                         onSelect: { closeOverview(selecting: $0) },
-                        onClose: { id in withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.close(id) } },
+                        onClose: { id in await source.close(id) },
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
                         onCloseAll: closeAll,
@@ -138,6 +138,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .frame(width: size.width, height: size.height)
             }
 
+            // Out of the hierarchy on the settled grid (invisible there, and
+            // accessibility tools list hidden views too).
+            if zoomState.phase != .overview {
             TabsToolbar(chrome: chrome, tab: activeTab, size: size, safeBottom: safeBottom, keyboard: keyboard,
                         history: source.providesHistoryMenus ? { direction in
                             activeID.map { source.history(direction, for: $0) } ?? []
@@ -153,6 +156,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
                 .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+            }
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
@@ -271,7 +275,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .overlay(alignment: .topTrailing) {
             if zoomTabId != TabsScreenSpace.newTabMarker || phase == .overview, let id = activeID {
                 Button {
-                    withAnimation(theme.motion.resolve(theme.motion.reflow)) { source.close(id) }
+                    Task { _ = await source.close(id) }
                 } label: {
                     CardCloseGlyph().padding(4).contentShape(.rect)
                 }
@@ -483,7 +487,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     private func closeAll() {
         let ids = tabs.map(\.id)
-        withAnimation(theme.motion.resolve(theme.motion.reflow)) { for id in ids { source.close(id) } }
+        Task { for id in ids { _ = await source.close(id) } }
         if let option = source.newTabOptions.first { newTabFromOverview(option) }
     }
 
