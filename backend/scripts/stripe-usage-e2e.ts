@@ -1,6 +1,6 @@
 // cx-y79zh end-to-end run, Stripe TEST MODE only, against the development Worker (BILLING_USAGE_PRICE_SET=e2e).
 // One test clock, two teams side by side (cx-y79zh.1, Lawrence 2026-10-14):
-// - "team" (per team): the agent's personal team on a Pro plan item; the graduated price, 0.5 USD included.
+// - "team" (per team): the agent's personal team on a Pro plan item; the graduated price, 1 USD included.
 // - "seat" (per seat): the agent's shared e2e team (sign-in service team E2E_STACK_TEAM, cmuxPlan=team) on a
 //   Team plan item with 2 seats; the operator setting per_seat (POST /v1/internal/billing/team-mode) is made
 //   before the subscription starts, so it is in force from the first period; the flat price, 2 x 0.5 USD.
@@ -16,8 +16,8 @@ const ORIGIN = "https://cmux-api-development.debussy.workers.dev"
 const V = "2026-06-24.dahlia"
 const STACK_TEAM = process.env.E2E_STACK_TEAM ?? "e8733fff-8ce2-457b-9d6a-d20223d46a71"
 const SEATS = 2
-/** The e2e set's included amounts (billing-catalog.ts): Pro 0.5 per team, Team 0.5 per seat. */
-const INCLUDED = { team: 0.5, seat: 0.5 * SEATS } as const
+/** The e2e set's included amounts (billing-catalog.ts): Pro 1 per team, Team 0.5 per seat. */
+const INCLUDED = { team: 1, seat: 0.5 * SEATS } as const
 const log = (k: string, v: unknown) => console.log(JSON.stringify({ [k]: v }))
 const stripe = async (method: string, path: string, form?: Record<string, string>) => {
   const res = await fetch(`https://api.stripe.com${path}`, { method, headers: { authorization: `Bearer ${sec.stripe}`, "stripe-version": V, ...(form ? { "content-type": "application/x-www-form-urlencoded" } : {}) }, ...(form ? { body: new URLSearchParams(form).toString() } : {}) })
@@ -103,6 +103,8 @@ if (phase === "a") {
   const set = await internal("/v1/internal/billing/team-mode", { stack_team: STACK_TEAM, mode: "per_seat", actor: "e2e-hq-84", reason: "cx-y79zh.1 e2e per-seat team" })
   log("team_mode", { team: set.team, before: set.before, mode: set.mode, changed: set.changed, applies: set.applies })
   st.team_id = set.team
+  // The setting is recorded in ms and the clock's period starts at a whole second: a 2 s gap (deliberate, not a
+  // synchronization wait) makes the period start later than the setting, so the setting is in force from it.
   await new Promise((r) => setTimeout(r, 2000))
   const prices = { team: await planPrice("cmux-pro-monthly"), seat: await planPrice("cmux-team-") }
   const clock = await stripe("POST", "/v1/test_helpers/test_clocks", { frozen_time: String(Math.floor(Date.now() / 1000)), name: "cx-y79zh.1 usage e2e team+seat" })

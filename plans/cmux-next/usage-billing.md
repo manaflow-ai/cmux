@@ -471,8 +471,9 @@ CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-
 - Seat count per seat: the most seats seen in the period (as built). The S5 review P2 "a short seat
   churn keeps the included amount of the added seats for the whole period" is accepted (Lawrence
   2026-10-14).
-- e2e set: Pro 0.5 USD (per team) and Team 0.5 USD (per team or per seat), so one run can cross both
-  included amounts with a little real usage. The e2e uses the agent's personal team (Pro, per team) and
+- e2e set: Pro 1 USD (per team) and Team 0.5 USD per seat (a graduated price needs a whole-dollar tier,
+  so the e2e Team plan has the per-seat price only), so one run can cross both included amounts with a
+  little real usage (the development daily provider cap is 5 USD). The e2e uses the agent's personal team (Pro, per team) and
   its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
   team_d68c2131970b3ebbd449, cmuxPlan=team on the development sign-in project only; on the development
   INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.

@@ -36,10 +36,11 @@ export const INCLUDED_MODES: ReadonlyArray<IncludedMode> = ["per_team", "per_sea
 /**
  * Price sets: the included USD per plan. `v1`: the production values (test mode until the live step).
  * `e2e`: small amounts so that an end-to-end run can cross the included amount with a little real
- * usage; the sync uses it only on the development Worker with BILLING_USAGE_PRICE_SET=e2e
+ * usage (Team 0.5 per seat; a graduated price needs a whole-dollar tier, so the e2e Team plan has the
+ * per-seat price only); the sync uses it only on the development Worker with BILLING_USAGE_PRICE_SET=e2e
  * (billing-usage-sync.ts usagePriceSet).
  */
-export const USAGE_PRICE_SETS = { v1: { go: 5, pro: 20, max: 100, team: 20 }, e2e: { go: 1, pro: 0.5, max: 1, team: 0.5 } } as const satisfies Record<string, Readonly<Record<UsagePlan, number>>>
+export const USAGE_PRICE_SETS = { v1: { go: 5, pro: 20, max: 100, team: 20 }, e2e: { go: 1, pro: 1, max: 1, team: 0.5 } } as const satisfies Record<string, Readonly<Record<UsagePlan, number>>>
 export type UsagePriceSet = keyof typeof USAGE_PRICE_SETS
 export const USAGE_PRICE_SET_NAMES = Object.keys(USAGE_PRICE_SETS) as ReadonlyArray<UsagePriceSet>
 /** Plans whose included mode is the team's operator setting; every other plan is per team. */

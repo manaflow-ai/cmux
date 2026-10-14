@@ -8,7 +8,7 @@ import worker from "../../src/index.ts"
  * (inference-spend-facts.test.ts), with the model provider faked beside it.
  */
 export const SYNC_KEY = "test-billing-levels-key-0123456789abcdef"
-const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl0.5-e2e": "price_e2e_pro", "cmux-ai-usage-team-incl0.5-e2e": "price_e2e_team_incl", "cmux-ai-usage-team-seat0.5-e2e": "price_e2e_team_seat" }
+const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl1-e2e": "price_e2e_pro", "cmux-ai-usage-team-incl0.5-e2e": "price_e2e_team_incl", "cmux-ai-usage-team-seat0.5-e2e": "price_e2e_team_seat" }
 
 type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null; version: string | null }
 type FakeSub = { id: string; status: string; customer: string; metadata: Record<string, string>; items: { data: Array<any> } }

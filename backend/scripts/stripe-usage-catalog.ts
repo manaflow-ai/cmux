@@ -74,6 +74,11 @@ const prices: Record<string, any> = {}
 for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>) for (const mode of usageModesOf(plan)) {
   const meter = meters[mode]
   const lookup = usagePriceLookupKey(plan, SET, mode)
+  // A graduated tier ends at a whole unit (Stripe): a fractional amount has the per-seat price only.
+  if (mode === "per_team" && !Number.isInteger(INCLUDED_USD[plan])) {
+    prices[`${plan}:${mode}`] = { skipped: `${INCLUDED_USD[plan]} USD is not a whole unit; per seat only` }
+    continue
+  }
   let price = (await api("GET", `/v1/prices?lookup_keys[]=${lookup}&active=true&expand[]=data.tiers`)).data[0] ?? null
   if (!price && !check && meter && product) {
     const common = {
