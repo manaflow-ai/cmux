@@ -528,6 +528,7 @@
       "conversation-history",
       "conversation-thread",
       "conversation-link-resolve",
+      "conversation-inbox-op",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -547,7 +548,10 @@
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
+      "cloud-conversation-runs",
+      "cloud-conversation-run",
       "cloud-conversation-op",
+      "cloud-inbox-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
@@ -557,6 +561,10 @@
       "cloud-mux-ack",
       "conversation-attachment-upload",
       "conversation-attachment-read",
+      "conversation-attachment-link",
+      "conversation-run-append",
+      "conversation-runs",
+      "conversation-run",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
       "feed-local-handoff-done"
@@ -660,7 +668,25 @@
       ]
     },
     {
+      "name": "conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-run-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-inbox-changed",
       "streams": [
         "subscribe"
       ]
@@ -1402,6 +1428,11 @@
       "variant": "CopyWorkspaceId",
       "classification": "presentation-only",
       "route": "tree snapshot + frontend clipboard"
+    },
+    {
+      "variant": "PinWorkspace",
+      "classification": "direct",
+      "route": "sidebar.pin or sidebar.unpin (sidebar-doc-v1)"
     },
     {
       "variant": "CloseWorkspace",

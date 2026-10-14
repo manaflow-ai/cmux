@@ -153,6 +153,13 @@ fn mutate(
         .map_err(|e| internal(operation, &e))?;
     match outcome {
         Ok((record, replayed)) => {
+            if !replayed {
+                mux.chiefs().brains.chief_written(
+                    &record,
+                    operation == Op::ChiefProfileCreate,
+                    operation == Op::ChiefProfileDelete,
+                );
+            }
             let (_, generation) = mux.registry_identity();
             Ok(json!({"value": chief_registry::wire(&record), "generation": generation,
                       "revision": record.rev.to_string(), "replayed": replayed}))
