@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type { HexclaveInboxStore } from "./hexclave/inbox";
 import { hexclaveEventTarget, type HexclaveSyncDependencies } from "./hexclave/sync";
 import { parseHexclaveWebhook, type HexclaveWebhookEvent } from "./hexclave/webhookEvents";
+import { captureAccountSignedUp } from "../analytics/accountSignup";
 
 /**
  * Hexclave (formerly Stack Auth) webhooks, delivered by Svix. Every event
@@ -77,6 +78,8 @@ export type StackWebhookDependencies = {
   readonly scheduleDrain?: () => void;
   readonly nowSeconds?: () => number;
   readonly log?: StackWebhookLog;
+  /** Product analytics for a new account (`cmux_account_signed_up`). */
+  readonly captureSignup?: (data: unknown) => void;
 };
 
 const defaultLog: StackWebhookLog = (level, message, fields) => {
@@ -173,6 +176,9 @@ async function enqueueEvent(
     return json(503, { error: "inbox_unavailable", retryable: true }, { "retry-after": "30" });
   }
   log("info", "stack_webhook_queued", { svixId, eventType: event.type });
+  // Accepted exactly when the inbox stored it; a redelivery reuses the
+  // event's natural insert id, so the account is counted once.
+  if (event.type === "user.created") (dependencies.captureSignup ?? captureAccountSignedUp)(event.data);
   dependencies.scheduleDrain?.();
   return json(200, { received: true, queued: event.type });
 }

@@ -6,7 +6,11 @@ import { eq } from "drizzle-orm";
 import { cloudDb } from "../../../db/client";
 import { appleSubscriptions, type AppleSubscriptionStatus } from "../../../db/schema";
 import type { PersonalPlanId } from "../pro";
+import { planTierRank } from "../planTier";
 import { APP_STORE_BUNDLE_ID, appleEnvironmentGrantsEntitlement, appleSandboxGrantNeedsAccountEmail } from "./config";
+
+/** Personal plans sold in the App Store; the best grant wins by tier. */
+const APPLE_PLAN_IDS: ReadonlySet<string> = new Set(["go", "pro", "max"]);
 
 type Env = Record<string, string | undefined>;
 
@@ -23,7 +27,6 @@ export type AppleEntitlementRow = {
   readonly purchaseDate?: Date | null;
 };
 
-const PLAN_RANK: Readonly<Record<string, number>> = { go: 1, pro: 2, max: 3 };
 
 function isAfter(value: Date | null, now: Date): boolean {
   return value !== null && value.getTime() > now.getTime();
@@ -41,7 +44,7 @@ export function appleSubscriptionGrantsAccess(
   env: Env = process.env,
   accountEmail: string | null = null,
 ): boolean {
-  if (!(row.planId in PLAN_RANK)) return false;
+  if (!APPLE_PLAN_IDS.has(row.planId)) return false;
   if (!appleEnvironmentGrantsEntitlement({ ...row, accountEmail }, env)) return false;
   switch (row.status) {
     case "active":
@@ -65,7 +68,7 @@ export function bestAppleEntitlement<Row extends AppleEntitlementRow>(
   let best: Row | null = null;
   for (const row of rows) {
     if (!appleSubscriptionGrantsAccess(row, now, env, accountEmail)) continue;
-    if (!best || PLAN_RANK[row.planId]! > PLAN_RANK[best.planId]!) best = row;
+    if (!best || planTierRank(row.planId) > planTierRank(best.planId)) best = row;
   }
   return best;
 }

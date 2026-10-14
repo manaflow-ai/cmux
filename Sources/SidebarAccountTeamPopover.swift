@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxAppKitSupportUI
 import CmuxSettingsUI
 import SwiftUI
@@ -152,13 +153,13 @@ private struct SidebarAccountPopover: View {
                 }
                 .accessibilityIdentifier("SidebarAccountSignInButton")
             }
-            if accountFlow?.isProUpgradeAvailable == true {
+            if let offer = accountFlow?.upgradeOffer {
                 if accountFlow?.currentIdentity == nil {
                     Divider()
                         .padding(.vertical, 4)
                 }
                 accountMenuRow(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                    title: ProUpgradePresenter.upgradeMenuTitle(for: offer),
                     systemImage: "sparkles"
                 ) {
                     dismiss()
