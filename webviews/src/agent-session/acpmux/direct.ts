@@ -1549,6 +1549,8 @@ export class AcpmuxDirectClient {
         this.streamingAssistant &&
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
+      // A newer message ends the reply before it, like a tool call does.
+      if (!sameMessage) this.endAssistantSegment();
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
       const existing = this.rows.get(id);
       // Text after tool calls is a new segment; the next tool call opens a new fold.
@@ -1701,10 +1703,22 @@ export class AcpmuxDirectClient {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
 
+  /// Ends every reply still marked streaming.
+  private settleStreamingRows(): void {
+    this.endAssistantSegment();
+    for (const row of this.rows.values())
+      if (row.kind === "assistant" && row.streaming)
+        this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
+  }
+
   private emitNow(connection: string): void {
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;
+    const working = this.turnOpen || summary?.status === "running";
+    // An idle chat writes nothing: a reply still open (text after the turn's result, a turn end
+    // that never came) stops streaming, as a new row object so the transcript draws it again.
+    if (!working && this.replayThrough === undefined) this.settleStreamingRows();
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
@@ -1753,7 +1767,7 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
-      isWorking: this.replayThrough === undefined && (this.turnOpen || summary?.status === "running"),
+      isWorking: this.replayThrough === undefined && working,
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,

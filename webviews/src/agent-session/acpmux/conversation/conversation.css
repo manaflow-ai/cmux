@@ -1282,8 +1282,8 @@ pre.cv-math-source {
   overflow-wrap: anywhere;
 }
 
-/* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
- * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
+/* R104: a block that appears while the reply streams fades in and rises 4px on the shared
+ * fade-in token (a row that arrives live only fades, below). `translate` and
  * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
  * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 @keyframes cv-enter {
@@ -1297,16 +1297,19 @@ pre.cv-math-source {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-enter,
-  .acpmux-row--enter {
+  .cv-enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cv-enter,
-  .acpmux-row--enter {
+  .cv-enter {
     animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
+}
+/* A new row only fades in: a followed view already glides the thread up by it, and a rise of its
+ * own on top of that read as a second, strange motion (Leo 2026-10-13). */
+.acpmux-row--enter {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
