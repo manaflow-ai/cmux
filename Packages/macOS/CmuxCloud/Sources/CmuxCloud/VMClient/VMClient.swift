@@ -1876,7 +1876,12 @@ public actor VMClient {
     /// now reports. A provider that cannot pause answers 501 `vm_pause_unsupported`.
     public func pause(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.pause, foreground: true) {
-            try await lifecycleTransition(id: id, action: "pause", teamID: teamID)
+            try await lifecycleTransition(
+                id: id,
+                action: "pause",
+                teamID: teamID,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
         }
     }
 
@@ -1884,7 +1889,12 @@ public actor VMClient {
     /// files come back. Plan limits apply exactly as they do to an implicit wake.
     public func resume(id: String, teamID: String? = nil) async throws -> String {
         return try await withOperation(.resume, foreground: true) {
-            try await lifecycleTransition(id: id, action: "resume", teamID: teamID)
+            try await lifecycleTransition(
+                id: id,
+                action: "resume",
+                teamID: teamID,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
         }
     }
 
@@ -1901,7 +1911,7 @@ public actor VMClient {
         id: String,
         action: String,
         teamID: String?,
-        timeoutSeconds: TimeInterval = Self.createTimeoutSeconds
+        timeoutSeconds: TimeInterval
     ) async throws -> String {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request(
