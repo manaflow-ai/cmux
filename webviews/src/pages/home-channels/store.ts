@@ -6,7 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { mergeMessages, threadOf } from "./model";
+import { hashLink, mergeMessages, threadOf } from "./model";
 import {
   HomeOps,
   type HomeConversation,
@@ -16,6 +16,7 @@ import {
   type HomeMessage,
   type HomePage,
   type HomeParticipant,
+  type HomeResolvedLink,
   type HomeThreadPage,
   type HomeThreadStats,
 } from "./types";
@@ -61,6 +62,8 @@ export interface HomeSnapshot {
   threadsSeen: ReadonlySet<string>;
   /** The open conversation's running agent reply (shown until the reply posts). */
   draft?: HomeDraft;
+  /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
+  highlight?: string;
   error?: string;
 }
 
@@ -129,6 +132,37 @@ export class HomeChannelsStore {
       this.set({ error: describe(error), loading: false });
     }
     await this.reloadInbox();
+    this.followHash();
+  }
+
+  /** Opens the link in the page URL's hash (`#/conversation/<id>[/message/<id>]`) now and on every
+   * change, so a host (the Messages Home's switch, a pasted URL) opens the page at one message. */
+  private followHash(): void {
+    if (typeof window === "undefined") return;
+    const open = () => {
+      const link = hashLink(window.location.hash);
+      if (link) void this.openLink(link);
+    };
+    window.addEventListener("hashchange", open);
+    this.stops.push(() => window.removeEventListener("hashchange", open));
+    open();
+  }
+
+  /** Opens a conversation or message link (`cmux://conversation/<id>[/message/<id>]`): the
+   * conversation, the message's thread, and the message marked. Resolves true when it opened. */
+  async openLink(url: string): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const link = await this.client.call<HomeResolvedLink>(HomeOps.resolveLink, { url });
+      if (!this.snapshot.conversations.has(link.conversation)) await this.reloadInbox();
+      await this.select(link.conversation);
+      if (link.threadRoot) this.openThread(link.threadRoot);
+      this.set({ highlight: link.message?.id });
+      return true;
+    } catch (error) {
+      this.set({ error: describe(error) });
+      return false;
+    }
   }
 
   private stop(): void {
@@ -276,8 +310,9 @@ export class HomeChannelsStore {
     }
   }
 
-  /** Sends text to the open conversation (or the open thread). The owner's event shows it. */
-  async send(text: string, thread?: string): Promise<boolean> {
+  /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
+   * or any reply: threads nest without a limit). The owner's event shows it. */
+  async send(text: string, thread?: string, parent?: string): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
     if (!this.client || !conversation || !trimmed) return false;
@@ -286,6 +321,7 @@ export class HomeChannelsStore {
         conversation,
         text: trimmed,
         threadRoot: thread,
+        replyTo: parent,
         idempotencyKey: this.key("send"),
       });
       return true;

@@ -3,7 +3,7 @@
 // thread summary (reply authors, count, last reply). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
-import { memo, useState, type ReactNode } from "react";
+import { memo, useCallback, useState, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
@@ -11,7 +11,7 @@ import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { HomeIcon } from "./icons";
 import { MessageActions } from "./MessageActions";
-import { messageText, mentionsMe, type ThreadSummary } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe, type ThreadSummary } from "./model";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
@@ -31,7 +31,19 @@ export interface MessageRowProps {
   /** My own messages: edit (resolves true when the owner took it) and delete. */
   onEdit?(message: HomeMessage, text: string): Promise<boolean>;
   onRetract?(message: HomeMessage): void;
+  /** In a thread: reply to this message (threads nest without a limit). */
+  onReply?(message: HomeMessage): void;
+  onCopyLink?(message: HomeMessage): void;
+  /** Indent level in the thread panel (0 = none). */
+  depth?: number;
+  /** The reply this one answers, named above it when the indent is capped. */
+  parent?: HomeMessage;
+  /** A link opened this message: it scrolls into view and is marked. */
+  highlighted?: boolean;
 }
+
+/** The last message a link scrolled to (one scroll per opened link). */
+let scrolledTo: string | undefined;
 
 export const MessageRow = memo(function MessageRow({
   message,
@@ -48,23 +60,44 @@ export const MessageRow = memo(function MessageRow({
   onEditEnd,
   onEdit,
   onRetract,
+  onReply,
+  onCopyLink,
+  depth = 0,
+  parent,
+  highlighted = false,
 }: MessageRowProps) {
-  const { t } = strings;
+  const { t, format } = strings;
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
   const own = !message.retracted && message.author === me;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
+  // A link opened this message: scroll to it once, not on every later render or remount.
+  const scrollToLinked = useCallback(
+    (element: HTMLElement | null) => {
+      if (!element || !highlighted || scrolledTo === message.id) return;
+      scrolledTo = message.id;
+      element.scrollIntoView({ block: "center" });
+    },
+    [highlighted, message.id],
+  );
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
+      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
+      ref={scrollToLinked}
     >
       <div className="hc-msg-gutter">
         {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
       <div className="hc-msg-main">
+        {parent && depth > MAX_THREAD_INDENT && (
+          <p className="hc-msg-parent">
+            {format("thread.inReplyTo", people.get(parent.author)?.name ?? parent.author)}
+          </p>
+        )}
         {head && <Head author={author} fallback={message.author} time={time} strings={strings} />}
         {message.retracted ? (
           <p className="hc-msg-retracted">{t("message.retracted")}</p>
@@ -117,7 +150,11 @@ export const MessageRow = memo(function MessageRow({
           canEdit={canEdit}
           canDelete={own && onRetract !== undefined}
           onReact={(value) => onReact(message, value)}
-          onReply={onOpenThread ? () => onOpenThread(message.id) : undefined}
+          onReply={
+            onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined
+          }
+          replyLabel={onReply ? t("action.replyTo") : undefined}
+          onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
           onEdit={() => onEditStart?.(message)}
           onDelete={() => setConfirmDelete(true)}
           onCopy={() => void navigator.clipboard?.writeText(messageText(message))}

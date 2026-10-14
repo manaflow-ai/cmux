@@ -25,6 +25,10 @@ export interface TimelineProps {
   onEditEnd?(): void;
   onEdit?(message: HomeMessage, text: string): Promise<boolean>;
   onRetract?(message: HomeMessage): void;
+  onReply?(message: HomeMessage): void;
+  onCopyLink?(message: HomeMessage): void;
+  /** The message a link opened. */
+  highlight?: string;
   className?: string;
   /** What the empty timeline says. */
   empty?: string;
@@ -48,6 +52,9 @@ export function Timeline({
   onEditEnd,
   onEdit,
   onRetract,
+  onReply,
+  onCopyLink,
+  highlight,
   className,
   empty,
 }: TimelineProps) {
@@ -121,6 +128,11 @@ export function Timeline({
                     onEditEnd={onEditEnd}
                     onEdit={onEdit}
                     onRetract={onRetract}
+                    onReply={onReply}
+                    onCopyLink={onCopyLink}
+                    depth={row.depth}
+                    parent={row.parent}
+                    highlighted={row.message.id === highlight}
                   />
                 )}
               </div>
