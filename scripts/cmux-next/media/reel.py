@@ -476,8 +476,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def publish_build(args: argparse.Namespace) -> None:
-    """Upload the page, the report and the reel (when there is one) to nightly-next/<build>/."""
-    for name in ("index.html", "reel.json", "reel.mp4"):
+    """Upload the reel (when there is one), the report and the page to nightly-next/<build>/.
+
+    The page goes last: a failed upload leaves no page linking a missing reel.
+    """
+    for name in ("reel.mp4", "reel.json", "index.html"):
         local = args.out / name
         if not local.is_file():
             continue
