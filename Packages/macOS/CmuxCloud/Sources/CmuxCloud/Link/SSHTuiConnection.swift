@@ -62,6 +62,10 @@ public struct SSHTuiConnection: Sendable {
                           configuration.identityFile ?? ""] + persistentOptions
         if let routeIdentifier = configuration.routeSensitiveIdentifier {
             components.append(routeIdentifier)
+        } else if configuration.routeSensitivity == .unidentified {
+            // Before the marker moved out of the options, the `true`
+            // placeholder was hashed as one of them.
+            components.append(SSHConnectionSharingOptions.unidentifiedRouteSensitiveMarkerOption)
         }
         if includeAgentSocket {
             if let agent = sshProcessEnvironment["SSH_AUTH_SOCK"]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -147,11 +151,9 @@ public struct SSHTuiConnection: Sendable {
             // of the credentials carried by a multiplexed master.
             routeSensitiveOptions.append("inherited-agent-route")
         }
-        if configuration.routeSensitiveIdentifier != nil {
-            // `cmux ssh` resolved a route that must not share the `%C` master;
-            // `routeIdentityDigest` already covers its identity.
-            routeSensitiveOptions.append("cmux-route-sensitive")
-        }
+        // `cmux ssh` resolved a route that must not share the `%C` master;
+        // `routeIdentityDigest` covers its identity.
+        routeSensitiveOptions += configuration.routeSensitivity.markerOptions
         return sharing.mergingDefaults(
             into: options,
             routeSensitiveOptions: routeSensitiveOptions,

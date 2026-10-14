@@ -354,6 +354,19 @@ public struct SSHConnectionSharingOptions: Sendable {
         Self.routeSensitiveMarkerIdentifier(in: options)
     }
 
+    /// Whether serialized SSH options carry the route marker with any value,
+    /// including the `true` placeholder for a sensitive route whose identity
+    /// is unknown. ``mergingDefaults(into:userConfiguredControlOptions:routeSensitiveOptions:routeIdentifier:)``
+    /// treats exactly these options as route-sensitive.
+    public static func hasRouteSensitiveMarker(in options: [String]) -> Bool {
+        SSHAgentSocketResolver(environment: [:])
+            .optionValue(named: routeSensitiveMarkerKey, in: options) != nil
+    }
+
+    /// The marker for a route-sensitive connection whose identity is unknown.
+    /// It keeps the connection off every shared master.
+    public static let unidentifiedRouteSensitiveMarkerOption = "\(routeSensitiveMarkerKey)=true"
+
     /// Reads the opaque route marker from serialized SSH options without an instance.
     public static func routeSensitiveMarkerIdentifier(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])

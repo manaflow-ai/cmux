@@ -28,15 +28,15 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let identityFile: String?
     /// `-o` SSH options applied to every spawned SSH process.
     public let sshOptions: [String]
-    /// The opaque route digest `cmux ssh` hands off when its connection must
-    /// not share another route's ControlMaster.
+    /// Whether this route may share cmux's default ControlMaster, as
+    /// `cmux ssh` decided when it resolved the route.
     ///
-    /// It arrives as the private `__cmux_route_sensitive=<digest>` entry in
-    /// the handed-off SSH options. The initializer moves it here so
+    /// It arrives as the private `__cmux_route_sensitive=<digest|true>` entry
+    /// in the handed-off SSH options. The initializer moves it here so
     /// ``sshOptions`` holds only real OpenSSH options and can be written out
     /// as `-o` arguments to `ssh`, `scp` or `sftp` as is. Connection-sharing
     /// code reads it through ``mergingConnectionSharingDefaults(_:routeSensitiveOptions:)``.
-    public let routeSensitiveIdentifier: String?
+    public let routeSensitivity: WorkspaceRemoteRouteSensitivity
     /// Deterministic local proxy port override (docker regression test hook).
     public let localProxyPort: Int?
     /// CLI relay port for remote `cmux` command forwarding.
@@ -90,7 +90,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
-        routeSensitiveIdentifier: String? = nil,
+        routeSensitivity: WorkspaceRemoteRouteSensitivity? = nil,
         localProxyPort: Int?,
         relayPort: Int?,
         relayID: String?,
@@ -117,8 +117,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.identityFile = identityFile
         // Saved snapshots and `cmux ssh` handoffs carry the marker inside the
         // options; keeping it out of the stored list migrates both.
-        self.routeSensitiveIdentifier = routeSensitiveIdentifier
-            ?? SSHConnectionSharingOptions.routeSensitiveMarkerIdentifier(in: sshOptions)
+        self.routeSensitivity = routeSensitivity
+            ?? WorkspaceRemoteRouteSensitivity(serializedSSHOptions: sshOptions)
         self.sshOptions = SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: sshOptions)
         self.localProxyPort = localProxyPort
         self.relayPort = relayPort
@@ -210,7 +210,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             lhs.port == rhs.port &&
             lhs.identityFile == rhs.identityFile &&
             lhs.sshOptions == rhs.sshOptions &&
-            lhs.routeSensitiveIdentifier == rhs.routeSensitiveIdentifier &&
+            lhs.routeSensitivity == rhs.routeSensitivity &&
             lhs.localProxyPort == rhs.localProxyPort &&
             lhs.relayPort == rhs.relayPort &&
             lhs.relayID == rhs.relayID &&
@@ -427,7 +427,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
-            routeSensitiveIdentifier: routeSensitiveIdentifier,
+            routeSensitivity: routeSensitivity,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -464,7 +464,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
-            routeSensitiveIdentifier: routeSensitiveIdentifier,
+            routeSensitivity: routeSensitivity,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -496,7 +496,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             port: port,
             identityFile: identityFile,
             sshOptions: sshOptions,
-            routeSensitiveIdentifier: routeSensitiveIdentifier,
+            routeSensitivity: routeSensitivity,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -622,12 +622,16 @@ extension WorkspaceRemoteConfiguration {
 }
 
 extension WorkspaceRemoteConfiguration {
+    /// The route digest, when `cmux ssh` resolved one.
+    public var routeSensitiveIdentifier: String? {
+        guard case .identified(let identifier) = routeSensitivity else { return nil }
+        return identifier
+    }
+
     /// The serialized route marker, for the snapshot and the connection-sharing
     /// merge only. It is never an OpenSSH option.
     var routeSensitiveMarkerOptions: [String] {
-        routeSensitiveIdentifier
-            .flatMap(SSHConnectionSharingOptions.routeSensitiveMarkerOption(for:))
-            .map { [$0] } ?? []
+        routeSensitivity.markerOptions
     }
 
     /// This configuration's SSH options with cmux's connection-sharing
@@ -650,5 +654,44 @@ extension WorkspaceRemoteConfiguration {
             routeSensitiveOptions: routeSensitiveOptions + routeSensitiveMarkerOptions,
             routeIdentifier: routeSensitiveIdentifier
         )
+    }
+}
+
+/// Whether a remote workspace's SSH route may share cmux's default
+/// ControlMaster (`%C`), which keys only user, host and port.
+public enum WorkspaceRemoteRouteSensitivity: Equatable, Sendable {
+    /// The route may use the shared master.
+    case shared
+    /// The route must not share a master, and its identity is unknown, so it
+    /// stays unshared.
+    case unidentified
+    /// The route uses its own master, keyed by this opaque digest of the
+    /// configuration `ssh -G` resolved.
+    case identified(String)
+
+    /// Reads the private marker from serialized options, as a `cmux ssh`
+    /// handoff and a saved workspace carry it.
+    public init(serializedSSHOptions options: [String]) {
+        if let identifier = SSHConnectionSharingOptions.routeSensitiveMarkerIdentifier(in: options) {
+            self = .identified(identifier)
+        } else if SSHConnectionSharingOptions.hasRouteSensitiveMarker(in: options) {
+            self = .unidentified
+        } else {
+            self = .shared
+        }
+    }
+
+    /// The private marker that carries this state through serialized options
+    /// and into the connection-sharing merge. Never an OpenSSH option.
+    public var markerOptions: [String] {
+        switch self {
+        case .shared:
+            []
+        case .unidentified:
+            [SSHConnectionSharingOptions.unidentifiedRouteSensitiveMarkerOption]
+        case .identified(let identifier):
+            SSHConnectionSharingOptions.routeSensitiveMarkerOption(for: identifier).map { [$0] }
+                ?? [SSHConnectionSharingOptions.unidentifiedRouteSensitiveMarkerOption]
+        }
     }
 }
