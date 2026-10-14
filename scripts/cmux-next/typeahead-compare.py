@@ -4,8 +4,9 @@
 Usage: typeahead-compare.py ROUNDS MODE... -- TAG...
 Each round runs every (TAG, MODE) pair once, in a shuffled order. MODE is `split` (Cmd+D) or
 `newterm` (New Terminal Tab, Ctrl-`). The apps run with CMUX_NEXT_INPUT_JOURNAL=1. A run is ok
-when the marker's output line shows once AND the new view's attach journal got every typed
-byte and no other terminal view got any. Right after the new pane or tab shows in the control snapshot, it types
+when the marker's output line shows once AND no other terminal view's attach journal got a
+byte. Bytes the new view's attach journal did not see went to the daemon by the minted
+terminal id before the view attached (cx-wb5.78); each row reports them as `by_terminal_id`. Right after the new pane or tab shows in the control snapshot, it types
 `echo tk<N>` + Return through debug.key, waits 2 s, and reads the new terminal's screen over
 the daemon socket. Each row also carries the app's attach journal after a per-run marker.
 """
@@ -144,9 +145,10 @@ for rnd in range(ROUNDS):
         row_extra["new_view_bytes"] = sum(a.get("bytes") or 0 for a in after if a.get("event") == "input" and a.get("surface") == new_view)
         row_extra["other_view_bytes"] = sum(a.get("bytes") or 0 for a in after if a.get("event") == "input" and a.get("surface") != new_view)
         row_extra["typed_bytes"] = len("echo " + marker) + 1
+        row_extra["by_terminal_id"] = row_extra["typed_bytes"] - row_extra["new_view_bytes"]
         row = {**row_extra, "n": n, "tag": tag, "mode": mode, "show_ms": round((t_show - t0) * 1000, 1),
                "type_ms": round((t_typed - t_show) * 1000, 1), "first_surface_provisional": bool(first_surface and first_surface > PROVISIONAL_BASE),
-               "ok": lines.count(marker) == 1 and row_extra["new_view_bytes"] == row_extra["typed_bytes"] and row_extra["other_view_bytes"] == 0, "tail": [l for l in lines if l][-3:], "attach": after}
+               "ok": lines.count(marker) == 1 and 0 <= row_extra["by_terminal_id"] and row_extra["other_view_bytes"] == 0, "tail": [l for l in lines if l][-3:], "attach": after}
         rows.append(row)
         print(json.dumps(row), flush=True)
         if tab:
@@ -156,8 +158,9 @@ for rnd in range(ROUNDS):
 summary = {}
 for r in rows:
     k = f"{r['tag']}/{r['mode']}"
-    s = summary.setdefault(k, {"runs": 0, "ok": 0, "lost": [], "bytes_ok": 0})
+    s = summary.setdefault(k, {"runs": 0, "ok": 0, "lost": [], "bytes_ok": 0, "runs_by_terminal_id": 0})
     s["runs"] += 1; s["ok"] += r["ok"]
-    s["bytes_ok"] += r["new_view_bytes"] == r["typed_bytes"] and r["other_view_bytes"] == 0
+    s["bytes_ok"] += r["by_terminal_id"] >= 0 and r["other_view_bytes"] == 0
+    s["runs_by_terminal_id"] += r["by_terminal_id"] > 0
     if not r["ok"]: s["lost"].append(r["n"])
 print(json.dumps({"summary": summary}))
