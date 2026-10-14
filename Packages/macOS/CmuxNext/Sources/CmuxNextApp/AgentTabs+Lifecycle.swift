@@ -120,8 +120,7 @@ extension AgentTabStore {
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab
     /// shows and is selected now (unless `select` is false); the store's tab keeps the selection
-    /// when it replaces it, then `then` gets its id. A refusal is reported through the registry;
-    /// a task-level refusal also invokes `failed` so callers can release transient state.
+    /// when it replaces it, then `then` gets its id. A refusal is reported through the registry.
     /// Returns false when the pane cannot hold an agent tab.
     /// `hidden`: the tab never shows in `pane`'s strip (a chat bound for a new chat dock).
     @discardableResult
