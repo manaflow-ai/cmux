@@ -38,7 +38,9 @@ test("the New Tab page offers its five styles as radios, the current one checked
   const root = createRoot(host);
   const picks: string[] = [];
   await act(async () => {
-    root.render(createElement(StyleSwitch, { current: "threads", onPick: (style) => picks.push(style), onCancel() {} }));
+    root.render(
+      createElement(StyleSwitch, { current: "threads", onPick: (style) => picks.push(style), onCancel() {} }),
+    );
   });
   const group = host.querySelector("fieldset")!;
   expect(group.getAttribute("aria-label")).toBe("New Tab templates");
