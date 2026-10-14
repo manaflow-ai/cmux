@@ -21,6 +21,7 @@ environment, then `env` and `apiKeyHelper` in <Claude home>/settings.json,
 then <Claude home>/.credentials.json; the home is CLAUDE_CONFIG_DIR or
 ~/.claude) and replies with what it found as JSON, or fails the turn with
 Claude Code's own "Not logged in · Please run /login".
+FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 """
 import json
 import os
@@ -58,6 +59,26 @@ if STORE:
 
 SESSION_RULES = []
 DESTINATIONS = []
+
+# FAKE_CLAUDE_SKILLS=1: Claude Code with one skill installed, as Claude Code
+# 2.1.299 reports it: the initialize answer lists every slash command (a
+# skill's description ends "(user)"), and system/init, sent at the start of
+# every turn, names the skills (`skills`, names without "/").
+SKILLS = os.environ.get("FAKE_CLAUDE_SKILLS") == "1"
+COMMANDS = [
+    {"name": "demo-skill", "description": "A demo skill (user)", "argumentHint": ""},
+    {"name": "compact", "description": "Clear conversation history but keep a summary in context",
+     "argumentHint": "<optional custom summarization instructions>"},
+]
+
+
+def init():
+    line = {"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
+            "permissionMode": MODE, "tools": [], "mcp_servers": []}
+    if SKILLS:
+        line["slash_commands"] = [c["name"] for c in COMMANDS]
+        line["skills"] = ["demo-skill"]
+    return line
 
 
 def ask(rid, tool):
@@ -109,10 +130,12 @@ for line in sys.stdin:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": "Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}})
             continue
-        send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
+        answer = {}
+        if request.get("subtype") == "initialize" and SKILLS:
+            answer = {"commands": COMMANDS}
+        send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": answer}})
         if request.get("subtype") == "initialize":
-            send({"type": "system", "subtype": "init", "session_id": SESSION, "model": "fake",
-                  "permissionMode": MODE, "tools": [], "mcp_servers": []})
+            send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
         home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
@@ -166,6 +189,8 @@ for line in sys.stdin:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
+        if SKILLS:
+            send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
         if STORE and LAYOUT:
