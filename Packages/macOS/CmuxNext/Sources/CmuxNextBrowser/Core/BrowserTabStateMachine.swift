@@ -3,9 +3,6 @@ public import Foundation
 /// Input to `BrowserTabStateMachine`. Engines translate their native
 /// callbacks (WKNavigationDelegate, KVO, CEF handlers) into these events.
 public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
-    /// The tab asked its engine for this navigation (load, reload, back,
-    /// forward). The start of an older one is a replaced load's, ignored.
-    case requested(BrowserNavigationID)
     case started(BrowserNavigationID, url: URL?)
     case redirected(BrowserNavigationID, url: URL?)
     case committed(BrowserNavigationID, url: URL?)
@@ -61,8 +58,6 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     /// The active navigation's own address (its start, then its redirects).
     /// The address moving off it before the load commits is a newer load's.
     private var startedURL: URL?
-    /// The newest navigation the tab asked for (`requested`).
-    private var newestRequested: BrowserNavigationID?
 
     public init(state: BrowserTabState = BrowserTabState()) {
         self.state = state
@@ -79,13 +74,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
     private mutating func reduce(_ event: BrowserNavigationEvent) {
         switch event {
-        case .requested(let id):
-            newestRequested = id
-
         case .started(let id, let url):
-            // WebKit can report a load's start after a newer load was asked for,
-            // reading the newer address; WebKit cancels the old load next.
-            if let newest = newestRequested, id.rawValue < newest.rawValue { return }
             errorBeforeStart = state.loadError
             state.processExit = nil
             state.isUnresponsive = false
@@ -127,8 +116,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
                 // Only a cancelled retry of the failed address shows its error
                 // again; a cancelled load replaced by another does not. A load
                 // whose replacement's address already arrived (WebKit's URL KVO
-                // before the cancellation) keeps that address.
-                let replaced = state.url != startedURL
+                // before the cancellation) keeps that address; one WebKit already
+                // moved back to the committed page is not a replacement.
+                let replaced = state.url != startedURL && state.url != committedURL
                 endWithoutError(restoresError: !replaced && error.failingURL == errorBeforeStart?.failingURL, keepsAddress: replaced)
             } else {
                 state.phase = .failed(error)

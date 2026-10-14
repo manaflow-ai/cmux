@@ -54,42 +54,33 @@ import Testing
         #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's dark preview was dropped")
     }
 
-    /// macOS 27 CI (#20342): a New Tab load that replaces a page still loading showed that page's
-    /// picture. WebKit reports the New Tab address (the URL KVO, or a late start of the old load
-    /// reading `webView.url`), then the old load's cancellation, which put the old address back
-    /// until the new load started. These are WebKit's callbacks in its order, so it fails every time.
+    /// macOS 27 CI (#20342): a New Tab load that replaces a page still loading showed the page
+    /// before. WebKit reports the New Tab address (the URL KVO) while the old load is provisional,
+    /// then the old load's cancellation, which put the committed address back until the New Tab
+    /// load started. These are WebKit's callbacks in its order, so it fails every time.
     @Test func aNewTabLoadThatCancelsAnUnfinishedPageShowsNoPreviewOfIt() async throws {
         _ = NSApplication.shared
+        let shown = try #require(URL(string: "https://example.com/"))
         let old = try #require(URL(string: "data:text/html,<h1>cmux</h1>"))
         let blank = try #require(URL(string: BrowserNewTabPage.blankURL))
-        let cancelled = BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: "cancelled", failingURL: old)
-        let size = CGSize(width: 320, height: 200)
-        // The New Tab address arrives by the URL KVO after the old load started, or as the
-        // old load's own late start (WebKit reads the pending New Tab address).
-        for newTabFirst in [true, false] {
-            let services = AppServices(environment: AppEnvironment.current([:]))
-            let page = WebKitEngine().makeWebKitTab()
-            defer { page.close() }
-            let key = "page"
-            services.cache.install(page, for: key)
-            defer { services.cache.browsers[key] = nil }
-            services.cache.pageThumbnails.insert(try Self.striped(), for: key)
-            let loading = page.allocateNavigationID()
-            if newTabFirst {
-                page.apply(.started(loading, url: old))
-                page.apply(.urlChanged(blank))
-            } else {
-                // The old load's start arrives after the New Tab load was asked for, reading its address.
-                page.apply(.urlChanged(old))
-                page.apply(.requested(page.allocateNavigationID()))
-                page.apply(.urlChanged(blank))
-                page.apply(.started(loading, url: blank))
-            }
-            page.apply(.failed(loading, cancelled))
-            #expect(page.state.url == blank, "the cancelled load put its address back (New Tab first: \(newTabFirst))")
-            #expect(await TabPreviewSource(cache: services.cache).previewImage(for: TabID(key), maxPixelSize: size) == nil,
-                    "the cancelled page was the New Tab page's preview (New Tab first: \(newTabFirst))")
-        }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let page = WebKitEngine().makeWebKitTab()
+        defer { page.close() }
+        let key = "page"
+        services.cache.install(page, for: key)
+        defer { services.cache.browsers[key] = nil }
+        services.cache.pageThumbnails.insert(try Self.striped(), for: key)
+        let committed = page.allocateNavigationID()
+        page.apply(.started(committed, url: shown))
+        page.apply(.committed(committed, url: shown))
+        page.apply(.finished(committed))
+        let loading = page.allocateNavigationID()
+        page.apply(.started(loading, url: old))
+        page.apply(.urlChanged(blank))
+        page.apply(.failed(loading, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: "cancelled", failingURL: old)))
+        #expect(page.state.url == blank, "the cancelled load put the page before back")
+        #expect(await TabPreviewSource(cache: services.cache).previewImage(for: TabID(key), maxPixelSize: CGSize(width: 320, height: 200)) == nil,
+                "the page before was the New Tab page's preview")
     }
 
     private static func until(_ condition: () -> Bool) async throws {
