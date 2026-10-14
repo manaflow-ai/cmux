@@ -72,20 +72,35 @@ fn a_host_writes_a_default_person_profile_and_the_turns_read_the_users_edit() {
     let written = std::fs::read_to_string(&person).expect("the host writes person.md");
     assert!(written.contains(DEFAULT_LINE), "{written}");
     assert!(written.contains("without asking"), "{written}");
-    assert!(first.contains(written.trim()), "the profile is in the system text");
+    assert!(
+        first.contains(written.trim()),
+        "the profile is in the system text"
+    );
     // The Chief's own Turns paragraph replaces the spec's (cause 3).
     assert!(first.contains("Keep your own turns short."), "{first}");
-    assert!(!first.contains("Use subagents only when the user asks"), "{first}");
+    assert!(
+        !first.contains("Use subagents only when the user asks"),
+        "{first}"
+    );
 
     // The user's edit, and their own instructions file after it.
     std::fs::write(&person, "# The user\n\nCall me Ada. Ask before any push.\n").unwrap();
-    std::fs::write(dir.path().join("mux/optchat/AGENTS.md"), "Reply in French.\n").unwrap();
+    std::fs::write(
+        dir.path().join("mux/optchat/AGENTS.md"),
+        "Reply in French.\n",
+    )
+    .unwrap();
     let host = start_host(dir.path());
     let second = system_text_with(dir.path(), "Call me Ada.");
     stop(host);
-    assert!(!second.contains(DEFAULT_LINE), "the edit replaces the default:\n{second}");
+    assert!(
+        !second.contains(DEFAULT_LINE),
+        "the edit replaces the default:\n{second}"
+    );
     let profile_at = second.find("Call me Ada.").unwrap();
-    let own_at = second.find("Reply in French.").expect("the instructions file stays");
+    let own_at = second
+        .find("Reply in French.")
+        .expect("the instructions file stays");
     assert!(profile_at < own_at, "the profile comes first:\n{second}");
     assert_eq!(
         std::fs::read_to_string(&person).unwrap(),
