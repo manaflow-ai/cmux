@@ -26,7 +26,7 @@ struct SplitPaneGridFitTests {
             // nested down splits need more height than a CI Mac's short display gives a window.
             _ = try await Self.split(a, "splitRight", services, controller, workspace: id)
             // Every terminal on screen ends up rendering what its view fits.
-            try await Self.settled(controller)
+            try await Self.settled(controller, workspace: id)
 
             // While another workspace is shown (the journey seeds the next one), A gets a second
             // tab (its strip appears; its first tab stays selected) and the window gets shorter.
@@ -44,13 +44,14 @@ struct SplitPaneGridFitTests {
             services.windows.show(workspaceID: id, in: controller.state)
             try await Self.until({ Self.shown(controller, workspace: id).count == 2 && Self.allLive(controller) },
                                  report: { Self.describe(controller) })
-            try await Self.settled(controller)
+            try await Self.settled(controller, workspace: id)
         }
     }
 
-    /// Every terminal on screen ends up rendering what its view fits.
-    private static func settled(_ controller: WindowController, sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        try await until({ allLive(controller) && mismatched(controller).isEmpty },
+    /// Every terminal of `workspace` ends up rendering what its view fits.
+    private static func settled(_ controller: WindowController, workspace: String,
+                                sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        try await until({ !shown(controller, workspace: workspace).isEmpty && allLive(controller) && mismatched(controller).isEmpty },
                         report: { "grid != fit: \(mismatched(controller))\n\(describe(controller))" }, sourceLocation: sourceLocation)
     }
 
@@ -67,8 +68,12 @@ struct SplitPaneGridFitTests {
         return try #require(shown(controller, workspace: workspace).first { !before.contains($0.layoutPaneID) })
     }
 
-    /// The panes of `workspace` while the window shows it.
+    /// The panes of `workspace`, shown in the window. A fresh session's Home (an agent tab on some
+    /// Macs) can take the window back while the test waits, so each poll shows the workspace again.
     private static func shown(_ controller: WindowController, workspace: String) -> [PaneController] {
+        if controller.workspaceContent?.workspace.id != workspace {
+            controller.services.windows.show(workspaceID: workspace, in: controller.state)
+        }
         guard let content = controller.workspaceContent, content.workspace.id == workspace else { return [] }
         return Array(content.panes.values)
     }
