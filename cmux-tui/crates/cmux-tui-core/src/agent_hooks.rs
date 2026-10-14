@@ -47,10 +47,18 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
-    let kind = semantic_kind(source, native_event, &normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -297,6 +305,14 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
+        (
+            "opencode",
+            "sessionexecutionsucceeded" | "sessionexecutioninterrupted",
+        ) => "agent.turn.completed",
+        (
+            "opencode",
+            "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror",
+        ) => "agent.error.reported",
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",
@@ -325,6 +341,17 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
 }
 
 fn is_child_spawn(event: &str) -> bool {
@@ -957,6 +984,40 @@ mod tests {
         let deleted =
             agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
         assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn current_opencode_failure_events_report_errors() {
+        for event in ["session.execution.failed", "session.next.step.failed", "session.error"] {
+            let ingress = agent_hook_journal_ingress(
+                "opencode",
+                event,
+                None,
+                json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+            )
+            .unwrap();
+            assert_eq!(ingress.kind, "agent.error.reported", "{event}");
+        }
+    }
+
+    #[test]
+    fn opencode_shutdown_interruption_keeps_the_turn_running() {
+        let interrupted = "session.execution.interrupted";
+        let kind = |field: &str, reason: &str| {
+            let native = json!({"event":{"type":interrupted,field:{"reason":reason}}});
+            agent_hook_journal_ingress("opencode", interrupted, None, native).unwrap().kind
+        };
+        assert_eq!(kind("data", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("properties", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("data", "user"), "agent.turn.completed");
+    }
+
+    #[test]
+    fn current_opencode_completion_events_report_completed_turns() {
+        for event in ["session.execution.succeeded", "session.execution.interrupted"] {
+            let ingress = agent_hook_journal_ingress("opencode", event, None, json!({})).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed", "{event}");
+        }
     }
 
     #[test]
