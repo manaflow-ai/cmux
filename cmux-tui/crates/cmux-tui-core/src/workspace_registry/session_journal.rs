@@ -1397,9 +1397,13 @@ fn query_session_journal_without_output_after(
     let mut records = Vec::new();
     let mut reached = sequence;
     if sequence < archive_through {
-        if let Some((archived, archived_reached)) =
-            archived_non_output_after(connection, sequence, archive_through, limit)?
-        {
+        if let Some((archived, archived_reached)) = archived_non_output_after(
+            connection,
+            sequence,
+            archive_through,
+            archive_end,
+            limit,
+        )? {
             records = archived;
             reached = archived_reached;
         } else {
@@ -1483,8 +1487,14 @@ fn archived_non_output_after(
     connection: &Connection,
     sequence: u64,
     through: u64,
+    archive_end: u64,
     limit: usize,
 ) -> anyhow::Result<Option<(Vec<SessionJournalRecord>, u64)>> {
+    // This helper only owns the sealed prefix. Let the active indexed query
+    // handle an entirely-active range or a cursor at the archive boundary.
+    if sequence >= archive_end {
+        return Ok(None);
+    }
     let mut statement = connection.prepare(
         "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
@@ -2571,6 +2581,126 @@ mod tests {
             registry.session_journal_without_output_after(0, 1, 512).unwrap();
         assert!(records.is_empty());
         assert_eq!(reached, 1);
+    }
+
+    #[test]
+    fn non_output_replay_mixes_archived_prefix_with_active_tail() {
+        let root = std::env::temp_dir().join(format!("cmux-mixed-archive-{}", new_uuid_v4()));
+        let mut registry = WorkspaceRegistry::open(&root, "mixed-archive-active").unwrap();
+        let first = registry.connection.transaction().unwrap();
+        first
+            .execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", [])
+            .unwrap();
+        append_resource_journal_record(
+            &first,
+            1,
+            0,
+            "mixed-test",
+            "mixed-archive-event",
+            "workspace.added",
+            None,
+            &serde_json::json!({"workspace":"archive"}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        first.commit().unwrap();
+        let archived_through = registry.session_journal_head().unwrap();
+        registry
+            .create_journal_checkpoint(
+                archived_through,
+                1,
+                &serde_json::json!({
+                    "session_snapshot":{"cursor":{"revision":"1"}},
+                    "journal_extensions":{"producers":[],"hooks":[]},
+                }),
+                &[],
+                "client_test",
+                "mixed_archive_checkpoint",
+            )
+            .unwrap();
+        let plan = match registry
+            .begin_journal_segment_seal(archived_through, "client_test", "mixed_archive_segment")
+            .unwrap()
+        {
+            JournalSegmentSealStart::Prepare(plan) => plan,
+            JournalSegmentSealStart::Replay(_) => panic!("first mixed segment seal unexpectedly replayed"),
+        };
+        let reader = SessionJournalReader::open(
+            &registry.session_journal_database_path().expect("persistent registry has a path"),
+        )
+        .unwrap();
+        let prepared = plan.prepare(&reader).unwrap();
+        registry
+            .commit_journal_segment_seal(prepared, "client_test", "mixed_archive_segment")
+            .unwrap()
+            .expect("mixed segment boundary remained stable");
+        let second = registry.connection.transaction().unwrap();
+        second
+            .execute("UPDATE meta SET value = '2' WHERE key = 'resource_revision'", [])
+            .unwrap();
+        append_resource_journal_record(
+            &second,
+            2,
+            1,
+            "mixed-test",
+            "mixed-active-event",
+            "workspace.focus",
+            None,
+            &serde_json::json!({"workspace":"active"}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        second.commit().unwrap();
+        let head = registry.session_journal_head().unwrap();
+
+        let (records, reached) = registry
+            .session_journal_without_output_after(0, head, 512)
+            .unwrap();
+        assert_eq!(reached, head);
+        assert!(records.iter().any(|record| record.sequence <= archived_through));
+        assert!(records.iter().any(|record| record.sequence > archived_through));
+
+        // A cursor at the sealed boundary must still use the active indexed
+        // query, even though the archive helper has no range to own.
+        let (tail, tail_reached) = registry
+            .session_journal_without_output_after(archived_through, head, 512)
+            .unwrap();
+        assert!(!tail.is_empty());
+        assert!(tail.iter().all(|record| record.sequence > archived_through));
+        assert_eq!(tail_reached, head);
+        drop(reader);
+        drop(registry);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archived_non_output_replay_rejects_compacted_gaps_before_kind_filtering() {
+        let registry = WorkspaceRegistry::in_memory("archive-gap-validation").unwrap();
+        for (id, start, end) in [("gap-first", 1_i64, 1_i64), ("gap-second", 3_i64, 3_i64)] {
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segments(
+                       segment_id, start_sequence, end_sequence, record_count, codec,
+                       content, uncompressed_bytes, sha256, sealed_at_ms
+                     ) VALUES(?1, ?2, ?3, 1, 'gzip-json-v1', X'00', 1, ?4, 1)",
+                    params![id, start, end, vec![0_u8; 32]],
+                )
+                .unwrap();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind)
+                     VALUES(?1, 'terminal.output')",
+                    [id],
+                )
+                .unwrap();
+        }
+
+        let error = registry
+            .session_journal_without_output_after(0, 3, 512)
+            .unwrap_err();
+        assert!(error.to_string().contains("gap"), "{error:#}");
     }
 
     #[test]

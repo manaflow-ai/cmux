@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite("Cloud machine link timeout recovery")
+@Suite("Cloud machine link timeout recovery", .timeLimit(.minutes(1)))
 struct CloudMachineLinkTimeoutRecoveryTests {
     @Test("a request deadline does not drop a healthy shared link")
     func requestTimeoutKeepsHealthyLink() async throws {
@@ -22,13 +22,15 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         exec tail -f /dev/null
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
-        let server = Task.detached { Self.serve(listener: listener, respondsToPing: true) }
-        let clock = CloudMachineLinkTestClock()
-        let link = CloudMachineLink(machineID: "healthy-timeout-machine", clientURL: client, paths: CloudTuiClientPaths(home: root), requestClock: clock)
+        let requestReceived = CloudLinkFirstValue<Bool>()
+        let server = Task.detached { Self.serve(listener: listener, respondsToPing: true, requestReceived: requestReceived) }
+        let clock = CloudLinkTestClock()
+        let link = CloudMachineLink(machineID: "healthy-timeout-machine", clientURL: client, paths: CloudTuiClientPaths(home: root), deadlineClock: clock)
         _ = try await link.connect(route: "ws://127.0.0.1:1337/v1/link", session: "cloud", carrier: true, timeout: .seconds(2))
-        let request = Task { try await link.run(arguments: CloudTuiRequest("terminal.wait"), timeout: .milliseconds(100)) }
-        await clock.waitUntilSleeping()
-        clock.advance(by: .milliseconds(100))
+        let request = Task { try await link.run(arguments: CloudTuiRequest("terminal.wait"), timeout: .seconds(1)) }
+        _ = await requestReceived.result
+        await clock.waitUntilSleeper(dueWithin: .seconds(1))
+        clock.advance(by: .seconds(1))
         do {
             _ = try await request.value
             Issue.record("the intentionally short request must time out")
@@ -65,15 +67,17 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
 
+        let requestReceived = CloudLinkFirstValue<Bool>()
+        let probeReceived = CloudLinkFirstValue<Bool>()
         let server = Task.detached(priority: .userInitiated) {
-            Self.serve(listener: listener, respondsToPing: false)
+            Self.serve(listener: listener, respondsToPing: false, requestReceived: requestReceived, probeReceived: probeReceived)
         }
-        let clock = CloudMachineLinkTestClock()
+        let clock = CloudLinkTestClock()
         let link = CloudMachineLink(
             machineID: "timeout-machine",
             clientURL: client,
             paths: CloudTuiClientPaths(home: root),
-            requestClock: clock
+            deadlineClock: clock
         )
         _ = try await link.connect(
             route: "ws://127.0.0.1:1337/v1/link",
@@ -82,9 +86,13 @@ struct CloudMachineLinkTimeoutRecoveryTests {
             timeout: .seconds(2)
         )
 
-        let request = Task { try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .milliseconds(100)) }
-        await clock.waitUntilSleeping()
-        clock.advance(by: .milliseconds(100))
+        let request = Task { try await link.run(arguments: CloudTuiRequest("session.ping"), timeout: .seconds(1)) }
+        _ = await requestReceived.result
+        await clock.waitUntilSleeper(dueWithin: .seconds(1))
+        clock.advance(by: .seconds(1))
+        _ = await probeReceived.result
+        await clock.waitUntilSleeper(dueWithin: .seconds(2))
+        clock.advance(by: .seconds(2))
         do {
             _ = try await request.value
             Issue.record("the unresponsive control request must time out")
@@ -94,6 +102,42 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         #expect(await link.isConnected == false)
         #expect(await link.state == .unavailable)
 
+        server.cancel()
+        await server.value
+    }
+
+    @Test("disconnect escalates a child that ignores TERM on the injected deadline")
+    func disconnectKillsWedgedChild() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-link-shutdown-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socketPath = "/tmp/cmux-link-shutdown-\(UUID()).sock"
+        let listener = try Self.makeListener(at: socketPath)
+        defer { Darwin.close(listener); unlink(socketPath) }
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        let pidFile = root.appendingPathComponent("pid")
+        try """
+        #!/bin/sh
+        trap '' TERM
+        echo $$ > '\(pidFile.path)'
+        printf '%s\\n' '{"event":"connection-snapshot","local_socket":"\(socketPath)"}'
+        exec tail -f /dev/null
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let server = Task.detached { Self.serve(listener: listener, respondsToPing: true) }
+        let clock = CloudLinkTestClock()
+        let link = CloudMachineLink(machineID: "wedged-child", clientURL: client,
+                                    paths: CloudTuiClientPaths(home: root), deadlineClock: clock)
+        _ = try await link.connect(route: "ws://127.0.0.1:1337/v1/link", session: "cloud", carrier: true, timeout: .seconds(2))
+        let pid = try #require(Int32(String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        let disconnect = Task { await link.disconnect() }
+        await clock.waitUntilSleeper(dueWithin: .seconds(5))
+        #expect(Darwin.kill(pid, 0) == 0)
+        clock.advance(by: .seconds(5))
+        await disconnect.value
+        #expect(Darwin.kill(pid, 0) != 0)
+        #expect(await link.isConnected == false)
         server.cancel()
         await server.value
     }
@@ -123,11 +167,12 @@ struct CloudMachineLinkTimeoutRecoveryTests {
         return fd
     }
 
-    private static func serve(listener: Int32, respondsToPing: Bool) {
+    private static func serve(listener: Int32, respondsToPing: Bool, requestReceived: CloudLinkFirstValue<Bool>? = nil, probeReceived: CloudLinkFirstValue<Bool>? = nil) {
         let peer = accept(listener, nil, nil)
         guard peer >= 0 else { return }
         defer { Darwin.close(peer) }
         var line = Data()
+        var requestCount = 0
         var byte: UInt8 = 0
         while !Task.isCancelled {
             let count = withUnsafeMutableBytes(of: &byte) { Darwin.read(peer, $0.baseAddress, 1) }
@@ -139,6 +184,11 @@ struct CloudMachineLinkTimeoutRecoveryTests {
                 else {
                     line.removeAll(keepingCapacity: true)
                     continue
+                }
+                if let operation = object["operation"] as? String, operation == "session.ping" || operation == "terminal.wait" {
+                    requestCount += 1
+                    if requestCount == 1 { requestReceived?.resolve(true) }
+                    if requestCount == 2 { probeReceived?.resolve(true) }
                 }
                 if (object["operation"] as? String == "session.ping" && respondsToPing) {
                     let response: [String: Any] = [
@@ -169,47 +219,5 @@ struct CloudMachineLinkTimeoutRecoveryTests {
                 line.append(byte)
             }
         }
-    }
-}
-
-private final class CloudMachineLinkTestClock: Clock, @unchecked Sendable {
-    typealias Instant = ContinuousClock.Instant
-    private let lock = NSLock()
-    private var instant = ContinuousClock.now
-    private var sleepers: [(Instant, AsyncStream<Void>.Continuation)] = []
-    private let registrations = AsyncStream<Void>.makeStream()
-    var now: Instant { lock.withLock { instant } }
-    var minimumResolution: Duration { .nanoseconds(1) }
-    func advance(by duration: Duration) {
-        let ready = lock.withLock { () -> [AsyncStream<Void>.Continuation] in
-            instant = instant.advanced(by: duration)
-            let (ready, pending) = sleepers.partitioned { $0.0 <= instant }
-            sleepers = pending
-            return ready.map(\.1)
-        }
-        ready.forEach { $0.finish() }
-    }
-    func waitUntilSleeping() async {
-        var iterator = registrations.stream.makeAsyncIterator()
-        _ = await iterator.next()
-    }
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        if now >= deadline { return }
-        let stream = AsyncStream<Void>.makeStream()
-        lock.withLock { sleepers.append((deadline, stream.continuation)) }
-        registrations.continuation.yield(())
-        for await _ in stream.stream {}
-        try Task.checkCancellation()
-    }
-}
-
-private extension Array {
-    func partitioned(by predicate: (Element) -> Bool) -> ([Element], [Element]) {
-        var matching = [Element]()
-        var remaining = [Element]()
-        for element in self {
-            if predicate(element) { matching.append(element) } else { remaining.append(element) }
-        }
-        return (matching, remaining)
     }
 }

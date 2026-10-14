@@ -44,16 +44,17 @@ healthy() {
 }
 state_mount_user() { [ "$H" = /root ] && echo root || echo cmux; }
 STATE_MOUNT_UPDATED=0
+STATE_MOUNT_FAILURE=""
 STATE_MOUNT_PREV="$RUN/cmux-tui-state-mount.prev"
 install_state_mount() {
   [ -f "$RUN/state-mount.sh" ] || return 0
-  sh -n "$RUN/state-mount.sh" || finish "FAIL state-mount-syntax"
+  sh -n "$RUN/state-mount.sh" || { STATE_MOUNT_FAILURE=state-mount-syntax; return 1; }
   if [ -f "$STATE_MOUNT" ]; then
-    cp -p "$STATE_MOUNT" "$STATE_MOUNT_PREV" || finish "FAIL state-mount-backup"
+    cp -p "$STATE_MOUNT" "$STATE_MOUNT_PREV" || { STATE_MOUNT_FAILURE=state-mount-backup; return 1; }
   fi
-  install -m 0755 "$RUN/state-mount.sh" "$STATE_MOUNT" || finish "FAIL state-mount-install"
+  install -m 0755 "$RUN/state-mount.sh" "$STATE_MOUNT.new" && mv -f "$STATE_MOUNT.new" "$STATE_MOUNT" || { STATE_MOUNT_FAILURE=state-mount-install; return 1; }
   STATE_MOUNT_UPDATED=1
-  "$STATE_MOUNT" ensure "$H" "$(state_mount_user)" || finish "FAIL state-reservation-unavailable"
+  "$STATE_MOUNT" ensure "$H" "$(state_mount_user)" || { STATE_MOUNT_FAILURE=state-reservation-unavailable; return 1; }
 }
 restore_state_mount() {
   [ "$STATE_MOUNT_UPDATED" = 1 ] || return 0
@@ -79,94 +80,119 @@ wait_serving() {
   return 1
 }
 
+# pidfd readiness is the kernel's process-exit signal. The two bounded waits
+# own TERM/KILL escalation without polling or waiting forever for a D-state task.
 stop_child() {
   [ -n "${1:-}" ] || return 0
-  kill -TERM "$1" 2>/dev/null || true
-  i=0
-  while kill -0 "$1" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
-  kill -KILL "$1" 2>/dev/null || true
+  python3 - "$1" <<'PYTHON'
+import os, selectors, signal, sys
+pid = int(sys.argv[1])
+try:
+    fd = os.pidfd_open(pid)
+except ProcessLookupError:
+    sys.exit(0)
+with selectors.DefaultSelector() as selector:
+    selector.register(fd, selectors.EVENT_READ)
+    try:
+        signal.pidfd_send_signal(fd, signal.SIGTERM)
+        if not selector.select(5):
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+            if not selector.select(1):
+                sys.exit(1)
+    except ProcessLookupError:
+        pass
+    finally:
+        os.close(fd)
+PYTHON
+}
+
+# Every failure after replacement restores the same binary/helper pair.
+rollback_upgrade() {
+  reason=$1
+  say "$reason; restoring $OLD_SHA"
+  helper_restored=1
+  restore_state_mount || helper_restored=0
+  cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" \
+    && [ "$(bin_sha)" = "$OLD_SHA" ] || finish "FAIL rollback-restore reason=$reason"
+  X=$(daemon_pid)
+  stop_child "$X" || finish "FAIL rollback-daemon-still-running reason=$reason"
+  if N=$(wait_serving "$OLD_SHA"); then
+    [ "$helper_restored" = 1 ] || finish "FAIL rollback-helper reason=$reason old-daemon=$N"
+    finish "ROLLBACK $reason old-daemon=$N"
+  fi
+  finish "FAIL rollback-daemon-unhealthy reason=$reason inspect=$RUN/log"
 }
 
 canary_crash_loop() {
-  D=$(daemon_pid)
-  [ -n "$D" ] || finish "SKIP no-daemon"
-  tr '\0' ' ' < "/proc/$D/cmdline" | grep -q -- --remote-ws-trusted-carrier || finish "SKIP no-trusted-carrier"
-  canary_fail() { restore_state_mount; finish "$1"; }
   OLD_SHA=$(bin_sha)
   HOSTS_BEFORE=$(host_pids)
-  [ -n "$OLD_SHA" ] || canary_fail "FAIL canary-old-binary-unreadable"
-  cp -p "$BIN" "$RUN/cmux-tui.prev" || canary_fail "FAIL canary-backup-copy"
-  [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || canary_fail "FAIL canary-backup-checksum"
+  [ -n "$OLD_SHA" ] || finish "FAIL canary-old-binary-unreadable"
+  cp -p "$BIN" "$RUN/cmux-tui.prev" || finish "FAIL canary-backup-copy"
+  [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL canary-backup-checksum"
+  FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
+  [ "$FREE" -ge 300 ] || finish "SKIP disk-free=${FREE}MB"
   say "canary before old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE]"
-  stop_child "$D"
+  D=$(daemon_pid)
+  stop_child "$D" || finish "FAIL canary-daemon-still-running"
+  install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
   if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
-    [ "$(bin_sha)" = "$TARGET_SHA" ] || canary_fail "FAIL canary-install"
+    [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-install
   fi
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || canary_fail "FAIL canary-pin-mismatch"
+  [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade canary-pin-mismatch
   say "canary staged target=$TARGET_SHA"
   if N=$(wait_serving "$TARGET_SHA"); then
     LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
-    [ -z "$LOST" ] || canary_fail "FAIL canary-lost-hosts=[${LOST# }] daemon=$N"
+    [ -z "$LOST" ] || rollback_upgrade "canary-lost-hosts=[${LOST# }]"
     finish "OK canary daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
   fi
-  cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" || canary_fail "FAIL canary-rollback-copy"
-  [ "$(bin_sha)" = "$OLD_SHA" ] || canary_fail "FAIL canary-rollback-checksum"
-  X=$(daemon_pid); [ -n "$X" ] && stop_child "$X"
-  if N=$(wait_serving "$OLD_SHA"); then
-    restore_state_mount
-    finish "ROLLBACK canary-target-unhealthy old-daemon=$N"
-  fi
-  canary_fail "FAIL canary-target-and-rollback-unhealthy inspect=$RUN/log"
+  rollback_upgrade canary-target-unhealthy
 }
 
 if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then H=/home/cmux; else H=/root; fi
 BIN="$H/.cmux/bin/cmux-tui"
-install_state_mount
-# A crash-looping daemon is between restarts most of the time.
-D=""; i=0; while [ -z "$D" ] && [ $i -lt 10 ]; do D=$(daemon_pid); [ -n "$D" ] || sleep 0.5; i=$((i+1)); done
-[ -n "$D" ] || { canary_crash_loop; }
+# A crash-looping daemon is between restarts some of the time. Without a
+# live child, its carrier contract cannot be proven; retry after inspecting it.
+D=$(daemon_pid)
+[ -n "$D" ] || finish "SKIP no-daemon"
 tr '\0' ' ' < /proc/$D/cmdline | grep -q -- --remote-ws-trusted-carrier || finish "SKIP no-trusted-carrier"
 if [ "$(exe_sha "$D")" = "$TARGET_SHA" ]; then
+  install_state_mount || {
+    restore_state_mount || finish "FAIL state-mount-restore reason=$STATE_MOUNT_FAILURE"
+    finish "FAIL $STATE_MOUNT_FAILURE"
+  }
   # The next restart runs the binary on disk, so it must match too.
   [ "$(bin_sha)" = "$TARGET_SHA" ] || sh "$RUN/install.cmd" >> "$RUN/log" 2>&1
   [ "$(bin_sha)" = "$TARGET_SHA" ] && finish "OK already-current daemon=$D" || finish "FAIL daemon-current-but-binary-not"
 fi
+FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
+[ "$FREE" -ge 300 ] || finish "SKIP disk-free=${FREE}MB"
 if ! wait_listener; then
   canary_crash_loop
 fi
-FREE=$(df -Pm "$H" | awk 'NR==2{print $4}')
-[ "$FREE" -ge 300 ] || finish "SKIP disk-free=${FREE}MB"
 HOSTS_BEFORE=$(host_pids)
 TERMS_BEFORE=$(term_count)
 OLD_SHA=$(bin_sha)
 say "before daemon=$D old=$OLD_SHA target=$TARGET_COMMIT hosts=[$HOSTS_BEFORE] terminals=$TERMS_BEFORE free=${FREE}MB"
 cp -p "$BIN" "$RUN/cmux-tui.prev" && [ "$(sha256sum "$RUN/cmux-tui.prev" | cut -d' ' -f1)" = "$OLD_SHA" ] || finish "FAIL backup (nothing changed)"
+install_state_mount || rollback_upgrade "$STATE_MOUNT_FAILURE"
 if ! sh "$RUN/install.cmd" >> "$RUN/log" 2>&1; then
   # The binary step runs first; a hook-step failure leaves the pinned binary, which is still correct.
-  [ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL install (binary not replaced)"
+  [ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade install
   say "install: hook step failed, binary is pinned; continuing"
 fi
-[ "$(bin_sha)" = "$TARGET_SHA" ] || finish "FAIL pin-mismatch"
+[ "$(bin_sha)" = "$TARGET_SHA" ] || rollback_upgrade pin-mismatch
 D=$(daemon_pid)
-stop_child "$D"
+stop_child "$D" || rollback_upgrade daemon-still-running
 
 if N=$(wait_serving "$TARGET_SHA"); then
   LOST=""; for p in $HOSTS_BEFORE; do kill -0 "$p" 2>/dev/null || LOST="$LOST $p"; done
   TERMS_AFTER=$(term_count)
-  [ -z "$LOST" ] || finish "FAIL lost-hosts=[${LOST# }] terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N"
+  [ -z "$LOST" ] || rollback_upgrade "lost-hosts=[${LOST# }]"
   # Every host survived, but without both counts the terminals are not proven.
   case "$TERMS_BEFORE$TERMS_AFTER" in *'?'*) finish "UNVERIFIED terminal count unavailable terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N" ;; esac
-  [ "$TERMS_AFTER" -ge "$TERMS_BEFORE" ] || finish "FAIL terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N"
+  [ "$TERMS_AFTER" -ge "$TERMS_BEFORE" ] || rollback_upgrade "terminals=$TERMS_BEFORE->$TERMS_AFTER"
   finish "OK upgraded terminals=$TERMS_BEFORE->$TERMS_AFTER daemon=$N hosts-before=$(echo $HOSTS_BEFORE | wc -w)"
 fi
 
-# The new daemon crashed or never listened. It may already have migrated the
-# on-disk state, so a restored old binary is only trusted once it serves again.
-say "new daemon did not serve; restoring $OLD_SHA"
-restore_state_mount
-cp -p "$RUN/cmux-tui.prev" "$BIN.rollback" && mv -f "$BIN.rollback" "$BIN" && [ "$(bin_sha)" = "$OLD_SHA" ] \
-  || finish "FAIL rollback-restore (target binary may remain; inspect $RUN/log)"
-X=$(daemon_pid); [ -n "$X" ] && stop_child "$X"
-N=$(wait_serving "$OLD_SHA") \
-  || finish "FAIL rollback-daemon-unhealthy (old binary restored but does not serve; on-disk state may be migrated)"
-finish "ROLLBACK new-daemon-unstable; old daemon serving daemon=$N"
+# An old binary is trusted only after it serves the existing registry again.
+rollback_upgrade new-daemon-unstable
