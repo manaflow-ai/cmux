@@ -16,10 +16,10 @@ import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
-/** Shows the full prompt as a tooltip only when its one line is cut off. */
+/** Shows the full prompt as a tooltip only when its two lines cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const text = event.currentTarget;
-  if (text.scrollWidth > text.clientWidth) text.title = prompt;
+  if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) text.title = prompt;
   else text.removeAttribute("title");
 }
 
@@ -45,9 +45,20 @@ export function ComposerQueue({
   /// Focus leaves the queue for the prompt.
   onLeave?(): void;
 }) {
+  // How far above the composer box the list hangs: the height of what sits between the box and
+  // the slot at the top of the composer's stack (App.tsx), the pull requests and notices.
+  const [lift, setLift] = useState(0);
   // A row leaves as soon as it is removed or sent; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditing] = useState<string>();
+  // Rows opened to their whole text (a row shows two lines until it is opened).
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (id: string) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
   // What the open edit holds now: a prompt that starts while it is edited hands it to the prompt.
   const draft = useRef<{ id: string; original: string; text: string }>(undefined);
   // The row a move keeps focus on, once the new order draws.
@@ -83,6 +94,32 @@ export function ComposerQueue({
       chat.style.removeProperty("--acpmux-queue-space");
     };
   }, [queue, leaving]);
+  // Above the pull requests and notices between the slot at the top of the composer's stack
+  // (App.tsx) and the composer box, so none of them draws over a queued prompt. Without the slot
+  // (a surface that has none) it hangs right over the box.
+  const hasRows = queue.some((entry) => !leaving.has(entry.id));
+  useLayoutEffect(() => {
+    const box = list.current?.parentElement;
+    const slot = box?.closest(".acpmux-main")?.querySelector<HTMLElement>(".acpmux-queue-slot");
+    const stack = slot?.parentElement;
+    if (!hasRows || !box || !slot || !stack) return setLift(0);
+    const measure = () =>
+      setLift(Math.max(0, Math.round(box.getBoundingClientRect().top - slot.getBoundingClientRect().top)));
+    // A notice or the pull requests appear, change or leave between the two.
+    const sizes = new ResizeObserver(measure);
+    const watch = () => {
+      sizes.disconnect();
+      for (const child of stack.children) sizes.observe(child);
+      measure();
+    };
+    const children = new MutationObserver(watch);
+    children.observe(stack, { childList: true });
+    watch();
+    return () => {
+      sizes.disconnect();
+      children.disconnect();
+    };
+  }, [hasRows]);
   useLayoutEffect(() => {
     const id = refocus.current;
     const row = id ? list.current?.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`) : null;
@@ -102,6 +139,9 @@ export function ComposerQueue({
   };
   const shown = queue.filter((entry) => !leaving.has(entry.id));
   if (shown.length === 0) return null;
+  // Prompts sent now come first: queued prompts count from after them.
+  const steering = shown.filter((entry) => entry.next).length;
+  const waiting = shown.length - steering;
 
   const rows = () => [...(list.current?.querySelectorAll<HTMLElement>(".acpmux-queued") ?? [])];
   const focusRow = (index: number) => {
@@ -205,10 +245,18 @@ export function ComposerQueue({
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
-      <span className="acpmux-queued-mark" aria-hidden="true">
-        {index + 1}
-      </span>
-      <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+      {entry.next ? (
+        <span className="acpmux-queued-kind" data-kind="steer">
+          {t("composer.steering")}
+        </span>
+      ) : (
+        <>
+          <span className="acpmux-queued-mark" aria-hidden="true">
+            {index + 1 - steering}
+          </span>
+          <span className="acpmux-hidden-label">{t("composer.queued")}</span>
+        </>
+      )}
       {editing === entry.id ? (
         <QueuedEdit
           entry={entry}
@@ -222,9 +270,16 @@ export function ComposerQueue({
           }}
         />
       ) : (
-        <span className="acpmux-queued-text" onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}>
+        <button
+          type="button"
+          className="acpmux-queued-text"
+          data-open={open.has(entry.id) ? "" : undefined}
+          aria-expanded={open.has(entry.id)}
+          onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
+          onClick={() => toggle(entry.id)}
+        >
           {entry.prompt}
-        </span>
+        </button>
       )}
       {editing !== entry.id && (sendNow || onChange || remove) && (
         <span className="acpmux-queued-actions">
@@ -266,7 +321,18 @@ export function ComposerQueue({
     </>
   );
   return (
-    <ol ref={reserve} className="acpmux-composer-queue" aria-label={`${t("composer.queue")} (${shown.length})`}>
+    <ol
+      ref={reserve}
+      className="acpmux-composer-queue"
+      style={lift ? { bottom: `calc(100% + ${lift}px)` } : undefined}
+      aria-label={`${t("composer.queue")} (${shown.length})`}
+    >
+      {waiting > 0 && (
+        <li className="acpmux-queue-header" aria-hidden="true">
+          <span className="acpmux-queued-kind">{t("composer.queued")}</span>
+          <span>{t("composer.queueAfterTurn")}</span>
+        </li>
+      )}
       {paused && (
         <li className="acpmux-queue-paused">
           <span>{t("composer.queuePaused")}</span>
