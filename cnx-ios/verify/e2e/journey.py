@@ -339,8 +339,16 @@ class Journey:
         if i is not None and self.sim.find(contains="Connect your Mac"):
             st = self.sim.wait(ident="connect-mac.status", timeout=30)
             notes.append(f"connect step: {st.label if st else 'no status'}")
-            self.sim.tap_q(label="Continue", kind="Button")
-            time.sleep(1.5)
+            # The page is still sliding in when its status shows; a tap then
+            # can be dropped (the rig stalled here on a loaded Mac: Continue
+            # never fired, then back_to_list swiped back to "Choose a space").
+            # Wait for the button to settle, and tap again if the page stays.
+            for attempt in range(3):
+                self.sim.tap_q(label="Continue", kind="Button")
+                time.sleep(1.5)
+                if not self.sim.find(contains="Connect your Mac"):
+                    break
+                notes.append(f"Continue tap {attempt + 1} did not advance")
         if self.sim.find(label="Turn on notifications"):
             self.sim.tap_q(label="Not now", kind="Button"); notes.append("notifications: Not now")
         check(self.sim.wait(label="Workspaces", kind="RadioButton", timeout=20), "never reached the tab bar")
@@ -619,9 +627,34 @@ class Journey:
         self.hide_keyboard()
         return f"vim wrote {path}; top ran and quit; shell responsive after (htop not installed)"
 
+    # design/terminal B1: the top content inset (under the status bar) and the
+    # slack allowed for "row 0 at the top": one 16.4 pt row plus OCR box padding.
+    TOP_INSET_PT = 62
+    TOP_ROW_SLACK_PT = 24
+
     def s_scrollback(self):
         self.open_seed_workspace()
         term = self.seed["term1"]
+        self.hide_keyboard()
+        # B1: after `clear` the short session draws from the top inset, with no
+        # blank rows above it to scroll into (a drag down only rubber-bands).
+        marker = f"B1TOP{self.run_id[-4:]}"
+        self.mac_write(term, f"clear; echo {marker}\n")
+        self.mac_wait_text(term, marker, timeout=8, count=1)
+        time.sleep(1.5)
+        top = self.sim.ocr_find(marker, timeout=6)
+        self.sim.shot(f"scroll-b1-top-{self.run_id}")
+        check(top, f"{marker} not on screen after clear")
+        y0 = min(h[1] for h in top)
+        check(y0 <= self.TOP_INSET_PT + self.TOP_ROW_SLACK_PT,
+              f"after clear the first row is at y {y0:.0f} pt, not at the top inset ({self.TOP_INSET_PT} pt): blank rows above (B1)")
+        for _ in range(2):
+            self.sim.drag(201, 250, 201, 650, duration=0.4, hold=0.2)
+        time.sleep(1.2)
+        again = self.sim.ocr_find(marker, timeout=4)
+        check(again and abs(min(h[1] for h in again) - y0) <= 4,
+              f"a short session scrolled after a drag down (y {y0:.0f} -> {[round(h[1]) for h in again]}): a page of blank rows above (B1)")
+        b1 = f"B1: after clear the first row is at y {y0:.0f} pt and a short session does not scroll"
         self.mac_write(term, "clear; seq 1 400\n")
         self.mac_wait_text(term, "400", timeout=8)
         time.sleep(1.5)
@@ -637,7 +670,7 @@ class Journey:
         else:
             for _ in range(5):
                 self.sim.drag(201, 650, 201, 150, duration=0.3, hold=0.1)
-        return "scrolled back through 400 lines" + ("; jump-to-bottom tapped" if jump else "; no jump button found (dragged back)")
+        return b1 + "; scrolled back through 400 lines" + ("; jump-to-bottom tapped" if jump else "; no jump button found (dragged back)")
 
     def s_files_links(self):
         self.open_seed_workspace()
