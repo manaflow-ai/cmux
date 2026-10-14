@@ -292,3 +292,33 @@
 .nt-style-options[data-look=strip] .nt-style-option:hover:not(:has(:checked)){background:var(--agent-control-hover)}
 .nt-style-sketch{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
 @media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option,.nt-style-option::before,.nt-style-dot{transition:none}}
+
+/* The browser omnibar's pointer and hover (OmnibarPointer, cx-d0d.80): the field row is the
+   text area, so the I-beam shows over all of it (a press there focuses the field, focusFromRow);
+   the pickers and buttons keep the arrow. The box lifts on hover by the composer's hover step
+   (the native Palette.hoverFill), not while it has the keyboard (the ring shows focus), and
+   eases with the hover token both ways. The fill is a gradient layer over the surface, so the
+   lift is a registered property that can ease. */
+@property --nt-box-lift {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+.nt-input {
+  cursor: text;
+}
+.nt-input :is(button, [role="button"], .nt-shell-glyph, .nt-prompt-glyph) {
+  cursor: default;
+}
+.nt-box {
+  --nt-box-fill: color-mix(in srgb, var(--acpmux-composer-hover) var(--nt-box-lift), var(--acpmux-composer-bg));
+  background: linear-gradient(var(--nt-box-fill), var(--nt-box-fill)), var(--cmux-surface-solid, var(--acpmux-base));
+}
+.nt-box:hover:not(:focus-within) {
+  --nt-box-lift: 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nt-box {
+    transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
+  }
+}

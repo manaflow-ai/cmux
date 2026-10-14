@@ -167,6 +167,10 @@ impl App {
                     Err(_) => break,
                 }
             }
+            // Every loop turn (at least each idle wait): the sidebar
+            // document's fallback read; a changed document arrives as
+            // tree-changed.
+            self.session.tick_sidebar_doc();
             action = action.merge(self.apply_graphics_completion());
             action = action.merge(self.process_machine_requests());
             // Always drain retained failures. PtyFailuresReady only shortens
