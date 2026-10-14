@@ -54,13 +54,19 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     return page;
   }
 
-  /** A control's visible text, its title and all its text (visible and for assistive tech). */
+  /** A control's visible text (not its screen-reader-only text), its title and all its text
+   * (visible and for assistive tech). */
   const read = (page: Page, selector: string) =>
     page.evaluate((selector) => {
       const element = document.querySelector<HTMLElement>(selector);
       if (!element) return null;
+      // innerText counts screen-reader-only text (it is laid out, only clipped): set it aside.
+      const quiet = [...element.querySelectorAll<HTMLElement>(".sr-only")];
+      for (const span of quiet) span.style.display = "none";
+      const visible = element.innerText.replace(/\s+/g, " ").trim();
+      for (const span of quiet) span.style.display = "";
       return {
-        visible: element.innerText.replace(/\s+/g, " ").trim(),
+        visible,
         title: element.title || element.closest<HTMLElement>("[title]")?.title || "",
         text: (element.textContent ?? "").replace(/\s+/g, " ").trim(),
       };
