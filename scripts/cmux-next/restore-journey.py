@@ -680,7 +680,6 @@ def seed_web(base):
 
 AGENT = None
 TOP = {}  # the terminal running `top`: {"terminal": its id}
-W2 = {}  # the w2 page's CSS width at 100% zoom, before the seed zooms it
 HIST = {}  # the history tab: {"tab": its id}
 SEEDED = {}  # values from the first before-snapshot that later variants must keep
 # Clicks the page's link once it has loaded (a click before load can replace the entry instead of adding one).
@@ -736,21 +735,20 @@ def seed_w2(base):
         return
     write(ws["terminal_id"], f"echo rj-w2-marker-{RUN}\n")
     page = value(cli("tab", "create", "browser", "--url", f"{base}/w2page", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
+    # The page zoomed in, as a person's Cmd-+ (`browserZoomIn`, three steps), while it is shown
+    # in the key window (the action needs the key window's focused pane to show a page).
+    if page.get("tab_id"):
+        cli("workspace", ws["workspace_id"], "focus")
+        cli("tab", page["tab_id"], "focus")
+        if wait(lambda: (REPORTS.get("w2page") or {}).get("width"), 30):
+            for _ in range(3):
+                width = REPORTS["w2page"]["width"]
+                say(f"  browserZoomIn -> {json.dumps(rpc('debug.toast', {'perform': 'browserZoomIn', 'target_kind': 'pane', 'target_id': page.get('pane_id')}))[:120]}")
+                wait(lambda: 0 < (REPORTS.get("w2page") or {}).get("width", 0) < width, 10)
     action("moveWorkspaceToNewWindow", target=f"workspace:{ws['workspace_id']}")
     window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
     if window:
         rpc("debug.window_frame", {"window": window.get("key"), "frame": FRAMES[1]})
-    # The page zoomed in, as a person's Cmd-+, in its final window: its CSS viewport narrows.
-    if page.get("tab_id"):
-        since = time.time() + 1
-        wait(lambda: (REPORTS.get("w2page") or {}).get("at", 0) > since, 30)
-        W2["width_at_100"] = (REPORTS.get("w2page") or {}).get("width")
-        if W2["width_at_100"]:
-            # The CLI takes zoom steps only (in, out, reset), as Cmd-+ does: three steps in.
-            for _ in range(3):
-                width = (REPORTS.get("w2page") or {}).get("width", 0)
-                cli("tab", page["tab_id"], "update", "--zoom", "in")
-                wait(lambda: 0 < (REPORTS.get("w2page") or {}).get("width", 0) < width, 10)
 
 
 # Window frames (AppKit points, bottom-left origin), inside a 1080p screen's visible frame (above
@@ -871,19 +869,26 @@ class visiting:
     the focus rows and the next variant see what the person left)."""
 
     def __init__(self, name):
-        self.name, self.back = name, None
+        self.name, self.back, self.prior = name, None, None
 
     def __enter__(self):
         topo = topology() or {}
         self.back = (topo.get("focus") or {}).get("workspace")
         target = workspace_named(self.name, topo) if self.name else None
         if target and target.get("id") != self.back:
+            # The workspace the visited window showed, when that is not the focused window: put
+            # back too, or the snapshot leaves that window on another workspace than it recorded.
+            window = next((w for w in topo.get("windows", []) if target["id"] in w.get("workspaces", [])), None)
+            shown = window and window.get("workspace")
+            self.prior = shown if shown not in (None, target["id"], self.back) else None
             cli("workspace", target["id"], "focus", quiet=True)
         else:
             self.back = None
         return self
 
     def __exit__(self, *_):
+        if self.prior:
+            cli("workspace", self.prior, "focus", quiet=True)
         if self.back:
             cli("workspace", self.back, "focus", quiet=True)
             wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
@@ -1012,7 +1017,14 @@ def snapshot(label):
         if page in fresh:
             items[f"page[{page}].path"] = fresh[page]["path"]
     if "w2page" in fresh:
-        items["page[w2page].css_width"] = fresh["w2page"].get("width")
+        # The page's zoom: its pane's width in points over its CSS viewport width.
+        w2_pane = next((p_.get("id") for ws in rj_workspaces(topo) if ws.get("name") == "rj-w2" for s_ in ws.get("screens", [])
+                        for p_ in s_.get("panes", []) if any(t.get("kind") == "browser" for t in p_.get("tabs", []))), None)
+        try:
+            points = int(str((views.get(w2_pane) or {}).get("content_size")).split("x")[0])
+            items["page[w2page].zoom"] = round(points / fresh["w2page"]["width"], 2) if fresh["w2page"].get("width") else None
+        except ValueError:
+            items["page[w2page].zoom"] = None
     if "hist" in fresh:
         # WebKit's own back list, as the page sees it (a person's link clicks: 3 entries).
         items["page[hist].history_length"] = fresh["hist"].get("history")
@@ -1166,7 +1178,7 @@ def seeded(before):
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
-               ("w2 page zoomed in", (before.get("page[w2page].css_width") or 10**6) < (W2.get("width_at_100") or 0) * 0.9)],
+               ("w2 page zoomed in", (before.get("page[w2page].zoom") or 0) > 1.15)],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The geometry rows only mean something if the app draws the uneven splits.
                   ("rj-split drawn uneven", uneven(before, "ws[rj-split].s0.pane0", "ws[rj-split].s0.pane2")
@@ -1203,10 +1215,9 @@ def compare(variant, before, after):
         elif item in ("top.running", "top.in_view"):
             ok = a is True and b is True
             detail = f"{b} -> {a}"
-        elif item == "page[w2page].css_width" and isinstance(a, int) and isinstance(b, int):
-            # The page's zoom: its CSS viewport width in the same window (within 2 CSS px).
-            ok = abs(a - b) <= 2 and a < (W2.get("width_at_100") or 0) * 0.9
-            detail = f"{b} -> {a} (at 100%: {W2.get('width_at_100')})"
+        elif item == "page[w2page].zoom" and isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            ok = abs(a - b) <= 0.03
+            detail = f"{b} -> {a}"
         elif item == "page[tall].self_scrolled":
             # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
             ok = a == 0
