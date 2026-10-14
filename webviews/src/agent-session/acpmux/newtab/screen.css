@@ -296,6 +296,7 @@
   .nt-box {
     transition: --nt-box-lift var(--agent-motion-hover) var(--agent-ease-out);
   }
+}
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
    title keeps clear of the count; the icon and age columns stay where every other row has them. */
