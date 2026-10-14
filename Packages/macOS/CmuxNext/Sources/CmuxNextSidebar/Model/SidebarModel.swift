@@ -77,6 +77,8 @@ public final class SidebarModel {
     public var noticeCard: SidebarNoticeCard?
     /// The "cmux Updated!" card (cx-7py7), shown only while ``updateCard`` is nil.
     public var updatedCard: SidebarUpdatedCard?
+    /// The Now Playing card (cx-ouoxo), shown only while ``updateCard`` is nil.
+    public var nowPlaying: SidebarNowPlaying?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// The workspaces whose disclosure hid their tabs: window view state.
@@ -198,7 +200,7 @@ public final class SidebarModel {
         case let .switchProfile(id):
             activeProfileID = id
         case .activateItem, .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .dropOnLayoutSection, .noticeAction, .dismissNotice,
-             .openWhatsNew, .dismissUpdated:
+             .openWhatsNew, .dismissUpdated, .nowPlaying:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
