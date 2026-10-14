@@ -89,17 +89,6 @@
       ],
       "packages": []
     },
-    "CmuxNextAgentLanes": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
-      "targets": [
-        "CmuxNextAgentActivity",
-        "CmuxNextBridge",
-        "CmuxNextSidebar",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
-    },
     "CmuxNextAgentPane": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane",
@@ -155,7 +144,6 @@
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
-        "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentQuestion",
         "CmuxNextApps",
@@ -193,7 +181,6 @@
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
         "CmuxNextRemoteLocalhost",
-        "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
         "CmuxNextServer",
@@ -234,7 +221,6 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextAgentCursor",
-        "CmuxNextAgentLanes",
         "CmuxNextApp",
         "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",
@@ -249,7 +235,6 @@
         "CmuxNextLayout",
         "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
-        "CmuxNextRemoteLocalhostService",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextWakeups"
@@ -732,21 +717,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhost",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
-    },
-    "CmuxNextRemoteLocalhostService": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteLocalhostService",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextBrowser",
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDaemonService",
-        "CmuxNextRemoteLocalhost",
-        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []
