@@ -416,7 +416,9 @@ try:
         def at_top():
             pinned, y = section_items("sec_pinned"), pinned_block_y()
             return bool(pinned and all(i.get("window_frame") for i in pinned) and y is not None and y >= 0)
-        sign, before = 1, pinned_block_y()
+        # debug.sidebar_wheel posts through the window's sendEvent like the window server does (hitch11: phased debug.mouse
+        # scrolls moved the list once, 2400 pt, then never again). Positive dy moves the list toward its top.
+        before, stuck = pinned_block_y(), 0
         for attempt in range(80):
             if at_top():
                 break
@@ -425,16 +427,16 @@ try:
             if not anchor:
                 print("no on-screen list row to wheel over", flush=True)
                 break
-            point = {"x": center(anchor["window_frame"])[0], "y": center(anchor["window_frame"])[1], "action": "scroll"}
-            for phase, dy in (("began", 0), ("changed", 800 * sign), ("changed", 800 * sign), ("changed", 800 * sign), ("ended", 0)):
-                rpc("debug.mouse", {**point, "dy": dy, "phase": phase})
-            time.sleep(0.2)  # test harness: let the scroll apply
+            x, y = center(anchor["window_frame"])
+            trackpad = stuck < 3
+            reply = rpc("debug.sidebar_wheel", {"x": x, "y": y, "dy": 300 if trackpad else 40, "count": 20, "trackpad": trackpad})
+            time.sleep(0.4)  # test harness: let the scroll (and any momentum) apply
             after = pinned_block_y()
-            if attempt < 3 or attempt % 10 == 0:
-                print("scroll", attempt, "sign", sign, "pinned block y", before, "->", after, flush=True)
-            # The block row's y must grow toward 0; if it does not (or the row left the realized rows), flip the wheel once.
-            if attempt == 0 and (after is None or before is None or after <= before):
-                sign = -sign
+            stuck = stuck + 1 if after == before else 0
+            if attempt < 3 or attempt % 10 == 0 or stuck == 3:
+                print("scroll", attempt, "trackpad", trackpad, "pinned block y", before, "->", after, "reply", json.dumps(reply)[:160], flush=True)
+            if stuck >= 6:
+                break
             before = after
         print("list at top:", at_top(), "pinned block y:", pinned_block_y(),
               "pinned frames:", [i.get("window_frame") for i in section_items("sec_pinned")], flush=True)
@@ -476,7 +478,10 @@ try:
             record("3-group-into-pinned", [center(group["window_frame"]), (last["x"] + last["width"] * 0.85, last["y"] + last["height"] / 2)],
                    {str(group.get("key"))})
     # 4. A long drag down into the list's bottom edge: autoscroll, then a drop.
-    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list")]
+    def on_screen(r):
+        return bool(r.get("window_frame")) and 0 <= r["window_frame"]["y"] < 760
+    # Only rows on screen (hitch11: the first in_list row sat at y -455, so the drag started above the window).
+    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r)]
     if "4" in WANTED and listed:
         top = listed[0]
         bottom = max(r["window_frame"]["y"] + r["window_frame"]["height"] for r in listed)
@@ -484,7 +489,7 @@ try:
         record("4-autoscroll-across", [center(top["window_frame"]), (center(top["window_frame"])[0], edge - 4)], {str(top.get("key"))},
                hold=2.0, seconds=1.6)
     # 5. A refusal: a row dragged down three rows, Escape before the release: the gap closes, the card flies home.
-    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and str(r.get("key", "")).startswith("workspace")]
+    listed = [r for r in window().get("rows", []) if r.get("title") and r.get("in_list") and on_screen(r) and str(r.get("key", "")).startswith("workspace")]
     if "5" in WANTED and len(listed) >= 4:
         row, below = listed[0], listed[3]
         record("5-refusal-springs-back", [center(row["window_frame"]), (center(row["window_frame"])[0], center(below["window_frame"])[1])],
