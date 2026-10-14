@@ -11,10 +11,10 @@
 # noVNC on 6901), the same stack on every provider.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
-# driver installs the pinned files.cmux.com build (sha256-verified) at create
-# time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
-# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: the
+# Freestyle bake installs the pinned files.cmux.com build (sha256-verified,
+# web/services/vms/drivers/cmuxTuiDaemon.ts), and the driver installs nothing
+# at create or attach. The image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
 # for the binary and restarts the daemon, and (without systemd) runs the
 # desktop supervisor as the work user. The Freestyle public-platform bake
 # (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
