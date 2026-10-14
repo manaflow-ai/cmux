@@ -57,6 +57,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+const { SubagentStopContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
 const { withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 
 afterAll(() => {
@@ -139,4 +140,37 @@ test("a running workflow and a background agent show what they do and what they 
     ["probeworkflow", "Count: n2 · 1/3 agents · 19.7K tokens"],
     ["Watch the buildgeneral-purpose", "Bash · 38.3K tokens · 1 tool use"],
   ]);
+});
+
+test("a running subagent has a stop button; an ended one has none", async () => {
+  setPaneLanguage("en");
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, [
+    { id: "w", parent: null, name: "probe", kind: "workflow", state: "running" },
+  ]);
+  feed(fold, { sessionUpdate: "subagent_spawned" }, [
+    { id: "a", parent: null, name: "Watch the build", state: "running" },
+  ]);
+  feed(fold, { sessionUpdate: "subagent_state_update" }, [
+    { id: "a", parent: null, name: "Watch the build", state: "completed" },
+  ]);
+  const groups = fold.takeRows();
+  const rows = withSubagentRows(groups, new Set(groups.map((row) => row.id)));
+  const stopped: string[] = [];
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <SubagentStopContext.Provider value={(id) => stopped.push(id)}>
+          <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+        </SubagentStopContext.Provider>,
+      ),
+    );
+    const stops = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".cv-subagent__stop")];
+    expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop probe"]);
+    await act(async () => stops[0]!.click());
+    expect(stopped).toEqual(["w"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
