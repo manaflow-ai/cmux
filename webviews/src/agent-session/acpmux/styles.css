@@ -18,8 +18,8 @@
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
-/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the composer's hairline edge over the shared popup shadow (ui/popupSurface.css), no border of their own. A popup portaled straight to the body (ui/ContextMenu.tsx) has no composer edge, so it takes the shared hairline. A Base UI popup with no surface class of its own still gets it. */
-:root,.acpmux-shell,.ui-positioner{--acpmux-popup-elevation:inset 0 0 0 .5px var(--acpmux-composer-edge,color-mix(in srgb,currentColor 12%,transparent)),var(--ui-popup-shadow)}
+/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the shared popup shadow (ui/popupSurface.css), whose own hairline is the only edge, and no border of their own. A second composer-edge hairline here drew two edges (test/popup-one-hairline.test.ts). A Base UI popup with no surface class of its own still gets it. */
+:root{--acpmux-popup-elevation:var(--ui-popup-shadow)}
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
@@ -555,3 +555,16 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-secret-card-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-secret-card-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
 .acpmux-secret-card-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* An agent's offer of a parallel chat (cx-807da, OfferChip.tsx): a placeholder look until the chip's design lands. */
+.acpmux-session-offer{display:flex;align-items:center;gap:12px;margin:4px 0;padding:8px 8px 8px 12px;box-sizing:border-box;border-radius:12px;background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:var(--text-control)}
+.acpmux-session-offer-text{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.acpmux-session-offer-label{font-size:var(--text-detail)}
+.acpmux-session-offer-title{color:var(--agent-text);overflow-wrap:anywhere}
+.acpmux-session-offer[data-outcome="dismissed"] .acpmux-session-offer-title{color:var(--acpmux-composer-dim)}
+.acpmux-session-offer-error{overflow-wrap:anywhere}
+.acpmux-session-offer-row{display:flex;align-items:center;gap:4px;flex:none}
+.acpmux-session-offer-status{padding:0 6px}
+.acpmux-session-offer-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:6px;background:none;color:var(--agent-text);font:inherit;cursor:pointer}
+.acpmux-session-offer-action:disabled{color:var(--acpmux-composer-dim);cursor:default}
+.acpmux-session-offer-action:not(:disabled):hover{background:var(--acpmux-composer-hover)}
+.acpmux-session-offer-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
