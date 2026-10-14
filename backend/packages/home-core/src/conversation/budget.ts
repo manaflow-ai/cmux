@@ -30,8 +30,11 @@ export const threadAgentStreak = (head: ConversationHead, messages: ReadonlyArra
   let count = 0
   for (const message of messages) {
     if (!inThread(message, threadRoot) || !hasText(message.parts)) continue
-    if (findParticipant(head, message.author)?.kind !== "agent") break
-    count++
+    const kind = findParticipant(head, message.author)?.kind
+    // Only a person's text ends the streak; an author who left is skipped
+    // (the head counted it at send time, so a row count only falls short).
+    if (kind === "human") break
+    if (kind === "agent") count++
   }
   return count
 }

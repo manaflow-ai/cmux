@@ -273,7 +273,6 @@ const updated = (next: Draft, message: Message): Commit => {
 const sortedRecord = (record: Readonly<Record<string, number>>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 
-/** Agent text messages at the newest end of `recent` (newest first), up to the first human text. */
 /** Copies the loop-guard fields of `turned` (`withTurn`) onto the draft head. */
 const applyTurn = (next: Draft, turned: ConversationHead): void => {
   const draft = next as { agent_text_streak?: number; last_agent_text_at?: string; thread_agent_streaks?: Readonly<Record<string, number>> }

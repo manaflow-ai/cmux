@@ -325,6 +325,12 @@ const threadBudgetCases = (
   c.op(host, "thread budget: a person's text in thread A resets it", ALICE, "pa", inA("pa"), "commit")
   host.advance(10_000)
   c.op(host, "thread budget: a Chief may answer in thread A again", INFRA, "a11", inA("a11"), "commit")
+  // reply_to alone joins the parent's thread, for the count too.
+  const a11 = host.messages.find((m) => m.client_msg_id === "a11")!
+  const replyOnly = (key: string) => send(key, parts(key), { message_id: a11.id, part_index: 0 })
+  host.advance(10_000)
+  c.op(host, "thread budget: a Chief's reply_to-only reply joins thread A and counts", RELEASE, "a12", replyOnly("a12"), "commit")
+  c.op(host, "thread budget: a person's reply_to-only reply joins thread A and resets it", ALICE, "pa2", replyOnly("pa2"), "commit")
 
   // A Chief's reply to another Chief's question is an agent turn: it never resets the streak.
   const asked = new CoreHost(made.head)

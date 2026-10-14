@@ -574,13 +574,25 @@ fn two_chiefs_wake_each_other_stop_at_the_thread_budget_and_a_person_resumes_the
     // The budget is per thread: a person's new top-level message gets the
     // Chiefs talking in its own thread, up to its own budget, while the spent
     // thread stays quiet (a person's text elsewhere does not reset it).
-    let other = send(&mut me, &channel_id, "ops-3", "and the cache bucket is full");
+    let other = send(
+        &mut me,
+        &channel_id,
+        "ops-3",
+        "and the cache bucket is full",
+    );
     let other_full = pump_all(&mut chiefs, Duration::from_secs(60), || {
         chief_replies(&mut me, &channel_id, &other).len() >= cap
     });
-    assert!(other_full, "the Chiefs did not use the second thread's budget");
+    assert!(
+        other_full,
+        "the Chiefs did not use the second thread's budget"
+    );
     pump_all(&mut chiefs, Duration::from_secs(5), || false);
-    assert_eq!(chief_replies(&mut me, &channel_id, &other).len(), cap, "second thread");
+    assert_eq!(
+        chief_replies(&mut me, &channel_id, &other).len(),
+        cap,
+        "second thread"
+    );
     assert_eq!(
         chief_replies(&mut me, &channel_id, &root).len(),
         after,

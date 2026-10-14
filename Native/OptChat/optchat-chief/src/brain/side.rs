@@ -273,7 +273,8 @@ impl Brain {
     /// The loop guard, the owner's own rule (`cmux_conversation`
     /// `thread_agent_streak`, `MAX_AGENT_TURNS`): a message by another Chief
     /// wakes this one only while the thread its reply goes into
-    /// (`reply_thread`) holds fewer agent texts since a person's text there
+    /// (`membership::thread_target`, else the top level) holds fewer agent
+    /// texts since a person's text there
     /// than the budget. Past it the owner refuses the reply (`agent_budget`),
     /// so the Chief stays quiet instead of running that turn. A person's
     /// message always passes (it resets its thread).
@@ -284,17 +285,20 @@ impl Brain {
         read: &[Message],
         message: &Message,
     ) -> bool {
-        use cmux_chief::rules::{is_chief, reply_thread};
+        use cmux_chief::rules::is_chief;
         use cmux_conversation::{MAX_AGENT_TURNS, thread_agent_streak};
         if !is_chief(summary, &message.author) {
             return true;
         }
-        let root = reply_thread(message);
+        // Where the reply goes (`membership::thread_target`): the message's
+        // thread in a group conversation, else the top level.
+        let target = crate::membership::thread_target(summary, message).map(|(root, _)| root);
         let newest_first: Vec<Message> = read.iter().rev().cloned().collect();
-        let streak = thread_agent_streak(&summary.participants, &newest_first, Some(root));
+        let streak = thread_agent_streak(&summary.participants, &newest_first, target.as_deref());
         if streak >= MAX_AGENT_TURNS {
+            let place = target.as_deref().unwrap_or("top level");
             (self.log)(&format!(
-                "{conversation}: Chiefs paused ({streak} agent messages in thread {root} since a person wrote there); {} stays quiet",
+                "{conversation}: Chiefs paused ({streak} agent messages in thread {place} since a person wrote there); {} stays quiet",
                 message.id
             ));
             return false;

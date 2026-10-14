@@ -152,12 +152,6 @@ pub fn wakes_as(
     mentioned || message.reply_to.as_ref().is_some_and(|r| is_mux_message(&r.message_id))
 }
 
-/// The thread a reply to `message` goes into: its root, or the message itself
-/// when it is top level (a Chief answers a top-level message in its thread).
-pub fn reply_thread(message: &Message) -> &str {
-    message.thread_root.as_deref().unwrap_or(&message.id)
-}
-
 /// The plain text of a message (text parts joined by newlines).
 pub fn message_text(message: &Message) -> String {
     message

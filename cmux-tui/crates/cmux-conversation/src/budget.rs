@@ -34,13 +34,22 @@ pub fn thread_agent_streak(
     messages: &[Message],
     thread_root: Option<&str>,
 ) -> usize {
-    let is_agent =
-        |id: &str| participants.iter().any(|p| p.id == id && p.kind == ParticipantKind::Agent);
-    messages
+    let kind = |id: &str| participants.iter().find(|p| p.id == id).map(|p| p.kind);
+    let mut count = 0;
+    for m in messages
         .iter()
         .filter(|m| in_thread(m, thread_root) && m.parts.iter().any(Part::counts_as_turn))
-        .take_while(|m| is_agent(&m.author))
-        .count()
+    {
+        // Only a person's text ends the streak; an author who left is
+        // skipped (the head counted it at send time; a row count only falls
+        // short).
+        match kind(&m.author) {
+            Some(ParticipantKind::Human) => break,
+            Some(ParticipantKind::Agent) => count += 1,
+            _ => {}
+        }
+    }
+    count
 }
 
 /// The head's agent text streak of thread `thread_root` (None: the top level).
