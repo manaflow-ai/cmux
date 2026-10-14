@@ -134,6 +134,17 @@ import Testing
         #expect(phones[0].deviceIDs == ["a", "b"])
         #expect(phones[0].updatedAt == "2026-10-13T11:00:00Z")
         #expect(phones[0].owns("A") && !phones[0].owns("c"))
+        // Two phones with one name never join: Remove must not take both.
+        let twins = CnxKnownPhone.group([
+            CnxRegisteredDevice(deviceID: "x", kind: "phone", name: "iPhone"),
+            CnxRegisteredDevice(deviceID: "y", kind: "phone", name: "iPhone"),
+            CnxRegisteredDevice(deviceID: "z", kind: "phone", name: "iPhone (presence)"),
+        ])
+        #expect(twins.map(\.deviceIDs) == [["x"], ["y"], ["z"]])
+    }
+
+    @Test func dropPhoneIsOneControlLine() {
+        #expect(String(decoding: CnxHostLaunch.dropPhoneLine("p1"), as: UTF8.self) == #"{"phone_device_id":"p1","type":"drop_phone"}"# + "\n")
     }
 
     @Test func directoryListsAndRemovesWithTheBearerToken() async throws {

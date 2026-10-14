@@ -48,7 +48,12 @@ public struct CnxHostState: Sendable, Equatable {
             phones.removeAll { $0.sessionID == link.sessionID }
             phones.append(link)
         case .phonePath(let session, let path):
-            if let index = phones.firstIndex(where: { $0.sessionID == session }) { phones[index].path = path }
+            phones = phones.map { link in
+                guard link.sessionID == session else { return link }
+                var moved = link
+                moved.path = path
+                return moved
+            }
         case .phoneDown(let session, _):
             phones.removeAll { $0.sessionID == session }
         }

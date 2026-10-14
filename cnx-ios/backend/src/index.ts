@@ -177,7 +177,12 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const removal = path.match(/^\/v1\/devices\/([^/]+)$/)
   if (removal && method === "DELETE") {
     // Only the owner removes a device; another user's device answers 404 like a missing one.
-    const deviceId = decodeURIComponent(removal[1]!).toLowerCase()
+    let deviceId: string
+    try {
+      deviceId = decodeURIComponent(removal[1]!).toLowerCase()
+    } catch {
+      throw new HttpError(400, "bad_request", "deviceId must be a UUID")
+    }
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, ownerKey(env, caller)))
     if (r === "not_found") throw new HttpError(404, "not_found", "no such device")

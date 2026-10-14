@@ -10,6 +10,9 @@
 //!   the app's acpmux WebSocket, sent at start and on `need_acpmux` (it moves
 //!   when acpmux restarts).
 //!
+//! - `{"type":"drop_phone","phone_device_id":"<uuid>"}`: the owner removed this
+//!   phone (Settings > Mobile > Remove): hostd closes its live links now.
+//!
 //! End of stdin means the app is gone: the process exits.
 //!
 //! stdout carries one JSON event per line for the app (logs go to stderr);
@@ -20,12 +23,18 @@ use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
+static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+
+/// Phone device ids the app removed, as they arrive (lowercased).
+pub fn drops() -> broadcast::Receiver<String> {
+    DROPS.get_or_init(|| broadcast::channel(16).0).subscribe()
+}
 
 /// Whether this process runs supervised (`CNX_CONTROL=stdio`).
 pub fn enabled() -> bool {
@@ -38,6 +47,7 @@ pub fn enabled() -> bool {
 pub enum Inbound {
     Token { token: String },
     Acpmux { url: String, token: Option<String> },
+    DropPhone { phone_device_id: String },
 }
 
 impl Inbound {
@@ -101,6 +111,10 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
                 }
+                Some(Inbound::DropPhone { phone_device_id }) => {
+                    let _ =
+                        DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
+                }
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
@@ -140,6 +154,10 @@ mod tests {
         assert_eq!(
             Inbound::parse(r#"{"type":"acpmux","url":"ws://127.0.0.1:1/","token":"t"}"#),
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"drop_phone","phone_device_id":"P"}"#),
+            Some(Inbound::DropPhone { phone_device_id: "P".into() })
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);

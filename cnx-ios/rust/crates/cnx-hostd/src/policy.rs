@@ -217,6 +217,16 @@ impl DaemonPolicy {
                 ));
             }
         }
+        if (command == "new-browser-tab" || command == "browser-navigate")
+            && let Some(url) = object.get("url")
+            && !web_url(url)
+        {
+            return Verdict::Refuse(error_line(
+                id,
+                "forbidden",
+                "a phone may open only http and https pages",
+            ));
+        }
         if command == "get-frontend-projection" || command == "put-frontend-projection" {
             return self.projection_verdict(&object, id, command == "put-frontend-projection");
         }
@@ -238,6 +248,14 @@ impl DaemonPolicy {
             &format!("phones may only use the personal projection {}", self.projection_subject),
         ))
     }
+}
+
+/// A web page a phone may open in the Mac's browser: `http(s)://…` or `about:blank`,
+/// never `file:`, `javascript:` or an app scheme that would act on the Mac.
+fn web_url(url: &Value) -> bool {
+    let Some(text) = url.as_str() else { return false };
+    let lower = text.trim().to_ascii_lowercase();
+    lower.starts_with("https://") || lower.starts_with("http://") || lower == "about:blank"
 }
 
 /// A v12 error response line, keys sorted like the Swift policy.
@@ -286,6 +304,31 @@ mod tests {
             br#"{"cmd":"respawn-surface","id":"m7","surface":7,"argv":["sh"]}"#.as_slice(),
             br#"{"cmd":"run","id":"m8","argv":["sh","-c","id"]}"#,
             br#"{"cmd":"create-terminal","id":"m9","workspace":1,"argv":["sh"]}"#,
+        ] {
+            assert!(
+                matches!(policy().evaluate(line), Verdict::Refuse(_)),
+                "{}",
+                String::from_utf8_lossy(line)
+            );
+        }
+    }
+
+    #[test]
+    fn browser_tabs_open_web_pages_only() {
+        assert_eq!(
+            policy().evaluate(br#"{"cmd":"new-browser-tab","id":1,"pane":2,"url":"https://example.com"}"#),
+            Verdict::Forward
+        );
+        assert_eq!(
+            policy()
+                .evaluate(br#"{"cmd":"browser-navigate","id":2,"surface":3,"url":"http://localhost:3000"}"#),
+            Verdict::Forward
+        );
+        for line in [
+            br#"{"cmd":"new-browser-tab","id":3,"pane":2,"url":"file:///etc/passwd"}"#.as_slice(),
+            br#"{"cmd":"browser-navigate","id":4,"surface":3,"url":"javascript:alert(1)"}"#,
+            br#"{"cmd":"browser-navigate","id":5,"surface":3,"url":"cmux://open"}"#,
+            br#"{"cmd":"new-browser-tab","id":6,"pane":2,"url":7}"#,
         ] {
             assert!(
                 matches!(policy().evaluate(line), Verdict::Refuse(_)),

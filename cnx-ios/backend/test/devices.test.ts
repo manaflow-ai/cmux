@@ -22,6 +22,7 @@ describe("device list and removal", () => {
     const phone = await register(alice, "phone", "team-a")
     expect((await call("DELETE", `/v1/devices/${phone}`, await token("bob"))).status).toBe(404)
     expect((await call("DELETE", "/v1/devices/not-a-uuid", alice)).status).toBe(400)
+    expect((await call("DELETE", "/v1/devices/%E0%A4%A", alice)).status).toBe(400)
     expect(await call("DELETE", `/v1/devices/${phone}`, alice)).toMatchObject({ status: 200, json: { removed: true, deviceId: phone } })
     expect((await call("DELETE", `/v1/devices/${phone}`, alice)).status).toBe(404)
     const listed = (await call("GET", "/v1/me/devices", alice)).json.devices.map((d: any) => d.deviceId)

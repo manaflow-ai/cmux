@@ -46,6 +46,8 @@ public actor CnxHostSupervisor {
     private var process: CnxHostProcess?
     /// The last token sent: hostd asking again means it expired or was refused, so the next is forced fresh.
     private var lastToken: String?
+    /// Bumped by every start and stop; an older call that resumes late drops out.
+    private var generation: UInt64 = 0
 
     /// A run up this long (seconds) resets the backoff.
     static let healthyRun: TimeInterval = 60
@@ -59,9 +61,13 @@ public actor CnxHostSupervisor {
     /// The current state.
     public var current: CnxHostState { state }
 
-    /// Starts hostd for `inputs`, ending any run first.
+    /// Starts hostd for `inputs`, ending any run first. A later start or stop that
+    /// arrives while this one waits for the old run to end wins.
     public func start(_ inputs: Inputs) async {
-        await stop(phase: .connecting)
+        generation &+= 1
+        let mine = generation
+        await halt()
+        guard generation == mine else { return }
         guard FileManager.default.isExecutableFile(atPath: inputs.launch.executable.path) else {
             publish { $0.reset(to: .unavailable("cnx-hostd is not in this build")) }
             return
@@ -70,14 +76,27 @@ public actor CnxHostSupervisor {
         run = Task { await self.superviseLoop(inputs) }
     }
 
-    /// Ends hostd and shows `phase`.
+    /// Ends hostd and shows `phase` (unless a start arrived meanwhile).
     public func stop(phase: CnxHostState.Phase = .off) async {
+        generation &+= 1
+        let mine = generation
+        await halt()
+        guard generation == mine else { return }
+        publish { $0.reset(to: phase) }
+    }
+
+    /// Ends the current run and waits for its hostd to exit.
+    private func halt() async {
         let task = run
         run = nil
         task?.cancel()
         process?.stop()
         await task?.value
-        publish { $0.reset(to: phase) }
+    }
+
+    /// Ends the live links of a phone the owner removed (hostd closes them at once).
+    public func drop(phoneDeviceIDs: [String]) {
+        for id in phoneDeviceIDs { process?.send(CnxHostLaunch.dropPhoneLine(id)) }
     }
 
     /// Shows a phase without running hostd (for example, not signed in).

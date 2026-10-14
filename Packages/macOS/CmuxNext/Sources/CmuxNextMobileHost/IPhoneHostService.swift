@@ -66,7 +66,8 @@ public final class IPhoneHostService {
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var following: Task<Void, Never>?
     /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
-    @ObservationIgnored private var running: Account?
+    /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
+    @ObservationIgnored private var running: String?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
@@ -109,13 +110,14 @@ public final class IPhoneHostService {
         }
     }
 
-    /// Removes `id`'s phone on the cnx service (all its device ids) and re-reads the list.
-    /// The phone's open link ends with its signaling socket; a phone still signed in to the
-    /// account registers again when it next connects.
+    /// Removes `id`'s phone on the cnx service (all its device ids), ends its live links in
+    /// hostd, and re-reads the list. A phone still signed in to the account registers again
+    /// when it next connects.
     public func removePhone(id: String) async {
         guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
         do {
             try await CnxDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             knownPhones.removeAll { $0.id == id }
             phonesError = nil
         } catch {
@@ -164,8 +166,9 @@ public final class IPhoneHostService {
 
     private func reconcile() {
         let want = allowed ? account : nil
-        guard want != running else { return }
-        running = want
+        let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
+        guard key != running else { return }
+        running = key
         let previous = applying
         let dependencies = dependencies
         let supervisor = supervisor
@@ -186,7 +189,7 @@ public final class IPhoneHostService {
                 let socket = try await dependencies.daemonSocket()
                 let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
                 let name = await dependencies.computerName()
-                guard !Task.isCancelled, self?.running == want else { return }
+                guard !Task.isCancelled, self?.running == key else { return }
                 let launch = CnxHostLaunch(
                     executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
                     deviceID: deviceID, deviceName: name, daemonSocket: socket,
@@ -199,7 +202,7 @@ public final class IPhoneHostService {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))
                 // A later account or toggle change tries again.
-                if self?.running == want { self?.running = nil }
+                if self?.running == key { self?.running = nil }
             }
         }
     }

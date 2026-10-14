@@ -94,6 +94,10 @@ async fn daemon(
     if !valid_session_name(session) {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
+    // Supervised by the app: only the app's own daemon, never another channel's or tag's.
+    if config.default_socket.is_some() && named.is_some_and(|name| name != config.default_session) {
+        return Err(Refusal::new("forbidden", "only this app's session is shared"));
+    }
     let path = match (named, &config.default_socket) {
         (None, Some(socket)) => socket.clone(),
         _ => config.tui_socket_dir.join(format!("{session}.sock")),
@@ -360,8 +364,14 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
     let resolved = confine(&config.file_roots, Path::new(requested))?;
-    let mut file =
-        tokio::fs::File::open(&resolved).await.map_err(|_| Refusal::new("not_found", "cannot open"))?;
+    // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
+    // refuse anything that is not a regular file.
+    let mut file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&resolved)
+        .await
+        .map_err(|_| Refusal::new("not_found", "cannot open"))?;
     // A path component swapped for a symlink between the check and the open would
     // escape the roots: check again where the open descriptor really points.
     confine_open(&config.file_roots, &file)?;
@@ -395,6 +405,24 @@ mod tests {
         assert!(!valid_session_name("../x"));
         assert!(!valid_session_name(".hidden"));
         assert!(!valid_session_name(""));
+    }
+
+    #[tokio::test]
+    async fn a_fifo_inside_a_root_is_refused_without_blocking() {
+        let root = tempfile::tempdir().unwrap();
+        let fifo = root.path().join("pipe");
+        let c = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        // SAFETY: a valid NUL-terminated path and mode.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+        let resolved = confine(&[root.path().to_path_buf()], &fifo).unwrap();
+        let mut options = tokio::fs::OpenOptions::new();
+        options.read(true).custom_flags(libc::O_NONBLOCK);
+        let open = options.open(&resolved);
+        let file = tokio::time::timeout(std::time::Duration::from_secs(2), open)
+            .await
+            .expect("open blocked")
+            .unwrap();
+        assert!(!file.metadata().await.unwrap().is_file());
     }
 
     #[test]

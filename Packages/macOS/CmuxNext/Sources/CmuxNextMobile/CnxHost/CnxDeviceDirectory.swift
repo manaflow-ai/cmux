@@ -78,6 +78,8 @@ public struct CnxKnownPhone: Sendable, Equatable, Identifiable {
     public var deviceIDs: [String]
     /// The newest `updatedAt` of its ids (ISO 8601), for "last registered".
     public var updatedAt: String?
+    /// Whether rows of the same name join this entry (its name is unique among the phones).
+    var joinable = false
 
     public var id: String { deviceIDs.sorted().first ?? name }
 
@@ -90,22 +92,36 @@ public struct CnxKnownPhone: Sendable, Equatable, Identifiable {
     /// The phone app names its presence id `<name> (presence)`; both ids are one phone.
     static let presenceSuffix = " (presence)"
 
-    /// Phones only, grouped by name, in the order of their first (newest) row.
+    /// Phones only, in the order of their first (newest) row. A `<name> (presence)` row joins
+    /// the one phone named `<name>`; when several phones share that name, nothing is joined and
+    /// every row stays its own entry, so Remove never takes two phones at once.
     public static func group(_ devices: [CnxRegisteredDevice]) -> [CnxKnownPhone] {
-        var order: [String] = []
-        var byName: [String: CnxKnownPhone] = [:]
-        for device in devices where device.kind == "phone" {
-            let name = device.name.hasSuffix(presenceSuffix) ? String(device.name.dropLast(presenceSuffix.count)) : device.name
-            if var phone = byName[name] {
-                phone.deviceIDs.append(device.deviceID)
-                if let at = device.updatedAt, at > (phone.updatedAt ?? "") { phone.updatedAt = at }
-                byName[name] = phone
+        let phones = devices.filter { $0.kind == "phone" }
+        let isPresence = { (device: CnxRegisteredDevice) in device.name.hasSuffix(presenceSuffix) }
+        let base = { (device: CnxRegisteredDevice) in
+            isPresence(device) ? String(device.name.dropLast(presenceSuffix.count)) : device.name
+        }
+        var linkCount: [String: Int] = [:]
+        for device in phones where !isPresence(device) { linkCount[device.name, default: 0] += 1 }
+        var result: [CnxKnownPhone] = []
+        for device in phones {
+            let name = base(device)
+            let joinable = linkCount[name] == 1
+            if joinable, let at = result.firstIndex(where: { $0.name == name && $0.joinable }) {
+                result = result.enumerated().map { offset, phone in
+                    guard offset == at else { return phone }
+                    var merged = phone
+                    merged.deviceIDs.append(device.deviceID)
+                    if let updated = device.updatedAt, updated > (merged.updatedAt ?? "") { merged.updatedAt = updated }
+                    return merged
+                }
             } else {
-                order.append(name)
-                byName[name] = CnxKnownPhone(name: name, deviceIDs: [device.deviceID], updatedAt: device.updatedAt)
+                var phone = CnxKnownPhone(name: name, deviceIDs: [device.deviceID], updatedAt: device.updatedAt)
+                phone.joinable = joinable
+                result.append(phone)
             }
         }
-        return order.compactMap { byName[$0] }
+        return result
     }
 
     /// Whether `phoneDeviceID` (a live link's phone id) is one of this phone's ids.
