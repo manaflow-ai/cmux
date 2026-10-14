@@ -115,7 +115,7 @@ public final class TerminalModel {
     @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
     @ObservationIgnored private var frameSavePending = false
 
-    private func saveFrameSoon() {
+    func saveFrameSoon() {
         guard frameSaver != nil, !frameSavePending else { return }
         let wait = max(0, 3 - (CACurrentMediaTime() - lastFrameSave))
         frameSavePending = true

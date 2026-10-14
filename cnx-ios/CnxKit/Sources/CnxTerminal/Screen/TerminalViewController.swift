@@ -1101,6 +1101,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY, restingStackTop: restingStackTop, isTUI: model.isTUI)
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        // The page changed without output (the keyboard came or went): the
+        // saved frame for the next cold launch follows (R2-5).
+        model.saveFrameSoon()
         updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 
