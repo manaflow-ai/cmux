@@ -76,8 +76,13 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
+    /// Makes a spare page (``AgentTabs/makeSpare(_:)``): WebKit's first load runs in it, on the main
+    /// thread. Tests put a stalled WebKit in its place.
+    var makeSpare: (AgentPaneNewTab) -> AgentPaneView?
+
     init(services: AppServices) {
         self.services = services
+        makeSpare = { [unowned services] page in services.agentTabs.makeSpare(page) }
     }
 
 
@@ -85,7 +90,7 @@ final class NewTabSparePool {
     /// build; the launch's restored New Tab page adopts it, or ``start()`` parks it (bd cx-z9kz0).
     func prewarm() {
         guard services.agentTabs.canHostChat, slot.shouldWarm,
-              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+              let view = BenchSpans.measure("pool.makeSpare", { makeSpare(NewTabPage.sparePage(services)) })
         else { return }
         slot.parked(view)
     }
@@ -297,7 +302,7 @@ final class NewTabSparePool {
             return
         }
         guard slot.shouldWarm, let content = target?.contentView,
-              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+              let view = BenchSpans.measure("pool.makeSpare", { makeSpare(NewTabPage.sparePage(services)) })
         else { return }
         park(in: content)
         view.frame = parking.bounds
