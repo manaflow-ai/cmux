@@ -23,20 +23,72 @@ fn named(source: NameSource, revision: u64) -> RegistryWorkspace {
     }
 }
 
+fn try_commit(
+    registry: &mut WorkspaceRegistry,
+    id: &str,
+    workspace: RegistryWorkspace,
+) -> anyhow::Result<()> {
+    let revision = registry.snapshot()?.revision;
+    registry.commit(
+        &WorkspaceMutation::daemon(id, "test")?,
+        &json!({"op":id}),
+        None,
+        Some(revision),
+        "workspace-renamed",
+        KEY,
+        &[workspace],
+        &json!({"key":KEY}),
+    )?;
+    Ok(())
+}
+
 fn commit(registry: &mut WorkspaceRegistry, id: &str, workspace: RegistryWorkspace) {
-    let revision = registry.snapshot().unwrap().revision;
-    registry
-        .commit(
-            &WorkspaceMutation::daemon(id, "test").unwrap(),
-            &json!({"op":id}),
-            None,
-            Some(revision),
-            "workspace-renamed",
-            KEY,
-            &[workspace],
-            &json!({"key":KEY}),
-        )
-        .unwrap();
+    try_commit(registry, id, workspace).unwrap();
+}
+
+fn renamed(name: &str, source: NameSource, revision: u64) -> RegistryWorkspace {
+    RegistryWorkspace { name: name.into(), ..named(source, revision) }
+}
+
+fn refusal(error: &anyhow::Error) -> (String, Value) {
+    let error = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<crate::resource::ResourceError>())
+        .unwrap_or_else(|| panic!("untyped refusal: {error:#}"));
+    (
+        error.code.clone(),
+        error
+            .details
+            .get("extra")
+            .and_then(|extra| extra.get("reason_code"))
+            .cloned()
+            .unwrap_or(Value::Null),
+    )
+}
+
+fn resource_upsert(
+    registry: &mut WorkspaceRegistry,
+    id: &str,
+    workspace: RegistryWorkspace,
+) -> anyhow::Result<()> {
+    let revision = registry.snapshot()?.revision;
+    registry.commit_resource_patch(
+        &WorkspaceMutation::daemon(id, "test")?,
+        "workspace.rename",
+        &json!({"op":id}),
+        None,
+        Some(revision),
+        &ResourcePatch {
+            changes: vec![ResourceChange::UpsertWorkspace {
+                workspace,
+                position: 0,
+                active_screen: None,
+            }],
+        },
+        &json!({"key":KEY}),
+        &json!([]),
+    )?;
+    Ok(())
 }
 
 #[test]
@@ -100,6 +152,44 @@ fn workspace_name_source_older_daemon_rename_claims_user_ownership() {
     assert_eq!(workspace.name, "Billing");
     assert_eq!(workspace.name_source, NameSource::User);
     assert_eq!(workspace.name_revision, 3);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Memory read the automatic name at revision 2, then another writer stored
+/// a user rename at revision 3. The write built from memory must not land.
+#[test]
+fn workspace_name_source_store_refuses_a_rename_older_than_storage() {
+    let root = temp_root("workspace-name-store-fence");
+    let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    commit(&mut registry, "create", renamed("Fix Login", NameSource::Auto, 2));
+    commit(&mut registry, "pin", renamed("Billing", NameSource::User, 3));
+    let pinned = renamed("Billing", NameSource::User, 3);
+
+    // The auto rename memory approved against revision 2.
+    let stale = try_commit(&mut registry, "stale-auto", renamed("Topic", NameSource::Auto, 3));
+    assert_eq!(refusal(&stale.unwrap_err()).0, "revision.conflict");
+    // Any write carrying memory's older revision, renamed or not.
+    let behind = try_commit(&mut registry, "stale-copy", renamed("Fix Login", NameSource::Auto, 2));
+    assert_eq!(refusal(&behind.unwrap_err()).0, "revision.conflict");
+    // The resource patch path is fenced the same way.
+    let patched =
+        resource_upsert(&mut registry, "stale-patch", renamed("Topic", NameSource::Auto, 3));
+    assert_eq!(refusal(&patched.unwrap_err()).0, "revision.conflict");
+    // A revision that agrees with storage still cannot auto-name over a user name.
+    let over_user = try_commit(&mut registry, "over-user", renamed("Topic", NameSource::Auto, 4));
+    assert_eq!(
+        refusal(&over_user.unwrap_err()),
+        ("operation.failed".to_string(), json!("name_pinned"))
+    );
+    assert_eq!(registry.snapshot().unwrap().workspaces[0], pinned);
+
+    // Writes that agree with storage still land.
+    commit(&mut registry, "same", pinned.clone());
+    commit(&mut registry, "user", renamed("Payments", NameSource::User, 4));
+    commit(&mut registry, "release", renamed("Payments", NameSource::Auto, 5));
+    resource_upsert(&mut registry, "auto", renamed("Refunds", NameSource::Auto, 6)).unwrap();
+    assert_eq!(registry.snapshot().unwrap().workspaces[0], renamed("Refunds", NameSource::Auto, 6));
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
