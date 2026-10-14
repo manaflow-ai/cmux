@@ -34,8 +34,9 @@ int32_t cmux_layout_reducer_json(
  *                        or {idempotency_key, rejected:true}
  *                        -> {"ok":true,...} | {"refetch":true}
  *   apply_intent(intent) {idempotency_key, ops:[op]} -> {"ok":true,"inverse":[op]} | {"refusal":"code"}
- *   view(request)        {live, window, filter?, collapsed?} -> {"revision":"N","rows":[row]}
- *   drag_begin(items)    {items:[id]} -> {"table":{row_key:{before,into,after,refusal?}}}
+ *   view(request)        {live, window, filter?, collapsed?} -> [row]
+ *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
+ *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}
  */
 typedef struct CmuxSidebarMirror CmuxSidebarMirror;
 

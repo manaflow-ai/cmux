@@ -9,7 +9,7 @@
 //! machine B's workspaces (`cross_machine`). A row that is dragged, or a
 //! child of a dragged group, refuses with `self`.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -30,10 +30,18 @@ struct Dragged {
     keys: HashSet<String>,
     machines: HashSet<String>,
     has_group: bool,
+    /// Each group's machine, from its children that are not dragged
+    /// (computed once, so the table is linear in the rows).
+    group_machines: HashMap<String, String>,
 }
 
 fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
-    let mut result = Dragged { keys: HashSet::new(), machines: HashSet::new(), has_group: false };
+    let mut result = Dragged {
+        keys: HashSet::new(),
+        machines: HashSet::new(),
+        has_group: false,
+        group_machines: HashMap::new(),
+    };
     for key in items {
         result.keys.insert(key.clone());
         if let Some(item) = doc.item(key) {
@@ -52,6 +60,13 @@ fn dragged(doc: &Doc, rows: &[Row], items: &[String]) -> Dragged {
         {
             // An unplaced live workspace (its row has no item yet).
             result.machines.insert(reference.session_id.clone());
+        }
+    }
+    for item in &doc.items {
+        if let (Some(parent), Some(reference)) = (&item.parent, item.body.workspace())
+            && !result.keys.contains(&item.id)
+        {
+            result.group_machines.entry(parent.clone()).or_insert(reference.session_id.clone());
         }
     }
     result
@@ -88,13 +103,8 @@ fn can_place(
         if dragged.machines.len() > 1 {
             return Err(Refusal::CrossMachine);
         }
-        let group_machine = doc
-            .items
-            .iter()
-            .filter(|c| c.parent.as_deref() == Some(parent) && !dragged.keys.contains(&c.id))
-            .find_map(|c| c.body.workspace().map(|r| r.session_id.clone()));
-        if let Some(group_machine) = group_machine
-            && dragged.machines.iter().any(|m| *m != group_machine)
+        if let Some(group_machine) = dragged.group_machines.get(parent)
+            && dragged.machines.iter().any(|m| m != group_machine)
         {
             return Err(Refusal::CrossMachine);
         }

@@ -16,9 +16,11 @@
 //!   rejected:true}` drops a refused intent.
 //! - `apply_intent`: `{idempotency_key, ops:[op]}` (or `op`) on the shown
 //!   document: `{"ok":true,"inverse":[...]}` or `{"refusal":"<code>"}`.
-//! - `view`: the rows of a view request on the shown document.
+//! - `view`: the flat rows (an array) of a view request on the shown
+//!   document.
 //! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
-//!   over the rows of the last view.
+//!   `{row_key: {before, into, after, refusal?}}` over the rows of the last
+//!   view.
 
 use cmux_layout_reducer::sidebar_doc::{
     Doc, Item, Op, Section, accept, reduce,
@@ -207,7 +209,7 @@ impl Mirror {
         };
         let (doc, _) = self.shown();
         self.rows = view::view(&doc, &request);
-        json!({"revision": doc.revision.to_string(), "rows": self.rows})
+        json!(self.rows)
     }
 
     pub fn drag_begin(&mut self, input: &[u8]) -> Value {
@@ -222,6 +224,6 @@ impl Mirror {
             Err(e) => return error(e),
         };
         let (doc, _) = self.shown();
-        json!({"table": accept::drag_begin(&doc, &self.rows, &items)})
+        json!(accept::drag_begin(&doc, &self.rows, &items))
     }
 }
