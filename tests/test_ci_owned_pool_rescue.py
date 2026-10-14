@@ -1033,6 +1033,8 @@ class Dispatch(unittest.TestCase):
 
 
 SIDE = "glaeda-side-std-xcode-26.6"
+# cmux-next fast tier's own runner pool (vars.CI_NEXT_FAST_POOL).
+FAST = "glaeda-fast-std-xcode-26.6"
 
 
 def side_event(**overrides):
@@ -1254,6 +1256,30 @@ class SideLanes(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("cancel", api.calls)
         self.assertIn("watch limit reached", summary)
+
+    def test_cmux_next_fast_tier_pool_is_watched_like_the_side_label(self):
+        # cmux-next's fast tier may run on its own runner pool (vars.CI_NEXT_FAST_POOL).
+        # A job stuck there is rescued exactly like a stuck job on the side label.
+        self.assertEqual(rescue.job_pool(job("cmux-next fast tier", labels=[FAST])), FAST)
+
+        def cmux_next(label):
+            def jobs(seconds):
+                test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
+                test["started_at"] = stamp(5)
+                return [test, job("cmux-next fast tier", labels=[label], created=0)]
+            return jobs
+
+        payload = side_event(path=".github/workflows/cmux-next.yml")
+        outcomes = {}
+        for label in (SIDE, FAST):
+            clock = Clock()
+            api = FakeAPI(clock, cmux_next(label))
+            code, summary = run_main(api, clock, payload=payload, env_extra={"SIDE_RESCUE_SECONDS": "30"})
+            self.assertEqual(code, 0, label)
+            self.assertIn("cancel", api.calls, label)
+            self.assertIn("rerun-failed", api.calls, label)
+            outcomes[label] = (api.calls, summary.replace(label, "<label>"))
+        self.assertEqual(outcomes[FAST], outcomes[SIDE])
 
     def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
         running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")

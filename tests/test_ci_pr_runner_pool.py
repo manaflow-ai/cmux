@@ -868,6 +868,19 @@ class OwnedPools(unittest.TestCase):
         for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
             self.assertFalse(pool.persistent(label), label)
 
+    def test_the_fast_tier_pool_is_an_owned_role_label(self):
+        # cmux-next's fast tier may run on its own runner pool (vars.CI_NEXT_FAST_POOL),
+        # `glaeda-fast-<class>-xcode-<version>`: owned like the side label, never a pool
+        # the picker routes a whole run to, and never the base of another role label.
+        fast = "glaeda-fast-std-xcode-26.6"
+        self.assertTrue(pool.persistent(fast))
+        self.assertEqual(pool._role_name(fast), "fast")
+        self.assertEqual(pool.owned_class(fast), "std")
+        self.assertEqual((pool.root_label(fast), pool.side_label(fast), pool.gui_label(fast)), ("", "", ""))
+        self.assertNotIn(fast, pool.owned_pools("/Applications/Xcode_26.6.app", f"{fast},{MINI}"))
+        for label in ("glaeda-fast", "glaeda-fast-xcode-26.6", "glaeda-fast-huge-xcode-26.6"):
+            self.assertFalse(pool.persistent(label), label)
+
     def test_off_by_default(self):
         self.assertEqual(owned_choice(fleet(small=0), owned="").runner, LARGE)
 
@@ -3914,6 +3927,62 @@ class LiveIdleRunners(unittest.TestCase):
             routed = client.pull_request_routes_since("x", exclude_run_id=None, now=NOW)
         self.assertEqual((routed.unknown, routed.live_unknown), (2, 1))
         self.assertEqual(pool.Routed(owned={MINI: 7, LIGHT: 0}).runs(), {MINI: 1})
+
+
+sys.path.insert(0, str(ROOT / "tests"))
+from test_seed_derived_data import evaluate as evaluate_expression  # noqa: E402
+
+
+class FastTierRoute(unittest.TestCase):
+    """cmux-next's fast tier: its own runner pool on attempts 1 and 2 while vars.CI_NEXT_FAST_POOL is set."""
+
+    FAST = "glaeda-fast-std-xcode-26.6"
+    PLACED = "glaeda-side-std-xcode-26.6"
+
+    def route(self, job: str):
+        """A job's runs-on, evaluated by the workflow-expression harness."""
+        text = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())["jobs"][job]["runs-on"]
+        return lambda context: evaluate_expression(text, context)
+
+    def context(self, *, fast="", attempt=1, event="pull_request", head="manaflow-ai/cmux",
+                owner="manaflow-ai", actor="someone"):
+        return {
+            "github": {"repository_owner": owner, "repository": "manaflow-ai/cmux", "event_name": event,
+                       "run_attempt": str(attempt), "triggering_actor": actor,
+                       "event": {"pull_request": {"head": {"repo": {"full_name": head}}}}},
+            "needs": {"macos-placement": {"outputs": {"runner": self.PLACED}}},
+            "vars": {"CI_NEXT_FAST_POOL": fast, "CI_PR_POOL_OWNED": "1", "CI_SIDE_LANE_RUNNER": self.PLACED},
+        }
+
+    def test_the_fast_pool_takes_attempts_one_and_two_when_set(self):
+        fast_tier, shared = self.route("fast-tier"), self.route("swift-canary")
+        for event in ("pull_request", "push", "workflow_dispatch"):
+            for actor in ("someone", "github-actions[bot]"):
+                for attempt in (1, 2):
+                    with self.subTest(event=event, actor=actor, attempt=attempt):
+                        self.assertEqual(fast_tier(self.context(fast=self.FAST, attempt=attempt, event=event,
+                                                                actor=actor)), self.FAST)
+                # A rescue re-run (attempt 3 and later) takes today's shared route.
+                for attempt in (3, 4, 5):
+                    with self.subTest(event=event, actor=actor, attempt=attempt):
+                        context = self.context(fast=self.FAST, attempt=attempt, event=event, actor=actor)
+                        self.assertEqual(fast_tier(context), shared(context))
+                        self.assertNotEqual(fast_tier(context), self.FAST)
+
+    def test_without_the_variable_the_fast_tier_keeps_the_shared_route(self):
+        fast_tier, shared = self.route("fast-tier"), self.route("swift-canary")
+        for event in ("pull_request", "push", "workflow_dispatch"):
+            for actor in ("someone", "github-actions[bot]"):
+                for attempt in (1, 2, 3, 4):
+                    with self.subTest(event=event, actor=actor, attempt=attempt):
+                        context = self.context(attempt=attempt, event=event, actor=actor)
+                        self.assertEqual(fast_tier(context), shared(context))
+        self.assertEqual(fast_tier(self.context()), self.PLACED)
+
+    def test_forks_never_reach_the_fast_pool(self):
+        fast_tier = self.route("fast-tier")
+        self.assertEqual(fast_tier(self.context(fast=self.FAST, head="someone/cmux")), "blacksmith-6vcpu-macos-26")
+        self.assertEqual(fast_tier(self.context(fast=self.FAST, owner="someone")), "macos-26")
 
 
 if __name__ == "__main__":
