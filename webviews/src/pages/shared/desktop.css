@@ -31,6 +31,9 @@
      page zoom; the media query below is the value before it runs. */
   --cmux-hairline: 1px;
   --cmux-hairline-ring: 1px;
+  /* The light end of the tonal scale: what a light theme's raised surfaces lift toward, as the
+     native opaque fill does (`ThemeTokens.opaqueOverlayFill` mixes a light page toward white). */
+  --cmux-tone-light: #fff; /* theme-fixed: the tonal scale's light end, as native ThemeTokens */
   /* The highlighted row of a menu, list or palette (keyboard or pointer): a tint one step past
      hover (the text at about 6%), never a ring and never the accent's selection tint. The left
      bar in the theme accent is an option, 0 (off) by default. */
