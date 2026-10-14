@@ -1,4 +1,4 @@
-// A prompt's bubble, with Copy and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
+// A prompt's bubble, with Copy, Bookmark and Edit under it (cx-ncc.60, Claude parity). Edit opens the prompt in
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
@@ -9,6 +9,8 @@ import { useT } from "../i18n";
 import { copyText } from "./clipboard";
 import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
 import { TurnActionsContext } from "./turnActions";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
+import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
@@ -16,6 +18,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -82,6 +85,19 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           >
             <Copy size={14} />
           </button>
+          {/* The prompt's bookmark, the same mark as the thread minimap's dot and card. */}
+          {mark.can && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact cv-user__bookmark"
+              aria-pressed={mark.marked}
+              aria-label={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              title={t(mark.marked ? "minimap.bookmarkRemove" : "minimap.bookmarkAdd")}
+              onClick={mark.toggle}
+            >
+              <BookmarkIcon filled={mark.marked} size={14} />
+            </button>
+          )}
           {through !== undefined && (
             <button
               type="button"
