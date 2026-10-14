@@ -16,7 +16,7 @@ final class WorkspaceRowView: SidebarRowView {
     private let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     private let agentMark = NSImageView()
-    private var agentMarkVariant = SidebarAgentMarkVariant.off
+    private(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
     private var activityState = StatusIndicatorState.idle
@@ -182,7 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
         activityState = shown.activity
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: SidebarStyle.indicatorSize) }
+            : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
@@ -295,7 +295,7 @@ final class WorkspaceRowView: SidebarRowView {
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
         // activity.
-        var trailing = b.width - Metrics.space3
+        var trailing = b.width - SidebarStyle.horizontalInset // the pill's own inset, as the text's (Leo 2026-10-13)
         let control = SidebarStyle.controlSize
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
         setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
@@ -348,11 +348,11 @@ final class WorkspaceRowView: SidebarRowView {
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
-            agentMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+            agentMark.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            trailing = agentMark.frame.minX - Metrics.space2
         } else if activity.showsGlyph {
-            activity.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
-            trailing -= ind + Metrics.space2
+            activity.frame = statusGlyphFrame(trailing: trailing, titleTop: top)
+            trailing = activity.frame.minX - Metrics.space2
         }
         if !mutedMark.isHidden {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
@@ -364,7 +364,7 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= w + Metrics.space2
         }
 
-        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
+        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
@@ -379,7 +379,7 @@ final class WorkspaceRowView: SidebarRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let titleWidth = max(0, textW - 2 * inset)
+        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
