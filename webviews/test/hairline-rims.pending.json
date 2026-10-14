@@ -1,7 +1,3 @@
 {
-  "//": "Rounded rims still drawn with a raw sub-pixel width (test/hairline-rims.ts), with their count, which may only go down. Each is skipped on purpose: the chat composer and New Tab box files are under the composer focus-ring follow-up and #20443's composer layout (composerLocation.css: the permission card; composerAttachments.css: attachment chips, thumbnails, PDF sheet and viewer, remove button; styles.css: the .acpmux-composer-box base rim; newtab/screen.css: .nt-card). Move each onto var(--cmux-hairline) when that work lands, then lower or delete its line.",
-  "agent-session/acpmux/composerAttachments.css": 6,
-  "agent-session/acpmux/composerLocation.css": 1,
-  "agent-session/acpmux/newtab/screen.css": 1,
-  "agent-session/acpmux/styles.css": 1
+  "//": "Rounded rims still drawn with a raw sub-pixel width (test/hairline-rims.ts), with their count, which may only go down. Empty since cx-o9yox moved every one onto var(--cmux-hairline); add a file here only with its reason, then move it and delete its line."
 }

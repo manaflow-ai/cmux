@@ -423,7 +423,7 @@
 /* Permission cards use the same quiet material language as the composer. The icon and title form
    one readable header, while coverage and request count stay secondary metadata. */
 .acpmux-permission-panel .acpmux-permission-card.acpmux-permission-surface {
-  border: .5px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border: var(--cmux-hairline, .5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 5%, var(--agent-surface-elevated));
   box-shadow: var(--elevation-2);
