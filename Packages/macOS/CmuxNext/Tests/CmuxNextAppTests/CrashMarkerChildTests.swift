@@ -1,0 +1,99 @@
+@testable import CmuxNextApp
+import CmuxNextBrowser
+import Darwin
+import Foundation
+import Testing
+
+/// Crashes where the run marker's fatal-signal handler could not run left
+/// no signal, so the next launch restored without the restart notice
+/// (cx-30ko):
+/// - a stack overflow: the handler had no alternate signal stack to run on;
+/// - a crash after a failed Chromium start: Chromium resets every signal
+///   action when it starts, and the handlers came back only when it started.
+///
+/// Each test crashes a child process (an exit test) with the app's run
+/// marker live, then reads the folder it left the way the next launch does.
+struct CrashMarkerChildTests {
+    @Test func aStackOverflowShowsTheNoticeOnTheNextLaunch() async throws {
+        let directory = CrashChild.directory("overflow", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .failure) {
+            await CrashChild.overflowTheMainThread()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGSEGV || previous.signal == SIGBUS,
+                "a stack overflow recorded no signal (\(previous.signal.map(String.init) ?? "none"))")
+        #expect(LaunchRecovery.decide(previous: previous).isRestart, "a stack overflow showed no restart notice")
+    }
+
+    @Test func aCrashAfterAFailedChromiumStartShowsTheNoticeOnTheNextLaunch() async throws {
+        let directory = CrashChild.directory("chromium", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .signal(SIGSEGV)) {
+            await CrashChild.crashAfterAFailedChromiumStart()
+        }
+        let previous = try #require(CrashChild.previous(in: directory), "the child left no run.json")
+        #expect(previous.signal == SIGSEGV,
+                "a crash after a failed Chromium start recorded no signal (\(previous.signal.map(String.init) ?? "none"))")
+        #expect(LaunchRecovery.decide(previous: previous).isRestart,
+                "a crash after a failed Chromium start showed no restart notice")
+    }
+}
+
+/// What the exit-test children run. An exit test captures nothing, so the
+/// child finds its marker folder from its parent's pid.
+enum CrashChild {
+    static func directory(_ name: String, parent: pid_t) -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "cmux-crash-marker-\(parent)-\(name)", directoryHint: .isDirectory)
+    }
+
+    static func previous(in directory: URL) -> PreviousRun? {
+        AppRunMarker.readPrevious(marker: directory.appending(path: "run.json"), signal: directory.appending(path: "run.signal"),
+                                  exception: directory.appending(path: "run.exception"))
+    }
+
+    /// The app's launch: the run marker on the main thread, `run.json` on
+    /// disk.
+    @MainActor
+    static func markRun(_ name: String) async -> AppRunMarker {
+        let marker = AppRunMarker(directory: directory(name, parent: getppid()))
+        _ = await marker.flush()
+        return marker
+    }
+
+    /// Runaway recursion on the main thread, where the app installs its
+    /// handlers.
+    @MainActor
+    static func overflowTheMainThread() async {
+        let marker = await markRun("overflow")
+        _ = recurse(1)
+        withExtendedLifetime(marker) {}
+    }
+
+    /// Chromium fails to start (no runtime at this layout) after it reset
+    /// the signal actions, as `CefInitialize` does before it can fail; then
+    /// the app crashes.
+    @MainActor
+    static func crashAfterAFailedChromiumStart() async {
+        let marker = await markRun("chromium")
+        let missing = FileManager.default.temporaryDirectory.appending(path: "cmux-no-cef-\(UUID().uuidString)")
+        let engine = CEFEngine(layout: CEFRuntimeLayout(frameworksDirectory: missing, mainBundle: missing,
+                                                        helperApp: missing.appending(path: "None Helper.app")))
+        AppRunMarker.keepSignalHandlers(marker, across: engine, reporter: nil)
+        for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS] { _ = Darwin.signal(signal, SIG_DFL) }
+        await engine.warmStart(reason: "test")
+        #expect(!engine.isRunning)
+        _ = raise(SIGSEGV)
+        withExtendedLifetime(marker) {}
+    }
+
+    /// About 300 bytes of stack per call, never a tail call.
+    @inline(never)
+    static func recurse(_ depth: Int) -> Int {
+        var frame: (Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int, Int) =
+            (depth, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        if depth == Int.max { return 0 }
+        let below = withUnsafeMutableBytes(of: &frame) { bytes in recurse(depth &+ Int(bytes[0] & 1) &+ 1) }
+        return below &+ frame.0
+    }
+}
