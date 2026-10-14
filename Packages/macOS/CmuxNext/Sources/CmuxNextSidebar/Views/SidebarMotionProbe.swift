@@ -16,8 +16,14 @@ public struct SidebarMotionFrame: Sendable {
     public var lift: CGRect?
     /// Row key (or `item:<id>` for a block item) -> presented frame.
     public var views: [String: CGRect]
+    /// Presented opacity by the same keys (a hidden or fading view is not a pop).
+    public var opacity: [String: Float]
     /// Main-thread milliseconds the list spent in its last drag update (0 when none).
     public var dragWorkMs: Double
+    /// The list's model structure (`SidebarModel.sectionsRevision`): a change marks a drop's optimistic model or its echo.
+    public var revision: UInt64
+    /// A dropped drag still shows its look (`SidebarListView.settling`).
+    public var settling: Bool
 }
 
 /// Samples the list once per display frame while on. Off by default; one
@@ -47,17 +53,21 @@ final class SidebarMotionProbe {
     private func sample(_ time: CFTimeInterval) -> Bool {
         guard let list, frames.count < Self.capacity else { return false }
         var views: [String: CGRect] = [:]
+        var opacity: [String: Float] = [:]
         for (key, view) in list.rowViews {
             views[String(describing: key)] = Self.presented(view)
+            opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {
                 views["item:" + id.rawValue] = Self.presented(item).offsetBy(dx: origin.x, dy: origin.y)
+                opacity["item:" + id.rawValue] = item.layer?.presentation()?.opacity ?? Float(item.alphaValue)
             }
         }
-        let lift = list.drag?.lift ?? list.settling?.drag.lift
+        let lift = list.drag?.lift ?? list.settling?.drag.lift ?? list.landing.flatMap { $0.lift.superview == nil ? nil : $0.lift }
         frames.append(SidebarMotionFrame(time: time, scrollY: list.enclosingScrollView?.contentView.bounds.minY ?? 0,
-                                         lift: lift.map(Self.presented), views: views, dragWorkMs: list.lastDragWorkMs))
+                                         lift: lift.map(Self.presented), views: views, opacity: opacity, dragWorkMs: list.lastDragWorkMs,
+                                         revision: list.model.sectionsRevision, settling: list.settling != nil))
         return true
     }
 

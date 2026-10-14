@@ -27,6 +27,10 @@ struct SidebarSettlingDrop {
     /// The list's structure and the blocks when the drop was sent: either changing ends the settle.
     var revision: UInt64
     var blocks: SidebarListBlocks?
+    /// The card reached its slot before the model showed the drop: it holds the slot until then.
+    var landed = false
+    /// What the card's landing runs once it is done.
+    var then: (@MainActor () -> Void)?
 }
 
 /// What the blocks draw: the shown sections of the document (the ones before
@@ -84,6 +88,12 @@ final class SidebarBlockRowView: SidebarRowView {
         return region.hitTest(convert(local, to: region.superview))
     }
 
+    /// Shows `content` on the drag's one spring (items, cards, lines; `SidebarRegionView.springShow`).
+    func springShow(_ content: SidebarRegionView.Content, width: CGFloat) {
+        region.springShow(content, width: width)
+        region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
+    }
+
     func show(_ content: SidebarRegionView.Content, width: CGFloat, animated: Bool) {
         region.show(content, width: width, animated: animated)
         region.frame = NSRect(x: 0, y: 0, width: width, height: region.layoutResult.height)
@@ -139,10 +149,11 @@ extension SidebarListView {
         return (above, below)
     }
 
-    /// Ends a settling drop once its move landed (the list's structure or the blocks changed).
-    func settleDrop() {
-        guard let held = settling, model.sectionsRevision != held.revision || blocks != held.blocks else { return }
+    /// Ends a settling drop once its move landed (the list's structure or the blocks changed); returns it.
+    func settleDrop() -> SidebarSettlingDrop? {
+        guard let held = settling, model.sectionsRevision != held.revision || blocks != held.blocks else { return nil }
         settling = nil
+        return held
     }
 
     /// The gap's frame in the list (where a dropped card lands).
@@ -186,7 +197,7 @@ extension SidebarListView {
     /// list's one drag lifts it (the tile's snapshot follows the pointer).
     func dragTile(_ id: LayoutItemID, section: String, in region: SidebarRegionView, from start: NSPoint, _ event: NSEvent) -> Bool {
         if drag == nil {
-            settling = nil
+            abandonSettle()
             guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
             let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
             guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
@@ -214,7 +225,7 @@ extension SidebarListView {
             drag.docAcceptance = doc.begin([id.rawValue])
             self.drag = drag
             setHovered(nil)
-            reload(animated: true)
+            showDragLayout() // the tile's slot closes on the drag's spring
         }
         updateDrag(windowPoint: event.locationInWindow)
         return true

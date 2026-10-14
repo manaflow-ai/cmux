@@ -12,6 +12,8 @@ final class DragLiftView: NSView {
     private let countBadge = NSTextField(labelWithString: "")
     let badgeBackground = NSView()
     private var lifted = false
+    /// Landings started (`SidebarReorderLift.land`): only the last one's completion runs.
+    var landings = 0
 
     init(content: NSView, count: Int) {
         self.content = content
@@ -72,13 +74,23 @@ final class DragLiftView: NSView {
         badgeBackground.frame = NSRect(x: bounds.maxX - w + Metrics.space3, y: -h / 2, width: w, height: h)
         badgeBackground.layer?.cornerRadius = Metrics.chipCornerRadius(height: h)
         countBadge.frame = NSRect(x: badgeBackground.frame.minX, y: badgeBackground.frame.midY - size.height / 2, width: w, height: size.height)
-        if lifted {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.sublayerTransform = liftTransform(true)
-            CATransaction.commit()
+        guard let layer else { return }
+        // The scale's centre follows a new size on the same spring, from what is on screen: a morph
+        // inside the lift spring neither snaps at the lift's end nor jumps now.
+        let transform = liftTransform(lifted)
+        if !CATransform3DEqualToTransform(layer.sublayerTransform, transform) {
+            if lifted, layer.animation(forKey: "sublayerTransform") != nil {
+                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: transform), spring: .move)
+            } else {
+                Motion.transaction(nil) { layer.sublayerTransform = transform }
+            }
         }
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
+        // The shadow keeps the card's shape: `morph` springs it with the size.
+        if layer.animation(forKey: "shadowPath") == nil { Motion.transaction(nil) { layer.shadowPath = shadowPath(bounds) } }
+    }
+
+    private func shadowPath(_ rect: CGRect) -> CGPath {
+        CGPath(roundedRect: rect, cornerWidth: SidebarStyle.rowCornerRadius, cornerHeight: SidebarStyle.rowCornerRadius, transform: nil)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -140,6 +152,8 @@ final class DragLiftView: NSView {
         guard frame != self.frame else { return }
         let layers = [layer, card.layer, content.layer].compactMap { $0 }
         let before = layers.map { ($0, $0.position, $0.bounds.size) }
+        let oldBounds = bounds
+        let startPath = layer?.presentation()?.shadowPath ?? layer?.shadowPath
         Motion.withoutAnimation {
             self.frame = frame
             layoutSubtreeIfNeeded()
@@ -149,6 +163,11 @@ final class DragLiftView: NSView {
             return
         }
         morphs += 1
+        // The shadow's shape springs with the card's size (one spring, from the shape on screen).
+        if let layer, frame.size != oldBounds.size {
+            Motion.set(layer, "shadowPath", to: shadowPath(CGRect(origin: .zero, size: frame.size)), spring: .move,
+                       from: startPath ?? shadowPath(oldBounds))
+        }
         for (layer, position, size) in before {
             let dp = NSValue(point: NSPoint(x: position.x - layer.position.x, y: position.y - layer.position.y))
             let ds = NSValue(size: NSSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height))

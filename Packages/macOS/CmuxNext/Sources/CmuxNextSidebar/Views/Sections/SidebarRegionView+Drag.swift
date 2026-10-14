@@ -148,6 +148,7 @@ extension SidebarRegionView {
     private func land(_ drag: SidebarRegionDrag) {
         let host = drag.lift.superview ?? self
         SidebarReorderLift.land(drag.lift, at: frame(of: drag.subject).map { host.convert($0, from: self) }) { [weak self] in
+            drag.lift.removeFromSuperview()
             for view in drag.hidden { view.alphaValue = 1 }
             guard let self, self.reorder == nil else { return }
             self.reorderSections = nil

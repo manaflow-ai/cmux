@@ -7,7 +7,7 @@ extension SidebarListView {
     typealias Drag = SidebarListDrag
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
-        settling = nil
+        abandonSettle()
         guard displayed.row(for: press.key) != nil else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>
@@ -68,7 +68,8 @@ extension SidebarListView {
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
-        reload(animated: true)
+        // The source slot closes on the drag's spring; the list does not reload while the drag is held.
+        showDragLayout()
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -97,7 +98,7 @@ extension SidebarListView {
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
-        reload(animated: true)
+        showDragLayout()
     }
     func finishDrag() {
         guard let drag else { return }
@@ -112,7 +113,8 @@ extension SidebarListView {
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
             suppressed = drag.hiddenKeys
-            reload(animated: true)
+            // The drop's look is what the drag shows: adopting it moves nothing (the card settles into its slot).
+            reload(animated: true, adopt: true)
             return land(drag, at: settling == nil ? nil : settleFrame(drag))
         }
         guard let target = drag.target else { return cancelDrag() }
@@ -132,7 +134,7 @@ extension SidebarListView {
             break
         }
         suppressed = drag.hiddenKeys // Rows land under the lifted view, stay hidden until it arrives.
-        reload(animated: true)
+        reload(animated: true, adopt: true) // the optimistic order: rows already at their slots move nothing
         land(drag)
     }
     /// A document drag's move: geometry only (no reducer call, no layout
@@ -157,7 +159,7 @@ extension SidebarListView {
             drag.lift.setRefused(true)
             if drag.target != nil || drag.blockTarget != nil {
                 (drag.target, drag.blockTarget) = (nil, nil)
-                reload(animated: true)
+                showDragLayout()
             }
             return
         }
@@ -178,7 +180,7 @@ extension SidebarListView {
         guard target != drag.target || blockTarget != drag.blockTarget else { return }
         drag.target = target
         drag.blockTarget = blockTarget
-        reload(animated: true)
+        showDragLayout()
         morphLift(drag, point: point)
     }
 
@@ -218,7 +220,7 @@ extension SidebarListView {
         press?.cancelled = true
         if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
-        reload(animated: true)
+        reload(animated: true, adopt: true) // the gap closes and the source slot opens on the drag's spring
         land(drag)
     }
     /// Flies the lifted view to its row's current frame (or `slot`, the
@@ -227,13 +229,139 @@ extension SidebarListView {
         let tile = drag.tileSource.flatMap { source in drag.tileRegion?.itemView(source.item).map { convert($0.bounds, from: $0) } }
         let destination = slot ?? tile
             ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
+        landing = drag
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
-            defer { then?() }
-            guard let self else { return }
-            self.suppressed.subtract(drag.hiddenKeys)
-            for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
-            self.updateHover()
-            if let anchor = drag.renameOnLand { self.inlineRename.beginGroup(of: anchor) }
+            guard let self else {
+                drag.lift.removeFromSuperview()
+                then?()
+                return
+            }
+            // Landed before the model shows the drop: the card holds its slot until it does (no empty slot, no pop).
+            if self.settling?.drag === drag {
+                self.settling?.landed = true
+                self.settling?.then = then
+                return
+            }
+            self.finishLand(drag, then: then)
         }
+    }
+
+    /// The card is in its slot and the model shows it: the rows under it show and the card goes, in one transaction.
+    func finishLand(_ drag: Drag, then: (@MainActor () -> Void)?) {
+        defer { then?() }
+        if landing === drag { landing = nil }
+        Motion.withoutAnimation {
+            drag.lift.removeFromSuperview()
+            suppressed.subtract(drag.hiddenKeys)
+            for key in drag.hiddenKeys { rowViews[key]?.alphaValue = 1 }
+        }
+        updateHover()
+        if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
+    }
+
+    /// A new drag starts while a drop still settles: the old card finishes where it is.
+    func abandonSettle() {
+        guard let held = settling else { return }
+        settling = nil
+        if held.landed { finishLand(held.drag, then: held.then) }
+    }
+
+    /// A settle ended (the model shows the drop): the card goes to the
+    /// dropped item's real frame if the model put it elsewhere, else it
+    /// finishes where it is (now, if it already landed).
+    func landSettled(_ settled: SidebarSettlingDrop) {
+        let drag = settled.drag
+        guard drag.lift.superview != nil else { return }
+        if let real = droppedFrame(drag), abs(real.minX - drag.lift.frame.minX) > 0.5 || abs(real.minY - drag.lift.frame.minY) > 0.5
+            || abs(real.width - drag.lift.frame.width) > 0.5 || abs(real.height - drag.lift.frame.height) > 0.5 {
+            return land(drag, at: real, then: settled.then)
+        }
+        if settled.landed { finishLand(drag, then: settled.then) }
+    }
+
+    /// Where the model shows a document drop's item now: its list row, else its tile in a block.
+    func droppedFrame(_ drag: Drag) -> NSRect? {
+        for id in drag.docItems ?? [] {
+            if let row = displayed.row(for: .item(id)) { return frame(for: row) }
+            for case let block as SidebarBlockRowView in rowViews.values {
+                if let view = block.region.itemView(LayoutItemID(id)) { return convert(view.bounds, from: view) }
+            }
+        }
+        return nil
+    }
+
+    // MARK: - The drag's look (DESIGN "Drag feel" 3)
+
+    /// Shows the held drag's look: the layout with the source slot closed
+    /// and the target's gap open (a pure layout, `displayLayout`), reached
+    /// by the drag's one additive spring on every realized row, block,
+    /// tile, card and group line. No reload, no apply, no configure: the
+    /// rows keep their views and content; only geometry moves. A retarget
+    /// mid-flight continues from what is on screen (`SidebarDragSpring`).
+    func showDragLayout() {
+        let layout = displayLayout()
+        displayed = layout
+        updateDocumentHeight()
+        let realize = realizationRect()
+        for row in layout.rows {
+            let target = frame(for: row)
+            guard let view = rowViews[row.key] else {
+                // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
+                guard target.intersects(realize) else { continue }
+                let view = dequeue(row.key)
+                view.targetSize = target.size
+                configure(view, row: row, animated: false)
+                view.layer?.removeAllAnimations()
+                Motion.withoutAnimation {
+                    view.frame = target
+                    view.alphaValue = 0
+                }
+                addSubview(view, positioned: .above, relativeTo: decorations)
+                rowViews[row.key] = view
+                if !suppressed.contains(row.key) { SidebarDragSpring.fade(view, to: 1) }
+                continue
+            }
+            view.targetSize = target.size
+            if suppressed.contains(row.key) {
+                Motion.withoutAnimation { view.frame = target }
+                continue
+            }
+            SidebarDragSpring.move(view, to: target)
+            SidebarDragSpring.fade(view, to: 1)
+            switch (row.key, view) {
+            case let (.block(id), block as SidebarBlockRowView):
+                if let content = blockContent(id, includeGap: true) { block.springShow(content, width: bounds.width) }
+            case let (.workspace(id), rowView as WorkspaceRowView):
+                rowView.isDropTarget = drag?.target == .ontoWorkspace(id)
+            case let (.group(id), header as GroupHeaderRowView):
+                header.isDropTarget = drag?.target == .intoGroup(id)
+            default:
+                break
+            }
+        }
+        // A row the look leaves out (a placeholder a gap replaces) fades where it is; the next apply recycles it.
+        for (key, view) in rowViews where layout.row(for: key) == nil && !suppressed.contains(key) {
+            SidebarDragSpring.fade(view, to: 0)
+        }
+        let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
+        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+    }
+
+    /// An adopting apply's motion: kept rows spring from where they are,
+    /// new ones fade in at their slots, leaving ones fade where they are.
+    func adoptRows(targets: [(SidebarRowView, NSRect)], leaving: [(SidebarRowView, NSRect)],
+                   lines: (changes: () -> Void, leaving: [NSView])) {
+        for (view, target) in targets {
+            SidebarDragSpring.move(view, to: target)
+            SidebarDragSpring.fade(view, to: 1)
+        }
+        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+        guard !leaving.isEmpty else { return }
+        Motion.animate(.hover, in: self, {
+            for (view, _) in leaving { view.animator().alphaValue = 0 }
+        }, completion: { [weak self, leaving] in
+            guard let self else { return }
+            for (view, _) in leaving where !self.rowViews.values.contains(where: { $0 === view }) { self.recycle(view) }
+        })
     }
 }

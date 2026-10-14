@@ -80,6 +80,8 @@ final class SidebarRegionView: NSView {
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false
+    /// Frames go to their place on the drag's additive spring (`springShow`); a new view is placed at once.
+    private var springsFrames = false
     private var cardLayers: [CALayer] = []
     /// Section lines (lines looks), or under `appearance.borders = none`
     /// the tonal step: every other section a shade lighter.
@@ -125,6 +127,23 @@ final class SidebarRegionView: NSView {
         self.content = content
         self.width = width
         relayout(animated: true)
+    }
+
+    /// Shows `content` with every item, header, card and line on the drag's
+    /// one additive spring (`SidebarDragSpring`): a drag's gap opens and
+    /// closes, a drop adopts its slot, with no re-layout jump. The height
+    /// change does not call `onHeightChange`: the list moves the rows below
+    /// with the same spring.
+    func springShow(_ content: Content, width: CGFloat) {
+        guard self.content != nil else { return update(content, width: width) }
+        guard content != self.content || width != self.width else { return }
+        self.content = content
+        self.width = width
+        let shown = displayed(content)
+        layoutResult = Self.layout(shown, width: width)
+        springsFrames = true
+        apply(shown)
+        springsFrames = false
     }
 
     /// The layout of `content` at `width` (a list block's height and hit test).
@@ -173,8 +192,9 @@ final class SidebarRegionView: NSView {
         return widths
     }
 
-    private func place(_ view: NSView, _ frame: CGRect) {
-        if animatesFrames { view.animator().frame = frame } else { view.frame = frame }
+    private func place(_ view: NSView, _ frame: CGRect, new: Bool = false) {
+        if springsFrames, !new { return SidebarDragSpring.move(view, to: frame) }
+        if animatesFrames, !new { view.animator().frame = frame } else if springsFrames { Motion.withoutAnimation { view.frame = frame } } else { view.frame = frame }
     }
 
     /// Icon + label width of every item of an inline section.
@@ -200,21 +220,24 @@ final class SidebarRegionView: NSView {
             case let .header(id):
                 guard let section = sections[id] else { continue }
                 liveHeaders.insert(id)
+                let new = headerViews[id] == nil
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
-                place(view, row.frame)
+                place(view, row.frame, new: new)
             case let .app(id):
                 guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
                 liveApps.insert(id)
+                let new = view.superview !== self
                 if view.superview !== self {
                     addSubview(view)
                     (view as? SidebarHoverRevealing)?.setHoverRevealed(chromeRevealed)
                 }
                 appViews[id] = view
-                place(view, row.frame)
+                place(view, row.frame, new: new)
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
+                let new = itemViews[id] == nil
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
@@ -230,7 +253,7 @@ final class SidebarRegionView: NSView {
                 default: section.look == .builtIn ? .builtIn : .list
                 }
                 view.configure(content.infos[id] ?? .fallback(for: item), style: style)
-                place(view, row.frame)
+                place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
             }
         }
@@ -258,6 +281,7 @@ final class SidebarRegionView: NSView {
         PointerHover.refresh(in: window)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        let oldCards = min(cardLayers.count, layoutResult.cards.count)
         while cardLayers.count > layoutResult.cards.count { cardLayers.removeLast().removeFromSuperlayer() }
         while cardLayers.count < layoutResult.cards.count {
             let card = CALayer()
@@ -265,20 +289,23 @@ final class SidebarRegionView: NSView {
             layer?.insertSublayer(card, at: 0)
             cardLayers.append(card)
         }
-        for (card, frame) in zip(cardLayers, layoutResult.cards) {
-            card.frame = frame
+        for (index, (card, frame)) in zip(cardLayers, layoutResult.cards).enumerated() {
+            if springsFrames, index < oldCards { SidebarDragSpring.move(card, to: frame) } else { card.frame = frame }
             card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
         }
         drawsLines = Borders.drawsLines
         let lineFrames = drawsLines ? layoutResult.separators
             : content.look.separatesSections ? layoutResult.sectionFrames.enumerated().filter { $0.offset % 2 == 1 }.map(\.element) : []
+        let oldLines = min(lineLayers.count, lineFrames.count)
         while lineLayers.count > lineFrames.count { lineLayers.removeLast().removeFromSuperlayer() }
         while lineLayers.count < lineFrames.count {
             let line = CALayer()
             layer?.insertSublayer(line, at: 0)
             lineLayers.append(line)
         }
-        for (line, frame) in zip(lineLayers, lineFrames) { line.frame = frame }
+        for (index, (line, frame)) in zip(lineLayers, lineFrames).enumerated() {
+            if springsFrames, index < oldLines { SidebarDragSpring.move(line, to: frame) } else { line.frame = frame }
+        }
         CATransaction.commit()
         needsDisplay = true
     }

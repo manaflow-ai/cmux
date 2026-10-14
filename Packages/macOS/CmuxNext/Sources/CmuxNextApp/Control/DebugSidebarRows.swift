@@ -26,14 +26,16 @@ enum DebugSidebarRows {
 
     /// `{"motion": "start"|"stop"}`: the first window's per-display-frame
     /// sidebar samples (SidebarMotionFrame); stop returns them as
-    /// {t, scroll, lift, work_ms, views: {key: [x, y, w, h]}}.
+    /// {t, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]}}.
     private static func motion(_ start: Bool, services: AppServices) -> JSONValue {
         guard let sidebar = services.windows.controllers.first?.sidebar.container.sidebarView else { return .null }
         func box(_ r: CGRect) -> JSONValue { .array([r.minX, r.minY, r.width, r.height].map { .number(Double($0)) }) }
         let frames = sidebar.debugMotion(start: start)
         return .object(["frames": .array(frames.map { frame in
             .object(["t": .number(frame.time), "scroll": .number(Double(frame.scrollY)), "lift": frame.lift.map(box) ?? .null,
-                     "work_ms": .number(frame.dragWorkMs), "views": .object(frame.views.mapValues(box))])
+                     "work_ms": .number(frame.dragWorkMs), "revision": .number(Double(frame.revision)), "settling": .bool(frame.settling), "views": .object(Dictionary(uniqueKeysWithValues: frame.views.map { key, rect in
+                        (key, .array([rect.minX, rect.minY, rect.width, rect.height, CGFloat(frame.opacity[key] ?? 1)].map { .number(Double($0)) }))
+                     }))])
         })])
     }
 

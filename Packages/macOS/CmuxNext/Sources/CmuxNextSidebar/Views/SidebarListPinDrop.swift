@@ -17,7 +17,7 @@ import AppKit
         drag.pinTarget = SidebarPinDrops.pinDrop(sidebar, at: windowPoint)
         guard drag.pinTarget != nil else {
             // Back over the list: its slot opens again.
-            if wasHeld { list.reload(animated: true) }
+            if wasHeld { list.showDragLayout() }
             return false
         }
         drag.lastWindowPoint = windowPoint
@@ -27,7 +27,7 @@ import AppKit
         drag.lift.setRefused(false)
         // The slot a return to the list starts from; the list shows no slot meanwhile.
         drag.target = drag.origin.map(DropTarget.position)
-        if !wasHeld { list.reload(animated: true) }
+        if !wasHeld { list.showDragLayout() }
         return true
     }
 
@@ -41,7 +41,7 @@ import AppKit
         list.leaving.formUnion(ids)
         list.model.send(.dropOnLayoutSection(ids, section: pin.section, index: pin.index))
         list.suppressed = drag.hiddenKeys
-        list.reload(animated: true)
+        list.reload(animated: true, adopt: true)
         list.land(drag, at: slot) { [weak list] in
             list?.leaving.subtract(ids)
             list?.reload(animated: true)
