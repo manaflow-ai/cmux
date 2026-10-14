@@ -246,7 +246,8 @@
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
-              "ui.animationSpeed"
+              "ui.animationSpeed",
+              "ui.paneAnimations"
             ],
             "title" : {
               "key" : "settings.group.densityMotion",
@@ -10020,6 +10021,56 @@
       "title" : {
         "key" : "settings.appearance.chromeStyle",
         "text" : "Window Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.paneAnimations.help",
+        "text" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.paneAnimations",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "slide",
+        "spring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "paneAnimations"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.paneAnimations",
+        "text" : "Animate Panes"
       },
       "validation" : "portable"
     },
@@ -23429,7 +23480,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "7dbdde9c7ffbd464f7056fe96b640b53d0ddc9f43bcff6e885349234e01a8b24",
+  "schema_hash" : "bbd69c17c7d4fc6e50ec942ba5808c81d70f037c9db0953d96ac637616c9560a",
   "sections" : [
     {
       "id" : "general",
