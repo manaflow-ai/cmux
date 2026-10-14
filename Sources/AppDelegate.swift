@@ -2676,6 +2676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
         )
+        cloudUploader.attach(to: auth.coordinator.rateLimitTelemetry)
         let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
             coordinator?.authenticatedSessionIdentity
         })
