@@ -1,0 +1,209 @@
+import CmuxNextCompat
+public import CmuxNextMobile
+public import Foundation
+public import Observation
+import os
+
+/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux iPhone host,
+/// cnx-ios/PROTOCOL.md) while `mobile.allowIPhoneConnections` (cmux.json) is on
+/// and an account is signed in, so the phone app reaches this Mac's own
+/// daemon and acpmux with no separate host to start. ``CnxHostSupervisor``
+/// owns the process; this model follows the toggle and the account and
+/// projects the state for the Settings page.
+@MainActor @Observable
+public final class IPhoneHostService {
+    /// The signed-in account hostd registers under.
+    public struct Account: Equatable, Sendable {
+        /// The Stack user id (JWT `sub`).
+        public var userID: String
+        /// The Stack team, or `personal-<userId>`.
+        public var teamID: String
+        /// The team's name; nil for the personal space.
+        public var teamName: String?
+        /// The account's email, shown as "Registered as <email>" (phones sign in with the same one).
+        public var email: String?
+
+        public init(userID: String, teamID: String, teamName: String?, email: String?) {
+            self.userID = userID
+            self.teamID = teamID
+            self.teamName = teamName
+            self.email = email
+        }
+    }
+
+    /// What the service needs from the app; ``wire(auth:daemon:acpmuxHost:settings:bundleID:computerName:processEnvironment:)`` sets it.
+    struct Dependencies {
+        /// The bundled hostd (`Contents/Resources/bin/cnx-hostd`), nil when this build has none.
+        var executable: URL?
+        /// The cnx service.
+        var baseURL: URL
+        var stackProjectID: String
+        /// Per-bundle state (device id, hostd log).
+        var stateDirectory: URL
+        var accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
+        /// The app's own cmux-tui daemon socket.
+        var daemonSocket: @MainActor () async throws -> String
+        /// The app's acpmux WebSocket, starting acpmux when needed.
+        var acpmux: @Sendable () async -> (url: URL, token: String)?
+        /// Folders the phone may preview files from (the chat roots).
+        var fileRoots: @MainActor () -> [String]
+        var computerName: @Sendable () async -> String
+    }
+
+    /// `mobile.allowIPhoneConnections`, as the settings file has it.
+    private(set) var allowed = false
+    private(set) var account: Account?
+    private(set) var state = CnxHostState()
+    /// The account's phones on the cnx service (Settings > Mobile's list with Remove).
+    private(set) var knownPhones: [CnxKnownPhone] = []
+    /// Why the last list read or removal failed, shown under the list; nil when it worked.
+    private(set) var phonesError: String?
+    @ObservationIgnored var dependencies: Dependencies?
+    @ObservationIgnored private var listing: Task<Void, Never>?
+    @ObservationIgnored private let supervisor = CnxHostSupervisor()
+    /// The one reconcile in flight; each waits for the previous one.
+    @ObservationIgnored private var applying: Task<Void, Never>?
+    @ObservationIgnored private var watching: Task<Void, Never>?
+    @ObservationIgnored private var following: Task<Void, Never>?
+    /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
+    /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
+    @ObservationIgnored private var running: String?
+    @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
+
+    /// A host that runs nothing until it is wired and an account with the setting on arrives.
+    public init() {
+        let states = supervisor.states
+        // task-owner: lives as long as the app; follows the supervisor's state stream
+        watching = Task { [weak self] in
+            for await next in states {
+                guard let self else { return }
+                let before = self.state
+                self.state = next
+                // The list follows what hostd reports: online, and each phone that comes or goes.
+                if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
+                    self.refreshPhones()
+                }
+            }
+        }
+    }
+
+    /// Reads the account's phones from the cnx service (latest read wins).
+    public func refreshPhones() {
+        listing?.cancel()
+        guard allowed, account != nil, let dependencies else {
+            knownPhones = []
+            phonesError = nil
+            return
+        }
+        let directory = CnxDeviceDirectory(baseURL: dependencies.baseURL)
+        // task-owner: stored in `listing`; a newer read cancels it
+        listing = Task { [weak self] in
+            do {
+                let phones = try await directory.phones(token: dependencies.accessToken(false))
+                guard !Task.isCancelled else { return }
+                self?.knownPhones = phones
+                self?.phonesError = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.phonesError = IPhoneHostStrings.listFailed
+            }
+        }
+    }
+
+    /// Removes `id`'s phone on the cnx service (all its device ids), ends its live links in
+    /// hostd, and re-reads the list. A phone still signed in to the account registers again
+    /// when it next connects.
+    public func removePhone(id: String) async {
+        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
+        do {
+            try await CnxDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
+            await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
+            knownPhones.removeAll { $0.id == id }
+            phonesError = nil
+        } catch {
+            logger.error("iPhone removal failed: \(String(describing: error), privacy: .public)")
+            phonesError = IPhoneHostStrings.removeFailed
+        }
+        refreshPhones()
+    }
+
+    /// The account changed (sign-in, sign-out, team switch).
+    public func accountChanged(_ account: Account?) {
+        guard account != self.account else { return }
+        self.account = account
+        reconcile()
+        refreshPhones()
+    }
+
+    /// Follows the setting: every writer (the Settings page, `cmux settings`, an
+    /// edit of cmux.json) reaches the host through the settings file.
+    func follow(allowed read: @escaping @MainActor @Sendable () -> Bool) {
+        following?.cancel()
+        // task-owner: lives as long as the app; re-reads the setting on each settings change
+        following = Task { [weak self] in
+            for await value in ObservationStream(read) {
+                self?.setAllowed(value)
+            }
+        }
+    }
+
+    private func setAllowed(_ allowed: Bool) {
+        guard allowed != self.allowed else { return }
+        self.allowed = allowed
+        reconcile()
+        refreshPhones()
+    }
+
+    /// App quit: hostd ends with the app (closing its stdin ends it too).
+    public func stop() {
+        running = nil
+        following?.cancel()
+        applying?.cancel()
+        let supervisor = supervisor
+        // task-owner: teardown hop; the supervisor's stop is idempotent
+        Task { await supervisor.stop() }
+    }
+
+    private func reconcile() {
+        let want = allowed ? account : nil
+        let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
+        guard key != running else { return }
+        running = key
+        let previous = applying
+        let dependencies = dependencies
+        let supervisor = supervisor
+        let allowed = allowed
+        // task-owner: stored in `applying`; each reconcile awaits the one before it
+        applying = Task { [weak self, logger] in
+            await previous?.value
+            guard let want, let dependencies else {
+                await supervisor.stop(phase: .off)
+                if allowed, self?.account == nil { await supervisor.show(.unavailable(IPhoneHostStrings.signedOut)) }
+                return
+            }
+            guard let executable = dependencies.executable else {
+                await supervisor.stop(phase: .unavailable(IPhoneHostStrings.unavailable))
+                return
+            }
+            do {
+                let socket = try await dependencies.daemonSocket()
+                let deviceID = try CnxDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
+                let name = await dependencies.computerName()
+                guard !Task.isCancelled, self?.running == key else { return }
+                let launch = CnxHostLaunch(
+                    executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
+                    deviceID: deviceID, deviceName: name, daemonSocket: socket,
+                    stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
+                    stackProjectID: dependencies.stackProjectID)
+                await supervisor.start(.init(
+                    launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
+                    log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false)))
+            } catch {
+                logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
+                await supervisor.stop(phase: .waiting(String(describing: error)))
+                // A later account or toggle change tries again.
+                if self?.running == key { self?.running = nil }
+            }
+        }
+    }
+}
