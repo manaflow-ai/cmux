@@ -11,7 +11,8 @@ public import AppKit
 /// frame (`MotionTrace.measure`). `trace_start`, `trace_read` and `trace_stop` sample
 /// animated geometry on every display frame instead (DEBUG builds, ``MotionFrameTrace``).
 /// Takes and returns `JSONSerialization` object graphs.
-public enum MotionDebug {
+public struct MotionDebug {
+    public init() {}
     /// `samplers` read the animated geometry of the views they know (DEBUG builds: ``MotionFrameTrace``).
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = []) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
