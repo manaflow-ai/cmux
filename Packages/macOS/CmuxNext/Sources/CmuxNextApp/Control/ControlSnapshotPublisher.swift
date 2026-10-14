@@ -91,10 +91,17 @@ final class ControlSnapshotPublisher {
             // Runs synchronously inside the mutation; publish after it lands.
             Task { @MainActor in self?.modelChanged() }
         }
-        router.snapshots.publish { snapshot in
-            snapshot.topology = topology
-            snapshot.settings = settings
-            snapshot.tabSearch = tabSearch
+        // Publish only on change: an unchanged workspace list is the same
+        // array as last time, so this compare is O(windows) then, not O(n).
+        let published = router.snapshots.current
+        let unchanged = !workspaceInfos.listChanged && topology == published.topology && settings == published.settings
+            && tabSearch == published.tabSearch
+        if !unchanged {
+            router.snapshots.publish { snapshot in
+                snapshot.topology = topology
+                snapshot.settings = settings
+                snapshot.tabSearch = tabSearch
+            }
         }
         let elapsed = ContinuousClock.now - started
         // The tab count walks every tab: only when a timing slot or the debug log wants it.

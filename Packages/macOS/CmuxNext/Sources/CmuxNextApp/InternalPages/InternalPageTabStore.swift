@@ -87,6 +87,9 @@ final class InternalPageTabStore {
 
     func tabIDs(in paneKey: String) -> [String] { tabsByPane[paneKey] ?? [] }
 
+    /// The panes that hold page tabs (the control snapshot applies app facts to their workspaces).
+    var paneKeysWithTabs: Dictionary<String, [String]>.Keys { tabsByPane.keys }
+
     /// The first tab of `page` among `paneKeys`, with its pane.
     func tab(of page: InternalPageID, inPanes paneKeys: some Sequence<String>) -> (pane: String, key: String)? {
         for pane in paneKeys {

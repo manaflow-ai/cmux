@@ -58,12 +58,12 @@ public final class ControlWorkspaceInfoCache {
 
     /// The control value of `model` and its pane slots, from the cache when
     /// nothing their build read changed.
-    func info(for model: WorkspaceModel, build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]))
-        -> (info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]]) {
+    func info(for model: WorkspaceModel, build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]),
+              counted: Bool = true) -> (info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]]) {
         let key = ObjectIdentifier(model)
         if let entry = entries[key], entry.model === model,
            !stale.withLock({ $0.contains(entry.generation) }) {
-            see(entry)
+            if counted { see(entry) }
             return (entry.info, entry.slots)
         }
         if let old = entries[key] { stale.withLock { _ = $0.remove(old.generation) } }
@@ -77,7 +77,7 @@ public final class ControlWorkspaceInfoCache {
         }
         let entry = Entry(model: model, info: info, slots: slots, generation: generation)
         entries[key] = entry
-        see(entry)
+        if counted { see(entry) } else { entry.pass = pass }
         return (info, slots)
     }
 
@@ -105,6 +105,133 @@ public final class ControlWorkspaceInfoCache {
         guard !dropped.isEmpty else { return }
         stale.withLock { set in dropped.values.forEach { set.remove($0.generation) } }
         entries = entries.filter { keep.contains($0.key) }
+    }
+
+    // MARK: The workspace list
+
+    /// The last list `workspaceList` mapped: its models, their entries and
+    /// the published values (daemon facts plus app facts), index by index.
+    private var listModels: [WorkspaceModel] = []
+    private var listEntries: [Entry] = []
+    private var listInfos: [ControlWorkspaceInfo] = []
+    /// List index of each entry generation and of each pane id (from the
+    /// entry's slots), and the indices whose slots hold store page tabs.
+    private var listIndexOfGeneration: [UInt64: Int] = [:]
+    private var listIndexOfPane: [String: Int] = [:]
+    private var listPageTabIndices: Set<Int> = []
+    /// Indices whose published value differs from the entry's daemon facts
+    /// (app facts applied): checked again on the next pass.
+    private var listAppFactIndices: Set<Int> = []
+    private var listIsValid = false
+    /// False when the last `workspaceList` call returned the same values as
+    /// the one before it (the publisher then may skip an equal publish).
+    public private(set) var listChanged = true
+
+    /// The control values of `models` in order, incremental: when the list
+    /// holds the same models as the last call, only entries whose tracking
+    /// fired are rebuilt and only workspaces that can carry app facts
+    /// (`appFactPanes`: the panes with a pane controller or app-only page
+    /// tabs; and the workspaces with store page tabs or app facts last time)
+    /// get `appFacts` again; the rest reuse the last values (O(n) identity
+    /// compares, no map of every workspace). `appFactPanes` nil: every
+    /// workspace gets `appFacts`. `appFacts` returns nil when the daemon
+    /// facts already hold the app facts. `changed` is false when the result
+    /// equals the last call's.
+    func workspaceList(_ models: [WorkspaceModel], appFactPanes: Set<String>?,
+                       build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]),
+                       appFacts: (WorkspaceModel, ControlWorkspaceInfo, [[ControlPaneSlot]]) -> ControlWorkspaceInfo?)
+        -> (infos: [ControlWorkspaceInfo], changed: Bool) {
+        guard listIsValid, sameList(models) else { return mapList(models, build: build, appFacts: appFacts) }
+        var changed = false
+        var rebuilt = Set<Int>()
+        let staleGenerations = stale.withLock { $0 }
+        for generation in staleGenerations {
+            guard let index = listIndexOfGeneration[generation], let model = listModels[checked: index] else { continue }
+            _ = info(for: model, build: build, counted: false)
+            guard let entry = entries[ObjectIdentifier(model)] else { continue }
+            unindex(index)
+            listEntries.modify(checked: index) { $0 = entry }
+            indexEntry(entry, at: index)
+            rebuilt.insert(index)
+        }
+        var candidates = rebuilt.union(listAppFactIndices).union(listPageTabIndices)
+        if let appFactPanes {
+            for pane in appFactPanes { if let index = listIndexOfPane[pane] { candidates.insert(index) } }
+        } else {
+            candidates = Set(listModels.indices)
+        }
+        for index in candidates {
+            guard let entry = listEntries[checked: index] else { continue }
+            let value = appFacts(entry.model, entry.info, entry.slots)
+            if value != nil { listAppFactIndices.insert(index) } else { listAppFactIndices.remove(index) }
+            let next = value ?? entry.info
+            if rebuilt.contains(index) || next != listInfos[checked: index] {
+                listInfos.modify(checked: index) { $0 = next }
+                changed = true
+            }
+        }
+        // Every list model was looked up (retain's coverage count).
+        seenThisPass += listModels.count
+        listChanged = changed
+        return (listInfos, changed)
+    }
+
+    private func sameList(_ models: [WorkspaceModel]) -> Bool {
+        guard models.count == listModels.count else { return false }
+        for (model, listed) in zip(models, listModels) where model !== listed { return false }
+        return true
+    }
+
+    /// Maps every model (the list changed): cached entries are reused, the
+    /// stale ones rebuilt, and the list indexes are made again.
+    private func mapList(_ models: [WorkspaceModel], build: (WorkspaceModel) -> (ControlWorkspaceInfo, [[ControlPaneSlot]]),
+                         appFacts: (WorkspaceModel, ControlWorkspaceInfo, [[ControlPaneSlot]]) -> ControlWorkspaceInfo?)
+        -> (infos: [ControlWorkspaceInfo], changed: Bool) {
+        listIndexOfGeneration.removeAll(keepingCapacity: true)
+        listIndexOfPane.removeAll(keepingCapacity: true)
+        listPageTabIndices.removeAll(keepingCapacity: true)
+        listAppFactIndices.removeAll(keepingCapacity: true)
+        var entriesOut: [Entry] = []
+        var infos: [ControlWorkspaceInfo] = []
+        entriesOut.reserveCapacity(models.count)
+        infos.reserveCapacity(models.count)
+        for model in models {
+            _ = info(for: model, build: build)
+            guard let entry = entries[ObjectIdentifier(model)] else { continue }
+            let index = entriesOut.count
+            entriesOut.append(entry)
+            indexEntry(entry, at: index)
+            let value = appFacts(model, entry.info, entry.slots)
+            if value != nil { listAppFactIndices.insert(index) }
+            infos.append(value ?? entry.info)
+        }
+        listModels = models
+        listEntries = entriesOut
+        listIsValid = entriesOut.count == models.count
+        listInfos = infos
+        listChanged = true
+        return (infos, true)
+    }
+
+    private func indexEntry(_ entry: Entry, at index: Int) {
+        listIndexOfGeneration[entry.generation] = index
+        var hasPageTabs = false
+        for screen in entry.slots {
+            for slot in screen {
+                listIndexOfPane[slot.pane.id] = index
+                if !slot.pageTabs.isEmpty { hasPageTabs = true }
+            }
+        }
+        if hasPageTabs { listPageTabIndices.insert(index) } else { listPageTabIndices.remove(index) }
+    }
+
+    private func unindex(_ index: Int) {
+        guard let entry = listEntries[checked: index] else { return }
+        listIndexOfGeneration[entry.generation] = nil
+        for screen in entry.slots {
+            for slot in screen where listIndexOfPane[slot.pane.id] == index { listIndexOfPane[slot.pane.id] = nil }
+        }
+        listPageTabIndices.remove(index)
     }
 
     // MARK: Derived values

@@ -18,11 +18,18 @@ public struct ControlPageFacts {
     /// A store page tab's title, as its strip names it (a Files tab names
     /// its file); nil when unknown.
     public var title: @MainActor (TabModel) -> String?
+    /// The ids of every pane whose app facts can differ from the daemon
+    /// tree's (a pane with a pane controller or with app-only page tabs);
+    /// with it a publish applies app facts only to their workspaces. Nil:
+    /// every workspace gets them.
+    public var appFactPanes: (@MainActor () -> Set<String>)?
 
     public init(appOnlyTabs: @escaping @MainActor (PaneModel) -> [ControlPageTabInfo] = { _ in [] },
-                title: @escaping @MainActor (TabModel) -> String? = { _ in nil }) {
+                title: @escaping @MainActor (TabModel) -> String? = { _ in nil },
+                appFactPanes: (@MainActor () -> Set<String>)? = nil) {
         self.appOnlyTabs = appOnlyTabs
         self.title = title
+        self.appFactPanes = appFactPanes
     }
 }
 
@@ -75,10 +82,25 @@ enum ControlTopologyMapper {
         topology.workspaceGroups = groups.map { group in
             ControlWorkspaceGroupInfo(id: group.id.rawValue, name: group.name, color: group.color, isCollapsed: group.collapsed)
         }
-        topology.workspaces = store.workspaces.map { model in
-            cachedWorkspace(from: model, cache: cache, selectedTab: selectedTab, pages: pages)
+        if let cache {
+            // Incremental: only changed workspaces are mapped again (cx-9c8m step 2).
+            topology.workspaces = cache.workspaceList(store.workspaces, appFactPanes: pages.appFactPanes?(), build: { model in
+                (workspace(from: model, selectedTab: { _ in nil }, pages: ControlPageFacts()), slots(of: model))
+            }, appFacts: { model, info, slots in
+                appFacts(of: model, info, slots: slots, selectedTab: selectedTab, pages: pages)
+            }).infos
+        } else {
+            topology.workspaces = store.workspaces.map { workspace(from: $0, selectedTab: selectedTab, pages: pages) }
         }
         return topology
+    }
+
+    /// `info` with the app facts, or nil when it already holds them.
+    static func appFacts(of model: WorkspaceModel, _ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
+                         selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> ControlWorkspaceInfo? {
+        if appFactsUnchanged(info, slots: slots, selectedTab: selectedTab, pages: pages) { return nil }
+        return applyAppFacts(info, slots: slots, selectedTab: selectedTab, pages: pages)
+            ?? workspace(from: model, selectedTab: selectedTab, pages: pages)
     }
 
     static func cachedWorkspace(from model: WorkspaceModel, cache: ControlWorkspaceInfoCache?,

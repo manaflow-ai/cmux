@@ -15,7 +15,19 @@ extension AppServices {
     /// Page tabs as the control snapshot lists them (bd cx-5xsi).
     var controlPageFacts: ControlPageFacts {
         ControlPageFacts(appOnlyTabs: { [weak self] pane in self?.controlPageTabs(of: pane) ?? [] },
-                         title: { [weak self] tab in self?.pages.storeTabItem(tab)?.title })
+                         title: { [weak self] tab in self?.pages.storeTabItem(tab)?.title },
+                         appFactPanes: { [weak self] in self?.controlAppFactPanes() ?? [] })
+    }
+
+    /// Every pane whose control facts the app sets (`ControlPageFacts.appFactPanes`):
+    /// the panes a window shows (their shown tab) and the panes with app-only page tabs.
+    func controlAppFactPanes() -> Set<String> {
+        var panes = Set(pages.paneKeysWithTabs)
+        for controller in windows.controllers {
+            guard let content = controller.content else { continue }
+            for pane in content.panes.values { panes.insert(pane.pane.id) }
+        }
+        return panes
     }
 
     /// `pane`'s app-only page tabs as the control snapshot lists them, the
