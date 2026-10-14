@@ -24,6 +24,7 @@ pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
+mod sidebar_doc;
 mod state;
 mod workspace;
 
@@ -1523,6 +1524,12 @@ fn parse_sidebar(
         }
         ["plugin", tail @ ..] => {
             parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
+        ["section-scroll", section, scroll] => {
+            sidebar_doc::section_scroll(section, scroll, selectors, flags)
+        }
+        ["section-max-rows", section, rows] => {
+            sidebar_doc::section_max_rows(section, rows, selectors, flags)
         }
         _ => usage("sidebar action"),
     }

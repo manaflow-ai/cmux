@@ -3,6 +3,7 @@ import type {
   AcpmuxFileDiff,
   AcpmuxPermission,
   AcpmuxSecretAsk,
+  AcpmuxSessionOffer,
   AcpmuxBackgroundTask,
   AcpmuxPlanEntry,
   AcpmuxRow,
@@ -28,6 +29,8 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
+import { experimentArm } from "../../experiments/experiment";
+import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
 import { errorMessage } from "./transportErrors";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold } from "./subagents/subagentFold";
@@ -134,6 +137,9 @@ const USAGE_KIND = "usage_update";
 const CONFIG_KIND = "config_option_update";
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// An agent's offer of a parallel chat and its answer (cx-807da): transcript on acpmux that has
+/// them (`paging.rs`); asked for by kind too, so an older acpmux's attach still brings them.
+const OFFER_KINDS = ["session_offer", "session_offer_decision"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -1195,7 +1201,7 @@ export class AcpmuxDirectClient {
     const attaching = this.request("_acpmux/attach", {
       sessionId,
       limit: 400,
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
+      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS, ...OFFER_KINDS],
       eventStream: true,
       visible,
     });
@@ -1456,6 +1462,27 @@ export class AcpmuxDirectClient {
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+      } else if (event.kind === "session_offer") {
+        // Off by default: with the experiment off an offer draws nothing (offer/OfferChip.tsx).
+        const offer = experimentArm(sessionOfferExperiment) === "on" ? sessionOffer(msg) : undefined;
+        if (!offer) return;
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+        const id = `offer-${offer.offerId}`;
+        this.rows.set(id, {
+          id,
+          version: (this.rows.get(id)?.version ?? 0) + 1,
+          at: event.at,
+          kind: "sessionOffer",
+          offer,
+        });
+      } else if (event.kind === "session_offer_decision") {
+        const id = `offer-${String(msg.offerId ?? "")}`;
+        const row = this.rows.get(id);
+        const outcome = msg.outcome === "accepted" || msg.outcome === "dismissed" ? msg.outcome : undefined;
+        if (!row?.offer || !outcome) return;
+        const child = typeof msg.childSessionId === "string" ? { childSessionId: msg.childSessionId } : {};
+        this.rows.set(id, { ...row, version: row.version + 1, offer: { ...row.offer, outcome, ...child } });
       } else if (event.kind === "user_message") {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
@@ -1753,7 +1780,8 @@ export class AcpmuxDirectClient {
             name: summary.name,
             harness: summary.harness,
             family: typeof summary.family === "string" ? summary.family : undefined,
-            model: summary.model,
+            // acpmux reports `model: null` for a harness with no model (one known only from its config).
+            model: text(summary.model),
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
             steering: summary.steering === true,
@@ -1766,6 +1794,7 @@ export class AcpmuxDirectClient {
         : undefined,
       connection,
       origin: this.origin,
+      ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: this.replayThrough === undefined && (this.turnOpen || summary?.status === "running"),
@@ -2020,6 +2049,57 @@ export class AcpmuxDirectClient {
   /// which keeps it off the lists (cx-jlzsf).
   async markSide(sessionId: string, chat: string): Promise<void> {
     await this.request("_acpmux/side", { sessionId, chat });
+  }
+  /// The shown chat's offer `offerId` (cx-807da), while its chip is drawn.
+  offer(offerId: string): AcpmuxSessionOffer | undefined {
+    return this.rows.get(`offer-${offerId}`)?.offer;
+  }
+  /// Dismiss on an offer's chip: acpmux records the answer, and its record closes the chip.
+  async dismissOffer(sessionId: string, offerId: string): Promise<void> {
+    await this.request("_acpmux/offer_respond", { sessionId, offerId, outcome: "dismissed" });
+  }
+  /// Start on an offer's chip: starts the offered chat in `cwd` on the offer's agent and model
+  /// without showing it, answers the offer with it (acpmux makes `sessionId` its parent), then
+  /// sends it the offer's prompt. A refused answer ends the new chat. Returns the new chat.
+  async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string): Promise<string> {
+    const params = newSessionParams({ cwd }, offer.harness);
+    if (offer.model) params.model = offer.model;
+    // A trust question routes as any new chat's does; Trust starts the offer again.
+    const again = () => void this.startOffer(sessionId, offer, cwd).catch(() => undefined);
+    const child = (await this.newSession(params, again))?.sessionId;
+    if (!child) throw new Error(translate("offer.failed"));
+    try {
+      await this.request("_acpmux/offer_respond", {
+        sessionId,
+        offerId: offer.offerId,
+        outcome: "accepted",
+        childSessionId: String(child),
+      });
+    } catch (error) {
+      this.discard(String(child));
+      throw error;
+    }
+    void this.promptUnseen(String(child), offer.prompt);
+    return String(child);
+  }
+  /// Sends `text` to chat `sessionId`, which this pane does not show. acpmux attaches a prompt's
+  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first, the
+  /// prompt adds nothing, and the attach ends with the turn (unless the pane shows it by then).
+  private async promptUnseen(sessionId: string, text: string): Promise<void> {
+    try {
+      await this.request("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
+      // The reply comes when the turn ends; the chat shows how it goes.
+      await this.request("session/prompt", {
+        sessionId,
+        prompt: promptBlocks(text, []),
+        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+      });
+    } catch {
+      // A prompt acpmux refused shows in the chat itself.
+    } finally {
+      if (this.selectedSessionId !== sessionId)
+        void this.request("_acpmux/detach", { sessionId }).catch(() => undefined);
+    }
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
@@ -2529,6 +2609,22 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
 }
 
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.
+/// A `session_offer` record's offer, or undefined when it lacks an id, title, prompt or folder.
+function sessionOffer(msg: any): AcpmuxSessionOffer | undefined {
+  const field = (key: string) => (typeof msg?.[key] === "string" ? (msg[key] as string) : "");
+  const [offerId, title, prompt, cwd] = ["offerId", "title", "prompt", "cwd"].map(field);
+  if (!offerId || !title || !prompt || !cwd) return undefined;
+  return {
+    offerId,
+    title,
+    prompt,
+    cwd,
+    worktree: msg.worktree === true,
+    ...(field("harness") ? { harness: field("harness") } : {}),
+    ...(field("model") ? { model: field("model") } : {}),
+  };
+}
+
 function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {
   const state = update.state;
   if (typeof update.toolCallId !== "string" || !["completed", "failed", "stopped"].includes(state)) return undefined;
