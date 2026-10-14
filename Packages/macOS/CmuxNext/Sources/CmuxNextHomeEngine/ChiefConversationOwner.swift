@@ -103,13 +103,15 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
-            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while idle.
-            await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
-                                           identity: identity, logger: logger)
+            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while
+            // idle; a busy one (a Chief turn, an open `cmux chief` chat, another app or page) on a later owner event.
+            let restart = await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+                                                         identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             do {
                 for try await envelope in connection.events {
+                    if let restart { await restart.note(envelope.event) }
                     self.handle(envelope.event, connection: connection)
                 }
             } catch {}
