@@ -6,24 +6,24 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextSettings
-import CmuxNextWakeups
 import Foundation
 import Observation
 
-/// Owns the app-wide location trail (plans/cmux-next/history.md 4.2):
-/// records each window's settled focus, runs Go Back / Go Forward / Go to
-/// Last Location, and keeps the trail in the home session's personal
-/// projection `history.trail` (incognito entries never leave memory).
+/// The app's side of the location trail (plans/cmux-next/history.md 4.2):
+/// records each window's settled focus and runs Go Back / Go Forward / Go to
+/// Last Location. The daemon owns the trail (cx-hnmbt.12): each step goes to
+/// it with `history.trail.record` (incognito steps never leave memory), and
+/// the steps are read back from it at connect. Only the Back/Forward cursor
+/// is this app's own view state.
 final class LocationTrailService {
-    nonisolated static let subject = "history.trail"
-    nonisolated static let schemaVersion: UInt32 = 1
-
     private unowned let services: AppServices
     private(set) var trail = LocationTrail()
-    private let saveTimer = DemandTimer(owner: "LocationTrailService.save")
     private var loaded = false
-    private var revision: UInt64?
+    private var loading = false
     private var observation: Task<Void, Never>?
+    /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
+    private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
+    private let reportDrain: Task<Void, Never>
     /// Replaces the clock (tests).
     var now: () -> Date = Date.init
     /// Called after every trail change (the history page, the palette).
@@ -52,6 +52,12 @@ final class LocationTrailService {
 
     init(services: AppServices) {
         self.services = services
+        let (stream, continuation) = AsyncStream<@Sendable () async -> Void>.makeStream(bufferingPolicy: .bufferingNewest(1_024))
+        reports = continuation
+        // task-owner: the service's lifetime; ends when the stream finishes in deinit
+        reportDrain = Task.detached {
+            for await report in stream { await report() }
+        }
         // Page views' mouse buttons and swipes run Go Back / Go Forward (history.md 4.2b).
         services.pages.navigate = { [weak services] back in
             _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
@@ -66,6 +72,7 @@ final class LocationTrailService {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
+        reports.finish()
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observation?.cancel()
@@ -108,11 +115,12 @@ final class LocationTrailService {
             return
         }
         let recorded: Bool
-        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+        let time = now(), scope = stepScope
+        if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
             jumpNotedAt = nil
-            recorded = trail.recordJump(location, at: now())
+            recorded = step { $0.recordJump(location, at: time) }
         } else {
-            recorded = trail.record(location, at: now(), scope: stepScope)
+            recorded = step { $0.record(location, at: time, scope: scope) }
         }
         if recorded { changed() } else { pageHistoryDidChange() }
     }
@@ -163,14 +171,15 @@ final class LocationTrailService {
         guard services.windows.active === controller else { return }
         let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
+        let time = now()
         if let origin, Self.needsOrigin(origin, before: location, current: trail.current?.location) {
             // A jump: neither entry is coalesced away as a quick pass.
-            trail.recordJump(origin, at: now())
-            trail.recordJump(location, at: now())
+            step { $0.recordJump(origin, at: time) }
+            step { $0.recordJump(location, at: time) }
             changed()
             return
         }
-        if trail.record(location, at: now()) { changed() }
+        if step({ $0.record(location, at: time) }) { changed() }
     }
 
     // MARK: Navigation
@@ -310,51 +319,55 @@ final class LocationTrailService {
         changed()
     }
 
-    // MARK: Persistence
+    // MARK: The daemon's trail
 
     private func changed() {
         notify()
-        guard loaded else { return }
-        saveTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.save() }
     }
 
+    /// Runs one record on the trail and reports the step to the daemon when it changed the trail:
+    /// a new entry, or the newest entry again (`replace`: the same sidebar item with another tab,
+    /// or a quick pass the trail coalesced away). Returns what the record returned.
+    @discardableResult
+    private func step(_ record: (inout LocationTrail) -> Bool) -> Bool {
+        let before = trail.current
+        guard record(&trail) else { return false }
+        guard let now = trail.current, !now.location.isIncognito else { return true }
+        let replace: Bool
+        if let before, before.enteredAt == now.enteredAt {
+            replace = before.location.key != now.location.key
+        } else if let before {
+            replace = !trail.entries.contains { $0.enteredAt == before.enteredAt && $0.location.key == before.location.key }
+        } else {
+            replace = false
+        }
+        guard let daemon = services.history.daemonHistory else { return true }
+        let location = now.location
+        reports.yield { try? await daemon.recordTrail(window: location.window, location: location, replace: replace) }
+        return true
+    }
+
+    /// Reads the daemon's trail once per launch (on the first connection that serves it); steps
+    /// recorded before the read stay newest.
     private func loadOnce() {
-        guard !loaded else { return }
-        services.daemon.send("history-trail-load") { [weak self] connection in
-            let projection = try await connection.frontendProjection(subject: Self.subject)
-            let stored: LocationTrail? = projection.schemaVersion == Self.schemaVersion && projection.projection != .null
-                ? try? JSONDecoder().decode(LocationTrail.self, from: JSONEncoder().encode(projection.projection)) : nil
-            await MainActor.run { self?.adopt(stored, revision: projection.projectionRevision) }
+        guard !loaded, !loading, let daemon = services.history.daemonHistory else { return }
+        loading = true
+        // task-owner: one read of the daemon's trail; ends with its reply
+        Task { [weak self] in
+            let steps = try? await daemon.trail()
+            guard let self else { return }
+            self.loading = false
+            guard let steps else { return }
+            self.adopt(steps)
         }
     }
 
-    private func adopt(_ stored: LocationTrail?, revision: UInt64) {
+    private func adopt(_ steps: [(location: HistoryLocation, time: Date)]) {
         loaded = true
-        self.revision = revision
-        // Entries recorded before the load stay newest.
-        if var merged = stored {
-            for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
-            trail = merged
-        }
+        var merged = LocationTrail()
+        for step in steps { merged.recordJump(step.location, at: step.time) }
+        for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
+        trail = merged
         notify()
-    }
-
-    private func save() {
-        let snapshot = trail.persistable
-        let revision = revision
-        services.daemon.send("history-trail-save") { [weak self] connection in
-            let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(snapshot))
-            // Last writer wins: the trail is this app's own; a conflict
-            // (another app instance) retries once without a revision.
-            let stored: FrontendProjection
-            do {
-                stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
-                                                                    projection: value, expectedRevision: revision)
-            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
-                stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
-                                                                    projection: value)
-            }
-            await MainActor.run { self?.revision = stored.projectionRevision }
-        }
     }
 }
