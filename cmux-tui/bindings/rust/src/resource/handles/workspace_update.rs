@@ -1,6 +1,7 @@
 //! `workspace.update` on a workspace handle: the shared title, color, and
 //! icon (`WorkspaceSnapshot.extra`); and `workspace.agent_folder.set`, the
-//! folder new agent chats start in (`extra.agent_folder`).
+//! folder new agent chats start in (`extra.agent_folder`); and
+//! `workspace.open_url`, a web link on the workspace's right side.
 
 use super::super::*;
 
@@ -77,6 +78,30 @@ impl Workspace {
         mutation_snapshot(
             self.session.client.mutate(ops::WORKSPACE_AGENT_FOLDER_SET, params, mutation)?,
             "workspace",
+        )
+    }
+}
+
+impl Workspace {
+    /// Opens an http(s) link on the workspace's right side
+    /// (`workspace-open-url-v1`) with a fresh idempotency key: the browser
+    /// tab the person looked at last navigates to it, else a new browser tab
+    /// opens; never in the agent chat dock, and the keyboard focus stays.
+    /// The value is `{kind, workspace_id, screen_id, pane_id, tab_id,
+    /// browser_id, reused}`.
+    pub fn open_url(&self, url: impl Into<String>) -> Result<MutationResult<Value>> {
+        self.open_url_with(url, MutationOptions::unique()?)
+    }
+
+    pub fn open_url_with(
+        &self,
+        url: impl Into<String>,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<Value>> {
+        let params = self.params().string("url", url.into());
+        mutation_result(
+            self.session.client.mutate(ops::WORKSPACE_OPEN_URL, params, mutation)?,
+            |value| Ok(value.clone()),
         )
     }
 }

@@ -30,6 +30,10 @@ export interface MessageActionsProps {
   onCopy(): void;
   /** The row's content: a right-click on it opens the same items as More. */
   children: ReactNode;
+  /** Copies the message's link (`cmux://conversation/<id>/message/<id>`). */
+  onCopyLink?(): void;
+  /** The Reply label: "Reply in Thread" in the timeline, "Reply" inside a thread. */
+  replyLabel?: string;
 }
 
 export function MessageActions({
@@ -43,8 +47,11 @@ export function MessageActions({
   onDelete,
   onCopy,
   children,
+  onCopyLink,
+  replyLabel,
 }: MessageActionsProps) {
   const { t, format } = strings;
+  const reply = replyLabel ?? t("action.reply");
   const [picker, setPicker] = useState<Element | null>(null);
   const [emoji, setEmoji] = useState<EmojiTable | undefined>();
   const [menu, setMenu] = useState(false);
@@ -60,8 +67,9 @@ export function MessageActions({
       onSelect: () => onReact(value),
     })),
     { id: "react", label: `${t("action.react")}…`, onSelect: openPicker },
-    ...(onReply ? [{ id: "reply", label: t("action.reply"), onSelect: onReply, separatorBefore: true }] : []),
+    ...(onReply ? [{ id: "reply", label: reply, onSelect: onReply, separatorBefore: true }] : []),
     { id: "copy", label: t("action.copy"), onSelect: onCopy, separatorBefore: !onReply },
+    ...(onCopyLink ? [{ id: "copyLink", label: t("action.copyLink"), onSelect: onCopyLink }] : []),
     ...(canEdit ? [{ id: "edit", label: t("action.edit"), onSelect: onEdit, separatorBefore: true }] : []),
     ...(canDelete
       ? [{ id: "delete", label: t("action.delete"), onSelect: onDelete, destructive: true, separatorBefore: !canEdit }]
@@ -73,7 +81,7 @@ export function MessageActions({
     items.filter((item) => item.id === id).map((item) => ({ ...item, separatorBefore: false }));
   const more = one
     ? items
-    : [...byId("copy"), ...byId("reply"), ...items.filter((item) => item.id === "edit" || item.id === "delete")];
+    : [...byId("copy"), ...byId("copyLink"), ...byId("reply"), ...items.filter((item) => item.id === "edit" || item.id === "delete")];
   const moreMenu = (
     <Menu open={menu} onOpenChange={setMenu}>
       <MenuButton
@@ -121,7 +129,7 @@ export function MessageActions({
                 <HomeIcon name="addReaction" />
               </ToolbarButton>
               {onReply && (
-                <ToolbarButton label={t("action.reply")} className="hc-tool" onPress={onReply}>
+                <ToolbarButton label={reply} className="hc-tool" onPress={onReply}>
                   <HomeIcon name="reply" />
                 </ToolbarButton>
               )}

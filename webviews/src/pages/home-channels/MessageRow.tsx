@@ -1,6 +1,6 @@
 // One timeline row: on the first message of a run an author head (avatar, name, Chief tag, time),
-// then the body (the agent pane's Markdown renderer), work and attachment chips, reactions and the
-// thread summary (reply authors, count, last reply). The hover card (MessageActions) holds the
+// then the body (the agent pane's Markdown renderer), work and attachment chips and reactions (a
+// thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
 import { memo, useState, type ReactNode } from "react";
@@ -9,15 +9,13 @@ import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
-import { HomeIcon } from "./icons";
 import { MessageActions } from "./MessageActions";
-import { messageText, mentionsMe, type ThreadSummary } from "./model";
+import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
 import type { HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
   message: HomeMessage;
   head: boolean;
-  thread?: ThreadSummary;
   people: ReadonlyMap<string, HomeParticipant>;
   me?: string;
   strings: Strings;
@@ -31,12 +29,26 @@ export interface MessageRowProps {
   /** My own messages: edit (resolves true when the owner took it) and delete. */
   onEdit?(message: HomeMessage, text: string): Promise<boolean>;
   onRetract?(message: HomeMessage): void;
+  /** In a thread: reply to this message (threads nest without a limit). */
+  onReply?(message: HomeMessage): void;
+  onCopyLink?(message: HomeMessage): void;
+  /** Indent level in the thread panel (0 = none). */
+  depth?: number;
+  /** The reply this one answers, named above it when the indent is capped. */
+  parent?: HomeMessage;
+  /** A link opened this message: it is marked (the timeline scrolls to it). */
+  highlighted?: boolean;
+  /** The keyboard's current message (j/k): r, t, c and e act on it. */
+  focused?: boolean;
+  /** My send the owner has not shown yet: sending, or failed with Retry and Discard. */
+  pending?: "sending" | "failed";
+  onRetry?(): void;
+  onDiscard?(): void;
 }
 
 export const MessageRow = memo(function MessageRow({
   message,
   head,
-  thread,
   people,
   me,
   strings,
@@ -48,20 +60,34 @@ export const MessageRow = memo(function MessageRow({
   onEditEnd,
   onEdit,
   onRetract,
+  onReply,
+  onCopyLink,
+  depth = 0,
+  parent,
+  highlighted = false,
+  focused = false,
+  pending,
+  onRetry,
+  onDiscard,
 }: MessageRowProps) {
-  const { t } = strings;
+  const { t, format } = strings;
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
-  const own = !message.retracted && message.author === me;
+  const own = !message.retracted && message.author === me && pending === undefined;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   const body = (
     <>
       <div className="hc-msg-gutter">
-        {head ? <Avatar participant={author} size={36} /> : <time className="hc-msg-hover-time">{time}</time>}
+        {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
       <div className="hc-msg-main">
+        {parent && depth > MAX_THREAD_INDENT && (
+          <p className="hc-msg-parent">
+            {format("thread.inReplyTo", people.get(parent.author)?.name ?? parent.author)}
+          </p>
+        )}
         {head && <Head author={author} fallback={message.author} time={time} strings={strings} />}
         {message.retracted ? (
           <p className="hc-msg-retracted">{t("message.retracted")}</p>
@@ -85,10 +111,19 @@ export const MessageRow = memo(function MessageRow({
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
         )}
-        {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
-        {thread && onOpenThread && (
-          <ThreadLink thread={thread} people={people} strings={strings} onOpen={() => onOpenThread(message.id)} />
+        {pending === "sending" && <p className="lg-pending">{t("pending.sending")}</p>}
+        {pending === "failed" && (
+          <p className="lg-pending failed" role="alert">
+            <span>{t("pending.failed")}</span>
+            <button type="button" className="lg-link-button" onClick={onRetry}>
+              {t("pending.retry")}
+            </button>
+            <button type="button" className="lg-link-button" onClick={onDiscard}>
+              {t("pending.discard")}
+            </button>
+          </p>
         )}
+        {message.reactions.length > 0 && <Reactions message={message} me={me} people={people} onReact={onReact} />}
         {confirmDelete && onRetract && (
           <div className="hc-confirm" role="alert">
             <span>{t("delete.confirm")}</span>
@@ -112,17 +147,21 @@ export const MessageRow = memo(function MessageRow({
   );
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}`}
+      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
       aria-label={`${author?.name ?? message.author}, ${time}`}
+      aria-current={focused ? "true" : undefined}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
     >
       {/* One wrapper whether or not the actions show, so editing never remounts the body. */}
       <MessageActions
-        active={!message.retracted && !editing}
+        active={!message.retracted && !editing && pending === undefined}
         strings={strings}
         canEdit={canEdit}
         canDelete={own && onRetract !== undefined}
         onReact={(value) => onReact(message, value)}
-        onReply={onOpenThread ? () => onOpenThread(message.id) : undefined}
+        onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
+        replyLabel={onReply ? t("action.replyTo") : undefined}
+        onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
         onEdit={() => onEditStart?.(message)}
         onDelete={() => setConfirmDelete(true)}
         onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
@@ -148,8 +187,8 @@ export function DraftRow({
   const author = people.get(draft.participant);
   const writing = <span className="hc-writing">{strings.t("draft.writing")}</span>;
   return (
-    <article className={`hc-msg draft${head ? " head" : ""}`} aria-busy="true">
-      <div className="hc-msg-gutter">{head && <Avatar participant={author} size={36} />}</div>
+    <article className={`hc-msg lg-msg draft${head ? " head" : ""}`} aria-busy="true">
+      <div className="hc-msg-gutter">{head && <Avatar participant={author} size={20} />}</div>
       <div className="hc-msg-main">
         {head && <Head author={author} fallback={draft.participant} time={writing} strings={strings} />}
         <Markdown className="hc-md">{draft.text}</Markdown>
@@ -177,45 +216,6 @@ function Head({
       {author?.kind === "agent" && !author.chief && <span className="hc-tag">{strings.t("agent.badge")}</span>}
       {typeof time === "string" ? <time className="hc-msg-time">{time}</time> : time}
     </header>
-  );
-}
-
-function ThreadLink({
-  thread,
-  people,
-  strings,
-  onOpen,
-}: {
-  thread: ThreadSummary;
-  people: ReadonlyMap<string, HomeParticipant>;
-  strings: Strings;
-  onOpen(): void;
-}) {
-  const { t, format } = strings;
-  const stamp = new Intl.DateTimeFormat(strings.language, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  const count = thread.count === 1 ? t("thread.replies.one") : format("thread.replies.many", String(thread.count));
-  return (
-    <button type="button" className="hc-thread-link" onClick={onOpen}>
-      <span className="hc-thread-faces" aria-hidden="true">
-        {thread.authors.slice(0, 3).map((id) => (
-          <Avatar key={id} participant={people.get(id)} size={20} />
-        ))}
-      </span>
-      <span className="hc-thread-count">{count}</span>
-      {thread.unread > 0 && (
-        <span className="hc-thread-new">{strings.format("thread.new", String(thread.unread))}</span>
-      )}
-      <span className="hc-thread-last">{format("thread.lastReply", stamp.format(thread.lastAt))}</span>
-      <span className="hc-thread-view">{t("thread.view")}</span>
-      <span className="hc-thread-chevron" aria-hidden="true">
-        <HomeIcon name="chevronRight" size={16} />
-      </span>
-    </button>
   );
 }
 
