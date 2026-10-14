@@ -212,6 +212,8 @@ pub enum EngineRequest {
         effort: Option<String>,
         speed: Option<String>,
         compactor_speed: Option<String>,
+        compactor_harness: Option<String>,
+        compactor_model: Option<String>,
     },
 }
 
