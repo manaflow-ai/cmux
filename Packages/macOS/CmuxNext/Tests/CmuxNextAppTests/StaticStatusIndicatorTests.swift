@@ -114,5 +114,15 @@ import Testing
             tabGlyphs[name] = plan.glyph
         }
         #expect(Set(tabGlyphs.values).count == tabGlyphs.count, "two tab states share a mark: \(tabGlyphs)")
+
+        // The pane attention ring is the steady ring: it never blinks or pulses.
+        var attention = AttentionSettings()
+        for style in [AttentionStyle.blink, .pulse] {
+            attention.style = style
+            if let animation = Motion.attentionAnimation(attention) {
+                #expect(BlinkRateCapTests.shortestFlashCycle(animation) == nil, "the attention ring flashes (\(style))")
+                #expect(!ReduceMotionLoopTests.repeats(animation), "the attention ring loops (\(style))")
+            }
+        }
     }
 }
