@@ -54,6 +54,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
         Op::ChiefProfileList
             | Op::ChiefProfileGet
             | Op::ChiefProfileCreate
+            | Op::ChiefProfileAdopt
             | Op::ChiefProfileUpdate
             | Op::ChiefProfileDelete
             | Op::ChiefProfileAvatarSet
@@ -79,6 +80,10 @@ pub const CHIEF_PROFILE_WS_CAPABILITY: &str = "chief-profile-ws-v1";
 /// Channels page redraw their Chiefs on it instead of polling.
 pub const CHIEF_EVENTS_CAPABILITY: &str = "chief-events-v1";
 
+/// `chief.profile.adopt`: the owner makes an existing agent participant a
+/// Chief record under its own id.
+pub const CHIEF_PROFILE_ADOPT_CAPABILITY: &str = "chief-profile-adopt-v1";
+
 pub(super) fn handle(
     mux: &Arc<Mux>,
     client: u64,
@@ -94,6 +99,12 @@ pub(super) fn handle(
 fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
     let fields = &request.fields;
+    // The participant an adopt names, read before the registry lock (the
+    // conversation store has its own lock; never both at once).
+    let adoptee = match operation {
+        Op::ChiefProfileAdopt => Some(adoptee(mux, operation, fields)?),
+        _ => None,
+    };
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
         match operation {
@@ -125,7 +136,7 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
             }
             _ => {
                 let key = request.envelope.idempotency_key.clone().unwrap_or_default();
-                mutate(mux, client, store, &caller, operation, fields, key)
+                mutate(mux, client, store, &caller, operation, fields, key, adoptee.as_ref())
             }
         }
     })
@@ -144,7 +155,7 @@ pub(super) fn set_chief_avatar(
     let operation = Op::ChiefProfileAvatarSet;
     with_store(mux, operation, |store| {
         let caller = caller(mux, client, store)?;
-        mutate(mux, client, store, &caller, operation, fields, key)
+        mutate(mux, client, store, &caller, operation, fields, key, None)
     })
 }
 
@@ -203,6 +214,7 @@ fn mutate(
     operation: Op,
     fields: &Map<String, Value>,
     key: String,
+    adoptee: Option<&Adoptee>,
 ) -> Result<Value, ResourceError> {
     if key.is_empty() {
         return Err(ResourceError::validation_invalid(
@@ -213,7 +225,10 @@ fn mutate(
     let profile: Map<String, Value> = fields
         .iter()
         .filter(|(k, _)| {
-            !matches!(k.as_str(), "chief" | "expected_rev" | "media_type" | "data" | "clear")
+            !matches!(
+                k.as_str(),
+                "chief" | "expected_rev" | "media_type" | "data" | "clear" | "participant_id"
+            )
         })
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
@@ -242,6 +257,13 @@ fn mutate(
             .map(|avatar| avatar.sha256),
         _ => None,
     };
+    if operation == Op::ChiefProfileAdopt
+        && (*caller != Caller::Owner || super::origin_gate::connection_page(mux, client).is_some())
+    {
+        // Owner only, from a terminal: no page (a WebSocket or the host's page
+        // relay), no Chief, no paired or remote device (caller() refuses those).
+        return Err(forbidden_adopt());
+    }
     if let Caller::Chief(me) = caller {
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }
@@ -259,6 +281,15 @@ fn mutate(
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
             Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
+            Op::ChiefProfileAdopt => match adoptee {
+                Some(Adoptee { id, display_name: Some(name) }) => {
+                    chief_registry::adopt(tx, id, name, &profile)
+                }
+                Some(Adoptee { id, .. }) if id == chief_registry::DEFAULT_CHIEF => {
+                    Ok(Err(Refusal::DefaultChief))
+                }
+                _ => Ok(Err(Refusal::NotAgentParticipant)),
+            },
             Op::ChiefProfileUpdate => {
                 chief_registry::update(tx, &chief, expected_rev, &profile, None)
             }
@@ -278,7 +309,7 @@ fn mutate(
             }
             if !replayed && rev_before != Some(record.rev) {
                 let change = match operation {
-                    Op::ChiefProfileCreate => "created",
+                    Op::ChiefProfileCreate | Op::ChiefProfileAdopt => "created",
                     Op::ChiefProfileDelete => "deleted",
                     _ => "updated",
                 };
@@ -290,7 +321,7 @@ fn mutate(
             if !replayed {
                 mux.chiefs().brains.chief_written(
                     &record,
-                    operation == Op::ChiefProfileCreate,
+                    matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileAdopt),
                     operation == Op::ChiefProfileDelete,
                 );
             }
@@ -460,6 +491,45 @@ fn with_store<T>(
     run(store.as_mut().expect("chief registry opened above"))
 }
 
+/// The participant `chief.profile.adopt` names: its id, and its display name
+/// when it is an agent participant of a local conversation.
+struct Adoptee {
+    id: String,
+    display_name: Option<String>,
+}
+
+fn adoptee(
+    mux: &Mux,
+    operation: Op,
+    fields: &Map<String, Value>,
+) -> Result<Adoptee, ResourceError> {
+    let id = fields.get("participant_id").and_then(Value::as_str).unwrap_or("").to_owned();
+    let shaped = id.strip_prefix("agent_").is_some_and(|rest| {
+        (1..=64).contains(&rest.len())
+            && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+    });
+    if !shaped {
+        // A person, or no participant id at all: never a Chief.
+        return Ok(Adoptee { id, display_name: None });
+    }
+    let summaries =
+        mux.with_conversations(|store| store.list()).map_err(|e| internal(operation, &e))?;
+    let display_name = summaries
+        .iter()
+        .flat_map(|summary| summary.participants.iter())
+        .find(|p| p.id == id && p.kind == cmux_conversation::ParticipantKind::Agent)
+        .map(|p| p.display_name.clone())
+        .filter(|name| !name.trim().is_empty());
+    Ok(Adoptee { id, display_name })
+}
+
+fn forbidden_adopt() -> ResourceError {
+    crate::request_origin::forbidden(
+        "only the person, from a terminal on this machine, adopts an agent as a Chief",
+        json!({"derived": "agent", "required": "user", "reason": "chief_adopt_owner_only"}),
+    )
+}
+
 fn chief_field(fields: &Map<String, Value>) -> &str {
     fields.get("chief").and_then(Value::as_str).unwrap_or("")
 }
@@ -485,3 +555,7 @@ fn internal(operation: Op, error: &anyhow::Error) -> ResourceError {
         json!({"message": format!("{error:#}")}),
     )
 }
+
+#[cfg(test)]
+#[path = "chief_adopt_tests.rs"]
+mod adopt_tests;
