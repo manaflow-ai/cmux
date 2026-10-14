@@ -151,7 +151,7 @@ const lp = listed.json?.devices?.find((d: any) => d.deviceId === phoneId)
 check("me/devices", listed.status === 200 && lp?.push === true && listed.json.devices.some((d: any) => d.deviceId === macId && d.kind === "mac"), `${listed.json?.devices?.length ?? 0} devices`)
 const notify = await api("POST", `/v1/devices/${macId}/notify`, { eventId: `smoke-${Date.now()}`, kind: "question", agent: "Smoke", place: "smoke" })
 // A fake token: APNs (when configured) refuses it and the Worker drops it.
-check("notify", notify.status === 200 && typeof notify.json?.configured === "boolean", `configured ${notify.json?.configured}, sent ${notify.json?.sent}, failed ${notify.json?.failed}, dropped ${notify.json?.dropped}`)
+check("notify", notify.status === 200 && typeof notify.json?.configured === "boolean" && (!notify.json.configured || notify.json.dropped === 1), `configured ${notify.json?.configured}, sent ${notify.json?.sent}, failed ${notify.json?.failed}, dropped ${notify.json?.dropped}`)
 check("notify from a phone refused", (await api("POST", `/v1/devices/${phoneId}/notify`, { eventId: "x", kind: "question" })).status === 403)
 const m2 = await open(macId)
 await m2.wait((f) => f.type === "hello")
