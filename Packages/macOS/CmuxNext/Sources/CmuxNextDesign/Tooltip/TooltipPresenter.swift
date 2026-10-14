@@ -189,8 +189,10 @@ public final class TooltipPresenter {
 
     static func stillShows(_ tracker: TooltipTracker) -> Bool {
         guard let view = tracker.view, let window = view.window, window.isVisible, !view.isHiddenOrHasHiddenAncestor,
-              WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect else { return false }
-        return anchor.insetBy(dx: -1, dy: -1).contains(NSEvent.mouseLocation)
+              WindowPlacement.noActivate || NSApp.isActive, let anchor = tracker.screenRect,
+              let pointer = PointerHover.pointer(in: window) else { return false }
+        // `PointerHover`: the real pointer, or DEBUG's synthesized one (a recording on a headless host).
+        return anchor.insetBy(dx: -1, dy: -1).contains(window.convertPoint(toScreen: pointer))
     }
 
     /// Below the view and centered, above it when there is no room below, shifted to stay on screen

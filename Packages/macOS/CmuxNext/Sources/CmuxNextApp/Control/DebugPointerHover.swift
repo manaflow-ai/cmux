@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextDesign
 import CmuxNextSettings
 
 /// `debug.pointer_hover` {point: [x, y] | null, window?}: moves a synthetic
@@ -52,6 +53,9 @@ enum DebugPointerHover {
             }
         }
         inside[key] = now.isEmpty ? nil : now
+        // Hover that reads where the pointer is (chrome hovers, a shown tooltip's recheck) reads
+        // the synthetic pointer too, until the real mouse moves.
+        PointerHover.setDebugPointer(point, in: window)
         let location = point ?? .zero
         var exited: [String] = []
         var entered: [String] = []
