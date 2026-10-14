@@ -1,0 +1,4467 @@
+{
+ "version": 1,
+ "about": "Shared model-level case list for cmux NEXT (cx-gkyi1; HID side cx-hdyx4). One file, three runners: headless Swift (ModelMatrixTests: schema and entry resolution through the action catalog), headless core (cmux-tui-core mux::tests::matrix: each case's `core` steps on the real daemon core; the tier \"headless\" means both headless runners) and the real-HID / monkey runners in cmuxterm-hq tools/baseline. Failure messages start with \"MATRIX <case id>:\". `$new` names the object the case's action creates. A case with `steps` runs them in order; a step may repeat and may carry its own `expect`.",
+ "invariants": {
+  "no-crash": "The runner finished every step; nothing panicked or crashed.",
+  "layout-valid": "Layout invariants hold after every step: no tab lost or placed twice, no empty pane, column or screen, each pane placed once (daemon check_state / validate_layout_transition).",
+  "items-kept": "Every object of `of` that existed before still exists (a superset; new objects allowed).",
+  "item-set-kept": "The set of `of` objects is exactly the same before and after (moves and reorders only).",
+  "count-delta": "The number of `of` objects (in `in` when given) changed by `by`.",
+  "order-is": "The objects of `of` (in `in` when given) are in exactly the order `ids`.",
+  "pane-has": "Pane `pane` holds tab `tab`.",
+  "selected-is": "The selected `of` (workspace, or tab in `in`) is `id`.",
+  "focus-on": "The focused `of` (pane or tab) is `id`.",
+  "zoomed-is": "The zoomed pane of the workspace is `id` (null: none).",
+  "answers-within-ms": "The action's visible result shows within `ms` milliseconds (hid and monkey tiers; the headless tiers have no wall clock).",
+  "restored-equal": "After quit and relaunch the layout and selection equal the state before (hid tier)."
+ },
+ "entries": {
+  "palette": {
+   "surface": "palette",
+   "note": "The command palette row of the action."
+  },
+  "menu": {
+   "surface": "mainMenu",
+   "note": "The action's main menu bar item."
+  },
+  "context-menu": {
+   "surface": "contextMenu",
+   "note": "A right-click menu placement of the action."
+  },
+  "shortcut": {
+   "surface": "shortcut",
+   "note": "The action's default key binding."
+  },
+  "cli": {
+   "surface": "cli",
+   "note": "`cmux action run <id> --focus` with the target: a user-origin run. Without --focus the CLI never changes the view (ActionInvocation.allowsViewChange)."
+  },
+  "strip-plus": {
+   "actions": [
+    "newTab.default"
+   ],
+   "note": "The tab strip's + button: TabStripIntent.newTab -> StripNewTab.request."
+  },
+  "sidebar": {
+   "actions": [
+    "sidebar.newWorkspace"
+   ],
+   "note": "The sidebar's + button. It calls WindowManager.newWorkspace directly, not an action (SidebarBridge+Intents).",
+   "bypassesRegistry": true
+  },
+  "drag": {
+   "actions": [
+    "moveWorkspaceUp",
+    "moveWorkspaceDown",
+    "workspace.moveToBottom",
+    "moveSurfaceLeft",
+    "moveSurfaceRight",
+    "moveSurfaceToNextPane",
+    "moveSurfaceToPaneLeft",
+    "moveSurfaceToPaneRight",
+    "tab.moveToNewSplit",
+    "tab.moveToWorkspace"
+   ],
+   "note": "A mouse drag that does what the action does (sidebar row, tab, tab onto a pane edge or another workspace)."
+  }
+ },
+ "presets": {
+  "single": {
+   "workspaces": "1",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "the only workspace",
+    "$p1": "its only pane",
+    "$t1": "its only tab"
+   }
+  },
+  "tabs3": {
+   "workspaces": "1",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "the only workspace",
+    "$p1": "its only pane",
+    "$t1": "tab 1 of $p1",
+    "$t2": "tab 2 of $p1 (selected, focused)",
+    "$t3": "tab 3 of $p1"
+   }
+  },
+  "split2": {
+   "workspaces": "1",
+   "panes": "grid",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "the only workspace",
+    "$p1": "left pane (focused)",
+    "$p2": "right pane",
+    "$t1": "tab 1 of $p1 (selected)",
+    "$t3": "tab 2 of $p1",
+    "$t2": "only tab of $p2"
+   }
+  },
+  "deep": {
+   "workspaces": "1",
+   "panes": "deep",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "the only workspace",
+    "$p1": "pane 1 of a 4-deep right-split chain",
+    "$p2": "pane 2",
+    "$p3": "pane 3",
+    "$p4": "pane 4 (deepest, focused)"
+   }
+  },
+  "ws3": {
+   "workspaces": "3",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "workspace 1 from the top",
+    "$w2": "workspace 2 from the top (selected)",
+    "$w3": "workspace 3 from the top",
+    "$t1": "the only tab of $w2",
+    "$p1": "the only pane of $w2"
+   }
+  },
+  "ws20": {
+   "workspaces": "20",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "workspace 1 from the top (selected)",
+    "$w2": "workspace 2 from the top",
+    "$w3": "workspace 3 from the top",
+    "$w4": "workspace 4 from the top",
+    "$w5": "workspace 5 from the top",
+    "$w6": "workspace 6 from the top",
+    "$w7": "workspace 7 from the top",
+    "$w8": "workspace 8 from the top",
+    "$w9": "workspace 9 from the top",
+    "$w10": "workspace 10 from the top",
+    "$w11": "workspace 11 from the top",
+    "$w12": "workspace 12 from the top",
+    "$w13": "workspace 13 from the top",
+    "$w14": "workspace 14 from the top",
+    "$w15": "workspace 15 from the top",
+    "$w16": "workspace 16 from the top",
+    "$w17": "workspace 17 from the top",
+    "$w18": "workspace 18 from the top",
+    "$w19": "workspace 19 from the top",
+    "$w20": "workspace 20 from the top"
+   }
+  },
+  "groups": {
+   "workspaces": "groups",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$g1": "group 1",
+    "$g2": "group 2",
+    "$w1": "workspace 1 of $g1 (selected)",
+    "$w2": "workspace 2 of $g1",
+    "$w3": "workspace 1 of $g2",
+    "$w4": "workspace 2 of $g2"
+   }
+  },
+  "pinned": {
+   "workspaces": "pinned",
+   "panes": "single",
+   "focus": "terminal",
+   "objects": {
+    "$w1": "workspace 1 from the top (pinned)",
+    "$w2": "workspace 2 from the top (selected)",
+    "$w3": "workspace 3 from the top"
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "workspace.create.cmd-n.shortcut",
+   "action": {
+    "id": "newTab"
+   },
+   "entry": "shortcut",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.cmd-n.menu",
+   "action": {
+    "id": "newTab"
+   },
+   "entry": "menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.cmd-n.palette",
+   "action": {
+    "id": "newTab"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.cmd-n.context-menu",
+   "action": {
+    "id": "newTab"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.newAbove.context-menu",
+   "action": {
+    "id": "workspace.newAbove",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$new",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAbove.palette",
+   "action": {
+    "id": "workspace.newAbove",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$new",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAbove.cli",
+   "action": {
+    "id": "workspace.newAbove",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$new",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newBelow.context-menu",
+   "action": {
+    "id": "workspace.newBelow",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$new",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newBelow.palette",
+   "action": {
+    "id": "workspace.newBelow",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$new",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newBelow.cli",
+   "action": {
+    "id": "workspace.newBelow",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$new",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtTop.context-menu",
+   "action": {
+    "id": "workspace.newAtTop",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$new",
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtTop.palette",
+   "action": {
+    "id": "workspace.newAtTop",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$new",
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtTop.cli",
+   "action": {
+    "id": "workspace.newAtTop",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$new",
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtBottom.context-menu",
+   "action": {
+    "id": "workspace.newAtBottom",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3",
+      "$new"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtBottom.palette",
+   "action": {
+    "id": "workspace.newAtBottom",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3",
+      "$new"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.newAtBottom.cli",
+   "action": {
+    "id": "workspace.newAtBottom",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3",
+      "$new"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.create.likeThis.palette",
+   "action": {
+    "id": "workspace.newLikeThis",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.browser.palette",
+   "action": {
+    "id": "newBrowserWorkspace"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.likeThis.cli",
+   "action": {
+    "id": "workspace.newLikeThis",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.browser.cli",
+   "action": {
+    "id": "newBrowserWorkspace"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.inNewGroup.palette",
+   "action": {
+    "id": "workspace.newInNewGroup",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "groups",
+     "by": 1
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
+  },
+  {
+   "id": "workspace.create.inGroup.context-menu",
+   "action": {
+    "id": "workspaceGroup.newWorkspace",
+    "target": "$g2"
+   },
+   "entry": "context-menu",
+   "state": "groups",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "in": "$g2",
+     "by": 1
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
+  },
+  {
+   "id": "workspace.create.sidebar-plus",
+   "action": {
+    "id": "sidebar.newWorkspace"
+   },
+   "entry": "sidebar",
+   "state": "groups",
+   "inputs": [
+    "mouse"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "in": "$g1",
+     "by": 1
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
+  },
+  {
+   "id": "workspace.create.fromPane.context-menu",
+   "action": {
+    "id": "pane.moveToNewWorkspace",
+    "target": "$p2"
+   },
+   "entry": "context-menu",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "in": "$w1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_pane_to_new_workspace",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.fromTab.context-menu",
+   "action": {
+    "id": "palette.moveTabToNewWorkspace",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_new_workspace",
+     "tab": "$t2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.fromPane.palette",
+   "action": {
+    "id": "pane.moveToNewWorkspace",
+    "target": "$p2"
+   },
+   "entry": "palette",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "in": "$w1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_pane_to_new_workspace",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.fromTab.palette",
+   "action": {
+    "id": "palette.moveTabToNewWorkspace",
+    "target": "$t2"
+   },
+   "entry": "palette",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_new_workspace",
+     "tab": "$t2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.fromPane.cli",
+   "action": {
+    "id": "pane.moveToNewWorkspace",
+    "target": "$p2"
+   },
+   "entry": "cli",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "in": "$w1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_pane_to_new_workspace",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.fromTab.cli",
+   "action": {
+    "id": "palette.moveTabToNewWorkspace",
+    "target": "$t2"
+   },
+   "entry": "cli",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_new_workspace",
+     "tab": "$t2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "workspace.create.rapid20.shortcut",
+   "steps": [
+    {
+     "repeat": 20,
+     "action": {
+      "id": "newTab"
+     },
+     "entry": "shortcut"
+    }
+   ],
+   "state": "single",
+   "inputs": [
+    "keyboard"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "workspaces",
+     "by": 20
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_workspace",
+     "repeat": 20
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Cmd-N hammered: one workspace per press, in press order (RapidWorkspaceCreateTests)."
+  },
+  {
+   "id": "workspace.reorder.up.palette",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.shortcut",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "shortcut",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.menu",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.palette",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.shortcut",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "shortcut",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.menu",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.context-menu",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.context-menu",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.cli",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.cli",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.drag",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "drag",
+   "state": "ws3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w2",
+      "$w1",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.down.drag",
+   "action": {
+    "id": "moveWorkspaceDown",
+    "target": "$w2"
+   },
+   "entry": "drag",
+   "state": "ws3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.up.atTop",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w1"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Moving the top workspace up changes nothing. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.toBottom.context-menu",
+   "action": {
+    "id": "workspace.moveToBottom",
+    "target": "$w2"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w2"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w3",
+      "$w2"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.drag20",
+   "steps": [
+    {
+     "repeat": 19,
+     "action": {
+      "id": "moveWorkspaceUp",
+      "target": "$w20"
+     },
+     "entry": "drag"
+    }
+   ],
+   "state": "ws20",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "selected-is",
+     "of": "workspace",
+     "id": "$w1"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w20",
+      "$w1",
+      "$w2",
+      "$w3",
+      "$w4",
+      "$w5",
+      "$w6",
+      "$w7",
+      "$w8",
+      "$w9",
+      "$w10",
+      "$w11",
+      "$w12",
+      "$w13",
+      "$w14",
+      "$w15",
+      "$w16",
+      "$w17",
+      "$w18",
+      "$w19"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "The last of 20 workspaces dragged to the top. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "workspace.reorder.pinned.palette",
+   "action": {
+    "id": "moveWorkspaceUp",
+    "target": "$w2"
+   },
+   "entry": "palette",
+   "state": "pinned",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "workspaces"
+    },
+    {
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w1",
+      "$w2",
+      "$w3"
+     ]
+    }
+   ],
+   "tiers": [
+    "hid",
+    "monkey"
+   ],
+   "note": "A workspace never moves above a pinned one. Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
+  },
+  {
+   "id": "tab.reorder.left.palette",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "palette",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.menu",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.context-menu",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.palette",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "palette",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.menu",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.context-menu",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.shortcut",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "shortcut",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.shortcut",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "shortcut",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.cli",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "cli",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.cli",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "cli",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.drag",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t2"
+   },
+   "entry": "drag",
+   "state": "tabs3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t2",
+      "$t1",
+      "$t3"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.right.drag",
+   "action": {
+    "id": "moveSurfaceRight",
+    "target": "$t2"
+   },
+   "entry": "drag",
+   "state": "tabs3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t3",
+      "$t2"
+     ]
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1",
+     "index": 2
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.reorder.left.atStart",
+   "action": {
+    "id": "moveSurfaceLeft",
+    "target": "$t1"
+   },
+   "entry": "palette",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "order-is",
+     "of": "tabs",
+     "in": "$p1",
+     "ids": [
+      "$t1",
+      "$t2",
+      "$t3"
+     ]
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t1",
+     "pane": "$p1",
+     "index": 0
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "The first tab moved left stays first."
+  },
+  {
+   "id": "tab.move.nextPane.palette",
+   "action": {
+    "id": "moveSurfaceToNextPane",
+    "target": "$t1"
+   },
+   "entry": "palette",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "pane-has",
+     "pane": "$p2",
+     "tab": "$t1"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p2",
+     "id": "$t1"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t1",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.nextPane.shortcut",
+   "action": {
+    "id": "moveSurfaceToNextPane",
+    "target": "$t1"
+   },
+   "entry": "shortcut",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "pane-has",
+     "pane": "$p2",
+     "tab": "$t1"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p2",
+     "id": "$t1"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t1",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.paneRight.palette",
+   "action": {
+    "id": "moveSurfaceToPaneRight",
+    "target": "$t1"
+   },
+   "entry": "palette",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "pane-has",
+     "pane": "$p2",
+     "tab": "$t1"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p2",
+     "id": "$t1"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t1",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.paneRight.drag",
+   "action": {
+    "id": "moveSurfaceToPaneRight",
+    "target": "$t1"
+   },
+   "entry": "drag",
+   "state": "split2",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "pane-has",
+     "pane": "$p2",
+     "tab": "$t1"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p2",
+     "id": "$t1"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t1",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.lastTabClosesPane.palette",
+   "action": {
+    "id": "moveSurfaceToPaneLeft",
+    "target": "$t2"
+   },
+   "entry": "palette",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": -1
+    },
+    {
+     "code": "pane-has",
+     "pane": "$p1",
+     "tab": "$t2"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p1"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab",
+     "tab": "$t2",
+     "pane": "$p1"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Moving a pane's only tab out removes the empty pane."
+  },
+  {
+   "id": "tab.move.toWorkspace.palette",
+   "action": {
+    "id": "tab.moveToWorkspace",
+    "target": "$t1"
+   },
+   "entry": "palette",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$w3",
+     "by": 1
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_workspace",
+     "tab": "$t1",
+     "workspace": "$w3"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
+  },
+  {
+   "id": "tab.move.toWorkspace.context-menu",
+   "action": {
+    "id": "tab.moveToWorkspace",
+    "target": "$t1"
+   },
+   "entry": "context-menu",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$w3",
+     "by": 1
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_workspace",
+     "tab": "$t1",
+     "workspace": "$w3"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
+  },
+  {
+   "id": "tab.move.toWorkspace.cli",
+   "action": {
+    "id": "tab.moveToWorkspace",
+    "target": "$t1"
+   },
+   "entry": "cli",
+   "state": "ws3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$w3",
+     "by": 1
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_workspace",
+     "tab": "$t1",
+     "workspace": "$w3"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
+  },
+  {
+   "id": "tab.move.toWorkspace.drag",
+   "action": {
+    "id": "tab.moveToWorkspace",
+    "target": "$t1"
+   },
+   "entry": "drag",
+   "state": "ws3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$w3",
+     "by": 1
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_workspace",
+     "tab": "$t1",
+     "workspace": "$w3"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
+  },
+  {
+   "id": "tab.move.toNewSplit.palette",
+   "action": {
+    "id": "tab.moveToNewSplit",
+    "target": "$t2"
+   },
+   "entry": "palette",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "focus-on",
+     "of": "tab",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_split",
+     "tab": "$t2",
+     "pane": "$p1",
+     "edge": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.toNewSplit.context-menu",
+   "action": {
+    "id": "tab.moveToNewSplit",
+    "target": "$t2"
+   },
+   "entry": "context-menu",
+   "state": "tabs3",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "focus-on",
+     "of": "tab",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_split",
+     "tab": "$t2",
+     "pane": "$p1",
+     "edge": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.move.toNewSplit.drag",
+   "action": {
+    "id": "tab.moveToNewSplit",
+    "target": "$t2"
+   },
+   "entry": "drag",
+   "state": "tabs3",
+   "inputs": [
+    "fast-drag"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": -1
+    },
+    {
+     "code": "focus-on",
+     "of": "tab",
+     "id": "$t2"
+    }
+   ],
+   "core": [
+    {
+     "op": "move_tab_to_split",
+     "tab": "$t2",
+     "pane": "$p1",
+     "edge": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "tab.create.strip-plus",
+   "action": {
+    "id": "newTab.default"
+   },
+   "entry": "strip-plus",
+   "state": "tabs3",
+   "inputs": [
+    "mouse"
+   ],
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "in": "$p1",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "selected-is",
+     "of": "tab",
+     "in": "$p1",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "new_tab",
+     "pane": "$p1"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.right.shortcut",
+   "action": {
+    "id": "splitRight",
+    "target": "$p1"
+   },
+   "entry": "shortcut",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.right.menu",
+   "action": {
+    "id": "splitRight",
+    "target": "$p1"
+   },
+   "entry": "menu",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.right.palette",
+   "action": {
+    "id": "splitRight",
+    "target": "$p1"
+   },
+   "entry": "palette",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.right.context-menu",
+   "action": {
+    "id": "splitRight",
+    "target": "$p1"
+   },
+   "entry": "context-menu",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.right.cli",
+   "action": {
+    "id": "splitRight",
+    "target": "$p1"
+   },
+   "entry": "cli",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.down.shortcut",
+   "action": {
+    "id": "splitDown",
+    "target": "$p1"
+   },
+   "entry": "shortcut",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "down"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.down.menu",
+   "action": {
+    "id": "splitDown",
+    "target": "$p1"
+   },
+   "entry": "menu",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "down"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.down.palette",
+   "action": {
+    "id": "splitDown",
+    "target": "$p1"
+   },
+   "entry": "palette",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "down"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.down.context-menu",
+   "action": {
+    "id": "splitDown",
+    "target": "$p1"
+   },
+   "entry": "context-menu",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "down"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.down.cli",
+   "action": {
+    "id": "splitDown",
+    "target": "$p1"
+   },
+   "entry": "cli",
+   "state": "single",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "items-kept",
+     "of": "tabs"
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "down"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.create.deep.shortcut",
+   "action": {
+    "id": "splitRight",
+    "target": "$p4"
+   },
+   "entry": "shortcut",
+   "state": "deep",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$new"
+    }
+   ],
+   "core": [
+    {
+     "op": "split",
+     "pane": "$p4",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "The HID seed needs a window wide enough for a fifth pane; a split without room is refused."
+  },
+  {
+   "id": "split.close.palette",
+   "action": {
+    "id": "closePane",
+    "target": "$p2"
+   },
+   "entry": "palette",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": -1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "by": -1
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p1"
+    }
+   ],
+   "core": [
+    {
+     "op": "close_pane",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.close.context-menu",
+   "action": {
+    "id": "closePane",
+    "target": "$p2"
+   },
+   "entry": "context-menu",
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": -1
+    },
+    {
+     "code": "count-delta",
+     "of": "tabs",
+     "by": -1
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p1"
+    }
+   ],
+   "core": [
+    {
+     "op": "close_pane",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ]
+  },
+  {
+   "id": "split.zoom.toggle.shortcut",
+   "steps": [
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "shortcut",
+     "expect": [
+      {
+       "code": "zoomed-is",
+       "id": "$p1"
+      },
+      {
+       "code": "focus-on",
+       "of": "pane",
+       "id": "$p1"
+      }
+     ]
+    },
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "shortcut"
+    }
+   ],
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "panes"
+    },
+    {
+     "code": "zoomed-is",
+     "id": null
+    }
+   ],
+   "core": [
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    },
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Zoom on, then off."
+  },
+  {
+   "id": "split.zoom.toggle.palette",
+   "steps": [
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "palette",
+     "expect": [
+      {
+       "code": "zoomed-is",
+       "id": "$p1"
+      },
+      {
+       "code": "focus-on",
+       "of": "pane",
+       "id": "$p1"
+      }
+     ]
+    },
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "palette"
+    }
+   ],
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "panes"
+    },
+    {
+     "code": "zoomed-is",
+     "id": null
+    }
+   ],
+   "core": [
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    },
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Zoom on, then off."
+  },
+  {
+   "id": "split.zoom.toggle.context-menu",
+   "steps": [
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "context-menu",
+     "expect": [
+      {
+       "code": "zoomed-is",
+       "id": "$p1"
+      },
+      {
+       "code": "focus-on",
+       "of": "pane",
+       "id": "$p1"
+      }
+     ]
+    },
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "context-menu"
+    }
+   ],
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "item-set-kept",
+     "of": "panes"
+    },
+    {
+     "code": "zoomed-is",
+     "id": null
+    }
+   ],
+   "core": [
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    },
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Zoom on, then off."
+  },
+  {
+   "id": "split.close.zoomed.palette",
+   "steps": [
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p2"
+     },
+     "entry": "palette"
+    },
+    {
+     "action": {
+      "id": "closePane",
+      "target": "$p2"
+     },
+     "entry": "palette"
+    }
+   ],
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": -1
+    },
+    {
+     "code": "zoomed-is",
+     "id": null
+    },
+    {
+     "code": "focus-on",
+     "of": "pane",
+     "id": "$p1"
+    }
+   ],
+   "core": [
+    {
+     "op": "zoom_pane",
+     "pane": "$p2",
+     "mode": "toggle"
+    },
+    {
+     "op": "close_pane",
+     "pane": "$p2"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Closing the zoomed pane leaves no zoom and focuses the remaining pane."
+  },
+  {
+   "id": "split.zoom.thenSplit",
+   "steps": [
+    {
+     "action": {
+      "id": "toggleSplitZoom",
+      "target": "$p1"
+     },
+     "entry": "shortcut"
+    },
+    {
+     "action": {
+      "id": "splitRight",
+      "target": "$p1"
+     },
+     "entry": "shortcut"
+    }
+   ],
+   "state": "split2",
+   "expect": [
+    {
+     "code": "no-crash"
+    },
+    {
+     "code": "layout-valid"
+    },
+    {
+     "code": "count-delta",
+     "of": "panes",
+     "by": 1
+    }
+   ],
+   "core": [
+    {
+     "op": "zoom_pane",
+     "pane": "$p1",
+     "mode": "toggle"
+    },
+    {
+     "op": "split",
+     "pane": "$p1",
+     "direction": "right"
+    }
+   ],
+   "tiers": [
+    "headless",
+    "hid",
+    "monkey"
+   ],
+   "note": "Splitting a zoomed pane keeps the layout valid."
+  }
+ ],
+ "vocabulary": {
+  "of": {
+   "workspaces": "workspaces in sidebar order",
+   "panes": "panes in the layout",
+   "tabs": "tabs placed in the layout (a closed pane's terminals may survive detached; they don't count)",
+   "groups": "workspace groups",
+   "workspace": "the selected workspace",
+   "pane": "a pane",
+   "tab": "a tab"
+  },
+  "target": "The object the action acts on. palette, menu, shortcut and strip-plus runners focus or select it first; context-menu right-clicks it; cli passes it; drag drags it.",
+  "args": {
+   "items-kept": [
+    "of"
+   ],
+   "item-set-kept": [
+    "of"
+   ],
+   "count-delta": [
+    "of",
+    "by",
+    "in?"
+   ],
+   "order-is": [
+    "of",
+    "ids",
+    "in?"
+   ],
+   "pane-has": [
+    "pane",
+    "tab"
+   ],
+   "selected-is": [
+    "of",
+    "id",
+    "in?"
+   ],
+   "focus-on": [
+    "of",
+    "id"
+   ],
+   "zoomed-is": [
+    "id"
+   ],
+   "answers-within-ms": [
+    "ms"
+   ],
+   "no-crash": [],
+   "layout-valid": [],
+   "restored-equal": []
+  }
+ }
+}

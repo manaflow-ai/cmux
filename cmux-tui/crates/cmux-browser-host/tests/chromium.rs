@@ -1298,3 +1298,7 @@ mod cookie_backups;
 // EGRESS-ISOLATED on a real Chromium (cx-d0d.7).
 #[path = "chromium/egress_isolated.rs"]
 mod egress_isolated;
+
+// BR-R3: a WebSocket reaches only hosts the domain policy allows (cx-d0d.79).
+#[path = "chromium/websocket_policy.rs"]
+mod websocket_policy;

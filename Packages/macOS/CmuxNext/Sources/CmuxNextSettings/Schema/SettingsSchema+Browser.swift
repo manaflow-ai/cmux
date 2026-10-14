@@ -7,7 +7,9 @@ nonisolated enum BrowserSettingsSchema {
         let memory = SettingsText.keyed("settings.group.memory", "Memory")
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
+        let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
         return [
+            BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
                 title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),

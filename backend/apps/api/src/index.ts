@@ -37,6 +37,7 @@ export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -190,6 +191,9 @@ export default {
     if (url.pathname === CARD_PATH && request.method === "GET") return handleContactCard(env)
     if (url.pathname === "/v1/hooks/sendblue") return handleSendblueHook(request, env)
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
+    // The usage reconcile worker's period levels (service key; cx-y79zh S2).
+    if (url.pathname === BILLING_LEVELS_PATH) return handleBillingLevels(request, env)
+    if (url.pathname === BILLING_SYNC_PATH) return handleBillingSync(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     const tvmExport = url.pathname.match(/^\/v1\/team-vm\/export\/(team_[A-Za-z0-9_-]{1,64})\/([0-9a-f]{64})$/)
@@ -216,7 +220,13 @@ export default {
   // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    if (controller.cron === PROJECTION_COMPARE_CRON) return (await import("./projection-compare-cron.ts")).compareFromEnv(env)
+    if (controller.cron === PROJECTION_COMPARE_CRON) {
+      // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
+      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
+      if (compare.status === "rejected") throw compare.reason
+      return
+    }
     const report = await sweepFeedText(sweepDeps(env))
     console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
   }

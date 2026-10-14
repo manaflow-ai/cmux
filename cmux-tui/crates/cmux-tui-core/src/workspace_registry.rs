@@ -44,6 +44,7 @@ mod open_guard;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
+mod personal_session_icon;
 pub(crate) mod personal_store;
 mod personal_terminals;
 pub(crate) mod presentation_store;

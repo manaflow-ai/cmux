@@ -39,8 +39,9 @@ test("Changes shows with the chat's changes or its open diff, and lights while t
   const { ShortcutsContext } = await import("../src/agent-session/acpmux/shortcuts");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  // The default buttons, and nothing open yet (other files in this run share the page's modules).
-  configureQuickActions({});
+  // Changes shown as a button (it is in the chat menu by default), and nothing open yet (other files in
+  // this run share the page's modules).
+  configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "changes", "preview", "newTab"] });
   applyHostEvent({ kind: "headerState", value: { lit: [] } });
   const runs: string[] = [];
   root = createRoot(host);

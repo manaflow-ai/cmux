@@ -49,15 +49,30 @@ pub fn socket_path() -> PathBuf {
     resolved
 }
 
-/// Windows port: the socket path rule there is `cmux::local_socket`'s (a
-/// later landing).
-#[cfg(not(unix))]
+/// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
+/// paths are limited to 108 bytes there too) falls back to a short path in an
+/// owner-only folder in this user's temp folder, derived from the home path
+/// so daemon and clients agree.
+#[cfg(windows)]
 pub fn socket_path() -> PathBuf {
-    std::env::var("ACPMUX_SOCKET")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("acpmux.sock"))
+    if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
+        return PathBuf::from(v);
+    }
+    let preferred = home().join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in home().to_string_lossy().bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    let dir = std::env::temp_dir().join("acpmux");
+    let path = dir.join(format!("{hash:016x}.sock"));
+    if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
+        return path;
+    }
+    preferred
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory
@@ -411,6 +426,10 @@ pub struct Config {
     pub peers: BTreeMap<String, PeerConfig>,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
+    /// More login-shell variables agents get, beyond the allow-list
+    /// (`login_env::allowed`): exact names or `PREFIX_*`. Default empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub login_env_allow: Vec<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
     /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
@@ -640,7 +659,13 @@ impl Config {
         cfg.join_discovered(discover_harnesses(route.as_deref()));
         if cfg.default_harness.is_none() {
             cfg.auto_default = true;
-            cfg.default_harness = cfg.harnesses.keys().next().cloned();
+            // A terminal harness (an installed `muse`, say) runs no ACP
+            // session, so it never becomes the default.
+            cfg.default_harness = cfg
+                .harnesses
+                .iter()
+                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .map(|(name, _)| name.clone());
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
@@ -810,11 +835,20 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// agent launched from inside such a session must not inherit them, or its
 /// Claude processes dial a proxy that dies with that session ("API Error:
 /// Connection refused"). Applied only when `CLAUDECODE` is set, so a user's
-/// own `ANTHROPIC_*` settings in a plain shell still pass through.
+/// own `ANTHROPIC_*` settings in a plain shell still pass through. The
+/// person's own values for those keys, from the login shell (which runs
+/// without them, `login_env.rs`), are put back: the child signs in the way
+/// the person's terminal does.
 pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
+    scrub_nested_claude_env_for(cmd, None);
+}
+
+/// Same, for a harness of `family` (its allow-list's login values go back).
+pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Option<&str>) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 
@@ -824,31 +858,39 @@ pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
 /// Both scrubs remove it from every child they prepare.
 pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
-/// The keys `scrub_nested_claude_env` removes, from the daemon's environment
-/// and the imported login environment.
-fn nested_claude_keys() -> Vec<std::ffi::OsString> {
+/// Whether `key` is one a Claude Code session plants for its children.
+pub(crate) fn is_nested_claude_key(key: &str) -> bool {
+    key.starts_with("CLAUDE")
+        || key.starts_with("ANTHROPIC_")
+        || key.starts_with("CMUX_CLAUDE_")
+        || key.starts_with("SUBROUTER_CLAUDE_")
+        || key == "NODE_OPTIONS"
+}
+
+/// The keys `scrub_nested_claude_env` removes from the daemon's own
+/// environment (none outside a Claude Code session).
+pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }
     std::env::vars_os()
         .map(|(k, _)| k)
-        .chain(crate::login_env::imported_keys().into_iter().map(Into::into))
-        .filter(|k| {
-            let key = k.to_string_lossy();
-            key.starts_with("CLAUDE")
-                || key.starts_with("ANTHROPIC_")
-                || key.starts_with("CMUX_CLAUDE_")
-                || key.starts_with("SUBROUTER_CLAUDE_")
-                || key == "NODE_OPTIONS"
-        })
+        .filter(|k| is_nested_claude_key(&k.to_string_lossy()))
         .collect()
 }
 
 /// Same, for tokio's process builder.
 pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
+    scrub_nested_claude_env_tokio_for(cmd, None);
+}
+
+/// Same, for a harness of `family`: the login values put back are those of
+/// that family's allow-list (`login_env::allowed`).
+pub fn scrub_nested_claude_env_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 

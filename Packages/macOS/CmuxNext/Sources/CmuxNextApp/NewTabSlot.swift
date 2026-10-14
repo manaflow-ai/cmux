@@ -1,6 +1,6 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
-import Observation
 import CmuxNextWakeups
 
 /// Where a new tab the user opens goes (cx-d0d.58). As in Chrome and Edge,
@@ -27,7 +27,10 @@ enum NewTabSlot {
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let anchor else { return then }
+        let pane = home(of: anchor, services)
+        let open = pane.flatMap { NewTabSuccession.begin(after: anchor.id, in: $0, services: services) } // shown in its slot at once
         return { surface in
+            if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
             place(in: { home(of: anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(after: anchor, in: $0) }
         }
@@ -37,6 +40,7 @@ enum NewTabSlot {
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
         guard let anchor else { return then }
+        if let pane = home(of: anchor, services) { NewTabSuccession.begin(after: anchor.id, in: pane, services: services) } // shown in its slot at once
         return { key in
             then?(key)
             place(in: { home(of: anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
@@ -50,11 +54,17 @@ enum NewTabSlot {
     /// The page's left neighbour is read now, as the page closes meanwhile.
     static func placing(replacing page: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
-        guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }),
-              index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
+        guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
+        // Shown in the page's slot from its first frame, whatever the daemon reports meanwhile.
+        let open = NewTabSuccession.begin(replacing: page, in: pane, services: services)
+        let then: @MainActor (SurfaceID) -> Void = { surface in
+            NewTabSuccession.made(surface, in: pane, by: open)
+            then?(surface)
+        }
+        guard index + 1 < pane.tabs.count else { return then } // the last tab: the new one appends beside it
         let before = index > 0 ? pane.tabs[index - 1] : nil
         return { surface in
-            then?(surface)
+            then(surface)
             place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { others in
                 guard let before else { return others.prefix { $0.pinned }.count }
                 return others.firstIndex { $0 === before }.map { $0 + 1 }
@@ -75,7 +85,7 @@ enum NewTabSlot {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
         services.registry.track(Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
-                for await found in Observations({ locate() != nil }) where found { return true }
+                for await found in ObservationStream({ locate() != nil }) where found { return true }
                 return false
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")

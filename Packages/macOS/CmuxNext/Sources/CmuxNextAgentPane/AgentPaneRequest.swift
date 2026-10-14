@@ -43,6 +43,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
+    /// The new tab page's style switch (`newTab.setTemplate`): the template to
+    /// save as `tabs.newTabTemplate` (the App checks the value).
+    case setNewTabTemplate(String)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -56,12 +59,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page's "default: X" toggle: what Cmd-T opens
-    /// (`tabs.newTabKind`; the App checks the value).
-    case setDefaultKind(String)
-    /// The new tab page's template dots (`newTab.setTemplate`): the
-    /// template to save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
@@ -77,10 +74,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case chooseChatFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
-    /// `harness.health {id, refresh?, rescan?}` (cx-ny85): this Mac's acpmux health row for the
-    /// chat's agent CLI; `refresh` checks again (after its Log In or Update); `rescan` has acpmux
-    /// look for harnesses first (cx-apoko: after an install from the Harnesses page).
-    case harnessHealth(String, refresh: Bool, rescan: Bool)
     /// `chats.open {key}`: a device chat card (`harness:sessionId`) the New Tab page shows,
     /// opened through the app's shared Open Chat path.
     case openChat(String)
@@ -106,12 +99,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
     case tabState(refresh: Bool)
-    /// The "..." menu's Archive (`true`) or Unarchive (`false`) of the pane's chat.
-    case archive(Bool)
-    /// `chat.markUnread`: the chat menu's Mark as Unread asks acpmux to mark this pane's chat unread.
-    case markUnread
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
+    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
+    case chatTab(String)
+    /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
+    case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)

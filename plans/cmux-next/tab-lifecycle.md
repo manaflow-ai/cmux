@@ -95,9 +95,18 @@ cmux.json:
   eligible page when aggressive; critical: every eligible page), and the
   Hibernate Tab action. No polling. "off" disables every trigger.
 - Never: pinned tabs (unless `hibernatePinnedTabs`), excluded hosts, open
-  DevTools, camera or microphone in use, unmuted media playing, edited form
-  fields (probe script with a 2 s deadline; no answer counts as busy), pages
-  whose engine cannot restore their history.
+  DevTools, camera, microphone or screen capture in use, unmuted media
+  elements playing, edited form fields (probe script with a 2 s deadline; no
+  answer counts as busy), pages whose engine cannot restore their history.
+  A running Web Audio context (`web_audio`) also keeps a page, except under
+  critical memory pressure: it can be silent (a chat app's notification
+  sounds, a game), and Chrome exempts audible tabs only. Web Audio and
+  capture streams have no element, so a page-world recorder
+  (`BrowserPageBusy`, installed at document start next to the media hub's
+  actions script) wraps `AudioContext`, `getUserMedia` and `getDisplayMedia`;
+  it is also the only capture signal for Chromium tabs, whose engine reports
+  none. `scripts/cmux-next/hibernation-busy-live.py` checks Web Audio (top
+  document and iframe) on a live build.
 - A hibernated tab keeps URL, title, favicon, back/forward history with page
   state (scroll, form data) and a snapshot for the hover preview; its icon
   and title are dimmed in the strip. Selecting it restores the page; a
@@ -121,5 +130,10 @@ cmux.json:
 - A terminal surface shown after a pause can draw its last frame before the
   current one (no Ghostty "presented" signal yet); cold workspaces still
   attach at most one new surface per frame.
-- Screen capture (getDisplayMedia) and WebAudio are not detected by the
-  hibernation probe.
+- Camera, microphone and screen capture exemptions are not checked live
+  (they need a permission prompt and a device on the test host).
+- The recorder misses: Chromium cross-origin iframes (out-of-process frames
+  get no `Page.addScriptToEvaluateOnNewDocument` script without
+  `Target.setAutoAttach`), legacy `navigator.webkitGetUserMedia`, a cloned
+  track that outlives its stopped original, and contexts or streams a page
+  made before the recorder was installed.

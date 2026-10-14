@@ -75,6 +75,7 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
     var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
+    var closingHit = TabClosingModeHit()
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []

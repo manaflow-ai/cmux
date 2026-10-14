@@ -119,6 +119,12 @@ export class HomeChannelsStore {
         }),
       );
       this.stops.push(await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch)));
+      // Replies that came while the page was hidden are read once the person sees them.
+      const shown = () => {
+        if (document.visibilityState === "visible") this.readOpen();
+      };
+      document.addEventListener("visibilitychange", shown);
+      this.stops.push(() => document.removeEventListener("visibilitychange", shown));
     } catch (error) {
       this.set({ error: describe(error), loading: false });
     }
@@ -362,6 +368,13 @@ export class HomeChannelsStore {
 
   dismissError(): void {
     this.set({ error: undefined });
+  }
+
+  /** Reads the open conversation through its newest loaded message. */
+  private readOpen(): void {
+    const { selected, messages } = this.snapshot;
+    const open = selected ? this.snapshot.conversations.get(selected) : undefined;
+    if (open) this.markRead(open, messages.at(-1)?.seq ?? 0);
   }
 
   /** Moves my read cursor to the newest seq I have seen, once per new seq. */

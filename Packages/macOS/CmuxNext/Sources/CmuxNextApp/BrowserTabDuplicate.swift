@@ -19,7 +19,7 @@ struct BrowserTabDuplicate {
         let url = page?.state.url ?? tab.url.flatMap(URL.init(string:))
         // The record names the original's profile, as the page's cookies do.
         let profile = pane.services.browserProfiles.profileID(ofTab: tab)
-        guard let page, let state = Self.history(of: page) else {
+        guard let page, let state = BrowserRestoreState.history(of: page) else {
             pane.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
             return
         }
@@ -46,12 +46,5 @@ struct BrowserTabDuplicate {
                 }
             })
         }
-    }
-
-    /// The back/forward history `page` can be recreated from: a hibernated
-    /// page's saved state, else what a live page saves now.
-    static func history(of page: any BrowserTab) -> BrowserRestoreState? {
-        if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
-        return (page as? any BrowserHibernationSource)?.hibernationState()
     }
 }

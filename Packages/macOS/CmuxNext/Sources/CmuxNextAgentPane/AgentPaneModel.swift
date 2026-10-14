@@ -36,12 +36,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
     @ObservationIgnored public var onRememberNewTab: ((AgentPaneRememberedPick) -> Void)?
+    /// The new tab page's style switch picked a template (`newTab.setTemplate`).
+    @ObservationIgnored public var onSetNewTabTemplate: ((String) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// The new tab page's "default: X" toggle and template dots (`tab.setDefaultKind`, `newTab.setTemplate`).
-    @ObservationIgnored public var onNewTabSetting: ((AgentPaneNewTabSetting) -> Void)?
     /// Runs an app action requested by an empty-state or new-tab control.
     @ObservationIgnored public var onRunAction: ((String) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
@@ -81,6 +81,9 @@ public final class AgentPaneModel {
     /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
+    /// What this chat's last page held when it let go (hibernation); the next handshake
+    /// carries it (`wake`) and clears it.
+    @ObservationIgnored public var pendingWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
@@ -207,7 +210,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .harnessHealth, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -255,10 +258,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(["newTab": object])
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
+        case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
-        case .setDefaultKind(let kind): return write(.defaultKind(kind), method: "tab.setDefaultKind")
-        case .setNewTabTemplate(let template): return write(.template(template), method: "newTab.setTemplate")
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
@@ -275,14 +277,13 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": await transport.pick(cwd)])
-        case .harnessHealth(let id, let refresh, let rescan): return await harnessHealthReply(id, refresh: refresh, rescan: rescan)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .archive, .markUnread, .sideChat: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

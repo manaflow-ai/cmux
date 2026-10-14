@@ -140,7 +140,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
-                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.bookmarks"),
+                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
+                group("settings.group.bookmarks"),
                 group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],

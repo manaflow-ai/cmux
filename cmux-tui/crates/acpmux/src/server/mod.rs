@@ -14,15 +14,15 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-/// Windows port: the daemon socket is `cmux::local_socket` there (a later
-/// landing); until then no listener exists, so none is ever bound.
-#[cfg(not(unix))]
-pub enum UnixListener {}
 use tokio::sync::{broadcast, mpsc};
+/// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
+/// same-user checks), in `windows_socket.rs`.
+#[cfg(windows)]
+pub use windows_socket::{UnixListener, bind_unix, serve_unix};
 
 /// How one connection receives one attached session's live records.
 #[derive(Debug, Clone, Default)]
@@ -40,6 +40,8 @@ pub struct Conn {
     pub id: String,
     /// The listener this connection came in on.
     pub origin: Origin,
+    /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
+    pub auth: ConnAuth,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -153,10 +155,6 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     tracing::info!("listening on {}", path.display());
     Ok(listener)
 }
-#[cfg(not(unix))]
-pub async fn bind_unix(_path: &std::path::Path) -> Result<UnixListener> {
-    Err(crate::platform::unsupported("the acpmux daemon socket"))
-}
 
 #[cfg(unix)]
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
@@ -175,31 +173,9 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            let (rd, mut wr) = stream.into_split();
-            let (in_tx, in_rx) = mpsc::channel::<String>(256);
-            let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if in_tx.send(line).await.is_err() {
-                        break;
-                    }
-                }
-            });
-            tokio::spawn(async move {
-                while let Some(line) = out_rx.recv().await {
-                    if wr.write_all(line.as_bytes()).await.is_err() {
-                        break;
-                    }
-                }
-            });
-            serve_connection_from(hub, in_rx, out_tx, Origin::Local, peer).await;
+            serve_stream(hub, stream, peer).await;
         });
     }
-}
-#[cfg(not(unix))]
-pub async fn serve_unix(_hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
-    match listener {}
 }
 
 const INDEX_HTML: &str = include_str!("../../web/index.html");
@@ -417,6 +393,9 @@ pub async fn serve_ws_with(
             let (mut sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+            // The handshake above checked the listener token: every
+            // connection past it is authenticated (`conn_auth.rs`).
+            let mut proof = ConnAuth::ListenerToken;
             // The first frame decides LocalApp; it reaches the protocol
             // handler without the token.
             let mut origin = Origin::Web;
@@ -425,6 +404,7 @@ pub async fn serve_ws_with(
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
             if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
                 origin = Origin::Peer;
+                proof = ConnAuth::PeerToken;
             } else if let Some(auth) = &local_app {
                 let frame = tokio::time::timeout(FIRST_FRAME, async {
                     while let Some(Ok(frame)) = source.next().await {
@@ -446,6 +426,7 @@ pub async fn serve_ws_with(
                 };
                 if auth.is_local_app(&hello) {
                     origin = Origin::LocalApp;
+                    proof = ConnAuth::LocalApp;
                 }
                 first = frame.map(|f| local_app::strip_token(&f));
             }
@@ -498,7 +479,7 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_with(hub, in_rx, out_tx, origin).await;
+            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -652,26 +633,48 @@ pub async fn serve_connection(
     serve_connection_with(hub, inbound, out, Origin::Local).await
 }
 
+/// An in-process connection (tests, an embedding): the caller vouches for
+/// the proof `origin` implies (`ConnAuth::proven_for`). A transport that
+/// checks its own proof uses `serve_connection_authed`.
 pub async fn serve_connection_with(
     hub: Arc<Hub>,
     inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     origin: Origin,
 ) {
-    serve_connection_from(hub, inbound, out, origin, None).await
+    serve_connection_authed(hub, inbound, out, origin, ConnAuth::proven_for(origin)).await
 }
 
-/// `serve_connection_with` for a unix socket peer named by its audit token.
+/// A connection with the proof its transport checked. `ConnAuth::None`
+/// gets no sessions and no data: its first request is refused and the
+/// connection ends (`conn_auth.rs`).
+pub async fn serve_connection_authed(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    origin: Origin,
+    auth: ConnAuth,
+) {
+    serve_connection_from(hub, inbound, out, origin, auth, None).await
+}
+
+/// `serve_connection_authed` for a unix socket peer named by its audit token.
 async fn serve_connection_from(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     origin: Origin,
+    auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
 ) {
+    if !auth.authenticated() {
+        refuse_unauthenticated(&mut inbound, &out, origin).await;
+        return;
+    }
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
         origin,
+        auth,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),
@@ -773,6 +776,31 @@ async fn serve_connection_from(
     fan.abort();
     view::release_all(&hub, &conn);
     tracing::debug!(conn = %conn.id, "client disconnected");
+}
+
+/// An unauthenticated connection: no hub subscription, no session, no
+/// data. The first request gets the refusal, then the connection ends.
+async fn refuse_unauthenticated(
+    inbound: &mut mpsc::Receiver<String>,
+    out: &mpsc::Sender<String>,
+    origin: Origin,
+) {
+    tracing::warn!("refusing an unauthenticated {origin:?} connection");
+    // Bounded: a client that never sends a request does not hold the task.
+    let _ = tokio::time::timeout(FIRST_FRAME, async {
+        while let Some(line) = inbound.recv().await {
+            match Message::parse(&line) {
+                Ok(Message::Request { id, .. }) => {
+                    let _ = out.send(Message::err(id, conn_auth::refused()).to_line()).await;
+                    return;
+                }
+                Ok(_) => continue,
+                Err(_) if line.trim().is_empty() => continue,
+                Err(_) => return,
+            }
+        }
+    })
+    .await;
 }
 
 /// Turn a hub record into client notifications for one connection.
@@ -965,6 +993,8 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 mod chats;
+pub mod conn_auth;
+pub use conn_auth::ConnAuth;
 mod fork_through;
 pub use fork_through::FORK_OPERATIONS;
 mod harness_admin;
@@ -975,11 +1005,15 @@ mod peer_forward;
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;
+mod stream;
+use stream::serve_stream;
 mod routes;
 mod secrets;
 pub(crate) mod trust_gate;
 mod view;
 mod wait;
+#[cfg(windows)]
+mod windows_socket;
 use requests::handle_notification;
 
 #[cfg(test)]

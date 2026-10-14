@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67. */
+/* cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67" as const;
+export const SDK_IR_SHA256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -484,6 +484,10 @@ export const COMMAND_METADATA = {
         "since": 7,
         "capability": null
       },
+      "if_empty": {
+        "since": null,
+        "capability": "close-workspace-if-empty-v1"
+      },
       "key": {
         "since": 7,
         "capability": "workspace-registry-v1"
@@ -653,7 +657,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "conversation-agent-token": {
@@ -1895,6 +1899,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "page-credential": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-credential-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
+    ]
+  },
   "pairing-response": {
     "authority": "local-admin",
     "since": 7,
@@ -2526,6 +2540,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "set-session-icon": {
+    "authority": "control",
+    "since": 12,
+    "capability": "session-icon-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -3174,6 +3198,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Blocks subsequent requests on this connection; SDKs should use a dedicated connection."
+    ]
+  },
+  "ws-listen": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "ws-listen-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
     ]
   },
   "zoom-pane": {
@@ -13892,6 +13926,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "if_empty": {
+          "capability": "close-workspace-if-empty-v1",
+          "default": false,
+          "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "key": {
           "capability": "workspace-registry-v1",
           "default": null,
@@ -19986,6 +20031,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "NotifyResult"
     }
   },
+  "page-credential": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "pairing-response": {
     "request": {
       "additional_properties": false,
@@ -22445,6 +22501,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "set-session-icon": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "icon": {
+          "description": "An icon value sets the session's (machine's) icon; null clears it.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "set-size-counts": {
     "request": {
       "additional_properties": false,
@@ -23916,6 +24001,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "profile_id": {
+          "default": null,
+          "description": "Move the frontend browser tab to this browser profile; null clears its profile.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -24464,6 +24559,42 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WaitForResult"
+    }
+  },
+  "ws-listen": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "allow_origins": {
+          "constraints": [
+            "The page origins the listener admits besides its own (capability ws-listen-origins-v1), joined with allow_origin."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "zoom-pane": {

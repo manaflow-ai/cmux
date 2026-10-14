@@ -766,6 +766,24 @@ pub struct TargetPolicyHost {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitMember {
+    pub user: UserId,
+    pub display_name: String,
+    pub role: String,
+    pub limit_usd: WireNumber,
+    pub source: TeamAiLimitMemberSource,
+    pub spent_usd: WireNumber,
+}
+
+wire_enum! {
+    TeamAiLimitMemberSource {
+        Personal = "personal",
+        Team = "team",
+        Default = "default",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAuditEntry {
     pub n: i64,
     pub op: String,

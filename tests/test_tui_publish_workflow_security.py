@@ -328,10 +328,10 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
     assert "cancel-in-progress: false" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
-    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
+    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
     pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
+    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
     assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
 
@@ -368,10 +368,12 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
     # A pull request's merge tree has no publisher of its own: a same-repository
-    # PR's probe dispatches one; a fork PR's never does.
+    # PR's probe dispatches one; a fork PR's never does. The scheduled DEV run
+    # (a workflow_dispatch with dev_daily) dispatches its cold tree too.
     dispatch_gate = (
-        "${{ github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository && '1' || '' }}"
+        "${{ (github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository || "
+        "github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}"
     )
     assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
@@ -2322,3 +2324,30 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
+    # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
+    # so trees publish without them; nightly-next promotion still needs them,
+    # through the daemon-tests.json marker that publish-tree-tested writes.
+    import yaml
+    jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
+    for name in ("publish-tree", "publish-pr-tree"):
+        assert "cmux-next-daemon-tests" not in jobs[name]["needs"], name
+        assert "cmux-next-daemon-tests" not in str(jobs[name]["if"]), name
+        assert "needs.cmux-next-daemon-tests.outputs" not in str(jobs[name]), name
+    marker = jobs["publish-tree-tested"]
+    assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
+    assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
+    assert marker["environment"] == "artifacts"
+    assert "daemon-tests.json" in str(marker["steps"])
+    assert "--write-once" in str(marker["steps"])
+    promote = jobs["request-nightly-next"]
+    assert "publish-tree-tested" in promote["needs"]
+    assert "needs.publish-tree.result" not in promote["if"]
+    assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    for name in ("publish-tree", "publish-pr-tree"):
+        assert '"daemonTests": "separate"' in str(jobs[name]["steps"]), name
+    script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
+    assert "daemon-tests.json" in script and '"separate"' in script
+

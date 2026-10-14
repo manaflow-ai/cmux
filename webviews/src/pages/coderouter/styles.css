@@ -11,7 +11,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 18px 18px 12px;
+  padding: 18px var(--page-edge) 12px;
   border-bottom: 1px solid var(--page-separator);
 }
 

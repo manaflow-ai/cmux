@@ -106,7 +106,7 @@ body {
 }
 
 .ed-toggle:disabled {
-  color: var(--page-text-3);
+  color: var(--page-text-disabled);
 }
 
 .ed-toggle:focus-visible,

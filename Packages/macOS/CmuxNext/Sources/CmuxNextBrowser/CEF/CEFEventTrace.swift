@@ -11,7 +11,7 @@ enum CEFEventTrace {
     static func record(_ browser: Int32, _ event: CEFShimEvent) {
         let line: String? = switch event {
         case .loadingState(_, let loading, let back, let forward): "loadingState(\(loading), back: \(back), forward: \(forward))"
-        case .loadStart(_, let url): "loadStart(\(url))"
+        case .loadStart(_, let url, let fromPost): "loadStart(\(url)\(fromPost ? ", post" : ""))"
         case .loadEnd(_, let status): "loadEnd(\(status))"
         case .loadError(_, let code, _, let url, let interstitial): "loadError(\(code), \(url), interstitial: \(interstitial))"
         case .address(_, let url): "address(\(url))"

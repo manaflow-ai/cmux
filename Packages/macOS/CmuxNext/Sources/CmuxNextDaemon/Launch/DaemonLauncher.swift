@@ -44,20 +44,20 @@ public struct DaemonLauncher: Sendable {
         /// The app's install key (P8 3b-2): handed on stdin to an owner that
         /// `ensure` spawns, and proved by `client-hello` on each connection.
         public var installKey: FrontendInstallKey?
-        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built
-        /// from this tree. That build always accepts
-        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the
-        /// launcher passes it without the `--help` probe, which can time out
-        /// on a loaded machine and start an owner that never reaps. An
-        /// external binary (`CMUX_NEXT_TUI_BIN`) is still probed.
+        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built from this tree. That build always accepts
+        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the launcher passes it without the `--help` probe,
+        /// which can time out on a loaded machine and start an owner that never reaps. An external binary
+        /// (`CMUX_NEXT_TUI_BIN`) is still probed, and never gets `webSocketPageOrigins` (``pageListenerArguments(_:)``).
         public var binaryIsBundled: Bool
+        public var webSocketPageOrigins: [String] // the page origins the owner's loopback WebSocket admits; empty: no listener
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false, webSocketPageOrigins: [String] = []) {
             self.binary = binary
             self.binaryIsBundled = binaryIsBundled
+            self.webSocketPageOrigins = webSocketPageOrigins
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
@@ -131,7 +131,7 @@ public struct DaemonLauncher: Sendable {
         tag: String?,
         bundleID: String?,
         terminalEnvironment: [String: String],
-        daemonEnvironment: [String: String] = [:],
+        daemonEnvironment: [String: String] = [:], webSocketPageOrigins: [String] = [],
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
@@ -146,7 +146,7 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle), webSocketPageOrigins: webSocketPageOrigins)
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         // A terminal the daemon starts with no caller env gets this env; its
@@ -348,7 +348,7 @@ public struct DaemonLauncher: Sendable {
         ["--session", configuration.session, "--json", "server", "ensure"]
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
-            + (progress ? ["--restore-progress"] : [])
+            + (progress ? ["--restore-progress"] : []) + pageListenerArguments(configuration)
     }
 
     /// `server status`: the running owner, or nil when none runs (or the

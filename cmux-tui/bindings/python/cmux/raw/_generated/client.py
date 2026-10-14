@@ -108,8 +108,8 @@ class GeneratedClientMixin:
     def close_terminal(self, terminal_id: str, *, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, terminal_incarnation: Union[str, None, MissingType] = MISSING) -> CloseTerminalResult:
         return self._invoke_command('close-terminal', CloseTerminalRequest(terminal_id=terminal_id, expected_generation=expected_generation, expected_revision=expected_revision, mutation_id=mutation_id, origin=origin, terminal_incarnation=terminal_incarnation))
 
-    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals, reason=reason))
+    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, if_empty: Union[bool, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals, if_empty=if_empty, reason=reason))
 
     def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
@@ -468,6 +468,9 @@ class GeneratedClientMixin:
     def notify(self, title: str, body: str, *, level: Union[NotificationLevel, None, MissingType] = MISSING, surface: Union[Id, None, MissingType] = MISSING, source: Union[NotificationSource, None, MissingType] = MISSING) -> NotifyResult:
         return self._invoke_command('notify', NotifyRequest(title=title, body=body, level=level, surface=surface, source=source))
 
+    def page_credential(self) -> JsonValue:
+        return self._invoke_command('page-credential', PageCredentialRequest())
+
     def pairing_response(self, request: int, approve: bool) -> EmptyResult:
         return self._invoke_command('pairing-response', PairingResponseRequest(request=request, approve=approve))
 
@@ -633,6 +636,9 @@ class GeneratedClientMixin:
     def set_screen_pinned(self, screen: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-screen-pinned', SetScreenPinnedRequest(screen=screen, pinned=pinned))
 
+    def set_session_icon(self, icon: Union[str, None], session_id: str) -> JsonValue:
+        return self._invoke_command('set-session-icon', SetSessionIconRequest(icon=icon, session_id=session_id))
+
     def set_size_counts(self, surface: Id, *, client: Union[int, None, MissingType] = MISSING, counts: Union[bool, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, participant: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> SetSizeCountsResult:
         return self._invoke_command('set-size-counts', SetSizeCountsRequest(surface=surface, client=client, counts=counts, lease=lease, participant=participant, view=view))
 
@@ -729,8 +735,8 @@ class GeneratedClientMixin:
     def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))
 
-    def update_frontend_browser_tab(self, surface: Id, *, favicon_url: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('update-frontend-browser-tab', UpdateFrontendBrowserTabRequest(surface=surface, favicon_url=favicon_url, owner=owner, title=title, url=url))
+    def update_frontend_browser_tab(self, surface: Id, *, favicon_url: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-frontend-browser-tab', UpdateFrontendBrowserTabRequest(surface=surface, favicon_url=favicon_url, owner=owner, profile_id=profile_id, title=title, url=url))
 
     def update_personal_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, profile: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-personal-group', UpdatePersonalGroupRequest(group=group, collapsed=collapsed, color=color, name=name, profile=profile))
@@ -767,6 +773,9 @@ class GeneratedClientMixin:
 
     def wait_for(self, surface: Id, pattern: str, timeout_ms: int) -> WaitForResult:
         return self._invoke_command('wait-for', WaitForRequest(surface=surface, pattern=pattern, timeout_ms=timeout_ms))
+
+    def ws_listen(self, *, allow_origin: Union[str, None, MissingType] = MISSING, allow_origins: Union[List[str], None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('ws-listen', WsListenRequest(allow_origin=allow_origin, allow_origins=allow_origins))
 
     def zoom_pane(self, pane: Union[Id, None, MissingType] = MISSING, *, mode: Union[Literal['toggle', 'on', 'off'], None, MissingType] = MISSING) -> ZoomPaneResult:
         return self._invoke_command('zoom-pane', ZoomPaneRequest(pane=pane, mode=mode))
@@ -924,6 +933,7 @@ GeneratedClientMixin.new_tab.__cmux_command__ = COMMANDS['new-tab']
 GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.note_size_activity.__cmux_command__ = COMMANDS['note-size-activity']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
+GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
@@ -979,6 +989,7 @@ GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
 GeneratedClientMixin.set_row_heights.__cmux_command__ = COMMANDS['set-row-heights']
 GeneratedClientMixin.set_screen_metadata.__cmux_command__ = COMMANDS['set-screen-metadata']
 GeneratedClientMixin.set_screen_pinned.__cmux_command__ = COMMANDS['set-screen-pinned']
+GeneratedClientMixin.set_session_icon.__cmux_command__ = COMMANDS['set-session-icon']
 GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']
 GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
@@ -1024,6 +1035,7 @@ GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-resul
 GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
+GeneratedClientMixin.ws_listen.__cmux_command__ = COMMANDS['ws-listen']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']
 
 __all__ = ["GeneratedClientMixin"]

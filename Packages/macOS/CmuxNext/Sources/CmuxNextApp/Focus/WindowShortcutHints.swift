@@ -91,7 +91,7 @@ final class WindowShortcutHints {
         for (action, rect) in [(ActionID(rawValue: "toggleSidebar"), root.sidebarToggleFrame),
                                ("focusHistoryBack", root.historyButtonFrame(.back)),
                                ("focusHistoryForward", root.historyButtonFrame(.forward))] {
-            if let rect, let text = label(action) { hints.append(.init(text: text, rect: root.convert(rect, from: nil))) }
+            if let rect, let text = label(action) { hints.append(.init(text: text, rect: root.convert(rect, from: nil), row: .titlebar)) }
         }
         overlay.hints = hints
     }

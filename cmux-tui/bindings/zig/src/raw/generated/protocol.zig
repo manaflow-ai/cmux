@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
+pub const ir_sha256 = "4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3703,6 +3703,8 @@ pub const CloseWorkspaceRequest = struct {
     end_terminals: ?bool = null,
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    if_empty: ?bool = null,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
@@ -3712,6 +3714,7 @@ pub const CloseWorkspaceRequest = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
+        "if_empty",
     };
 };
 
@@ -3729,6 +3732,7 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "end_terminals", .since = 12, .capability = "batch-close-v1" },
                 .{ .name = "expected_generation", .since = 7, .capability = null },
                 .{ .name = "expected_revision", .since = 7, .capability = null },
+                .{ .name = "if_empty", .since = null, .capability = "close-workspace-if-empty-v1" },
                 .{ .name = "key", .since = 7, .capability = "workspace-registry-v1" },
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
@@ -6560,6 +6564,23 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
     );
 }
 
+pub const PageCredentialRequest = struct {};
+
+pub const PageCredentialResult = JsonValue;
+
+pub fn pageCredential(client: anytype, request: PageCredentialRequest) !wire.Decoded(PageCredentialResult) {
+    return client.callTyped(
+        PageCredentialResult,
+        .{
+            .name = "page-credential",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-credential-v1",
+        },
+        request,
+    );
+}
+
 pub const PairingResponseRequest = struct {
     approve: bool,
     request: u64,
@@ -7777,6 +7798,27 @@ pub fn setScreenPinned(client: anytype, request: SetScreenPinnedRequest) !wire.D
     );
 }
 
+pub const SetSessionIconRequest = struct {
+    /// An icon value sets the session's (machine's) icon; null clears it.
+    icon: wire.Nullable([]const u8),
+    session_id: []const u8,
+};
+
+pub const SetSessionIconResult = JsonValue;
+
+pub fn setSessionIcon(client: anytype, request: SetSessionIconRequest) !wire.Decoded(SetSessionIconResult) {
+    return client.callTyped(
+        SetSessionIconResult,
+        .{
+            .name = "set-session-icon",
+            .authority = "control",
+            .since = 12,
+            .capability = "session-icon-v1",
+        },
+        request,
+    );
+}
+
 pub const SetSizeCountsRequest = struct {
     client: wire.Field(u64) = .absent,
     counts: wire.Field(bool) = .absent,
@@ -8513,6 +8555,8 @@ pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileReques
 pub const UpdateFrontendBrowserTabRequest = struct {
     favicon_url: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
+    /// Move the frontend browser tab to this browser profile; null clears its profile.
+    profile_id: wire.Field([]const u8) = .absent,
     surface: Id,
     title: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -8788,6 +8832,26 @@ pub fn waitFor(client: anytype, request: WaitForRequest) !wire.Decoded(WaitForRe
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const WsListenRequest = struct {
+    allow_origin: wire.Field([]const u8) = .absent,
+    allow_origins: wire.Field([]const []const u8) = .absent,
+};
+
+pub const WsListenResult = JsonValue;
+
+pub fn wsListen(client: anytype, request: WsListenRequest) !wire.Decoded(WsListenResult) {
+    return client.callTyped(
+        WsListenResult,
+        .{
+            .name = "ws-listen",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "ws-listen-v1",
         },
         request,
     );
@@ -10198,7 +10262,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 253;
+pub const command_count: usize = 256;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10352,6 +10416,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
@@ -10407,6 +10472,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-row-heights", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
+    .{ .name = "set-session-icon", .authority = "control", .since = 12, .capability = "session-icon-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
@@ -10452,6 +10518,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
 };
 

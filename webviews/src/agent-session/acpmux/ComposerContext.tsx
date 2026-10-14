@@ -24,6 +24,7 @@ export const CONTEXT_LABELS = {
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
+  newChatHere: "composer.newChatHere",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -31,8 +32,8 @@ type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string };
 
 /// The location tray attached below the composer. New chats can choose a local or Cloud
-/// computer and one of its known folders. Once the first turn starts the computer is a label and
-/// the folder moves the chat (`onMove`), except while a turn runs.
+/// computer and one of its known folders. Once the first turn starts both are fixed (Leo
+/// 2026-10-13): the folder's menu starts a new chat (`onNewChat`) there or in another folder.
 export function ComposerContext({
   summary,
   sessions = [],
@@ -43,10 +44,8 @@ export function ComposerContext({
   onBrowseProject,
   onNewWorktree,
   localName,
-  movedTo,
-  onMove,
+  onNewChat,
   onBrowseFolder,
-  busy = false,
   onConnect,
 }: {
   summary?: Summary;
@@ -60,13 +59,11 @@ export function ComposerContext({
   onNewWorktree?(cwd: string): void;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
-  /// The folder a started chat moved to.
-  movedTo?: string;
-  onMove?(cwd: string): void;
-  /// A started chat's Choose folder…: the host's folder panel, then the chat moves there.
+  /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
+  /// in a tab of its own.
+  onNewChat?(cwd: string): void;
+  /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
-  /// A turn runs: the folder holds still.
-  busy?: boolean;
   /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
@@ -91,36 +88,32 @@ export function ComposerContext({
   }, [summary, sessions, selectedComputer, projectChoices]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
-  const currentFolder =
-    started && movedTo
-      ? movedTo
-      : summaryFolder
-        ? isAgentHome(summaryFolder)
-          ? undefined
-          : normalizeCwd(summaryFolder)
-        : projectChoices
-          ? undefined
-          : folders[0]?.id;
+  const currentFolder = summaryFolder
+    ? isAgentHome(summaryFolder)
+      ? undefined
+      : normalizeCwd(summaryFolder)
+    : projectChoices
+      ? undefined
+      : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
-  const movable = started && onMove !== undefined;
-  const moves = movable && !busy;
+  const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
-  // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
-  const browseMove = onBrowseFolder
+  // A started chat's Choose folder…: the host's folder panel, then a new chat there.
+  const browseNewChat = onBrowseFolder
     ? () => {
         void onBrowseFolder().then((cwd) => {
-          if (cwd && cwd !== currentFolder) onMove?.(cwd);
+          if (cwd) onNewChat?.(cwd);
         });
       }
     : undefined;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {/* A movable chat keeps its folder control while a turn runs (off, not gone), so the row
-            never loses and regains it with each turn (cx-ncc.58). */}
-        {readOnly && !movable && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+        {readOnly && !newChats && !currentFolder ? null : !readOnly &&
+          selectedComputer === "local" &&
+          projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -139,14 +132,24 @@ export function ComposerContext({
             value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
             options={folders}
             selected={currentFolder}
-            disabled={readOnly && !moves}
+            disabled={readOnly && !newChats}
             icon={<FolderIcon />}
             allowPath
-            onBrowse={moves ? browseMove : undefined}
+            onBrowse={newChats ? browseNewChat : undefined}
+            extras={
+              newChats && currentFolder
+                ? [
+                    {
+                      id: "newChatHere",
+                      label: t(CONTEXT_LABELS.newChatHere),
+                      onSelect: () => onNewChat?.(currentFolder),
+                    },
+                  ]
+                : undefined
+            }
             onPick={(cwd) => {
-              if (moves) {
-                if (cwd !== currentFolder) onMove?.(cwd);
-              } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+              if (newChats) onNewChat?.(cwd);
+              else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
             }}
           />
         )}
@@ -609,6 +612,22 @@ function LocationPicker({
           inline
           keepHeight
         />
+        {extras && extras.length > 0 && <hr className="ui-separator" />}
+        {extras?.map((extra) => (
+          <button
+            key={extra.id}
+            type="button"
+            className="acpmux-menu-item acpmux-location-choose"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setOpen(false);
+              setQuery("");
+              extra.onSelect();
+            }}
+          >
+            {extra.label}
+          </button>
+        ))}
         {onBrowse && (
           <>
             <hr className="ui-separator" />

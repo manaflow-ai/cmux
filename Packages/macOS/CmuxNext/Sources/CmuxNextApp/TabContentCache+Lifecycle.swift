@@ -145,7 +145,7 @@ extension TabContentCache {
             // Rendered off the main thread; kept only while this hide is
             // still the tab's latest transition.
             Task { [weak self] in
-                guard let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
+                guard TerminalOutput.shows(entry.session), let image = await entry.session.snapshotInBackground(maxPixelSize: 480) else { return }
                 guard let self, self.terminals[key] === entry, self.lifecycle.accepts(key, token) else {
                     self?.trace(key, "preview \(token) dropped (stale)")
                     return

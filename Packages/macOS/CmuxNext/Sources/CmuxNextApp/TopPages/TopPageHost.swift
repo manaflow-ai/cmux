@@ -62,7 +62,8 @@ final class TopPageHost {
     func teardown() {
         for (route, view) in views {
             view.removeFromSuperview()
-            if case .page(let id) = route, let key = keys[route] { services?.pages.provider(id)?.tabClosed(key) }
+            // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
+            if case .page(let id) = route, let key = keys.removeValue(forKey: route) { services?.pages.provider(id)?.tabClosed(key) }
         }
         views.removeAll()
         keys.removeAll()

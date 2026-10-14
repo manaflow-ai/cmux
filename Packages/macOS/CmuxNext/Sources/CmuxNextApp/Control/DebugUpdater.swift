@@ -9,7 +9,8 @@ import CmuxNextUpdater
 /// `{action: "stage", version?, changes?}` shows a staged update with fake
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
-/// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it.
+/// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it;
+/// `{action: "tips", press?, at?}`: `UpdaterService.debugTips`.
 /// `{action: "updated", previous?}` records `previous` (default "0.0.1")
 /// as the last seen version, so this launch
 /// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
@@ -33,6 +34,8 @@ enum DebugUpdater {
         case "tip":
             services.updater.debugShowTip(params["id"]?.stringValue ?? TipCatalog.all.first?.id)
             return .object(["tip": services.updater.tip.map { .string($0.id) } ?? .null])
+        case "tips":
+            return .object(services.updater.debugTips(press: params["press"]?.stringValue, at: params["at"]?.doubleValue).mapValues(JSONValue.string))
         case "untip":
             services.updater.debugShowTip(nil)
             return .object(["tip": .null])
@@ -53,7 +56,7 @@ enum DebugUpdater {
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"tip\", \"tips\", \"untip\", \"updated\", \"share\" or \"share-copy\"")
         }
     }
 

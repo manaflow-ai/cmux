@@ -13,8 +13,8 @@ import CmuxNextSettings
 final class NewTabChoiceMemory {
     private static let agentKey = "newTab.lastAgent"
     private static let picksKey = "newTab.lastPicks"
+    private static let harnessHintKey = "newTab.harnessHintDismissed"
     private let defaults: UserDefaults
-    private let templates = NSMapTable<NSWindow, NSString>.weakToStrongObjects()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -26,9 +26,13 @@ final class NewTabChoiceMemory {
         defaults.data(forKey: Self.picksKey).flatMap { try? JSONDecoder().decode(AgentPaneLastPicks.self, from: $0) }
     }
 
+    /// Integrate a harness was dismissed on a New Tab page (Leo 2026-10-12: the dismissal sticks).
+    var harnessHintDismissed: Bool { defaults.bool(forKey: Self.harnessHintKey) }
+
     /// A value the page should never send (empty, too long) is ignored. The model, when the pick
     /// names one, is remembered on the agent for every folder and for its folder.
     func remember(_ pick: AgentPaneRememberedPick) {
+        if pick.dismissesHarnessHint { defaults.set(true, forKey: Self.harnessHintKey) }
         guard !pick.agent.isEmpty, pick.agent.count <= 128 else { return }
         defaults.set(pick.agent, forKey: Self.agentKey)
         // The agent's own "default" is not a pick.
@@ -36,15 +40,5 @@ final class NewTabChoiceMemory {
         var picks = picks ?? AgentPaneLastPicks()
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
-    }
-
-    /// The template `window`'s dots last picked; nil when they picked none (the setting applies).
-    func template(in window: NSWindow?) -> NewTabTemplate? {
-        window.flatMap { templates.object(forKey: $0) }.flatMap { NewTabTemplate(rawValue: $0 as String) }
-    }
-
-    func remember(template: NewTabTemplate, in window: NSWindow?) {
-        guard let window else { return }
-        templates.setObject(template.rawValue as NSString, forKey: window)
     }
 }

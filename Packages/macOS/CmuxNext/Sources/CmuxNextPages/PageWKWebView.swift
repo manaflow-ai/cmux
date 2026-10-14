@@ -62,8 +62,13 @@ final class PageWKWebView: WKWebView {
 
     /// Whether a key or mouse event reached the view within `seconds`.
     func hasRecentUserGesture(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        guard let last = lastUserEventUptime else { return false }
-        return now - last <= seconds
+        recentUserGestureEvent(within: seconds, now: now) != nil
+    }
+
+    /// The uptime of the key or mouse event that reached the view within `seconds`, else nil.
+    func recentUserGestureEvent(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
+        guard let last = lastUserEventUptime, now - last <= seconds else { return nil }
+        return last
     }
 
     func noteUserEvent(_ event: NSEvent) {

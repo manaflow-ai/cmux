@@ -191,3 +191,115 @@ fn a_page_url_over_1024_bytes_is_removed_by_its_exact_url() {
     let listed = state_cli(&server, None, &["history", "list", "--kind", "page"]);
     assert_eq!(titles(&listed), ["Short"]);
 }
+
+/// The ids of the Closed rows `history list --kind closed` answers.
+fn closed_rows(server: &HeadlessServer) -> Vec<String> {
+    let listed = state_cli(server, None, &["history", "list", "--kind", "closed"]);
+    listed["entries"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The ids `closed list` answers (the closed-history store itself).
+fn closed_groups(server: &HeadlessServer) -> Vec<String> {
+    let listed = state_cli(server, None, &["closed", "list"]);
+    listed
+        .as_array()
+        .unwrap_or_else(|| panic!("{listed}"))
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// Opens a terminal tab in `pane` and answers its id.
+fn open_tab(server: &HeadlessServer, pane: &str) -> String {
+    let tabs = |server: &HeadlessServer| -> Vec<String> {
+        state_cli_topology(server)["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tab| tab["id"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    let before = tabs(server);
+    state_cli(server, None, &["tab", "create", "terminal", "--pane", pane]);
+    let fresh: Vec<String> = tabs(server).into_iter().filter(|tab| !before.contains(tab)).collect();
+    assert_eq!(fresh.len(), 1, "one new tab: {fresh:?}");
+    fresh[0].clone()
+}
+
+/// Remove and Clear on the History page's Closed rows (cx-gzh.30): a closed
+/// tab lists as a Closed row; `history.entries.remove` of that row deletes
+/// the closed group, so Reopen Closed Tab (Cmd-Shift-T, `closed reopen`)
+/// skips it; a retry with the same key replays; `history.clear` of the
+/// Closed kind deletes every closed group and leaves page visits alone.
+#[test]
+fn history_remove_and_clear_delete_closed_rows_so_they_never_reopen() {
+    let server = HeadlessServer::start("history-closed");
+    seed(&server, "default", &[("https://example.com/", "Example", 1_000)]);
+    state_cli(&server, None, &["workspace", "create", "--name", "alpha"]);
+    let snapshot = state_cli_topology(&server);
+    let pane = snapshot["tabs"].as_array().unwrap()[0]["pane_id"].as_str().unwrap().to_owned();
+    let older = open_tab(&server, &pane);
+    let newer = open_tab(&server, &pane);
+    state_cli(&server, None, &["tab", &older, "close"]);
+    state_cli(&server, None, &["tab", &newer, "close"]);
+    let groups = closed_groups(&server);
+    assert_eq!(groups.len(), 2, "two closed tabs: {groups:?}");
+    let rows = closed_rows(&server);
+    let mut expected: Vec<String> = groups.iter().map(|id| format!("closed:daemon:{id}")).collect();
+    expected.sort();
+    let mut sorted = rows.clone();
+    sorted.sort();
+    assert_eq!(sorted, expected, "each closed tab is a Closed history row");
+    // Newest first: the row of the tab closed last.
+    let newest = rows[0].clone();
+    let newest_group = newest.strip_prefix("closed:daemon:").unwrap().to_owned();
+
+    let removed =
+        v2(&server, "history.entries.remove", json!({"ids": [newest]}), Some("rm-closed"));
+    assert_eq!(removed["result"]["value"]["removed"], 1, "{removed}");
+    let replay = v2(&server, "history.entries.remove", json!({"ids": [newest]}), Some("rm-closed"));
+    assert_eq!(
+        replay["result"]["value"]["removed"], 1,
+        "a retry answers the first result: {replay}"
+    );
+    assert_eq!(replay["result"]["replayed"], true, "{replay}");
+    assert!(!closed_rows(&server).contains(&newest), "the removed row is gone");
+    assert!(!closed_groups(&server).contains(&newest_group), "the closed group is deleted");
+    let gone = v2(&server, "history.entries.remove", json!({"ids": [newest]}), Some("rm-again"));
+    assert_eq!(gone["result"]["value"]["removed"], 0, "a removed row counts nothing: {gone}");
+
+    // Cmd-Shift-T reopens the other tab, never the removed one.
+    let reopened = state_cli(&server, None, &["closed", "reopen"]);
+    let tab_ids = reopened["value"]["tab_ids"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tab_ids.len(), 1, "{reopened}");
+    assert_eq!(closed_groups(&server), Vec::<String>::new(), "{reopened}");
+
+    // Close two again; Clear of the Closed filter deletes both, pages stay.
+    let reopened_tab = tab_ids[0].as_str().unwrap().to_owned();
+    let another = open_tab(&server, &pane);
+    state_cli(&server, None, &["tab", &reopened_tab, "close"]);
+    state_cli(&server, None, &["tab", &another, "close"]);
+    assert_eq!(closed_rows(&server).len(), 2);
+    let cleared =
+        state_cli(&server, None, &["history", "clear-range", "--range", "all", "--kind", "closed"]);
+    assert_eq!(cleared["value"]["removed"], 2, "{cleared}");
+    assert_eq!(closed_rows(&server), Vec::<String>::new());
+    assert_eq!(closed_groups(&server), Vec::<String>::new());
+    let listed = state_cli(&server, None, &["history", "list", "--kind", "page"]);
+    assert_eq!(titles(&listed), ["Example"], "a Closed clear leaves page visits");
+    let nothing = history_cli(&server, &["closed", "reopen"]);
+    assert!(!nothing.status.success(), "Cmd-Shift-T reopened a cleared tab");
+
+    // Clear under All (no kinds) deletes closed rows too.
+    let last = open_tab(&server, &pane);
+    state_cli(&server, None, &["tab", &last, "close"]);
+    assert_eq!(closed_rows(&server).len(), 1);
+    let all = state_cli(&server, None, &["history", "clear-range", "--range", "all"]);
+    assert_eq!(all["value"]["removed"], 2, "one page visit and one closed group: {all}");
+    assert_eq!(closed_groups(&server), Vec::<String>::new());
+}

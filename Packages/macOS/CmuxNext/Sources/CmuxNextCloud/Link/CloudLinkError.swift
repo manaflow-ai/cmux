@@ -7,6 +7,9 @@ public enum CloudLinkError: Error, Equatable, Sendable {
     case disconnected(reason: String)
     /// The backend revoked the link.
     case revoked(reason: String)
+    /// This Mac's connection helper (`cmux link`) is not running or did not
+    /// answer (`cmux.cloud.link_unavailable`).
+    case helperNotRunning(reason: String)
     /// The answer named a socket that is not an owner-only socket of this user.
     case unsafeSocket(String)
     /// The answer is not an up carrier of the asked machine.

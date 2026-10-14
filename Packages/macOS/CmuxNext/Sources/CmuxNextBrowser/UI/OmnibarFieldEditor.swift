@@ -74,8 +74,13 @@ final class OmnibarFieldEditor: NSTextView {
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
+    /// Commits a composition. With nothing marked (AppKit and input
+    /// methods also call it then) it commits nothing, so it reports no edit:
+    /// an edit report turns the shown address into typed text (cx-d0d.87).
     override func unmarkText() {
+        let composing = hasMarkedText()
         super.unmarkText()
+        guard composing else { return }
         isChangingText = false
         sink?.fieldEditorDidChange(kind: .insert)
     }

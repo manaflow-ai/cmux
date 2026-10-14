@@ -7,6 +7,7 @@ import {
   rememberResolvedDefault,
   resolvedModel,
 } from "./defaultChoice";
+import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
@@ -164,7 +165,10 @@ export function ComposerPickers({
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
-  const pickerEntries: ModelPickerProps["catalog"] = pickerCatalog
+  // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
+  // harness's models only, and another harness is Continue in…, never a pick.
+  const locked = !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses
           .filter(
@@ -183,6 +187,11 @@ export function ComposerPickers({
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
     : snapshot.catalog;
+  // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
+  // than an empty picker.
+  const ownEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
+  const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
@@ -304,10 +313,10 @@ export function ComposerPickers({
     crossing.current = undefined;
     fastWanted.current = undefined;
     if (picked.harness !== harness) {
-      if (!onHarness) return;
+      if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
-      onHarness(picked.harness, picked.model);
+      switchHarness(picked.harness, picked.model);
       return;
     }
     land(picked.model, picked.effort);
@@ -374,13 +383,17 @@ export function ComposerPickers({
   // catalog's first, as the model picker's face does.
   const chipHarness = harness ?? pickerEntries[0]?.id;
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
-  // Before the session reports, the default this harness last resolved to, else the model catalog's
-  // default for it, else the first model it lists (defaultModel: its last session's).
-  const predictedId = unreported
-    ? (loadResolvedDefaults()[chipHarness] ??
-      pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
-      defaultModel(chipHarness, snapshot.catalog))
-    : undefined;
+  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
+  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
+  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // Before a fresh chat's session reports, the default this harness last resolved to, else the model
+  // catalog's default for it, else the first model it lists (defaultModel: its last session's).
+  const predictedId =
+    unreported && fresh
+      ? (loadResolvedDefaults()[chipHarness] ??
+        pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
+        defaultModel(chipHarness, snapshot.catalog))
+      : undefined;
   const resolvedId = unreported
     ? predictedId
     : defaulted
@@ -393,20 +406,37 @@ export function ComposerPickers({
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
       modelIdName(resolvedId));
-  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
-  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
-  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
-  const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
+  // A New Tab's chat names the model it will start on (the last pick here), not the default's last
+  // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
+  const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
   const modelName =
     defaulted || unreported
       ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
       : (model?.name ?? summary?.model ?? starting);
-  // Until the session reports its options (a new chat, an agent still starting), the ring, the
-  // effort and the access controls hold their places as quiet skeletons: controls never appear one
-  // by one beside the model (cx-ncc.58).
+  // Until the session reports its options (a new chat, an agent still starting), the effort and
+  // the access controls draw what this harness's chats last showed (chipMemory.ts), never grey
+  // bars; the session's values then replace them in place (cx-ncc.58, Leo 2026-10-13).
   const awaiting =
     chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
+  const effortValue =
+    effort &&
+    (effort.currentValue === "default" && catalogModel?.defaultEffort
+      ? catalogModel.defaultEffort
+      : effort.currentValue);
+  const effortChoice = efforts.find((choice) => choice.id === effortValue) ?? efforts[0];
+  const effortLabel =
+    effort && efforts.length > 1
+      ? !effortChoice || isDefaultChoice(effortChoice)
+        ? t("picker.reasoning")
+        : effortChoice.name
+      : undefined;
+  const modeLabel = modes.length > 0 ? (modes.find((choice) => choice.id === mode?.id) ?? modes[0])?.name : undefined;
+  const lastChips = awaiting && chipHarness ? loadLastChips()[chipHarness] : undefined;
+  useEffect(() => {
+    if (!awaiting && chipHarness && summary?.sessionId && (effortLabel || modeLabel))
+      rememberLastChips(chipHarness, { effort: effortLabel, mode: modeLabel });
+  }, [awaiting, chipHarness, summary?.sessionId, effortLabel, modeLabel]);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -427,7 +457,7 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={onHarness}
+          onHarness={switchHarness}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
@@ -443,7 +473,7 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || summary?.sessionId || awaiting) && (
+      {(usage || snapshot.isWorking) && (
         <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
@@ -460,11 +490,7 @@ export function ComposerPickers({
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
-          current={
-            effort.currentValue === "default" && catalogModel?.defaultEffort
-              ? catalogModel.defaultEffort
-              : effort.currentValue
-          }
+          current={effortValue}
           speed={
             fastMode && fastOn && fastOff
               ? speedSection(/codex/i.test(summary?.harness ?? ""), fastMode, fastOn, t)
@@ -477,9 +503,9 @@ export function ComposerPickers({
           }}
         />
       )}
-      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
-      <span className="acpmux-chips-spacer" />
-      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
+      {!(effort && efforts.length > 1) && lastChips?.effort && <PendingChip kind="effort" label={lastChips.effort} />}
+      <span className="acpmux-chips-spacer" aria-hidden="true" />
+      {modes.length === 0 && lastChips?.mode && <PendingChip kind="mode" label={lastChips.mode} />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -521,13 +547,22 @@ export function ComposerPickers({
   return chips;
 }
 
-/// A control's place while the session has not reported it yet: the chip's own box, inert and
-/// unlabeled, so the real control takes the same place when it arrives (cx-ncc.58).
-function ChipSkeleton({ kind }: { kind: "effort" | "mode" }) {
-  return (
-    <span className={`acpmux-picker acpmux-${kind} acpmux-chip-skeleton`} aria-hidden="true">
-      <span className="acpmux-picker-button acpmux-chip-skeleton-face">
-        <span className="acpmux-chip-skeleton-bar" />
+/// A control the session has not reported yet, as this harness's chats last showed it: the real
+/// chip's face (EffortPicker, AccessMenu), inert until the session's own replaces it in place.
+function PendingChip({ kind, label }: { kind: "effort" | "mode"; label: string }) {
+  return kind === "effort" ? (
+    <span className="acpmux-picker acpmux-effort acpmux-chip-pending" aria-hidden="true">
+      <span className="acpmux-picker-button">
+        <span>{label}</span>
+        <ChevronIcon />
+      </span>
+    </span>
+  ) : (
+    <span className="acpmux-mode acpmux-access acpmux-chip-pending" aria-hidden="true">
+      <span className="acpmux-picker-button acpmux-access-trigger">
+        <LockIcon />
+        <span className="acpmux-mode-text">{label}</span>
+        <ChevronIcon />
       </span>
     </span>
   );

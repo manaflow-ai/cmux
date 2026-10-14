@@ -384,6 +384,16 @@ impl super::CdpDriver {
         new_store(&self.inner, json!({}), false)
     }
 
+    /// An incognito store whose connections go through `server`
+    /// (crate::policy_proxy), loopback included.
+    pub fn create_incognito_proxy_context(&self, server: &str) -> Result<String, DriverError> {
+        new_store(
+            &self.inner,
+            json!({"proxyServer": server, "proxyBypassList": "<-loopback>"}),
+            false,
+        )
+    }
+
     /// Replaces a store's permission grants with `permissions` (CDP
     /// `Browser.PermissionType` names), for every origin. The clipboard
     /// stays refused.

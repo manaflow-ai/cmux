@@ -53,11 +53,10 @@ impl WebToken {
 
 /// 24 random bytes as 48 lowercase hex characters.
 fn random_token() -> Result<String, RpcError> {
-    use std::io::Read;
     let mut bytes = [0u8; 24];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .map_err(|e| RpcError::internal(format!("read /dev/urandom for the web token: {e}")))?;
+    getrandom::fill(&mut bytes).map_err(|e| {
+        RpcError::internal(format!("the OS random generator for the web token: {e}"))
+    })?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 

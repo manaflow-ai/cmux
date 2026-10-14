@@ -38,8 +38,9 @@ test("Preview shows with the chat's local page or its open preview, and lights w
   const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
-  // The default buttons, and nothing open yet (other files in this run share the page's modules).
-  configureQuickActions({});
+  // Preview shown as a button (it is in the chat menu by default), and nothing open yet (other files in
+  // this run share the page's modules).
+  configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "changes", "preview", "newTab"] });
   applyHostEvent({ kind: "headerState", value: { lit: [] } });
   const runs: string[] = [];
   root = createRoot(host);

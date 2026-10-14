@@ -16,8 +16,17 @@ export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
-  /** The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43). */
-  getTeam(teamId: string): Promise<{ display_name: string } | null>
+  /**
+   * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
+   * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
+   * inference-plans.ts), null when absent or not a string.
+   */
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null } | null>
+  /**
+   * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
+   * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
+   */
+  getUserPlan(userId: string): Promise<string | null | "user_gone">
   /**
    * Every member Stack lists for the team now ("team_gone" for TEAM_NOT_FOUND), with each member's
    * team permission ids (GET /team-permissions?team_id&recursive=true, so contained permissions
@@ -43,7 +52,38 @@ export interface StackMember {
 
 const API = "https://api.stack-auth.com/api/v1"
 
-export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = (r) => fetch(r)): StackServer | undefined => {
+/**
+ * `cmuxPlan` from client_read_only_metadata only: the server and web billing write it, a signed-in
+ * client cannot. client_metadata (client-writable) and server_metadata are never read for a plan.
+ */
+const readOnlyPlan = (metadata: unknown): string | null => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null
+  const plan = (metadata as Record<string, unknown>).cmuxPlan
+  return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
+}
+
+/**
+ * One retry after a 429 (cx-f5tk4): the sign-in service rate-limits our server reads. The wait is
+ * its Retry-After (seconds), 1 s when absent, and never more than RETRY_429_MAX_MS, so a retry stays
+ * inside a webhook delivery's deadline; a longer Retry-After or a second 429 throws (a webhook sync
+ * then backs off in TeamDO, team-stack-sync.ts). It applies to every caller (SSO sign-in and the plan
+ * check included); a 429 means Stack did not do the work, so a retried POST makes nothing twice.
+ */
+export const RETRY_429_MAX_MS = 2000
+export const retryAfterMs = (res: Response): number | null => {
+  const raw = res.headers.get("retry-after")
+  const seconds = raw === null ? 1 : Number(raw)
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+  // At least 250 ms: "0" or an empty value never retries at once (review P3-2).
+  const ms = Math.max(250, Math.ceil(seconds * 1000))
+  return ms <= RETRY_429_MAX_MS ? ms : null
+}
+
+export const stackServer = (
+  env: Env,
+  http: (r: Request) => Promise<Response> = (r) => fetch(r),
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+): StackServer | undefined => {
   const key = env.STACK_SECRET_SERVER_KEY
   if (!key) return undefined
   const headers = {
@@ -52,15 +92,25 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
     "x-stack-project-id": env.STACK_PROJECT_ID,
     "x-stack-secret-server-key": key
   }
+  /** The request, sent once more after a short 429 (retryAfterMs); any other answer is returned as is. */
+  const send = async (make: () => Request): Promise<Response> => {
+    const res = await http(make())
+    if (res.status !== 429) return res
+    const ms = retryAfterMs(res)
+    if (ms === null) return res
+    await res.body?.cancel()
+    await wait(ms)
+    return http(make())
+  }
   const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const res = await http(new Request(`${API}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) }))
+    const res = await send(() => new Request(`${API}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) }))
     // Never echo Stack's response body (it may carry user data) into our errors.
     if (!res.ok) throw new Error(`stack ${method} ${path.split("?")[0]} returned ${res.status}`)
     return (await res.json()) as T
   }
   /** A GET whose 404 with one of Stack's known errors `gone` is an answer, not a failure; any other error throws. */
   const lookup = async <T>(path: string, label: string, gone: ReadonlyArray<string>): Promise<T | { gone: string }> => {
-    const res = await http(new Request(`${API}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(10_000) }))
+    const res = await send(() => new Request(`${API}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(10_000) }))
     const known = res.headers.get("x-stack-known-error") ?? ""
     if (res.status === 404 && gone.includes(known)) return { gone: known }
     if (!res.ok) throw new Error(`stack GET ${label} returned ${res.status}`)
@@ -93,8 +143,12 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
   }
   return {
     getTeam: async (teamId) => {
-      const r = await lookup<{ display_name?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
-      return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "" }
+      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
+      return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata) }
+    },
+    getUserPlan: async (userId) => {
+      const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])
+      return isGone(r) ? "user_gone" : readOnlyPlan(r.client_read_only_metadata)
     },
     listTeamMembers: async (teamId) => {
       const out: Array<{ user_id: string; display_name: string | null; permissions: ReadonlyArray<string> }> = []
@@ -164,3 +218,14 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
       call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
   }
 }
+
+/**
+ * The shared pace of Stack webhook syncs (cx-f5tk4): one token per sync of a team (its reads of the team,
+ * the member list and the permissions). Without the binding (local runs) every sync passes; a limiter error
+ * is "not now" (fail closed). STACK_READ_LIMIT is 4 syncs per 60 s per project and per Cloudflare location
+ * (the binding counts per location, approximately), so N locations allow about 4 x N; the backoff absorbs
+ * any 429 that leaves. A sync makes 3 or more
+ * reads, so about 12 to 20 reads a minute, below the about 27 a minute at which production got 429s.
+ */
+export const stackReadPace = (env: Env): Promise<boolean> =>
+  env.STACK_READ_LIMIT ? env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)

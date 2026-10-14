@@ -112,7 +112,7 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     let state = connection
         .query_row(
-            "SELECT zoom, back_json, forward_json, icon FROM tab_state WHERE tab_id = ?1",
+            "SELECT zoom, back_json, forward_json, icon, emulation_json FROM tab_state WHERE tab_id = ?1",
             [tab_id],
             |row| {
                 Ok((
@@ -120,11 +120,17 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
                     row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((zoom, back, forward, icon)) = state {
+    if let Some((zoom, back, forward, icon, emulation)) = state {
+        if let Some(emulation) =
+            emulation.as_deref().and_then(crate::state::browser_devices::resolve)
+        {
+            fields.insert("emulation".into(), emulation);
+        }
         if let Some(zoom) = zoom {
             fields.insert("zoom".into(), json!(zoom));
         }
@@ -137,19 +143,24 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
             }
         }
     }
-    // The install id of the app that hosts a frontend-rendered browser.
-    let owner = connection
+    // The install id of the app that hosts a frontend-rendered browser, and
+    // the browser profile whose store the page uses (absent is `default`).
+    let frontend = connection
         .query_row(
-            "SELECT f.owner FROM resource_tabs AS t
+            "SELECT f.owner, f.profile_id FROM resource_tabs AS t
              JOIN frontend_browser_tabs AS f ON f.browser_id = t.content_id
              WHERE t.public_id = ?1",
             [tab_id],
-            |row| row.get::<_, Option<String>>(0),
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
         )
-        .optional()?
-        .flatten();
-    if let Some(owner) = owner {
-        fields.insert("owner".into(), json!(owner));
+        .optional()?;
+    if let Some((owner, profile)) = frontend {
+        if let Some(owner) = owner {
+            fields.insert("owner".into(), json!(owner));
+        }
+        let profile =
+            profile.unwrap_or_else(|| crate::workspace_registry::DEFAULT_PROFILE_ID.to_string());
+        fields.insert("browser_profile_id".into(), json!(profile));
     }
     // `conversation-tabs-v1` / `agent-session-tabs-v1`: what a frontend tab shows.
     if let Some(conversation) =

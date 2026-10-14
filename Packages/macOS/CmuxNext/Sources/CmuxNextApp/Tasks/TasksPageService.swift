@@ -73,7 +73,7 @@ final class TasksPageService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        guard services.pages.keys(of: .tasks).isEmpty, let model = sharedModel else { return }
+        guard !services.pageIsOpen(.tasks), let model = sharedModel else { return }
         model.stop()
         sharedModel = nil
     }

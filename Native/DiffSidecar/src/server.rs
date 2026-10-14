@@ -40,21 +40,22 @@ use tokio::sync::{RwLock, Semaphore};
 use tokio_util::io::ReaderStream;
 
 use crate::PROTOCOL_VERSION;
+use crate::git_refs;
 use crate::manifest::{AllowedFile, Manifest, split_resource_path, valid_token};
 use crate::protocol::{
-    BranchListResult, BranchPickerConfidence, BranchPickerGroup, BranchPickerRow, DiffCommand,
-    DiffRequest, DiffResourceRef, DiffResponse, DiffResult, DiffSource, OpenSessionRequest,
-    PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest, handshake,
+    BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
+    DiffSource, OpenSessionRequest, PAGE_PATCH_URL_PREFIX, SessionOpened, SessionRequest,
+    handshake,
 };
-use crate::session_host_git;
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
 
 #[derive(Clone)]
 pub struct ServerConfig {
     pub root: PathBuf,
-    /// The bundled cmux CLI (cmux-tui). The sidecar reads branch facts from
-    /// the session host's git operations through it.
+    /// The bundled cmux CLI (cmux-tui), from `--cmux`. Branch facts come
+    /// from the cmux-git library (`git_refs`), so nothing runs it; the host
+    /// still passes it for a later pane-protocol provider.
     pub cmux_executable: PathBuf,
     pub executable_path: PathBuf,
     /// The URL scheme stdio replies use for patch resources.
@@ -126,8 +127,8 @@ const RPC_STDIN_READ_TIMEOUT: Duration = Duration::from_secs(10);
 // The caller-supplied ID cannot be trusted until the complete envelope parses.
 const UNTRUSTED_RPC_REQUEST_ID: &str = "__cmux_untrusted_request__";
 const MAX_CONCURRENT_CHILD_PROCESSES: usize = 4;
-/// Deadline for one `cmux git status` read of the session host.
-const SESSION_HOST_GIT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Deadline for one branch read through cmux-git (base or branch list).
+const GIT_REFS_TIMEOUT: Duration = Duration::from_secs(30);
 const SESSION_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 const SESSION_OPEN_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
@@ -656,7 +657,7 @@ async fn open_session(
         owner_path,
     );
 
-    let source = resolve_session_source(state, params.source, &canonical_repo).await?;
+    let source = resolve_session_source(params.source, &canonical_repo).await?;
     run_git_patch(&source, &canonical_repo, &temporary_path).await?;
     let generated_paths = git_generated_paths(&source, &canonical_repo).await;
     rename_owned_session_temp(&state.config.root, &temporary_path, &final_path)
@@ -746,7 +747,6 @@ fn remove_owned_patch_sync(root: &Path, path: &Path) {
 }
 
 async fn resolve_session_source(
-    state: &AppState,
     source: DiffSource,
     repo: &Path,
 ) -> Result<DiffSource, SessionOpenError> {
@@ -757,17 +757,12 @@ async fn resolve_session_source(
     else {
         return Ok(source);
     };
-    // The suggested base is the session host's base branch, the one its own
-    // `git.diff --scope branch` compares with.
-    let base_ref = session_host_git::repository_status(
-        &state.config.cmux_executable,
-        repo,
-        SESSION_HOST_GIT_TIMEOUT,
-    )
-    .await
-    .and_then(|status| status.base)
-    .filter(|value| !value.is_empty())
-    .ok_or(SessionOpenError::Failed)?;
+    // The suggested base is cmux-git's first candidate, the base the session
+    // host's own `git.diff --scope branch` compares with.
+    let base_ref = git_refs::suggested_base(repo.to_path_buf(), GIT_REFS_TIMEOUT)
+        .await
+        .filter(|value| !value.is_empty())
+        .ok_or(SessionOpenError::Failed)?;
     Ok(DiffSource::Branch {
         repo_root,
         base_ref: Some(base_ref),
@@ -1707,9 +1702,8 @@ async fn branch_refs(
     }
 }
 
-/// The branch picker's rows. Until the session host lists branches
-/// (`git.branches`, plans in /tmp/pane-protocol/s2-git-crate.md), the picker
-/// offers the host's base branch and the base the viewer already uses.
+/// The branch picker's groups (`git_refs::branch_list`): Suggested, Local
+/// and Remote, from cmux-git.
 async fn load_branch_refs(
     state: &AppState,
     repo: &str,
@@ -1719,60 +1713,14 @@ async fn load_branch_refs(
     if !authorize_repo_for_token(state, token, repo).await {
         return Err(());
     }
-    let Ok(_permit) = state.child_processes.try_acquire() else {
+    let Ok(permit) = state.child_processes.clone().try_acquire_owned() else {
         return Err(());
     };
     let canonical_repo = tokio::fs::canonicalize(repo).await.map_err(|_| ())?;
-    let status = session_host_git::repository_status(
-        &state.config.cmux_executable,
-        &canonical_repo,
-        SESSION_HOST_GIT_TIMEOUT,
-    )
-    .await
-    .ok_or(())?;
-    Ok(branch_list(status.base.as_deref(), base))
-}
-
-/// One "Suggested" group: the selected base first (marked current), then
-/// the session host's base branch.
-fn branch_list(host_base: Option<&str>, selected: Option<&str>) -> BranchListResult {
-    let selected = selected.map(str::trim).filter(|value| !value.is_empty());
-    let host_base = host_base.filter(|value| !value.is_empty());
-    let mut rows = Vec::new();
-    if let Some(selected) = selected
-        && Some(selected) != host_base
-    {
-        rows.push(BranchPickerRow {
-            r#ref: selected.to_owned(),
-            label: selected.to_owned(),
-            secondary: None,
-            reason: Some("manual".to_owned()),
-            confidence: Some(BranchPickerConfidence::High),
-            current: Some(true),
-            worktree_dir: None,
-        });
-    }
-    if let Some(host_base) = host_base {
-        rows.push(BranchPickerRow {
-            r#ref: host_base.to_owned(),
-            label: host_base.to_owned(),
-            secondary: None,
-            reason: Some("default".to_owned()),
-            confidence: Some(BranchPickerConfidence::Low),
-            current: (selected == Some(host_base)).then_some(true),
-            worktree_dir: None,
-        });
-    }
-    let groups = if rows.is_empty() {
-        Vec::new()
-    } else {
-        vec![BranchPickerGroup {
-            id: "suggested".to_owned(),
-            label: "Suggested".to_owned(),
-            rows,
-        }]
-    };
-    BranchListResult { groups }
+    let refs = git_refs::repository_refs(canonical_repo, GIT_REFS_TIMEOUT, permit)
+        .await
+        .ok_or(())?;
+    Ok(git_refs::branch_list(&refs, base))
 }
 
 /// Changes a branch session's base: the token must own the group's branch
@@ -2203,7 +2151,7 @@ mod tests {
         prune_orphaned_session_temp_files, read_rpc_request, register_session_temp,
         reserve_session_owner, run_git_patch_with_limit, valid_group_id,
     };
-    use super::{AppState, ResourceScheme, ServerConfig, app_state, branch_list, resource_url};
+    use super::{AppState, ResourceScheme, ServerConfig, app_state, resource_url};
 
     #[tokio::test]
     async fn handshake_reports_transport_capabilities() {
@@ -2694,37 +2642,9 @@ mod tests {
         assert!(ResourceScheme::parse("http").is_err());
     }
 
-    #[test]
-    fn branch_list_offers_the_selected_base_then_the_host_base() {
-        let rows = |result: &crate::protocol::BranchListResult| {
-            result.groups[0]
-                .rows
-                .iter()
-                .map(|row| (row.r#ref.clone(), row.current == Some(true)))
-                .collect::<Vec<_>>()
-        };
-        let both = branch_list(Some("origin/main"), Some("release"));
-        assert_eq!(both.groups.len(), 1);
-        assert_eq!(both.groups[0].id, "suggested");
-        assert_eq!(
-            rows(&both),
-            [
-                ("release".to_owned(), true),
-                ("origin/main".to_owned(), false)
-            ]
-        );
-        let same = branch_list(Some("origin/main"), Some("origin/main"));
-        assert_eq!(rows(&same), [("origin/main".to_owned(), true)]);
-        let host_only = branch_list(Some("main"), None);
-        assert_eq!(rows(&host_only), [("main".to_owned(), false)]);
-        assert!(branch_list(None, Some("  ")).groups.is_empty());
-    }
-
     #[tokio::test]
-    async fn branch_sessions_fail_when_the_session_host_is_unreachable() {
-        let state = stdio_state(ResourceScheme::Page);
+    async fn branch_sessions_fail_outside_a_repository() {
         let resolved = super::resolve_session_source(
-            &state,
             DiffSource::Branch {
                 repo_root: "/repo".to_owned(),
                 base_ref: None,

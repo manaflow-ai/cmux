@@ -2,11 +2,11 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
 
-/// `debug.omnibar` and (DEBUG builds) `debug.mouse` and
+/// `debug.omnibar` and (DEBUG builds) `debug.omnibar_mouse` and
 /// `debug.omnibar_type`: the omnibar of a
 /// browser pane (default: the focused pane of the first window, or of
 /// `window`). `debug.omnibar` reports the state machine next to what the
-/// field editor shows; `debug.mouse` presses, drags and releases over the
+/// field editor shows; `debug.omnibar_mouse` presses, drags and releases over the
 /// omnibar text as AppKit would for a key window, without activating the
 /// app or making the window key (plans/cmux-next/focus.md, section 7);
 /// `debug.omnibar_type` types text and presses Return in the field the same way.
@@ -51,7 +51,7 @@ enum DebugOmnibar {
             "notice_dismissal": dismissal,
             "notice_layout": entry(params, services: services)?.chrome.noticeLayout.map { .array($0.map(JSONValue.string)) } ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
-            "pressed_row": pressed,
+            "pressed_row": pressed, "pointer": entry(params, services: services).flatMap { JSONValue(foundation: $0.chrome.debugPointerObject(probeX: params["probe_x"]?.doubleValue, probeY: params["probe_y"]?.doubleValue)) } ?? .null,
             "card": bar.debugCard.map { card in
                 .object([
                     "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar),

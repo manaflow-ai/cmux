@@ -12,7 +12,9 @@ name: Nightly macOS build
 # NEXT (bundle id com.cmuxterm.app.nightly.cmux-next, cx-x7hwx), which installs
 # beside cmux NIGHTLY, with its own release `nightly-next`, DMG names, Sparkle
 # key and feed (NIGHTLY_NEXT_FEED_BASE), so its installs never read main's
-# NIGHTLY feed and main's never read its feed.
+# NIGHTLY feed and main's never read its feed. Installs from before cmux NEXT
+# (cmux NIGHTLY identity, NIGHTLY_NEXT_LEGACY_FEED_BASE) get the same builds
+# signed as cmux NIGHTLY from nightly-next-legacy-identity.yml (cx-x7hwx).
 # Only main's nightly.yml job promote-nightly-next (release environment, release
 # App) moves `nightly-next`, to a feat-cmux-next head whose Release compile is
 # green; cmux-next.yml requests it after a green push run. Its signing and upload secrets live in the
@@ -152,7 +154,9 @@ env:
   # UpdateFeedResolver classifies the track by it. Release notes sit beside it.
   NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
   # The feed of the cmux NIGHTLY-identity nightly-next builds before cmux NEXT.
-  # It is no longer written; build numbers stay above it.
+  # Only nightly-next-legacy-identity.yml writes it: each cmux NEXT build, signed
+  # as cmux NIGHTLY, so those installs keep updating with their data (cx-x7hwx).
+  # Build numbers stay above it.
   NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   # cmux-next's own version line (CFBundleShortVersionString
   # <this>-nightly.<build>); main's nightly and RC keep the project version.
@@ -2953,7 +2957,7 @@ jobs:
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          # The new item carries the bundle's macOS floor (26.0 for cmux-next),
+          # The new item carries the bundle's macOS floor (14.0 for cmux-next since 2026-10-13),
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
@@ -3250,6 +3254,8 @@ jobs:
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
       source: ${{ steps.source.outputs.source }}
+      # The published build, for request-nightly-identity-legacy (cx-x7hwx).
+      build: ${{ steps.source.outputs.build }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -3723,6 +3729,39 @@ jobs:
               echo "Assets, release metadata, and appcasts for \`$HEAD_SHA\` are published, but \`$CHANNEL_RELEASE_TAG\` was not advanced. The next eligible publication will retry the marker without republishing this commit."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # cx-x7hwx: installs of the nightly-next track from before cmux NEXT
+  # (b9ac67887fa7) are cmux NIGHTLY (com.cmuxterm.app.nightly) on
+  # NIGHTLY_NEXT_LEGACY_FEED_BASE. nightly-next-legacy-identity.yml publishes
+  # each cmux NEXT build to them, signed as cmux NIGHTLY, in its own run: this
+  # run's concurrency group then never waits for its notarization, and its
+  # failure never touches cmux NEXT. Waits for the release notes, which it
+  # copies. Off switch: repository variable NIGHTLY_NEXT_LEGACY_IDENTITY=off.
+  request-nightly-identity-legacy:
+    needs: [decide, publish-nightly, publish-release-notes]
+    if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.notary_probe != 'true' && needs.publish-nightly.result == 'success' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off'"
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Request the cmux NIGHTLY-identity publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ needs.publish-nightly.outputs.build }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILD" =~ ^[0-9]+$ ]] || { echo "invalid build '$BUILD'" >&2; exit 1; }
+          # A workflow GitHub has not registered yet answers 404: warn, cmux NEXT is published.
+          if ! out="$(gh workflow run nightly-next-legacy-identity.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f build="$BUILD" 2>&1)"; then
+            echo "$out" >&2
+            if grep -q 'HTTP 404' <<<"$out"; then
+              echo "::warning title=cmux NIGHTLY-identity not requested (cx-x7hwx)::nightly-next-legacy-identity.yml is not registered yet; build $BUILD was not requested"
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "Requested the cmux NIGHTLY-identity publication of build $BUILD (nightly-next-legacy-identity.yml)" >> "$GITHUB_STEP_SUMMARY"
 
   generate-nightly-deltas:
     # Delta work is deliberately downstream of the first publication. A slow

@@ -142,7 +142,8 @@ extension TabStripView {
         applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
-        newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
+        // Square, centered on the tabs: it keeps its size when the tabs are shorter.
+        newTabButton.frame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
         updateFadeMask()
         // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
         geometryDidChange()

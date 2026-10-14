@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67.
+// cmux-tui mux protocol 12, IR 4b575203d637736c70c920b0efccb553284e14493153ab207bc245615630e955.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -479,6 +479,9 @@ pub struct CloseWorkspaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_empty: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2278,6 +2281,14 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PageCredentialRequest {
+}
+
+#[rustfmt::skip]
+pub type PageCredentialResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingResponseRequest {
     pub approve: bool,
@@ -2969,6 +2980,17 @@ pub type SetScreenPinnedResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetSessionIconRequest {
+    /// An icon value sets the session's (machine's) icon; null clears it.
+    pub icon: Nullable<String>,
+    pub session_id: String,
+}
+
+#[rustfmt::skip]
+pub type SetSessionIconResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetSizeCountsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub client: Optional<u64>,
@@ -3387,6 +3409,9 @@ pub struct UpdateFrontendBrowserTabRequest {
     pub favicon_url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owner: Optional<String>,
+    /// Move the frontend browser tab to this browser profile; null clears its profile.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile_id: Optional<String>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub title: Optional<String>,
@@ -3553,6 +3578,18 @@ pub struct WaitForRequest {
     /// Zero performs one immediate check.
     pub timeout_ms: u64,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct WsListenRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origins: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+pub type WsListenResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -3763,6 +3800,9 @@ impl CmuxClient {
         }
         if !request.expected_revision.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
+        }
+        if request.if_empty.is_some() {
+            self.require_capability_field("close-workspace", "close-workspace-if-empty-v1")?;
         }
         if !request.key.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
@@ -4437,6 +4477,10 @@ impl CmuxClient {
         self.execute(&NOTIFY_METADATA, &request)
     }
 
+    pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
+        self.execute(&PAGE_CREDENTIAL_METADATA, &request)
+    }
+
     pub fn pairing_response(&mut self, request: PairingResponseRequest) -> Result<PairingResponseResult> {
         self.execute(&PAIRING_RESPONSE_METADATA, &request)
     }
@@ -4740,6 +4784,10 @@ impl CmuxClient {
         self.execute(&SET_SCREEN_PINNED_METADATA, &request)
     }
 
+    pub fn set_session_icon(&mut self, request: SetSessionIconRequest) -> Result<SetSessionIconResult> {
+        self.execute(&SET_SESSION_ICON_METADATA, &request)
+    }
+
     pub fn set_size_counts(&mut self, request: SetSizeCountsRequest) -> Result<T::SetSizeCountsResult> {
         self.execute(&SET_SIZE_COUNTS_METADATA, &request)
     }
@@ -5001,6 +5049,10 @@ impl CmuxClient {
 
     pub fn wait_for(&mut self, request: WaitForRequest) -> Result<T::WaitForResult> {
         self.execute(&WAIT_FOR_METADATA, &request)
+    }
+
+    pub fn ws_listen(&mut self, request: WsListenRequest) -> Result<WsListenResult> {
+        self.execute(&WS_LISTEN_METADATA, &request)
     }
 
     pub fn zoom_pane(&mut self, request: ZoomPaneRequest) -> Result<T::ZoomPaneResult> {

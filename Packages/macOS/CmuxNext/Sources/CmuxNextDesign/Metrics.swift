@@ -54,6 +54,7 @@ public struct Metrics {
     public static var sidebarHeaderHeight: CGFloat { MetricTunables.sidebarHeaderHeight.value }
 
     public static var tabHeight: CGFloat { MetricTunables.tabHeight.value }
+    public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
     /// Icon-only width (pinned tabs and fully shrunk tabs).
     public static var tabMinWidth: CGFloat { MetricTunables.tabMinWidth.value }
@@ -75,6 +76,14 @@ public struct Metrics {
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
     /// Gap between strip columns.
     public static var columnGap: CGFloat { MetricTunables.columnGap.value }
+    /// The column gap the column strip uses: `columnGap` for bordered and
+    /// carded panes or when the user set it (`appearance.metrics.columnGap`
+    /// or Debug Settings); 0 for the default edge-to-edge separations, whose
+    /// columns meet at one line as split panes do.
+    public static var stripColumnGap: CGFloat {
+        let set = DesignSettings.shared.overrides[.columnGap] != nil || MetricTunables.columnGap.tunable.override != nil
+        return set || paneSeparation == .borders || paneSeparation == .cards ? columnGap : 0
+    }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target
     /// is `roomDotSlot` wide and the bar's full height).
@@ -100,7 +109,7 @@ public struct Metrics {
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
-        return chrome.padding ?? PaneSeparation.resolve(chrome).impliedPadding ?? (density == .compact ? 2 : 4)
+        return chrome.padding ?? paneSeparation.impliedPadding ?? (density == .compact ? 2 : 4)
     }
 
     // MARK: Pane alignment
@@ -136,7 +145,13 @@ public struct Metrics {
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
     /// How panes are told apart (`layout.paneSeparation`, else the legacy
     /// `layout.paneBorder` and padding).
-    public static var paneSeparation: PaneSeparation { PaneSeparation.resolve(DesignSettings.shared.paneChrome) }
+    public static var paneSeparation: PaneSeparation {
+        PaneSeparation.resolve(DesignSettings.shared.paneChrome, unset: defaultPaneSeparation)
+    }
+    /// The separation when cmux.json sets none: inside the curved main pane,
+    /// whose gutter is the window's one inset, panes are flush and divided by
+    /// one line (no padded, outlined box per pane); without it, borders.
+    public static var defaultPaneSeparation: PaneSeparation { mainPaneCurved ? .dividers : .borders }
     /// Pane border: subtle only for the `borders` separation, and none
     /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
@@ -164,6 +179,10 @@ public struct Metrics {
 
     public static var iconSize: CGFloat { MetricTunables.iconSize.value }
     public static var smallIconSize: CGFloat { MetricTunables.smallIconSize.value }
+    /// The height of a row's status glyph and of the count badge beside it
+    /// (Leo 2026-10-13: the badge stood taller than the glyph). Both the
+    /// glyph's owner and the badge size from this one token.
+    public static var statusMarkSize: CGFloat { smallIconSize - space1 }
 }
 
 /// Type scale. Compact uses 12 pt body in chrome (terminal fonts come from

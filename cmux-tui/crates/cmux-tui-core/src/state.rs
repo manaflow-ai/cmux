@@ -18,6 +18,8 @@ pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
+pub(crate) mod browser_devices;
+pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;
@@ -81,6 +83,8 @@ pub(crate) mod router;
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+#[cfg(test)]
+mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]

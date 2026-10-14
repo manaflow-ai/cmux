@@ -6,7 +6,7 @@ import CmuxNextIcons
 /// tune icon for secure pages, a "Not secure" / "Dangerous" chip with text,
 /// or an input icon while the user types. Transparent at rest with a 6 pt
 /// hover shape. Opens page info on click, Space or Return.
-final class PageInfoChipButton: NSView {
+final class PageInfoChipButton: NSView, PointerHoverReporting {
     var onPress: (() -> Void)?
 
     var indicator = PageInfoIndicator(symbol: PageInfoIndicator.searchSymbol, isTriggerable: false) {
@@ -16,8 +16,11 @@ final class PageInfoChipButton: NSView {
     private let icon = NSImageView()
     private let text = NSTextField(labelWithString: "")
     private let density = DensityBinding()
-    private var tracking: NSTrackingArea?
-    private var isHovering = false { didSet { refreshFill() } }
+    /// Where the pointer is now (`OmnibarPointer`); no hover while the chip
+    /// opens nothing.
+    private var hover: PointerHover?
+    private var isHovering: Bool { hover?.isHovering ?? false }
+    var isPointerHovering: Bool { isHovering }
     private var isPressed = false { didSet { refreshFill() } }
 
     override init(frame: NSRect) {
@@ -35,6 +38,8 @@ final class PageInfoChipButton: NSView {
         setAccessibilityRole(.button)
         density.update { [weak self] in self?.apply() }
         density.start()
+        hover = PointerHover(self) { [weak self] _ in self?.refreshFill(animated: true) }
+        hover?.isHoverable = { [weak self] in self?.indicator.isTriggerable ?? false }
     }
 
     @available(*, unavailable)
@@ -68,7 +73,8 @@ final class PageInfoChipButton: NSView {
         themedToolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
         setAccessibilityLabel([PageInfoStrings.viewSiteInformation, labelText].compactMap(\.self).joined(separator: ", "))
         setAccessibilityEnabled(indicator.isTriggerable)
-        if !indicator.isTriggerable { isHovering = false; isPressed = false }
+        hover?.refresh()
+        if !indicator.isTriggerable { isPressed = false }
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
@@ -97,16 +103,20 @@ final class PageInfoChipButton: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { if indicator.isTriggerable { isHovering = true } }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard indicator.isTriggerable else { return }
@@ -151,12 +161,14 @@ final class PageInfoChipButton: NSView {
 
     private var showsFocus = false { didSet { refreshFill() } }
 
-    private func refreshFill() {
+    /// The hover fill eases in and clears at once; a press shows at once (`ChromeHover.fade`).
+    private func refreshFill(animated: Bool = false) {
         layer?.borderWidth = Metrics.lineWidth(showsFocus ? 1.5 : 0)
+        guard let layer else { return }
         performWithTheme {
-            let fill: NSColor = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : .clear)
-            layer?.backgroundColor = fill.cgColor
-            layer?.borderColor = PageInfoStyle.focusRing.cgColor
+            let fill: NSColor? = isPressed ? PageInfoStyle.pressed : (isHovering ? OmnibarStyle.chipHoverFill : nil)
+            ChromeHover.paint(layer, fill, animated: animated && window != nil, pressed: isPressed)
+            layer.borderColor = PageInfoStyle.focusRing.cgColor
         }
     }
 

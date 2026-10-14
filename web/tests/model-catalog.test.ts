@@ -27,13 +27,14 @@ function harness(catalog: ModelCatalog, id: string) {
 describe("projectCatalog", () => {
   const catalog = projectCatalog(feed, NOW);
 
-  test("lists the five composer harnesses in order with names and brand marks", () => {
+  test("lists the six composer harnesses in order with names and brand marks", () => {
     expect(catalog.harnesses.map((entry) => [entry.id, entry.name, entry.brand, entry.modelSource])).toEqual([
       ["claude", "Claude Code", "claude", "catalog"],
       ["codex", "Codex", "openai", "catalog"],
       ["opencode", "OpenCode", "opencode", "probe"],
       ["pi", "Pi", "pi", "probe"],
       ["vercel-ai-gateway", "Vercel AI Gateway", "vercel", "catalog"],
+      ["gemini", "Gemini CLI", "gemini", "catalog"],
     ]);
     expect(catalog).toMatchObject({ schemaVersion: 1, generatedAt: NOW.toISOString(), source: "live" });
   });
@@ -55,6 +56,7 @@ describe("projectCatalog", () => {
       family: "Opus",
       provider: "anthropic",
       efforts: ["low", "medium", "high", "xhigh", "max"],
+      defaultEffort: "medium",
       fast: true,
       aliases: ["opus"],
     });
@@ -62,7 +64,7 @@ describe("projectCatalog", () => {
     expect(claude.models[3]).toMatchObject({ name: "Claude Haiku 4.5", shortName: "Haiku 4.5", aliases: ["haiku"] });
     expect(claude.models[3]?.efforts).toBeUndefined();
     expect(claude.models[3]?.fast).toBeUndefined();
-    expect(claude.defaultModel).toBe("claude-sonnet-5");
+    expect(claude.defaultModel).toBe("claude-opus-5-5");
   });
 
   test("Codex drops API-only efforts, applies its default effort and filters chat and pro variants", () => {
@@ -75,7 +77,7 @@ describe("projectCatalog", () => {
       defaultEffort: "medium",
       fast: true,
     });
-    expect(codex.defaultModel).toBe("gpt-5.5");
+    expect(codex.defaultModel).toBe("gpt-6.1-sol");
   });
 
   test("probe harnesses carry no list; their models are described by ref", () => {
@@ -182,21 +184,36 @@ describe("the checked-in catalog", () => {
   test("the snapshot is valid, every harness is present, and it is well under the size limit", () => {
     const catalog = bundledSnapshot();
     expect(catalog.source).toBe("snapshot");
-    expect(catalog.harnesses.map((entry) => entry.id)).toEqual(["claude", "codex", "opencode", "pi", "vercel-ai-gateway"]);
+    expect(catalog.harnesses.map((entry) => entry.id)).toEqual(["claude", "codex", "opencode", "pi", "vercel-ai-gateway", "gemini"]);
     expect(harness(catalog, "claude").models.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(MAX_CATALOG_BYTES);
     expect(MAX_CATALOG_BYTES).toBeLessThan(2 * 1024 * 1024);
   });
 
+  // cx-miuo: Gemini CLI's models come from the catalog, not a hand list. Only chat models that call
+  // tools, under the ids Gemini CLI's --model takes, and no effort (Gemini CLI has no such setting).
+  test("Gemini CLI offers the feed's Gemini chat models and its default", () => {
+    const gemini = harness(bundledSnapshot(), "gemini");
+    const ids = gemini.models.map((model) => model.id);
+    expect(gemini.defaultModel).toBe("gemini-3.1-pro-preview");
+    expect(ids).toEqual(expect.arrayContaining(["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"]));
+    for (const id of ids) {
+      expect(id).toMatch(/^gemini-[0-9]/);
+      expect(id).not.toMatch(/(tts|image|embedding|latest|live|customtools|computer-use)/);
+    }
+    expect(gemini.models.every((model) => model.efforts === undefined && model.ref === `google/${model.id}`)).toBe(true);
+  });
+
   // cx-jqkx: each aliased Claude family's newest model carries the alias Claude Code resolves to it
-  // (Claude Code 2.1.295: opus, sonnet, haiku -> 5.5, each checked with `claude -p --model`). Fable's
-  // alias comes from Claude Code's own model report; adding it here needs a catalog_overrides update.
+  // (Claude Code 2.1.295: opus, sonnet, haiku -> 5.5 and fable -> Fable 5.1, each checked with
+  // `claude -p --model`; fable added by cx-uxeb).
   test("Claude Code offers each family's newest model under its alias", () => {
     const claude = harness(bundledSnapshot(), "claude");
     const aliased = Object.fromEntries(
       claude.models.flatMap((model) => (model.aliases ?? []).map((alias) => [alias, model.id])),
     );
     expect(aliased).toEqual({
+      fable: "claude-fable-5-1",
       opus: "claude-opus-5-5",
       sonnet: "claude-sonnet-5-5",
       haiku: "claude-haiku-5-5",

@@ -84,6 +84,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
+    /// or shaded apart from it.
+    public var sidebarSurface: SidebarSurface = .same
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .both
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
