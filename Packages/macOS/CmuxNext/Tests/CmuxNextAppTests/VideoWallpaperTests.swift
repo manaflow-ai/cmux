@@ -161,7 +161,7 @@ import Testing
         h.video.sampleCoverage()
         h.video.sampleCoverage()
         try #require(!h.video.isPlaying, "a browser over the whole window did not rest the video")
-        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: h.window)
+        h.window.becomeMain()
         #expect(h.video.isPlaying, "a window brought to the front waits for coverage samples to play")
     }
 
