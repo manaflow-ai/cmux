@@ -85,6 +85,8 @@ public final class SidebarModel {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
+    /// How rows show their state (`SidebarRowBadgeStyle`); nil follows the Debug setting.
+    public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
     /// Minimal mode (`sidebar.minimal`): rows draw only icon, name and marks.
