@@ -40,7 +40,7 @@ UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after
 The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
   window 1: rj-term (3000 numbered lines; a counter loop with a pid file in a right split; `top`
             in a nested down split; selected at the end), rj-split (four terminals in nested
-            right/down splits, two tabs in one pane, the first selected), rj-web (two browser
+            right/down splits at uneven ratios, two tabs in one pane, the first selected), rj-web (two browser
             tabs from a local server: a page loaded from its address, then two link clicks
             (a -> b -> c), whose history length and Cmd-[ / Cmd-] walk are checked after
             seeding and after each reopen; and a tall page that scrolls itself the first
@@ -57,8 +57,9 @@ workspace's panes, tabs (kind, order, selection), split tree with ratios (daemon
 export`), terminal ids, cwds and scrollback (rows, hash, the numbered lines), the view's text of
 the scrollback terminal, the counter (same pid, alive, still counting in the daemon and in the
 view), each page's own report of its path and scroll after the reload (no script reads a page),
-and the agent chat (tab bound to its session, the session's prompts, draft and what the chat
-page shows). Output: a table on stdout, `report.json`, raw dumps and window stills in --out.
+the agent chat (tab bound to its session, the session's prompts, draft and what the chat
+page shows), the focused pane, `top` still drawing (daemon and view), and each terminal pane's
+size and grid as the app lays it out (rj-split's ratios are uneven, so evened-out splits fail). Output: a table on stdout, `report.json`, raw dumps and window stills in --out.
 Exit 0 only when every row passes.
 
 Nothing outside the app's own tag state is changed: no settings.set (the shared config of a
@@ -573,8 +574,8 @@ def write(term, text):
     return cli("terminal", term, "write", "--text", text)
 
 
-def split(pane, direction):
-    return value(cli("pane", pane, "split", f"--{direction}"))
+def split(pane, direction, ratio=None):
+    return value(cli("pane", pane, "split", f"--{direction}", *(["--ratio", str(ratio)] if ratio else [])))
 
 
 def new_workspace(name):
@@ -597,6 +598,9 @@ def seed_term():
         down = split(right["pane_id"], "down")
         if down.get("terminal_id"):
             write(down["terminal_id"], "top -s 1\n")
+            TOP["terminal"] = down["terminal_id"]
+    # The pane a person left focused: the first one, not the split made last.
+    cli("pane", ws["pane_id"], "focus")
 
 
 def seed_split():
@@ -604,9 +608,10 @@ def seed_split():
     if not ws.get("terminal_id"):
         return
     write(ws["terminal_id"], "echo rj-split-a\n")
-    b = split(ws["pane_id"], "right")
-    c = b.get("pane_id") and split(b["pane_id"], "down")
-    d = c and c.get("pane_id") and split(c["pane_id"], "right")
+    # Uneven ratios (a restore that evens splits out must fail the layout and geometry rows).
+    b = split(ws["pane_id"], "right", 0.3)
+    c = b.get("pane_id") and split(b["pane_id"], "down", 0.7)
+    d = c and c.get("pane_id") and split(c["pane_id"], "right", 0.35)
     for made, label in ((b, "b"), (c, "c"), (d, "d")):
         if made and made.get("terminal_id"):
             write(made["terminal_id"], f"echo rj-split-{label}\n")
@@ -654,6 +659,7 @@ def seed_web(base):
 
 
 AGENT = None
+TOP = {}  # the terminal running `top`: {"terminal": its id}
 HIST = {}  # the history tab: {"tab": its id}
 SEEDED = {}  # values from the first before-snapshot that later variants must keep
 # Clicks the page's link once it has loaded (a click before load can replace the entry instead of adding one).
@@ -887,6 +893,8 @@ def snapshot(label):
     RESULTS.append((f"{label}: windows.recency front is focus.window", front == items["focus.window"],
                     f"recency front {json.dumps(front)}, focus {json.dumps(items['focus.window'])}", "windows"))
     terms = {}
+    pane_names = {}  # pane id -> its row prefix
+    pane_ids = {}  # workspace name -> [(row prefix, pane id)]
     for ws in topo.get("workspaces", []):
         name = ws.get("name")
         if not rj(name):
@@ -901,6 +909,8 @@ def snapshot(label):
             items[f"{p}.s{s_index}.zoomed"] = screen.get("zoomed_pane")
             for p_index, pane in enumerate(panes):
                 pp = f"{p}.s{s_index}.pane{p_index}"
+                pane_names[pane.get("id")] = pp
+                pane_ids.setdefault(name, []).append((pp, pane.get("id")))
                 tabs = pane.get("tabs", [])
                 items[f"{pp}.tabs"] = [t.get("kind") for t in tabs]  # titles load late; URLs are their own rows
                 items[f"{pp}.selected_tab"] = next((i for i, t in enumerate(tabs) if t.get("id") == pane.get("selected_tab")), None)
@@ -920,6 +930,10 @@ def snapshot(label):
                     if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
+    # The focused pane, by its place (rj-term's first pane, focused by the seed).
+    focused_pane = focus.get("pane") or focus.get("pane_id")
+    items["focus.pane"] = pane_names.get(focused_pane, f"not an rj pane: {focused_pane}" if focused_pane else None)
+    raw["focus"] = focus
     # Terminals: scrollback, the numbered lines, the counter.
     pid = None
     if os.path.exists(PIDFILE):
@@ -996,6 +1010,34 @@ def snapshot(label):
             items["agent.page.missing_session"] = state.get("missingSession")
         else:
             items["agent.page"] = f"chat_state: {json.dumps(state)[:120]}"
+    # `top` (a full-screen program) keeps running and drawing: its screen changes in the daemon
+    # and the view shows it.
+    if TOP.get("terminal"):
+        first = cli("terminal", TOP["terminal"], "screen", "read", quiet=True)
+        time.sleep(2.5)
+        second = cli("terminal", TOP["terminal"], "screen", "read", quiet=True)
+        texts = [x.get("text", "") if isinstance(x, dict) else "" for x in (first, second)]
+        items["top.running"] = all("Load Avg" in t for t in texts) and texts[0] != texts[1]
+        top_pane = next((pid_ for ws in rj_workspaces(topo) for s_ in ws.get("screens", []) for pid_ in
+                         [p_.get("id") for p_ in s_.get("panes", []) if any(t.get("terminal") == TOP["terminal"] for t in p_.get("tabs", []))]), None)
+        with visiting("rj-term"):
+            items["top.in_view"] = bool(wait(lambda: "Load Avg" in (view_panes()[1].get(top_pane) or {}).get("text", ""), 15, 0.5))
+    # What the app draws: each terminal pane's size and grid in the window (the daemon's ratios
+    # survive an app quit by themselves; this is the app laying them out again).
+    for name in ("rj-term", "rj-split"):
+        if not pane_ids.get(name):
+            continue
+        with visiting(name):
+            def drawn():
+                _, now = view_panes()
+                shown = [now.get(pid_) for _, pid_ in pane_ids[name]]
+                ok = all(v and v.get("presence") == "visible" and v.get("attach") == "live" and v.get("surface", {}).get("grid") for v in shown)
+                return now if ok else None
+            now = wait(drawn, 20, 0.5) or view_panes()[1]
+            for pp, pid_ in pane_ids[name]:
+                v = now.get(pid_) or {}
+                items[f"{pp}.view.size"] = v.get("content_size")
+                items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
     dump(f"{label}-raw.json", raw)
     dump(f"{label}-items.json", items)
     return items
@@ -1030,7 +1072,7 @@ def area_of(item):
         return "windows"
     if item.startswith("agent") or ".agent_session" in item:
         return "agent chat"
-    if item.startswith(("counter", "view.")) or any(k in item for k in (".scrollback", ".terminal", ".dead", ".cwd", ".view.attach")):
+    if item.startswith(("counter", "view.", "top.")) or any(k in item for k in (".scrollback", ".terminal", ".dead", ".cwd", ".view.attach")):
         return "terminal"
     if item.startswith("page[") or ".url" in item:
         return "browser"
@@ -1052,7 +1094,8 @@ def must_have(item):
     """Rows whose value is always present on a working app; for these, equal emptiness is a FAIL."""
     return (item.endswith((".frame", ".layout", ".view.attach", ".selected_workspace", ".id", ".url", ".tabs"))
             or item.endswith(".agent_session")
-            or item in ("windows.recency", "focus.window", "focus.workspace", "agent.page", "agent.acpmux", "agent.prompts",
+            or item.endswith((".view.size", ".view.grid"))
+            or item in ("windows.recency", "focus.window", "focus.workspace", "focus.pane", "agent.page", "agent.acpmux", "agent.prompts",
                         "agent.page.session", "agent.tabs_bound")
             or item.startswith("page["))
 
@@ -1094,6 +1137,17 @@ def compare(variant, before, after):
             # Against what was seeded, not the last reopen: a lost scroll must not pass the next variant.
             ok = abs(a - SCROLL) <= 40
             detail = f"{b} -> {a} (seeded {SCROLL})"
+        elif item.endswith((".view.size", ".view.grid")) and isinstance(a, str) and isinstance(b, str) and "x" in a and "x" in b:
+            # The same window frame lays the same splits out again: within 2 points, 1 cell.
+            slack = 1 if item.endswith(".grid") else 2
+            try:
+                ok = all(abs(int(x) - int(y)) <= slack for x, y in zip(a.split("x"), b.split("x")))
+            except ValueError:
+                ok = False
+            detail = f"{b} -> {a}"
+        elif item in ("top.running", "top.in_view"):
+            ok = a is True and b is True
+            detail = f"{b} -> {a}"
         elif item == "page[tall].self_scrolled":
             # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
             ok = a == 0
