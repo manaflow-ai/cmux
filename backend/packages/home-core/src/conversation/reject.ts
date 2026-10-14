@@ -35,7 +35,7 @@ export const LOCAL_REJECT_CODES = [
   "invalid_thread_root",
   /** A `thread.update` sets none of `title`, `status` and `owner`. */
   "invalid_thread_update",
-  /** A `thread.update` `owner` is not a current participant. */
+  /** A `thread.update` `owner` is not a current participant, or is a pending invited address. */
   "invalid_thread_owner"
 ] as const
 
