@@ -117,4 +117,37 @@ import Testing
         let typing = cell.dots + cell.typingDiscs + [cell.typingContainer, cell.typingClip]
         #expect(typing.flatMap { Self.loops(under: $0) } == [], "the transcript's typing row breathes or its dots pulse")
     }
+
+    /// Late content settles in (Leo 2026-10-14: motion is small and local): `Motion.reveal` fades a
+    /// layer in with a few points of rise, `Motion.stagger` delays the first few rows of a list by a
+    /// short step and no more; under Reduce Motion the reveal only fades and nothing waits.
+    @Test func lateContentSettlesInSmallAndLocal() throws {
+        let speed = DesignSettings.shared.animationSpeed
+        DesignSettings.shared.animationSpeed = .fast
+        defer {
+            DesignSettings.shared.animationSpeed = speed
+            Motion.reduceMotionOverride = nil
+        }
+        Motion.reduceMotionOverride = false
+        #expect(Motion.stagger(index: 0) == 0)
+        #expect(Motion.stagger(index: 1) > 0 && Motion.stagger(index: 1) <= 0.025)
+        #expect(Motion.stagger(index: 40) == Motion.stagger(index: Motion.staggerItems - 1))
+        #expect(Motion.stagger(index: 40) <= 0.1)
+
+        func keyPaths(_ animation: CAAnimation) -> [String] {
+            if let group = animation as? CAAnimationGroup { return (group.animations ?? []).flatMap(keyPaths) }
+            return [(animation as? CAPropertyAnimation)?.keyPath ?? "?"]
+        }
+        let layer = CALayer()
+        let moving = try #require(Motion.reveal(layer))
+        #expect(Set(keyPaths(moving)) == ["opacity", "transform.translation.y"])
+        #expect(moving.duration <= 0.25)
+        #expect(!Self.repeats(moving))
+
+        Motion.reduceMotionOverride = true
+        #expect(Motion.stagger(index: 3) == 0)
+        let still = try #require(Motion.reveal(layer, index: 3))
+        #expect(keyPaths(still) == ["opacity"])
+        #expect(still.beginTime == 0)
+    }
 }

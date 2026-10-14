@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+@testable import CmuxNextAgentPane
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
@@ -120,5 +121,25 @@ import Testing
                 #expect(!ReduceMotionLoopTests.repeats(animation), "the attention ring loops (\(style))")
             }
         }
+    }
+
+    /// The agent pane's web page hears the static look through its theme (`statusIndicators`,
+    /// `data-status-indicators` on the page root): Static, or Reduce Motion with Animated picked.
+    @Test func theAgentPaneHearsTheStaticLook() {
+        let design = DesignSettings.shared
+        let before = design.statusIndicator
+        defer {
+            design.statusIndicator = before
+            Motion.reduceMotionOverride = nil
+        }
+        func look() -> String? { AgentPaneTheme.values(.unresolved)["statusIndicators"] as? String }
+        Motion.reduceMotionOverride = false
+        design.statusIndicator.animation = .animated
+        #expect(look() == "animated")
+        design.statusIndicator.animation = .static
+        #expect(look() == "static")
+        design.statusIndicator.animation = .animated
+        Motion.reduceMotionOverride = true
+        #expect(look() == "static")
     }
 }
