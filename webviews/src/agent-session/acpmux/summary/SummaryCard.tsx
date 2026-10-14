@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -11,10 +11,9 @@ import { SubagentStatusList, subagentStatus, waitingSubagents } from "./Subagent
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
 
-/// What the chat has produced so far (cardState.ts says where). Docked, a column right of the chat,
-/// beside its transcript and composer, that a click elsewhere never closes; in a narrow pane, a
-/// popover under the header's summary button that a press outside it or Escape closes. Its close
-/// button hides it, as the header's summary button does. Its head counts the subagents live. Its
+/// What the chat has produced so far: a card pinned under the header's summary button (cardState.ts
+/// says how it sits beside or over the chat). A press elsewhere never closes it; its close button,
+/// the header's summary button and Escape do. Its head counts the subagents live. Its
 /// first row opens a new terminal or a new browser beside the chat, as the chat menu's New terminal
 /// and New browser do (`actions`). The summary is read from the transcript only while it shows, so a live turn
 /// pays nothing for it otherwise. A subagent row shows that subagent (`subagents.onOpen`).
@@ -62,24 +61,10 @@ export function SummaryCard({
   const summary = useMemo(() => (shown ? sessionSummary(rows) : undefined), [shown, rows]);
   const galleryCount = useMemo(() => (shown ? chatGallery(rows).length : 0), [shown, rows]);
   const panel = useRef<HTMLElement>(null);
-  const popover = shown && !card.docked;
   const close = card.close;
-  useEffect(() => {
-    if (!popover) return;
-    // The header's button toggles it itself; the gallery it opened is still its own.
-    const away = (event: Event) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target || panel.current?.contains(target)) return;
-      // The image viewer the gallery opened is its own too.
-      if (target.closest(".acpmux-summary-button, .acpmux-chat-gallery, .acpmux-image-viewer")) return;
-      close();
-    };
-    document.addEventListener("pointerdown", away, true);
-    return () => document.removeEventListener("pointerdown", away, true);
-  }, [popover, close]);
-  // Escape closes the popover (the gallery's own Escape first). Focus in the panel goes to the
-  // header's button; focus elsewhere (the composer) stays where it is.
-  useEscapeCloses(popover && !gallery, () => {
+  // Escape closes it (the gallery's own Escape first). Focus in the card goes to the header's
+  // button; focus elsewhere (the composer) stays where it is.
+  useEscapeCloses(shown && !gallery, () => {
     const inside = panel.current?.contains(document.activeElement) ?? false;
     const button = panel.current?.closest(".acpmux-stage")?.querySelector<HTMLElement>(".acpmux-summary-button");
     close();
@@ -101,7 +86,7 @@ export function SummaryCard({
         id={card.id}
         className="acpmux-summary-card"
         aria-label={title}
-        data-placement={card.docked ? "dock" : "popover"}
+        data-placement={card.push ? "push" : "over"}
       >
         <div className="acpmux-summary-card__head">
           <span className="acpmux-summary-card__title">{t("summary.title")}</span>

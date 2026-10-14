@@ -5,13 +5,16 @@
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-summary-button:disabled{opacity:.4}
-.acpmux-summary-card{--acpmux-summary-bg:var(--surface-popup);display:flex;flex-direction:column;box-sizing:border-box;box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
-.acpmux-summary-card[data-placement=popover]{position:absolute;z-index:var(--layer-sticky);top:48px;right:10px;width:min(288px,calc(100% - 20px));max-height:calc(100% - 60px);border-radius:var(--ui-popup-radius);background:var(--surface-popup)}
-/* 300px: cardState.ts DOCK_WIDTH, the room check. */
-.acpmux-summary-card[data-placement=dock]{--acpmux-summary-bg:var(--agent-page-bg);flex:0 0 300px;min-width:0;background:var(--acpmux-summary-bg);box-shadow:inset .5px 0 0 var(--agent-border)}
+/* The summary's card, pinned under the header's summary button (cardState.ts). An open card in a pane with room takes
+   --acpmux-summary-room from the chat: 300px wide, 10px from the edge, a 12px gap (cardState.ts CARD_ROOM). The chat's
+   column moves left; the header and the card stay where they are, as their offsets move with it. */
+.acpmux-main{--acpmux-summary-room:0px;--acpmux-summary-move:160ms ease-out;padding-right:var(--acpmux-summary-room);transition:padding-right var(--acpmux-summary-move)}
+.acpmux-main[data-summary=push]{--acpmux-summary-room:322px}
+.acpmux-main>.acpmux-stage>.acpmux-header{margin-right:calc(-1 * var(--acpmux-summary-room));transition:margin-right var(--acpmux-summary-move)}
+@media (prefers-reduced-motion:reduce){.acpmux-main{--acpmux-summary-move:0s}}
+.acpmux-summary-card{--acpmux-summary-bg:var(--surface-popup);position:absolute;z-index:var(--layer-sticky);top:48px;right:calc(10px - var(--acpmux-summary-room,0px));width:min(300px,calc(100% - 20px));max-height:calc(100% - 60px);display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-size:var(--text-control);line-height:18px;transition:right var(--acpmux-summary-move,160ms ease-out)}
 .acpmux-reviewing>.acpmux-summary-card,.acpmux-inspecting>.acpmux-summary-card,.acpmux-stage:has(.acpmux-find)>.acpmux-summary-card{visibility:hidden}
 .acpmux-summary-card__head{flex:none;display:flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 14px}
-.acpmux-summary-card[data-placement=dock]>.acpmux-summary-card__head{height:44px;padding-right:8px}
 .acpmux-summary-card__title{flex:none;font-weight:500}
 .acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
@@ -19,7 +22,6 @@
 .acpmux-summary-card__close:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
 .acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
-.acpmux-summary-card[data-placement=dock]>.acpmux-summary-card__body{padding:0 8px 12px;border-top:0}
 /* New terminal and New browser: the panel's first row, two filled buttons that read as actions, not list rows. */
 .acpmux-summary-actions{display:flex;gap:6px;padding:8px 2px 4px}
 .acpmux-summary-action{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 10px;box-sizing:border-box;border:.5px solid var(--agent-border);border-radius:7px;background:var(--acpmux-composer-tray);color:var(--agent-text);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -73,7 +75,7 @@
 .acpmux-lineage__icon[data-state=done]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=completed]::after{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-lineage__icon[data-state=failed]::after{background:var(--agent-danger)}
-@media (prefers-reduced-motion:no-preference){.acpmux-summary-card[data-placement=popover]{animation:ui-popup-open var(--ui-popup-open) ease-out}}
+@media (prefers-reduced-motion:no-preference){.acpmux-summary-card{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
