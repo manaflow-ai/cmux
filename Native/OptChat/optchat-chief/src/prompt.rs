@@ -67,6 +67,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Links: when you name a page, PR, build, dashboard, job, bead or file, give
+  its real clickable URL (a file: its absolute path), never a bare id or a
+  vague name.
 - Files: never list, glob or search the whole home folder, or Desktop,
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
@@ -131,6 +134,9 @@ cmux Home, and your final reply of each turn is posted there.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
+- Links: when you name a page, PR, build, dashboard, job, bead or file, give
+  its real clickable URL (a file: its absolute path), never a bare id or a
+  vague name.
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell."
     )
