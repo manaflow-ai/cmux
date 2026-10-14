@@ -253,10 +253,16 @@ impl Translator {
                 let selected = outcome.get("optionId").and_then(Value::as_str).unwrap_or("");
                 // Only the allow options we advertised grant the tool; a
                 // missing, rejected, or unknown option denies it.
-                let allowed = error.is_none()
-                    && outcome.get("outcome").and_then(Value::as_str) != Some("cancelled")
-                    && matches!(selected, "allow_once" | "allow_always");
-                let response = if !allowed {
+                let chosen = error.is_none()
+                    && outcome.get("outcome").and_then(Value::as_str) != Some("cancelled");
+                let allowed = chosen && matches!(selected, "allow_once" | "allow_always");
+                let response = if chosen && selected == "reject_once" {
+                    // The person's own reject is Claude Code's "No, and tell
+                    // Claude what to do differently": a deny with `interrupt`
+                    // aborts the turn, so Claude waits for the person's next
+                    // message instead of carrying on by itself.
+                    json!({"behavior": "deny", "message": "The user rejected this action.", "interrupt": true})
+                } else if !allowed {
                     json!({"behavior": "deny", "message": "The user rejected this action."})
                 } else {
                     // allow / allow_always: pass the (possibly answered) input back.
