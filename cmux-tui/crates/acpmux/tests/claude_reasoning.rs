@@ -212,3 +212,31 @@ async fn claude_reasoning_a_saved_ultrathink_pick_runs_the_default_level_unrewri
         "{got}"
     );
 }
+
+#[tokio::test]
+async fn claude_reasoning_a_new_chat_attaches_with_its_effort_and_fast_options() {
+    // The composer draws Reasoning and Fast mode from the attached chat's
+    // options (Lawrence 2026-10-14: "we lost effort").
+    let (_hub, mut c) = claude_setup().await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude", "name": "fresh"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for moment in ["before its first prompt", "after its first prompt"] {
+        let a = c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        let options = &a["session"]["configOptions"];
+        assert!(options.is_array(), "{moment}: no options: {a}");
+        assert!(values(option(options, "effort")).len() > 1, "{moment}: {options}");
+        assert_eq!(values(option(options, "fast-mode")), ["off", "on"], "{moment}: {options}");
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]}),
+        )
+        .await
+        .unwrap();
+    }
+}

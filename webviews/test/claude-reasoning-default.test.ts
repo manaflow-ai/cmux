@@ -2,7 +2,8 @@
 // with nothing checked). A chat whose effort is "default" names the level that resolves to, the
 // running model's default effort, even on a context variant id ("claude-opus-5-5[1m]"); the menu
 // checks it with a Default hint, and Ultrathink (a prompt keyword) is not a level.
-// The composer gallery's play drives the real pane in Chromium.
+// Before its session reports, a new chat names the level acpmux starts it on, not nothing.
+// The composer gallery's plays drive the real pane in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -38,12 +39,11 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the default level reads as the level it resolves to, checked, never Low", async () => {
+  // Each play gets its own page (and browser context): no chip a play remembers reaches the next.
+  const play = async (variant: string) => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    await page.goto(
-      `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=reasoning-claude-default`,
-    );
+    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`);
     // A cold dev server compiles the gallery on the first request; give it longer than the default.
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 90_000,
@@ -52,6 +52,15 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
       JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
     await page.close();
-    expect(playFailures(report)).toEqual([]);
+    return report;
+  };
+
+  test("the default level reads as the level it resolves to, checked, never Low", async () => {
+    expect(playFailures(await play("reasoning-claude-default"))).toEqual([]);
+  });
+
+  // Lawrence 2026-10-14, "we lost effort": a New Tab chat showed the model chip alone.
+  test("a new chat names the level acpmux starts it on before its session reports", async () => {
+    expect(playFailures(await play("new-chat-reasoning"))).toEqual([]);
   });
 });
