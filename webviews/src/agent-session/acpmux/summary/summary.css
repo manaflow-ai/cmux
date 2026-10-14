@@ -18,7 +18,7 @@
 .acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-card[data-placement=dock]>.acpmux-summary-card__body{padding:0 8px 12px;border-top:0}
-/* Open terminal and Open browser: the panel's first row, two filled buttons that read as actions, not list rows. */
+/* New terminal and New browser: the panel's first row, two filled buttons that read as actions, not list rows. */
 .acpmux-summary-actions{display:flex;gap:6px;padding:8px 2px 4px}
 .acpmux-summary-action{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 10px;box-sizing:border-box;border:.5px solid var(--agent-border);border-radius:8px;background:var(--acpmux-composer-tray);color:var(--agent-text);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-action>span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}

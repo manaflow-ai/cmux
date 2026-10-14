@@ -45,6 +45,18 @@ export const forksAnyTurn = (family: string | undefined) => family === "claude" 
 
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
 /// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
+/// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one line).
+export function forkablePrompts(rows: readonly { kind: string; seq?: number; text?: string }[]) {
+  const prompts: { seq: number; text: string }[] = [];
+  let prompt = "";
+  for (const row of rows) {
+    if (row.kind === "user" && row.text?.trim()) prompt = row.text.trim().replace(/\s+/g, " ");
+    else if (row.kind === "turnSummary" && row.seq !== undefined && prompt)
+      prompts.push({ seq: row.seq, text: prompt });
+  }
+  return prompts.reverse();
+}
+
 export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;

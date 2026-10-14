@@ -15,8 +15,8 @@ import type { SummaryCardControl } from "./cardState";
 /// beside its transcript and composer, that a click elsewhere never closes; in a narrow pane, a
 /// popover under the header's summary button that a press outside it or Escape closes. Its close
 /// button hides it, as the header's summary button does. Its head counts the subagents live. Its
-/// first row opens a terminal or a browser beside the chat, as the header's Terminal and Browser
-/// do (`actions`). The summary is read from the transcript only while it shows, so a live turn
+/// first row opens a new terminal or a new browser beside the chat, as the chat menu's New terminal
+/// and New browser do (`actions`). The summary is read from the transcript only while it shows, so a live turn
 /// pays nothing for it otherwise. A subagent row shows that subagent (`subagents.onOpen`).
 export function SummaryCard({
   card,
@@ -47,7 +47,7 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
-  /// Open a terminal or a browser beside the chat; none where the pane opens no split.
+  /// New terminal and New browser beside the chat; none where the pane opens no split.
   actions?: { terminal?: () => void; browser?: () => void };
 }) {
   const t = useT();
@@ -123,13 +123,13 @@ export function SummaryCard({
                 {actions.terminal && (
                   <button type="button" className="acpmux-summary-action" onClick={actions.terminal}>
                     <Icon name="terminal" size={14} />
-                    <span>{t("summary.openTerminal")}</span>
+                    <span>{t("chatMenu.newTerminal")}</span>
                   </button>
                 )}
                 {actions.browser && (
                   <button type="button" className="acpmux-summary-action" onClick={actions.browser}>
                     <Icon name="browser" size={14} />
-                    <span>{t("summary.openBrowser")}</span>
+                    <span>{t("chatMenu.newBrowser")}</span>
                   </button>
                 )}
               </div>

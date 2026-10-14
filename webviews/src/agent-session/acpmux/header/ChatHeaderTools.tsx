@@ -3,7 +3,7 @@
 // and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
 // summary button, which shows or hides the chat's summary panel (summary/SummaryCard.tsx); and the
 // "..." chat menu, which starts with the quick actions not shown as buttons ([+] New tab, which reads
-// Hide tabs in place, Files and Split Down; each while it applies) and New Terminal. Before them, the
+// Hide tabs in place, Files and Split Down; each while it applies), then the App's rows. Before them, the
 // chat branch's pull request with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx),
 // when the App found one. Every control renders from the first frame at its final size; data fills in
 // place.
@@ -178,7 +178,6 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
-    onTerminal,
   });
   live.current = {
     actions,
@@ -191,7 +190,6 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
-    onTerminal,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
@@ -205,7 +203,6 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
-      onTerminal,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
@@ -248,13 +245,6 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.splitDown,
         onSelect: () => onSplitDown("toggle"),
       });
-    // New Terminal opens another terminal beside the chat every time, whatever Terminal's mode.
-    folded.push({
-      key: "quick-newTerminal",
-      label: t("header.newTerminal"),
-      icon: "terminal",
-      onSelect: () => onTerminal("open"),
-    });
     return folded;
   };
   const rows = () => menuGroups(foldedRows(), menu());

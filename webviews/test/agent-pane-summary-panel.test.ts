@@ -4,6 +4,7 @@
 //   transcript leaves it; its first row opens a terminal or a browser beside the chat;
 // - hiding it (its close button) is one choice, kept for the next page, until the header's
 //   summary button shows it again;
+// - the chat menu offers New terminal and New browser beside New side chat;
 // - a narrow pane makes it a popover under that button, closed at first, closed again by a click
 //   in the transcript or Escape.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
@@ -150,12 +151,26 @@ await requireBrowserLane("agent-pane-summary-panel.test.ts", async () => {
     await page.getByText("The notes are tidy.").click();
     await page.locator(".acpmux-composer").click();
     expect(await panel(page).isVisible()).toBe(true);
-    // Open terminal and Open browser lead it, as buttons with their names written out.
-    for (const name of ["Open terminal", "Open browser"]) {
+    // New terminal and New browser lead it, as buttons with their names written out.
+    for (const name of ["New terminal", "New browser"]) {
       const button = panel(page).getByRole("button", { name });
       expect(await button.isVisible()).toBe(true);
       expect((await button.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(28);
     }
+    await context.close();
+  });
+
+  test("the chat menu offers New terminal and New browser beside New side chat", async () => {
+    const context = await browser!.newContext({ viewport: { width: 1280, height: 800 } });
+    const page = await context.newPage();
+    await open(page);
+    await page.getByRole("button", { name: "Chat actions" }).click();
+    const items = page.getByRole("menuitem");
+    await items.first().waitFor({ timeout: 5_000 });
+    const names = (await items.allInnerTexts()).map((text) => text.split("\n")[0]!.trim());
+    const at = names.indexOf("New terminal");
+    expect(at).toBeGreaterThan(-1);
+    expect(names[at + 1]).toBe("New browser");
     await context.close();
   });
 
