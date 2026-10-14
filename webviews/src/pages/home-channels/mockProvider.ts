@@ -7,6 +7,7 @@ import { threadOf } from "./model";
 import {
   HomeOps,
   type HomeAttachment,
+  type HomeChief,
   type HomeConversation,
   type HomeDraftItem,
   type HomeEventBatch,
@@ -333,6 +334,24 @@ function sampleRun(): { run: HomeRun; steps: HomeRunStep[] } {
   };
 }
 
+/** A Chief as the owner sends it (the host relay answers raw records). */
+function rawChief(c: HomeChief): Record<string, unknown> {
+  return {
+    id: c.id,
+    display_name: c.name,
+    role: c.role,
+    personality: c.personality,
+    instructions: c.instructions,
+    tools: c.tools,
+    harnesses: c.harnesses,
+    self_edit: c.selfEdit,
+    is_default: c.isDefault,
+    rev: c.rev,
+    created_at: c.createdAt,
+    avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+  };
+}
+
 export class MockHomeProvider implements PageClient {
   readonly page = new MockPageStreams();
   private readonly data = sampleHome();
@@ -341,6 +360,63 @@ export class MockHomeProvider implements PageClient {
 
   private readonly runs = new Map<string, { run: HomeRun; steps: HomeRunStep[] }>();
   private readonly uploads = new Map<string, Record<string, unknown>>();
+  /** The Chief records (the sample Chief is the default one). */
+  private readonly chiefs = new Map<string, HomeChief>([
+    [
+      chief.id,
+      {
+        id: chief.id,
+        name: chief.name,
+        role: "Runs the team's agents",
+        personality: "Brief.",
+        instructions: "",
+        tools: ["browser", "chiefs", "cloud_vms", "memory_import", "spawn", "tell", "workspaces"],
+        harnesses: [],
+        selfEdit: ["avatar"],
+        isDefault: true,
+        rev: 1,
+        createdAt: new Date(BASE).toISOString(),
+      },
+    ],
+  ]);
+  private readonly pictures = new Map<string, { mediaType: string; data: string }>();
+  /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
+  hostGrants = false;
+
+  /** Adds a Chief (the host's create; the gallery's second Chief). */
+  addChief(name: string, fields: Partial<HomeChief> = {}): HomeChief {
+    const made: HomeChief = {
+      id: `agent_new${this.chiefs.size}`,
+      name,
+      role: "",
+      personality: "",
+      instructions: "",
+      tools: ["spawn", "tell", "workspaces"],
+      harnesses: [],
+      selfEdit: ["avatar"],
+      isDefault: false,
+      rev: 1,
+      createdAt: new Date(BASE).toISOString(),
+      ...fields,
+    };
+    this.chiefs.set(made.id, made);
+    return made;
+  }
+
+  private chief(id: string): HomeChief {
+    const found = this.chiefs.get(id);
+    if (!found) throw pageError("cmux.home.not_found", id);
+    return found;
+  }
+
+  /** People met so far and the Chiefs, not me. */
+  private directory(): HomeParticipant[] {
+    const byId = new Map<string, HomeParticipant>();
+    for (const c of this.chiefs.values()) byId.set(c.id, { id: c.id, kind: "agent", name: c.name, chief: true });
+    for (const c of this.data.conversations) for (const p of c.participants) if (!byId.has(p.id)) byId.set(p.id, p);
+    byId.delete(me.id);
+    return [...byId.values()];
+  }
 
   constructor(
     private readonly draft?: MockDraft,
@@ -563,6 +639,99 @@ export class MockHomeProvider implements PageClient {
         this.emit({ messages: [list[index]!] });
         return {} as R;
       }
+      case HomeOps.capabilities:
+        return { start: true, invite: true, chiefs: true } as R;
+      case HomeOps.directory:
+        return { people: this.directory() } as R;
+      case HomeOps.startConversation: {
+        const ids = (params.participants as string[] | undefined) ?? [];
+        const title = String(params.title ?? "").trim();
+        if (ids.length === 1 && !title) {
+          const direct = this.data.conversations.find(
+            (c) => c.participants.length === 2 && c.participants.some((p) => p.id === ids[0]),
+          );
+          if (direct) return { conversation: direct.id } as R;
+        }
+        const people = this.directory().filter((p) => ids.includes(p.id));
+        const id = `c-${this.data.conversations.length + 1}`;
+        const name = title || people.map((p) => p.name).join(", ");
+        const created = conversation(
+          id,
+          name,
+          people.length === 1 ? (people[0]!.chief ? "chief" : "direct") : "group",
+          people,
+          [],
+        );
+        this.data.conversations.push(created);
+        this.data.messages.set(created.id, []);
+        this.emit({ conversations: [created] });
+        return { conversation: created.id } as R;
+      }
+      case HomeOps.invite: {
+        const found = this.data.conversations.find((c) => c.id === id);
+        if (!found) throw pageError("cmux.home.not_found", id);
+        const ids = (params.participants as string[] | undefined) ?? [];
+        const added = this.directory().filter(
+          (p) => ids.includes(p.id) && !found.participants.some((q) => q.id === p.id),
+        );
+        const updated = { ...found, participants: [...found.participants, ...added] };
+        this.data.conversations = this.data.conversations.map((c) => (c.id === id ? updated : c));
+        this.emit({ conversations: [updated] });
+        return { conversation: id } as R;
+      }
+      case HomeOps.chiefs:
+        return { chiefs: [...this.chiefs.values()] } as R;
+      case HomeOps.chiefUpdate: {
+        const old = this.chief(String(params.chief));
+        const changed = { ...old, name: String(params.name), role: String(params.role ?? ""), rev: old.rev + 1 };
+        this.chiefs.set(changed.id, changed);
+        return { chief: changed } as R;
+      }
+      case HomeOps.chiefAvatarSet: {
+        const old = this.chief(String(params.chief));
+        const changed = { ...old, avatar: `pic-${old.rev + 1}`, rev: old.rev + 1 };
+        this.chiefs.set(changed.id, changed);
+        this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
+        return { chief: changed } as R;
+      }
+      case HomeOps.chiefAvatar:
+        return { avatar: this.pictures.get(String(params.chief)) ?? null } as R;
+      case "cmux.chief.profile.list":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        return {
+          chiefs: [...this.chiefs.values()].map((c) => ({ id: c.id, rev: c.rev, created_at: c.createdAt })),
+        } as R;
+      case "cmux.chief.profile.create": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const made = this.addChief(String(params.display_name), {
+          role: String(params.role ?? ""),
+          personality: String(params.personality ?? ""),
+          instructions: String(params.instructions ?? ""),
+          ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
+          ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+        });
+        return { value: rawChief(made) } as R;
+      }
+      case "cmux.chief.profile.update": {
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        const old = this.chief(String(params.chief));
+        const text = (key: string, fallback: string) =>
+          typeof params[key] === "string" ? String(params[key]) : fallback;
+        const changed = {
+          ...old,
+          personality: text("personality", old.personality),
+          instructions: text("instructions", old.instructions),
+          tools: (params.tools as string[] | undefined) ?? old.tools,
+          harnesses: (params.harnesses as string[] | undefined) ?? old.harnesses,
+          rev: old.rev + 1,
+        };
+        this.chiefs.set(changed.id, changed);
+        return { value: rawChief(changed) } as R;
+      }
+      case "cmux.chief.profile.delete":
+        if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
+        this.chiefs.delete(String(params.chief));
+        return {} as R;
       case HomeOps.createGroup: {
         const ids = (params.participants as string[] | undefined) ?? [];
         const people = [chief, builder, reviewer, docs].filter((p) => ids.includes(p.id));

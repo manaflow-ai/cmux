@@ -39,6 +39,7 @@ pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod native;
+pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
 pub mod peer;
@@ -46,6 +47,7 @@ pub mod peer;
 mod platform;
 pub mod probe_cleanup;
 pub mod prompt_context;
+pub mod prompt_provenance;
 pub mod protected_folders;
 pub mod question_answer;
 pub mod registry;

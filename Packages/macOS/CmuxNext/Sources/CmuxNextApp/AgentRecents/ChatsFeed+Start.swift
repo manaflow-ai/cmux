@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextDaemon
 
 extension ChatsFeed {
@@ -9,6 +10,7 @@ extension ChatsFeed {
         guard let environment = QuitAgents.environment(services) else { return nil }
         let turns = AgentTurnStateFeed.shared ?? AgentTurnStateFeed(socketPath: environment.socketPath)
         AgentTurnStateFeed.shared = turns
+        AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
         return ChatsFeed(socketPath: environment.socketPath)
     }
