@@ -1908,60 +1908,6 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace close-all",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "workspaceRow"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspace.closeAll",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Close All Workspaces",
-      "title_key" : "action.workspace.closeAll",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "workspace close-all-in-all-windows",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "workspace.closeAllInAllWindows",
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.workspace",
-        "order" : 101,
-        "title" : "Workspace",
-        "title_key" : "category.workspace",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Close All Workspaces in All Windows",
-      "title_key" : "action.workspace.closeAllInAllWindows",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
       "cli_name" : "workspace pin-unpin",
       "context_menu" : "offered",
       "context_menus" : [
@@ -27496,6 +27442,24 @@
                 "value" : "Vesper"
               },
               {
+                "title" : "Soft Blue",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue"
+              },
+              {
+                "title" : "Clay Orange",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange"
+              },
+              {
+                "title" : "Olive Grey",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Olive Grey"
+              },
+              {
                 "title" : "Rose Pine Dawn",
                 "title_key" : null,
                 "title_table" : null,
@@ -27512,6 +27476,18 @@
                 "title_key" : null,
                 "title_table" : null,
                 "value" : "GitHub Light Default"
+              },
+              {
+                "title" : "Soft Blue Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Soft Blue Light"
+              },
+              {
+                "title" : "Clay Orange Light",
+                "title_key" : null,
+                "title_table" : null,
+                "value" : "Clay Orange Light"
               }
             ]
           },
@@ -30590,6 +30566,24 @@
                     "value" : "Vesper"
                   },
                   {
+                    "title" : "Soft Blue",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue"
+                  },
+                  {
+                    "title" : "Clay Orange",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange"
+                  },
+                  {
+                    "title" : "Olive Grey",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Olive Grey"
+                  },
+                  {
                     "title" : "Rose Pine Dawn",
                     "title_key" : null,
                     "title_table" : null,
@@ -30606,6 +30600,18 @@
                     "title_key" : null,
                     "title_table" : null,
                     "value" : "GitHub Light Default"
+                  },
+                  {
+                    "title" : "Soft Blue Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Soft Blue Light"
+                  },
+                  {
+                    "title" : "Clay Orange Light",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "Clay Orange Light"
                   }
                 ]
               },
@@ -33000,6 +33006,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -33016,6 +33040,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -35190,6 +35226,24 @@
                         "value" : "Vesper"
                       },
                       {
+                        "title" : "Soft Blue",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue"
+                      },
+                      {
+                        "title" : "Clay Orange",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange"
+                      },
+                      {
+                        "title" : "Olive Grey",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Olive Grey"
+                      },
+                      {
                         "title" : "Rose Pine Dawn",
                         "title_key" : null,
                         "title_table" : null,
@@ -35206,6 +35260,18 @@
                         "title_key" : null,
                         "title_table" : null,
                         "value" : "GitHub Light Default"
+                      },
+                      {
+                        "title" : "Soft Blue Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Soft Blue Light"
+                      },
+                      {
+                        "title" : "Clay Orange Light",
+                        "title_key" : null,
+                        "title_table" : null,
+                        "value" : "Clay Orange Light"
                       }
                     ]
                   },
@@ -35821,19 +35887,6 @@
                   "id" : "palette.closeWorkspacesAbove",
                   "kind" : "action",
                   "order" : 3,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.closeAll",
-                  "kind" : "action",
-                  "order" : 4,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
