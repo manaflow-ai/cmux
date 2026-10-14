@@ -360,6 +360,7 @@
     "setting.focusRing.showWhenSinglePane": false,
     "setting.focusRing.style": "ring",
     "setting.focusRing.width": 1,
+    "setting.freeModel.enabled": true,
     "setting.history.closed.maxAgeDays": 0,
     "setting.history.closed.maxGroups": 0,
     "setting.history.commandRetentionDays": 30,
