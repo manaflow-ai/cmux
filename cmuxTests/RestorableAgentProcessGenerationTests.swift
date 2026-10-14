@@ -233,6 +233,43 @@ struct RestorableAgentProcessGenerationTests {
         )?.sessionId == fixture.sessionID)
     }
 
+    @Test("Conclusive generation evidence avoids an additional presence probe", arguments: [false, true])
+    func conclusiveGenerationDoesNotProbePresence(generationMatches: Bool) throws {
+        let fixture = try makeFixture(prefix: "cmux-conclusive-pid-presence")
+        defer { cleanup(fixture) }
+        let recordedIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: Int64(fixture.updatedAt),
+            startMicroseconds: 0
+        )
+        try writeStoredProcessIdentity(recordedIdentity, to: fixture)
+        let currentIdentity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.processID),
+            startSeconds: recordedIdentity.startSeconds + (generationMatches ? 0 : 1),
+            startMicroseconds: 0
+        )
+        let arguments = codexProcessArguments(for: fixture)
+        var presenceProbeCount = 0
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in arguments },
+            processPresenceProvider: { _ in
+                presenceProbeCount += 1
+                return .present
+            },
+            processIdentityProvider: { _ in currentIdentity }
+        )
+
+        #expect(index.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.processLiveness == (generationMatches ? .running : .exited))
+        #expect(presenceProbeCount == 0)
+    }
+
     @Test("A present mismatched hook PID is not pressure-safe")
     func presentMismatchedHookPIDIsNotPressureSafe() throws {
         let fixture = try makeFixture(prefix: "cmux-mismatched-present-pid")
