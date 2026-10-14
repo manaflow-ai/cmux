@@ -2,7 +2,7 @@ import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { reconcileTeamSeats } from "../../../../services/billing/teamSeats";
 import { captureCoderouterError } from "../../../../services/errors";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /** Sweeps Team seat facts the inline reconcile missed (a crash, a Stripe outage). */
 export async function GET(request: Request): Promise<Response> {

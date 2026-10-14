@@ -15,6 +15,13 @@ import { planItem } from "./subscriptionItems";
 
 const DEFAULT_LIMIT = 1_000;
 const DEFAULT_CONCURRENCY = 8;
+/**
+ * Wall-clock budget for starting new Stripe checks. The cron route has a
+ * 300 s function limit; stopping new work well before it lets the run mark
+ * what it checked, so the next run starts on the rows this one never reached
+ * instead of timing out on the same oldest rows forever.
+ */
+export const BILLING_RECONCILE_BUDGET_MS = 180_000;
 
 type SubscriptionSnapshot = {
   readonly id: string;
@@ -41,6 +48,8 @@ type BillingReconcileDependencies = {
     context: Record<string, string | number | boolean>,
   ) => void;
   readonly concurrency?: number;
+  /** Injected clock for the run budget. */
+  readonly now?: () => number;
   readonly withLease?: <T>(task: () => Promise<T>) => Promise<T>;
 };
 
@@ -56,6 +65,7 @@ export async function reconcileStripeSubscriptions(
   options: {
     readonly limit?: number;
     readonly dryRun?: boolean;
+    readonly budgetMs?: number;
   } = {},
   dependencies: BillingReconcileDependencies = {},
 ): Promise<BillingReconcileResult> {
@@ -67,6 +77,7 @@ async function reconcileStripeSubscriptionsLocked(
   options: {
     readonly limit?: number;
     readonly dryRun?: boolean;
+    readonly budgetMs?: number;
   },
   dependencies: BillingReconcileDependencies,
 ): Promise<BillingReconcileResult> {
@@ -77,8 +88,11 @@ async function reconcileStripeSubscriptionsLocked(
   const apply = dependencies.apply ?? applySubscriptionUpdateAndRevokeRoutes;
   const markChecked = dependencies.markChecked ?? markSubscriptionsChecked;
   const captureError = dependencies.captureError ?? captureCoderouterError;
+  const now = dependencies.now ?? Date.now;
+  const deadline = now() + (options.budgetMs ?? BILLING_RECONCILE_BUDGET_MS);
   const rows = await list(limit + 1);
   const snapshots = rows.slice(0, limit);
+  const visited: string[] = [];
 
   let drifted = 0;
   let repaired = 0;
@@ -86,7 +100,9 @@ async function reconcileStripeSubscriptionsLocked(
   await mapConcurrent(
     snapshots,
     dependencies.concurrency ?? DEFAULT_CONCURRENCY,
+    () => now() < deadline,
     async (snapshot) => {
+      visited.push(snapshot.id);
       try {
         const remote = await retrieve(snapshot.id);
         if (!hasDrift(snapshot, remote)) return;
@@ -107,16 +123,16 @@ async function reconcileStripeSubscriptionsLocked(
       }
     },
   );
-  if (!options.dryRun && snapshots.length > 0) {
-    await markChecked(snapshots.map((snapshot) => snapshot.id));
+  if (!options.dryRun && visited.length > 0) {
+    await markChecked(visited);
   }
 
   const result = {
-    checked: snapshots.length,
+    checked: visited.length,
     drifted,
     repaired,
     failed,
-    truncated: rows.length > limit,
+    truncated: rows.length > limit || visited.length < snapshots.length,
   };
   Sentry.addBreadcrumb({
     category: "billing.reconcile",
@@ -199,13 +215,14 @@ function isSkipped(result: unknown): boolean {
 async function mapConcurrent<T>(
   values: readonly T[],
   concurrency: number,
+  canStart: () => boolean,
   visit: (value: T) => Promise<void>,
 ): Promise<void> {
   const bounded = clampInteger(concurrency, 1, 32);
   let next = 0;
   await Promise.all(
     Array.from({ length: Math.min(bounded, values.length) }, async () => {
-      while (next < values.length) {
+      while (next < values.length && canStart()) {
         const index = next;
         next += 1;
         await visit(values[index]!);
