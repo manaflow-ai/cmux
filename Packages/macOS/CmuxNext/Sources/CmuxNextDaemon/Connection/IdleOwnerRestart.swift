@@ -40,6 +40,7 @@ public actor IdleOwnerRestart {
         }
         probing = true
         defer { probing = false }
+        // wakeup-allow: not a poll; it runs again only when an attempt came in during the probe
         repeat {
             again = false
             if await probe.isIdle() {
