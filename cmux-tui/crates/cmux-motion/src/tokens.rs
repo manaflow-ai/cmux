@@ -271,14 +271,17 @@ impl MotionBounce {
     }
 }
 
-/// The structural changes a user can stop animating one by one, under
-/// `ui.animationSpeed` (`ui.animations.splits`, `ui.animations.newTab`,
-/// `ui.animations.newWorkspace`).
+/// The structural changes a user turns animation on for one by one, under
+/// `ui.animationSpeed`, one per cmux.json key (`MotionKind::config_path`):
+/// `ui.paneAnimations`, `ui.animations.newTab`, `ui.animations.newWorkspace`.
+/// All off by default (design-tokens.json `motion.kinds`): the change
+/// applies in one frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum MotionKind {
-    /// Split, close split, a divider released.
-    Splits,
+    /// `ui.paneAnimations`: pane layout (split grow-in, close, move, swap,
+    /// zoom and unzoom, column reveal, screen switch, a divider released).
+    PaneAnimations,
     /// A new tab growing into its slot (every entry point).
     NewTab,
     /// A new workspace row opening in the sidebar.
@@ -286,14 +289,23 @@ pub enum MotionKind {
 }
 
 impl MotionKind {
-    pub const ALL: [Self; 3] = [Self::Splits, Self::NewTab, Self::NewWorkspace];
+    pub const ALL: [Self; 3] = [Self::PaneAnimations, Self::NewTab, Self::NewWorkspace];
 
-    /// The `ui.animations.<key>` setting name.
+    /// The setting's last key (`paneAnimations`, `newTab`, `newWorkspace`).
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Splits => "splits",
+            Self::PaneAnimations => "paneAnimations",
             Self::NewTab => "newTab",
             Self::NewWorkspace => "newWorkspace",
+        }
+    }
+
+    /// The full cmux.json path of the kind's switch.
+    pub fn config_path(self) -> &'static str {
+        match self {
+            Self::PaneAnimations => "ui.paneAnimations",
+            Self::NewTab => "ui.animations.newTab",
+            Self::NewWorkspace => "ui.animations.newWorkspace",
         }
     }
 
@@ -302,14 +314,16 @@ impl MotionKind {
     }
 }
 
-/// The `ui.animations.*` settings: the per-kind switches and the bounce.
+/// The motion settings: one switch per `MotionKind` (`ui.paneAnimations`,
+/// `ui.animations.newTab`, `ui.animations.newWorkspace`) and the bounce
+/// (`ui.animations.bounce`).
 /// The host reads its settings file and passes these in
 /// (`set_animation_switches`, or `MotionPolicy::with_animations`); this
 /// crate never reads a settings file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct AnimationSwitches {
-    pub splits: bool,
+    pub pane_animations: bool,
     pub new_tab: bool,
     pub new_workspace: bool,
     pub bounce: MotionBounce,
@@ -318,7 +332,7 @@ pub struct AnimationSwitches {
 impl AnimationSwitches {
     /// The spec defaults (design-tokens.json `motion.kinds`, `motion.bounce`).
     pub const DEFAULT: Self = Self {
-        splits: DEFAULT_KINDS[0],
+        pane_animations: DEFAULT_KINDS[0],
         new_tab: DEFAULT_KINDS[1],
         new_workspace: DEFAULT_KINDS[2],
         bounce: DEFAULT_BOUNCE,
@@ -327,7 +341,7 @@ impl AnimationSwitches {
     /// `kind`'s switch is on.
     pub const fn enabled(&self, kind: MotionKind) -> bool {
         match kind {
-            MotionKind::Splits => self.splits,
+            MotionKind::PaneAnimations => self.pane_animations,
             MotionKind::NewTab => self.new_tab,
             MotionKind::NewWorkspace => self.new_workspace,
         }
@@ -336,7 +350,7 @@ impl AnimationSwitches {
     /// The same switches with `kind` set to `on`.
     pub fn with(mut self, kind: MotionKind, on: bool) -> Self {
         match kind {
-            MotionKind::Splits => self.splits = on,
+            MotionKind::PaneAnimations => self.pane_animations = on,
             MotionKind::NewTab => self.new_tab = on,
             MotionKind::NewWorkspace => self.new_workspace = on,
         }

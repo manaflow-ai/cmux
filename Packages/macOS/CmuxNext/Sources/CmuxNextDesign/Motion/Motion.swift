@@ -36,12 +36,12 @@ public struct Motion {
     public static var policy: MotionPolicy {
         let design = DesignSettings.shared
         return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
-                            disabledKinds: design.disabledAnimations)
+                            enabledKinds: design.enabledAnimations)
     }
 
     /// `kind` animates: movement animates (not `off`, not Reduce Motion) and
-    /// its `ui.animations.*` switch is on. When false the change applies in
-    /// one frame, with no crossfade.
+    /// its `ui.animations.*` switch is on (off by default). When false the
+    /// change applies in one frame, with no crossfade.
     public static func animates(_ kind: MotionKind) -> Bool { policy.animates(kind) }
 
     /// Position, size, scale and scroll animate. When false, snap.

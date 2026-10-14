@@ -13,21 +13,22 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     public var reduceMotion: Bool
     /// `ui.animations.bounce`: structural springs bounce or not.
     public var bounce: MotionBounce
-    /// The kinds turned off one by one (`ui.animations.*` false).
-    public var disabledKinds: Set<MotionKind>
+    /// The kinds turned on one by one (`ui.animations.*` true; off by default).
+    public var enabledKinds: Set<MotionKind>
 
-    public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none, disabledKinds: Set<MotionKind> = []) {
+    public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none, enabledKinds: Set<MotionKind> = []) {
         self.speed = speed
         self.reduceMotion = reduceMotion
         self.bounce = bounce
-        self.disabledKinds = disabledKinds
+        self.enabledKinds = enabledKinds
     }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public var animatesMovement: Bool { speed != .off && !reduceMotion }
-    /// `kind` moves: movement animates and its switch is on. Off means the
-    /// change applies in one frame (Reduce Motion: no crossfade either).
-    public func animates(_ kind: MotionKind) -> Bool { animatesMovement && !disabledKinds.contains(kind) }
+    /// `kind` moves: movement animates and its switch is on. Off (the
+    /// default) means the change applies in one frame (Reduce Motion: no
+    /// crossfade either).
+    public func animates(_ kind: MotionKind) -> Bool { animatesMovement && enabledKinds.contains(kind) }
     /// Opacity and color changes animate. When false, apply at once.
     public var animatesFades: Bool { speed != .off }
     /// Repeating indicators (spinner, pulse) run.

@@ -218,12 +218,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "figure.stand", surfaces: [.palette], cliName: "settings turn-off-animations"
             ),
             ActionDescriptor(
-                id: "appearance.animations.splits.toggle",
-                title: String(localized: "action.appearance.animations.splits.toggle", defaultValue: "Toggle Split Animations", bundle: .module),
-                keywords: ["animation", "motion", "split", "pane", "divider", "appearance"], category: .settings,
-                symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-split-animations"
-            ),
-            ActionDescriptor(
                 id: "appearance.animations.newTab.toggle",
                 title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
                 keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,

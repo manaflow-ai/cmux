@@ -36,8 +36,8 @@ public final class DesignSettings {
     public var animationSpeed: MotionSpeed = .fast
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
-    /// `ui.animations.{splits,newTab,newWorkspace}` set to false.
-    public var disabledAnimations: Set<MotionKind> = []
+    /// `ui.animations.{newTab,newWorkspace}` set to true (both off by default).
+    public var enabledAnimations: Set<MotionKind> = []
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); off by default.
     public var paneAnimations = false

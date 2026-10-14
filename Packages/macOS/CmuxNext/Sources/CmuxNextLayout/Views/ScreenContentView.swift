@@ -133,8 +133,8 @@ final class ScreenContentView: NSView {
         baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: context.style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        // `ui.animations.splits`: a split, a close and a released divider (zooms keep `move`).
-        let splits = animate && Motion.animates(.splits)
+        // `ui.paneAnimations` (default off): a split, a close and a released divider spring only with it on.
+        let splits = animate && context.animatesPaneLayout
         let arrivals = splits && structural && !unzooming
             ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
         let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
