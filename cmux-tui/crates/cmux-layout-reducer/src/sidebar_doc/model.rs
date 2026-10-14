@@ -409,24 +409,21 @@ impl Doc {
             .collect();
         // Display order: section, then the top-level key of the item (its
         // own, or its group's), then children after their group.
-        self.items.sort_by(|a, b| {
-            let key = |item: &Item| {
-                let top = match &item.parent {
-                    Some(parent) => parent_order.get(parent).cloned().unwrap_or_default(),
-                    None => item.order.clone(),
-                };
-                let group = item.parent.clone().unwrap_or_else(|| item.id.clone());
-                let depth = usize::from(item.parent.is_some());
-                (
-                    rank.get(item.section.as_str()).copied().unwrap_or(usize::MAX),
-                    top,
-                    group,
-                    depth,
-                    item.order.clone(),
-                    item.id.clone(),
-                )
+        self.items.sort_by_cached_key(|item| {
+            let top = match &item.parent {
+                Some(parent) => parent_order.get(parent).cloned().unwrap_or_default(),
+                None => item.order.clone(),
             };
-            key(a).cmp(&key(b))
+            let group = item.parent.clone().unwrap_or_else(|| item.id.clone());
+            let depth = usize::from(item.parent.is_some());
+            (
+                rank.get(item.section.as_str()).copied().unwrap_or(usize::MAX),
+                top,
+                group,
+                depth,
+                item.order.clone(),
+                item.id.clone(),
+            )
         });
     }
 }
@@ -622,8 +619,10 @@ pub enum Op {
     #[serde(rename = "group.ungroup")]
     GroupUngroup { id: ItemId },
     /// Place live workspaces that have no item yet, at `to` (default: the
-    /// end of each one's machine section). A ref whose `workspace_ref`
-    /// matches an unresolved item resolves that item in place.
+    /// end of each one's machine section); a new item's id is
+    /// [`workspace_item_id`]. A ref whose `workspace_ref`
+    /// matches an unresolved item resolves that item in place: it keeps
+    /// its id (find it by its ref, not by `workspace_item_id`).
     #[serde(rename = "adopt")]
     Adopt {
         refs: Vec<WorkspaceRef>,

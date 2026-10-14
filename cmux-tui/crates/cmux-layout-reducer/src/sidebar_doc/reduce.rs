@@ -305,6 +305,13 @@ pub fn check(doc: &Doc) -> Result<(), Refusal> {
         if matches!(section.kind, SectionKind::Pinned) && section.id != PINNED_SECTION_ID {
             return Err(Refusal::DuplicateId);
         }
+        if !order_key::is_valid(&section.order) {
+            return Err(Refusal::InvalidValue);
+        }
+        if let Some(title) = &section.title {
+            validate_title(title)?;
+        }
+        validate_section_numbers(section.columns, section.max_rows)?;
         sections.insert(section.id.as_str(), section);
     }
     let items: HashMap<&str, &Item> = doc.items.iter().map(|i| (i.id.as_str(), i)).collect();
@@ -317,6 +324,13 @@ pub fn check(doc: &Doc) -> Result<(), Refusal> {
         let section = sections.get(item.section.as_str()).ok_or(Refusal::UnknownSection)?;
         if matches!(section.kind, SectionKind::App { .. }) {
             return Err(Refusal::ProviderOwned);
+        }
+        if !order_key::is_valid(&item.order) {
+            return Err(Refusal::InvalidValue);
+        }
+        validate_span(item.span)?;
+        if let Body::Group { name, .. } = &item.body {
+            validate_title(name)?;
         }
         if let Some(parent) = &item.parent {
             let parent = items.get(parent.as_str()).ok_or(Refusal::UnknownItem)?;
@@ -453,7 +467,9 @@ pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Re
     let high = siblings.get(position).map(|(_, order)| order.as_str());
     let keys = order_key::sequence(low, high, moved.len());
     let mut assignments: Vec<(ItemId, String)> = moved.iter().cloned().zip(keys).collect();
-    if assignments.iter().any(|(_, key)| key.len() > MAX_ORDER_KEY_CHARS) {
+    if order_key::needs_spread(low, high)
+        || assignments.iter().any(|(_, key)| key.len() > MAX_ORDER_KEY_CHARS)
+    {
         let run: Vec<ItemId> = siblings[..position]
             .iter()
             .map(|(id, _)| id.clone())
@@ -463,9 +479,11 @@ pub(crate) fn place(doc: &mut Doc, ids: &[ItemId], to: &Target) -> Result<(), Re
         assignments = run.iter().cloned().zip(order_key::spread(run.len())).collect();
     }
     let moved_set: HashSet<&ItemId> = moved.iter().collect();
+    let index: HashMap<ItemId, usize> =
+        doc.items.iter().enumerate().map(|(i, item)| (item.id.clone(), i)).collect();
     for (id, key) in assignments {
         let is_moved = moved_set.contains(&id);
-        if let Some(item) = doc.item_mut(&id) {
+        if let Some(item) = index.get(&id).map(|&i| &mut doc.items[i]) {
             item.order = key;
             if is_moved {
                 item.section = to.section.clone();
@@ -703,7 +721,7 @@ fn place_section(
     let low = position.checked_sub(1).map(|i| siblings[i].1.as_str());
     let high = siblings.get(position).map(|(_, order)| order.as_str());
     let key = order_key::between(low, high);
-    if key.len() <= MAX_ORDER_KEY_CHARS {
+    if key.len() <= MAX_ORDER_KEY_CHARS && !order_key::needs_spread(low, high) {
         section.order = key;
         return Ok(());
     }

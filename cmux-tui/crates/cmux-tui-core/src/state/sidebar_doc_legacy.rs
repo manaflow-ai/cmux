@@ -96,16 +96,23 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
     let groups = read_groups(connection)?;
     let known: HashSet<&str> = groups.iter().map(|group| group.id.as_str()).collect();
     // The public form of each row; a closed local workspace is left out.
+    let live: HashMap<String, String> = {
+        let mut statement = connection.prepare(
+            "SELECT workspace_key, public_id FROM resource_workspaces
+             WHERE deleted_revision IS NULL",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
     let mut workspaces: Vec<Option<LegacyWorkspace>> = Vec::with_capacity(rows.len());
     for row in &rows {
         if row.session_id == local {
-            workspaces.push(workspace_public_id_for_key(connection, &row.workspace_key)?.map(
-                |id| LegacyWorkspace {
-                    session_id: row.session_id.clone(),
-                    workspace_key: row.workspace_key.clone(),
-                    workspace_id: Some(id),
-                },
-            ));
+            workspaces.push(live.get(&row.workspace_key).cloned().map(|id| LegacyWorkspace {
+                session_id: row.session_id.clone(),
+                workspace_key: row.workspace_key.clone(),
+                workspace_id: Some(id),
+            }));
         } else {
             workspaces.push(Some(LegacyWorkspace {
                 session_id: row.session_id.clone(),
@@ -174,8 +181,8 @@ fn read_state(connection: &Connection) -> anyhow::Result<LegacyState> {
     let mut rest: Vec<&String> = flagged.iter().filter(|key| !seen.contains(*key)).collect();
     rest.sort();
     for key in rest {
-        if let Some(id) = workspace_public_id_for_key(connection, key)? {
-            flags.push((key.clone(), WorkspaceRef::new(&local, &id)));
+        if let Some(id) = live.get(key) {
+            flags.push((key.clone(), WorkspaceRef::new(&local, id)));
         }
     }
     Ok(LegacyState { local, machines, entries, flags })
@@ -441,6 +448,28 @@ pub(crate) fn sync_from_legacy(transaction: &Transaction<'_>) -> anyhow::Result<
     let new_member_sequences = member_sequences(&now);
     let new_members: HashMap<String, Option<String>> =
         new_member_sequences.values().flat_map(|seq| predecessors(seq)).collect();
+    let live_keys: HashMap<String, String> = now
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.workspace.workspace_id.clone()?;
+            Some((id, row.workspace.workspace_key.clone()))
+        })
+        .collect();
+    let placed_tokens: HashSet<String> = doc
+        .items
+        .iter()
+        .filter_map(|item| item.body.workspace())
+        .flat_map(|reference| {
+            let key = reference
+                .placement_ref()
+                .map(|key| format!("w\u{1f}{}\u{1f}{key}", reference.session_id));
+            let local = live_keys
+                .get(&reference.workspace_id)
+                .map(|key| format!("w\u{1f}{}\u{1f}{key}", reference.session_id));
+            key.into_iter().chain(local)
+        })
+        .collect();
     let mut order: Vec<String> = now.top.clone();
     for token in &now.top {
         if let Some(group) = token.strip_prefix("g\u{1f}") {
@@ -471,6 +500,10 @@ pub(crate) fn sync_from_legacy(transaction: &Transaction<'_>) -> anyhow::Result<
             Some(_) => old_members.get(token) != new_members.get(token),
             None => old_top.get(token) != new_top.get(token),
         };
+        // An unchanged row (the common case) costs no document scan.
+        if !regrouped && !reordered && placed_tokens.contains(token) {
+            continue;
+        }
         let placed = row_item(&doc, &row.workspace).cloned();
         if placed.is_some() && !regrouped && !reordered {
             continue;

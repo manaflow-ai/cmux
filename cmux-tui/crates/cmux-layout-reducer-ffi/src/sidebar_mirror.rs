@@ -7,15 +7,19 @@
 //!   intents are kept and replayed.
 //! - `apply_batch`: one echoed batch `{revision, previous_revision?,
 //!   idempotency_key?, changes:[state_upsert|state_delete of sidebar_item,
-//!   sidebar_section, sidebar_doc]}`. The daemon's `sidebar_doc` marker
-//!   change carries the same three fields when the batch has none. A batch
-//!   whose `previous_revision` is not the confirmed revision answers
+//!   sidebar_section, sidebar_doc]}`. The document revisions and key come
+//!   from the daemon's `sidebar_doc` changes (the first one's
+//!   `previous_revision`, the last one's `revision`); the batch's own fields
+//!   count only when it has none, and a batch with neither is ignored. The
+//!   pending intent with the batch's key is dropped first, in every case. A
+//!   batch whose previous revision is not the confirmed revision answers
 //!   `{"refetch":true}`; a batch at or below the confirmed revision is stale
-//!   and ignored. The pending intent with the batch's key is dropped, and so
-//!   is every pending intent that no longer applies. `{idempotency_key,
-//!   rejected:true}` drops a refused intent.
+//!   and ignored. Every pending intent that no longer applies is dropped.
+//!   `{idempotency_key, rejected:true}` drops a refused intent.
 //! - `apply_intent`: `{idempotency_key, ops:[op]}` (or `op`) on the shown
-//!   document: `{"ok":true,"inverse":[...]}` or `{"refusal":"<code>"}`.
+//!   document: `{"ok":true,"ops":[...],"inverse":[...]}` (`ops` with the
+//!   ids the mirror minted for added items: send those to the daemon) or
+//!   `{"refusal":"<code>"}`.
 //! - `view`: the flat rows (an array) of a view request on the shown
 //!   document.
 //! - `drag_begin`: `{items:[id]}` (or a bare array): the acceptance table
@@ -40,6 +44,9 @@ pub struct Mirror {
     loaded: bool,
     pending: Vec<Intent>,
     next_local: u64,
+    /// A per-mirror random prefix of local ids, so ids minted after a
+    /// relaunch never collide with ones the daemon stored earlier.
+    local_prefix: String,
     rows: Vec<Row>,
 }
 
@@ -53,7 +60,14 @@ fn error(message: impl std::fmt::Display) -> Value {
 
 impl Mirror {
     pub fn new() -> Self {
-        Mirror::default()
+        use std::hash::{BuildHasher, Hasher};
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos()),
+        );
+        Mirror { local_prefix: format!("itm_{:016x}", hasher.finish()), ..Mirror::default() }
     }
 
     /// The confirmed document with every pending intent replayed. An
@@ -96,34 +110,56 @@ impl Mirror {
             Err(e) => return error(e),
         };
         let changes = batch["changes"].as_array().cloned().unwrap_or_default();
-        let marker = changes
+        // The document revisions come from the `sidebar_doc` markers (a
+        // session.events delta's own revisions are the session's): the
+        // first marker's previous revision and the last marker's revision
+        // (one commit can write two). A batch with no marker and no
+        // document fields of its own is not a sidebar batch.
+        let markers: Vec<&Value> = changes
             .iter()
-            .find(|change| change["resource"] == "sidebar_doc")
-            .map(|change| change["value"].clone())
-            .unwrap_or(Value::Null);
-        let field = |name: &str| {
-            batch.get(name).filter(|v| !v.is_null()).or_else(|| marker.get(name)).cloned()
-        };
-        let decimal = |value: Option<Value>| {
+            .filter(|change| change["resource"] == "sidebar_doc")
+            .map(|change| &change["value"])
+            .collect();
+        let decimal = |value: Option<&Value>| {
             value.and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
         };
-        let key = field("idempotency_key").and_then(|v| v.as_str().map(str::to_string));
-        if batch["rejected"] == true {
-            self.pending.retain(|intent| Some(&intent.key) != key.as_ref());
-            return json!({"ok": true, "dropped": key.into_iter().collect::<Vec<_>>()});
+        let own = |name: &str| batch.get(name).filter(|v| !v.is_null());
+        let key = markers
+            .iter()
+            .find_map(|marker| marker["idempotency_key"].as_str())
+            .or_else(|| own("idempotency_key").and_then(Value::as_str))
+            .map(str::to_string);
+        // The intent this batch confirms or refuses goes in every case: a
+        // stale or gapped batch still says the daemon decided it.
+        let mut dropped = Vec::new();
+        if let Some(key) = &key
+            && self.pending.iter().any(|intent| intent.key == *key)
+        {
+            self.pending.retain(|intent| intent.key != *key);
+            dropped.push(key.clone());
         }
-        let Some(revision) = decimal(field("revision")) else {
-            return error("batch has no revision");
+        if batch["rejected"] == true {
+            return json!({"ok": true, "dropped": dropped});
+        }
+        let (revision, previous) = if markers.is_empty() {
+            (decimal(own("revision")), decimal(own("previous_revision")))
+        } else {
+            (
+                decimal(markers.last().map(|m| &m["revision"])),
+                decimal(markers.first().map(|m| &m["previous_revision"])),
+            )
+        };
+        let Some(revision) = revision else {
+            return json!({"ok": true, "ignored": true, "dropped": dropped});
         };
         if !self.loaded {
-            return json!({"refetch": true});
+            return json!({"refetch": true, "dropped": dropped});
         }
         if revision <= self.confirmed.revision {
-            return json!({"ok": true, "stale": true});
+            return json!({"ok": true, "stale": true, "dropped": dropped});
         }
-        let previous = decimal(field("previous_revision")).unwrap_or(revision - 1);
-        if previous != self.confirmed.revision {
-            return json!({"refetch": true});
+        if previous.unwrap_or(revision - 1) != self.confirmed.revision {
+            return json!({"refetch": true, "dropped": dropped});
         }
         let mut doc = self.confirmed.clone();
         for change in &changes {
@@ -153,13 +189,6 @@ impl Mirror {
         doc.normalize();
         doc.revision = revision;
         self.confirmed = doc;
-        let mut dropped = Vec::new();
-        if let Some(key) = &key
-            && self.pending.iter().any(|intent| intent.key == *key)
-        {
-            self.pending.retain(|intent| intent.key != *key);
-            dropped.push(key.clone());
-        }
         dropped.extend(self.prune());
         json!({"ok": true, "revision": revision.to_string(), "dropped": dropped})
     }
@@ -188,15 +217,18 @@ impl Mirror {
             };
             if slot.is_none() {
                 self.next_local += 1;
-                *slot = Some(format!("itm_local_{}", self.next_local));
+                *slot = Some(format!("{}_{}", self.local_prefix, self.next_local));
             }
         }
         let (doc, _) = self.shown();
         let mut mint = String::new;
         match reduce::apply(&doc, &ops, &mut mint) {
             Ok(outcome) => {
+                // The ops with their minted ids: send these to the daemon,
+                // so the echo and the inverse name the same items.
+                let stamped = serde_json::to_value(&ops).unwrap_or(Value::Null);
                 self.pending.push(Intent { key: intent.idempotency_key, ops });
-                json!({"ok": true, "inverse": outcome.inverse})
+                json!({"ok": true, "ops": stamped, "inverse": outcome.inverse})
             }
             Err(reason) => refusal(reason.as_str()),
         }

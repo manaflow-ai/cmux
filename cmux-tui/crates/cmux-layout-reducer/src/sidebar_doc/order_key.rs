@@ -71,9 +71,13 @@ fn midpoint(a: &str, b: &str) -> String {
     format!("{}{}", char_of(low), after(rest_a))
 }
 
-/// A key strictly between `low` and `high` (either may be absent). Keys
-/// that are equal or out of order fall back to a key after `low`.
+/// A key strictly between `low` and `high` (either may be absent). A bound
+/// that is not a valid key counts as absent; keys that are equal or out of
+/// order fall back to a key after `low` (the caller renumbers then, see
+/// [`needs_spread`]).
 pub fn between(low: Option<&str>, high: Option<&str>) -> String {
+    let low = low.filter(|key| is_valid(key));
+    let high = high.filter(|key| is_valid(key));
     match (low, high) {
         (None, None) => FIRST.into(),
         (Some(low), None) => after(low),
@@ -81,6 +85,15 @@ pub fn between(low: Option<&str>, high: Option<&str>) -> String {
         (Some(low), Some(high)) if low < high => midpoint(low, high),
         (Some(low), Some(_)) => after(low),
     }
+}
+
+/// Whether keys between `low` and `high` cannot keep the order (a bound is
+/// invalid, or the bounds are equal or reversed): the siblings need
+/// [`spread`].
+pub fn needs_spread(low: Option<&str>, high: Option<&str>) -> bool {
+    low.is_some_and(|key| !is_valid(key))
+        || high.is_some_and(|key| !is_valid(key))
+        || matches!((low, high), (Some(low), Some(high)) if low >= high)
 }
 
 /// `count` keys strictly between `low` and `high`, in order.

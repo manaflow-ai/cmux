@@ -33,7 +33,8 @@ int32_t cmux_layout_reducer_json(
  *   apply_batch(batch)   {revision, previous_revision?, idempotency_key?, changes:[...]}
  *                        or {idempotency_key, rejected:true}
  *                        -> {"ok":true,...} | {"refetch":true}
- *   apply_intent(intent) {idempotency_key, ops:[op]} -> {"ok":true,"inverse":[op]} | {"refusal":"code"}
+ *   apply_intent(intent) {idempotency_key, ops:[op]} -> {"ok":true,"ops":[op],"inverse":[op]} | {"refusal":"code"}
+ *                        (ops carry the ids the mirror minted for added items; send those)
  *   view(request)        {live, window, filter?, collapsed?} -> [row]
  *                        row = {key, kind, section, parent?, depth, item?, dimmed, ref?, collapsed?}
  *   drag_begin(items)    {items:[id]} -> {row_key:{before,into,after,refusal?}}

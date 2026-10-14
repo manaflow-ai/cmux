@@ -184,6 +184,11 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     }
     let input = super::sidebar_doc_legacy::legacy_input(&tx)?;
     let doc = migrate::migrate(&input);
+    if let Err(refusal) = cmux_layout_reducer::sidebar_doc::reduce::check(&doc) {
+        // Stored anyway (the old tables stay the source of truth for old
+        // clients); the first op that fixes the row clears it.
+        eprintln!("cmux-tui: the migrated sidebar document breaks an invariant ({refusal})");
+    }
     let changes = Changes {
         sections: doc.sections.clone(),
         deleted_sections: Vec::new(),

@@ -18,8 +18,10 @@
 //!   Pinned), then a pinned group's membership (the group goes into
 //!   Pinned: pinned now means kept), then its personal row.
 //! - A group keeps its name, color, icon, collapse and room. Its machine is
-//!   its first member's; members of another machine stay loose in their
-//!   own machine section (a group is one machine).
+//!   its first member's that no earlier rule placed (this machine for an
+//!   empty group); members of another machine stay loose in their own
+//!   machine section (a group is one machine).
+//! - Each sibling list gets short, evenly spaced order keys.
 //! - Another machine's personal row has no public workspace id in this
 //!   store: it is placed by its placement reference (`workspace_ref`,
 //!   `unresolved`) and resolved by the first `adopt` that names it.
@@ -162,15 +164,8 @@ impl Builder {
         self.placed.insert((reference.session_id.clone(), reference.workspace_id.clone()));
     }
 
-    fn push(&mut self, mut item: Item) {
-        let siblings = self
-            .doc
-            .items
-            .iter()
-            .filter(|i| i.section == item.section && i.parent == item.parent)
-            .map(|i| i.order.clone())
-            .max();
-        item.order = order_key::between(siblings.as_deref(), None);
+    /// Append `item` to its sibling list (keys are given at the end).
+    fn push(&mut self, item: Item) {
         self.doc.items.push(item);
     }
 
@@ -406,6 +401,17 @@ pub fn migrate(input: &LegacyInput) -> Doc {
         }
     }
     let mut doc = builder.doc;
+    // Insertion order is the order: one spread of keys per sibling list.
+    let mut lists: std::collections::HashMap<(String, Option<String>), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (index, item) in doc.items.iter().enumerate() {
+        lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
+    }
+    for indexes in lists.values() {
+        for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
+            doc.items[index].order = key;
+        }
+    }
     doc.normalize();
     doc
 }
