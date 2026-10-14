@@ -47,6 +47,32 @@ export function channelIds(conversations: Iterable<HomeConversation>, me?: strin
   return channels;
 }
 
+/** The conversations with each Chief's current name (its record) on its direct messages: the
+ * title and the participant's name. A channel keeps its own title; the same map comes back when
+ * nothing changes. */
+export function withChiefNames(
+  conversations: ReadonlyMap<string, HomeConversation>,
+  channels: ReadonlySet<string>,
+  me: string | undefined,
+  chiefs: ReadonlyMap<string, { name: string }>,
+): ReadonlyMap<string, HomeConversation> {
+  if (chiefs.size === 0) return conversations;
+  let changed: Map<string, HomeConversation> | undefined;
+  for (const c of conversations.values()) {
+    if (channels.has(c.id)) continue;
+    const others = c.participants.filter((p) => p.id !== me);
+    const record = others.length === 1 && others[0]!.chief ? chiefs.get(others[0]!.id) : undefined;
+    if (!record || (c.title === record.name && others[0]!.name === record.name)) continue;
+    changed ??= new Map(conversations);
+    changed.set(c.id, {
+      ...c,
+      title: record.name,
+      participants: c.participants.map((p) => (p.id === others[0]!.id ? { ...p, name: record.name } : p)),
+    });
+  }
+  return changed ?? conversations;
+}
+
 export function railSections(conversations: Iterable<HomeConversation>, me?: string): RailSections {
   const list = [...conversations];
   const ids = channelIds(list, me);

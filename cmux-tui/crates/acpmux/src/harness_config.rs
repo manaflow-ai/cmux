@@ -55,11 +55,21 @@ pub fn codex(config_toml: &str) -> Choice {
     Choice { model: pick("model"), effort: pick("model_reasoning_effort") }
 }
 
-/// Claude Code's settings.json `model`: an alias such as `sonnet`, or a model id.
+/// Claude Code's settings.json `model`: an alias such as `sonnet`, or a model id. A variant
+/// suffix (`sonnet[1m]`, the 1M-context variant) is dropped: the catalog lists the model bare.
 pub fn claude(settings_json: &str) -> Choice {
     let model = serde_json::from_str::<serde_json::Value>(settings_json)
         .ok()
-        .and_then(|v| v.get("model")?.as_str().map(str::trim).map(str::to_owned))
+        .and_then(|v| v.get("model")?.as_str().map(without_variant).map(str::to_owned))
         .filter(|m| !m.is_empty());
     Choice { model, effort: None }
+}
+
+/// `sonnet[1m]` -> `sonnet`; a value that is only a bracket stays as it is.
+fn without_variant(model: &str) -> &str {
+    let model = model.trim();
+    match model.strip_suffix(']').and_then(|m| m.rsplit_once('[')) {
+        Some((bare, _)) if !bare.trim().is_empty() => bare.trim(),
+        _ => model,
+    }
 }

@@ -3822,17 +3822,25 @@ jobs:
           # fork's) is continued first (never resubmitted) while it is under 6
           # hours old.
           pending_args=()
-          pending="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
-            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | last | select(. != null) | "\(.id) \(.workflow_run.id)"' || true)"
-          if [ -n "$pending" ]; then
-            read -r meta_id meta_run <<<"$pending"
-            mkdir -p pending
-            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending; then
+          # Newest first; the first candidate whose run is this repository's
+          # nightly.yml run on nightly-next wins, so a foreign or unreadable
+          # artifact never hides a valid pending submission.
+          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-nightly-identity-pending-meta&per_page=20" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id)] | sort_by(.created_at) | reverse | .[] | "\(.id) \(.workflow_run.id)"' || true)"
+          for candidate in $(tr ' ' ':' <<<"$candidates"); do
+            meta_id="${candidate%%:*}" meta_run="${candidate##*:}"
+            origin="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$meta_run" --jq '"\(.path) \(.event)"' 2>/dev/null || true)"
+            case "$origin" in
+              ".github/workflows/nightly.yml push"|".github/workflows/nightly.yml workflow_dispatch") ;;
+              *) echo "::warning::skipping pending artifact $meta_id of run $meta_run ($origin)"; continue ;;
+            esac
+            rm -rf pending && mkdir -p pending
+            if gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$meta_id/zip" > pending/meta.zip && unzip -o -q pending/meta.zip -d pending && [ -f pending/pending.json ]; then
               pending_args=(--pending-meta pending/pending.json --pending-run "$meta_run" --now "$(date +%s)")
-            else
-              echo "::warning::could not read pending cmux NIGHTLY-identity artifact $meta_id; starting a new submission"
+              break
             fi
-          fi
+            echo "::warning::could not read pending artifact $meta_id of run $meta_run; trying an older one"
+          done
           decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 ${pending_args[@]+"${pending_args[@]}"})"
           action="$(sed -n 's/^action=//p' <<<"$decision")"
           build="$(sed -n 's/^build=//p' <<<"$decision")"
@@ -4028,7 +4036,14 @@ jobs:
             ".github/workflows/nightly.yml push nightly-next $GITHUB_REPOSITORY"|".github/workflows/nightly.yml workflow_dispatch nightly-next $GITHUB_REPOSITORY") ;;
             *) echo "pending run $PENDING_RUN is not this repository's nightly.yml run on nightly-next: $origin" >&2; exit 1 ;;
           esac
-          gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending
+          if ! gh run download "$PENDING_RUN" --repo "$GITHUB_REPOSITORY" -n cmux-nightly-identity-pending-bundle -D pending; then
+            # A meta artifact whose bundle is confirmed gone can never continue:
+            # retire it so the next run submits anew instead of waiting out the
+            # 6-hour limit. Any API error keeps it.
+            ./scripts/ci/nightly-next-legacy-orphan-meta.sh "$GITHUB_REPOSITORY" "$PENDING_RUN" >&2
+            echo "could not download the bundle of pending run $PENDING_RUN" >&2
+            exit 1
+          fi
           python3 -I -c 'import json, sys; m = json.load(open(sys.argv[1])); assert str(m["build"]) == sys.argv[2], (m["build"], sys.argv[2]); print("pending submission", m["submission_id"], "of build", m["build"])' pending/pending.json "$NIGHTLY_BUILD"
           mkdir -p legacy-app legacy-out
           tar -C legacy-app -xzf pending/app.tar.gz
@@ -4090,21 +4105,22 @@ jobs:
           cp pending/pending.json pending-meta.json
           mkdir -p pending-meta && mv pending-meta.json pending-meta/pending.json
 
-      - name: Upload the pending submission metadata
-        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-identity-pending-meta
-          path: pending-meta/pending.json
-          if-no-files-found: error
-          retention-days: 2
-
+      # The bundle first: a meta artifact always has its bundle.
       - name: Upload the pending submission bundle
         if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-identity-pending-bundle
           path: pending/
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Upload the pending submission metadata
+        if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-identity-pending-meta
+          path: pending-meta/pending.json
           if-no-files-found: error
           retention-days: 2
 
@@ -4203,46 +4219,48 @@ jobs:
             echo "- DMG: $url"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # The continued submission is resolved: published, or Apple refused it
-      # (the next run then signs and submits anew). Still in Apple's queue, or
-      # an error before Apple answered, keeps it.
-      - name: Retire the continued submission
-        if: always() && env.LEGACY_ACTION == 'continue' && steps.notarize.outputs.submission_pending != 'true'
+      # Retire the continued submission once it is published, or when Apple's
+      # final answer means it can never publish (Invalid, Rejected, or Accepted
+      # with a later check failing); keep it when only the publication failed.
+      # Count a failure only for a final answer or a failed new attempt; a
+      # submission still in Apple's queue never counts
+      # (scripts/ci/nightly-next-legacy-resolve.py). A valid stapled ticket is
+      # Apple's answer too: notarize-nightly-dmg.sh staples an Accepted
+      # continuation and writes no notary log.
+      - name: Resolve the attempt
+        id: resolve
+        if: always() && steps.order.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.notarize.outputs.submission_pending == 'true' }}
+          NOTARIZE: ${{ steps.notarize.outcome }}
           PUBLISHED: ${{ steps.publish.outcome == 'success' }}
         run: |
           set -euo pipefail
-          refused=false
-          # Apple answered (Accepted with a later check failing, Invalid or
-          # Rejected): this submission can never publish, so a new one starts.
-          if grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then refused=true; fi
-          if [ "$PUBLISHED" != true ] && [ "$refused" != true ]; then
-            echo "pending submission of run $PENDING_RUN kept (not resolved)"; exit 0
+          answered=false
+          if grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null \
+             || { [ -d "legacy-app/cmux NIGHTLY.app" ] && xcrun stapler validate "legacy-app/cmux NIGHTLY.app" >/dev/null 2>&1; }; then
+            answered=true
           fi
-          for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
-            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=$name" --jq '.artifacts[].id' \
-              | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
-          done
-          echo "retired the pending submission of run $PENDING_RUN (published=$PUBLISHED refused=$refused)"
-
-      # A real failure: a new copy failed, or Apple answered about the continued
-      # one. An error before Apple answered about a continued submission (for
-      # example notarytool info failed) is only a warning: the submission is
-      # kept and counts nothing.
-      - name: Classify the failure
-        id: classify
-        if: failure()
-        run: |
-          real=true
-          if [ "$LEGACY_ACTION" = continue ] && ! grep -Eq '"status" *: *"(Invalid|Rejected|Accepted)"' "$RUNNER_TEMP/legacy.notarization.log" 2>/dev/null; then
-            real=false
-            echo "::warning title=cmux NIGHTLY-identity continuation error (cx-x7hwx)::Apple did not answer about the pending submission of run $PENDING_RUN; it is kept for the next run"
+          decision="$(python3 scripts/ci/nightly-next-legacy-resolve.py --action "$LEGACY_ACTION" --pending "$PENDING" \
+            --notarize "$NOTARIZE" --published "$PUBLISHED" --answered "$answered")"
+          echo "$decision" >> "$GITHUB_OUTPUT"
+          echo "attempt: action=$LEGACY_ACTION pending=$PENDING notarize=$NOTARIZE published=$PUBLISHED answered=$answered -> $(tr '\n' ' ' <<<"$decision")"
+          if [ "$LEGACY_ACTION" = continue ] && grep -Fxq retire=true <<<"$decision"; then
+            for name in cmux-nightly-identity-pending-meta cmux-nightly-identity-pending-bundle; do
+              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PENDING_RUN/artifacts?name=$name" --jq '.artifacts[].id' \
+                | while IFS= read -r id; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id" || true; done
+            done
+            echo "retired the pending submission of run $PENDING_RUN"
+          elif [ "$LEGACY_ACTION" = continue ]; then
+            echo "kept the pending submission of run $PENDING_RUN"
           fi
-          echo "real=$real" >> "$GITHUB_OUTPUT"
+          if grep -Fxq real=false <<<"$decision" && [ "$NOTARIZE" = failure ]; then
+            echo "::warning title=cmux NIGHTLY-identity attempt not counted (cx-x7hwx)::Apple did not answer about the pending submission of run $PENDING_RUN, or it is still in Apple's queue; it is kept for the next run"
+          fi
 
       - name: Report a failed publication
-        if: failure() && steps.classify.outputs.real == 'true'
+        if: failure() && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           BUILD: ${{ needs.legacy-identity-target.outputs.build }}
@@ -4658,6 +4676,65 @@ jobs:
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
+
+  # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
+  # build's signed notes with its tour's "after" clip and a title card, joined
+  # into one video, and a page listing them, on the pr-media branch at
+  # nightly-next/<build>/. Evidence only: no job needs this one, and it never
+  # reports the nightly as failed.
+  publish-nightly-reel:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes]
+    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Install ffmpeg
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v fc-match >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
+          fi
+      - name: Build and publish the reel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+        run: |
+          set -euo pipefail
+          # The notes this run signed and published, checked against the content key.
+          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+          # The page the reel lists its clips on: raw.githubusercontent.com shows
+          # index.html as text, so the summary carries the list itself.
+          python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
+          reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
+          print(f"### cmux NEXT nightly reel, build {report['build']}\n")
+          print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
+          print("| PR | Title | Clip |\n| --- | --- | --- |")
+          for pr in report["prs"]:
+              title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
+              clip = pr.get("clip", "")
+              cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
+              print(f"| #{pr['pr']} | {title} | {cell} |")
+          PY
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
