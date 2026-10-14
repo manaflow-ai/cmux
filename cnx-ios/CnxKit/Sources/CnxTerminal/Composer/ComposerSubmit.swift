@@ -27,6 +27,23 @@ public struct ComposerSubmit: Equatable, Sendable {
         self.steps = steps
     }
 
+    /// Send with attachments (Codex QA F1 re-check): the uploaded files' Mac
+    /// paths, shell-quoted, then the draft's text, as one paste; Return
+    /// follows when the draft had text (the prompt is meant to run, as for a
+    /// text-only Send). Paths alone are inserted for the person to finish.
+    public init(attachmentPaths paths: [String], text: String, pressReturn: Bool = true) {
+        let quoted = paths.map(Self.shellQuoted).joined(separator: " ")
+        let line = text.isEmpty ? quoted + " " : quoted + " " + text
+        self.init(text: line, pressReturn: pressReturn && !text.isEmpty)
+    }
+
+    /// A path as one shell word: bare when it has only safe characters, else single-quoted.
+    public static func shellQuoted(_ path: String) -> String {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
+        if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }) { return path }
+        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// Whether Return waits for `enterDelay` (it follows a paste).
     public var delaysEnter: Bool {
         steps.first.map { if case .paste = $0 { true } else { false } } ?? false

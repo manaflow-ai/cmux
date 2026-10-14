@@ -456,7 +456,10 @@ final class TerminalSurfaceView: UIView {
     /// for it), then Return as its own keystroke a moment later
     /// (`ComposerSubmit`, Codex QA F1).
     func sendText(_ text: String, pressReturn: Bool) {
-        let submit = ComposerSubmit(text: text, pressReturn: pressReturn)
+        perform(ComposerSubmit(text: text, pressReturn: pressReturn))
+    }
+
+    func perform(_ submit: ComposerSubmit) {
         for step in submit.steps {
             switch step {
             case .paste(let draft):

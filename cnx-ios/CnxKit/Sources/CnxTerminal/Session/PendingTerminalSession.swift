@@ -55,7 +55,11 @@ public enum TerminalSessionChoice {
     ) -> any TerminalSession {
         if let live { return live }
         #if DEBUG
-        if mockDataEnabled { return MockTerminalSession() }
+        if mockDataEnabled {
+            // A Codex-like inline TUI streaming history (reproduction harness).
+            if ProcessInfo.processInfo.arguments.contains("-cnx-term-fake-codex") { return FakeCodexSession() }
+            return MockTerminalSession()
+        }
         #endif
         return PendingTerminalSession(macName: macName, programName: programName)
     }

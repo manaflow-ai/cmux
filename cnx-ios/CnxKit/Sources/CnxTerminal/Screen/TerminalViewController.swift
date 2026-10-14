@@ -778,7 +778,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // Never rest past the document's end (Codex QA F4: a taller
             // composer and a focus change in one pass left the offset below
             // the last row, a black page until the keyboard moved again).
-            if !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating, cell.height > 0,
+            if following, !model.isTUI, !scrollView.isTracking, !scrollView.isDecelerating, cell.height > 0,
                scrollView.contentOffset.y > maxOffsetY + 0.5 {
                 scrollView.contentOffset.y = maxOffsetY
                 following = true
@@ -883,6 +883,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         let next = TerminalDocumentLayout.make(totalRows: scrollbar.total, cursorRow: cursor, leadingBlankRows: blank,
                                                lastContentRow: lastContent)
+            .keepingEnd(of: document, following: following, totalRows: scrollbar.total, previousTotal: previousTotal)
         guard next != document else { return }
         let shift = CGFloat(next.originRow - originRow) * cell.height
         let hadDocument = document != nil
@@ -902,6 +903,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                                                userIsScrolling: scrollView.isTracking || scrollView.isDecelerating) {
             scrollView.contentOffset.y = target
         }
+        // Output that grows the document below a reader shows Jump to bottom
+        // without a scroll (Codex QA F2).
+        setScrollButton(visible: scrollButtonVisibility.update(
+            offsetY: scrollView.contentOffset.y, minOffsetY: -scrollView.contentInset.top, maxOffsetY: maxOffsetY))
         updateViewport(visibleMinY: scrollView.contentOffset.y)
     }
 

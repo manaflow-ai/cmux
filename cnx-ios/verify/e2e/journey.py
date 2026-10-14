@@ -848,6 +848,61 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
                 pass
         return "; ".join(notes)
 
+    def top_number(self):
+        """The smallest y (and its number) of a bare number row on screen (Codex's reply)."""
+        best = None
+        for o in self.sim.ocr():
+            t = o[4].strip().lstrip("•").strip()
+            if t.isdigit() and 60 < o[1] < 700 and (best is None or o[1] < best[0]):
+                best = (round(o[1]), int(t))
+        return best
+
+    def s_codex_scroll_hold(self):
+        """Codex QA F2 with the real Codex CLI (model calls: only with
+        CNX_E2E_REAL_CODEX=1): scrolled up while a long reply streams, the rows
+        under the finger stay put until the person scrolls back or types."""
+        if os.environ.get("CNX_E2E_REAL_CODEX") != "1":
+            raise Blocked("needs CNX_E2E_REAL_CODEX=1 (the real Codex CLI makes model calls)")
+        self.open_seed_workspace()
+        term = self.seed["term1"]
+        self.hide_keyboard()
+        proj = os.path.expanduser("~/cnx-ios-e2e/codexqa-proj")
+        os.makedirs(proj, exist_ok=True)
+        self.mac_write(term, f"clear; cd {proj} && codex\n")
+        deadline = time.time() + 40
+        while time.time() < deadline:
+            text = self.mac_screen(term).get("text", "")
+            if "trust" in text.lower() and "1." in text:
+                self.mac_write(term, "\r"); time.sleep(2)
+            if "›" in text and "trust" not in text.lower():
+                break
+            time.sleep(1)
+        self.sim.tap_q(ident="terminal.composer.field"); time.sleep(0.8)
+        self.sim.softtype("write a 150 line story about a terminal, each line numbered like 1. text")
+        self.sim.tap_q(ident="terminal.composer.send")
+        self.hide_keyboard()
+        # Wait for the numbers to stream.
+        deadline = time.time() + 60
+        while time.time() < deadline and "10. " not in self.mac_screen(term).get("text", ""):
+            time.sleep(0.5)
+        self.sim.drag(201, 250, 201, 550, duration=0.5, hold=0.3)
+        time.sleep(1.0)
+        # The terminal band must not change while the reply streams below it.
+        shots = []
+        for i in range(12):
+            shots.append(self.sim.shot(f"codex-scroll-hold-{self.run_id}-{i:02d}"))
+            time.sleep(0.6)
+        live = self.mac_screen(term).get("text", "")
+        from PIL import Image, ImageChops
+        def band(path):
+            # The terminal band, without the scroll indicator at the right edge.
+            return Image.open(path).convert("L").crop((0, 200, 1140, 1900))
+        first = band(shots[0])
+        moved = [i for i, path in enumerate(shots[1:], 1) if ImageChops.difference(first, band(path)).getbbox()]
+        self.mac_write(term, "\x03"); time.sleep(0.5); self.mac_write(term, "\x03")
+        check(not moved, f"the view moved by itself while scrolled up (F2): frames {moved} of 12 differ from the first")
+        return "held for 7 s while Codex streamed (12 frames, identical terminal band)"
+
     def s_keybar_swipe_no_back(self):
         """design/terminal R4-1: with the keyboard up, a rightward swipe that starts
         on the key bar (pinned ^C, the scroller, the joystick) stays on the
@@ -1432,6 +1487,7 @@ print("SUBMIT-" + ("OK" if pasted and alone else "MERGED" if pasted else "UNBRAC
             ("composer_bottom_pin", "Terminal: the last row rests above the composer", "termlive", self.s_composer_bottom_pin),
             ("composer_submit", "Terminal: Send submits (paste, then Return)", "termlive", self.s_composer_submit),
             ("tab_switch_last_row", "Terminal: the last row after a tab switch", "termlive", self.s_tab_switch_last_row),
+            ("codex_scroll_hold", "Terminal: scrolled up during a Codex stream holds (real Codex)", "termlive", self.s_codex_scroll_hold),
             ("keybar_swipe_no_back", "Terminal: a swipe on the key bar never swipes back", "termlive", self.s_keybar_swipe_no_back),
             ("shell_pull_keyboard_up", "Terminal: pull-down with the keyboard up reaches history", "termlive", self.s_shell_pull_keyboard_up),
             ("tui_quit_keyboard_up", "Terminal: quit a TUI with the keyboard up", "termlive", self.s_tui_quit_keyboard_up),

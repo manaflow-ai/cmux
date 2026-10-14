@@ -47,6 +47,19 @@ public struct TerminalDocumentLayout: Equatable, Sendable {
         return TerminalDocumentLayout(originRow: origin, endRow: end)
     }
 
+    /// While the reader is scrolled up, the document's end does not move up
+    /// (Codex QA F2). An inline TUI clears and redraws its live area below
+    /// the cursor as it commits streamed lines; read as a shorter document,
+    /// that put the reader past its end, and following resumed: the view
+    /// held for a moment, then jumped. A cleared scrollback (the total
+    /// shrank) still shortens it.
+    public func keepingEnd(of previous: TerminalDocumentLayout?, following: Bool, totalRows: Int,
+                           previousTotal: Int) -> TerminalDocumentLayout {
+        guard !following, let previous, totalRows >= previousTotal, endRow < previous.endRow,
+              originRow == previous.originRow else { return self }
+        return TerminalDocumentLayout(originRow: originRow, endRow: min(max(1, totalRows), previous.endRow))
+    }
+
     /// Content y of absolute `row`'s top edge.
     public func contentY(ofRow row: Int, cellHeight: CGFloat) -> CGFloat {
         CGFloat(row - originRow) * cellHeight

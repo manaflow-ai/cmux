@@ -26,7 +26,7 @@ forbidden=(
   CNX_MOCK_AUTH CNX_STACK_EMAIL CNX_CLEAR_AUTH "Demo at next launch" -cnx-demo
   "Mock data signs in as a sample user" "Slow mock Face ID"
   # Demo drivers.
-  DemoDriver TerminalDemoRoot TerminalDemoDriver FeedDemoScript ParityDemoScript OnboardingDemoScript
+  DemoDriver TerminalDemoRoot TerminalDemoDriver FakeCodexSession FeedDemoScript ParityDemoScript OnboardingDemoScript
   # The mock terminal: its session, its scripted shell, a fake git log line.
   MockTerminalSession MockOutput "cnx-ios: design specification" "hostd: splice daemon channel with allowlist"
   # Mock agent chat, Feed, Chief, artifacts and workspaces.

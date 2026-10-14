@@ -249,11 +249,12 @@ public final class TerminalModel {
 
     /// The send button: text plus Return; empty is a bare Return (Enter).
     /// With attachments, each is uploaded to the Mac first, then the real
-    /// paths (shell-quoted) and the text are typed without Return, so the
-    /// person finishes the command line before running it.
+    /// paths (shell-quoted) and the text go as one paste; Return follows when
+    /// there was text (a prompt to run), not for paths alone, which the
+    /// person finishes (`ComposerSubmit`).
     public func send() {
         guard attachments.isEmpty else {
-            sendAttachments()
+            sendAttachments(pressReturn: true)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: true)
@@ -262,14 +263,14 @@ public final class TerminalModel {
 
     public func sendWithoutReturn() {
         guard attachments.isEmpty else {
-            sendAttachments()
+            sendAttachments(pressReturn: false)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
     }
 
-    private func sendAttachments() {
+    private func sendAttachments(pressReturn: Bool) {
         guard !isUploading else { return }
         guard let uploader else {
             attachmentError = "Connect to the Mac to send attachments."
@@ -293,8 +294,8 @@ public final class TerminalModel {
             }
             guard let self else { return }
             self.isUploading = false
-            let line = Self.commandLine(paths: paths, text: self.composerText)
-            self.controller?.surface.sendText(line, pressReturn: false)
+            let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
+            self.controller?.surface.perform(submit)
             self.composerText = ""
             self.attachments.removeAll { attachment in pending.contains { $0.id == attachment.id } }
         }
@@ -304,19 +305,6 @@ public final class TerminalModel {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
 
-    /// The typed line: each path shell-quoted, then the text.
-    static func commandLine(paths: [String], text: String) -> String {
-        let quoted = paths.map(shellQuoted).joined(separator: " ")
-        guard !text.isEmpty else { return quoted + " " }
-        return quoted + " " + text
-    }
-
-    /// A path as one shell word: bare when it has only safe characters, else single-quoted.
-    static func shellQuoted(_ path: String) -> String {
-        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%")
-        if !path.isEmpty, path.unicodeScalars.allSatisfy({ safe.contains($0) }) { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
