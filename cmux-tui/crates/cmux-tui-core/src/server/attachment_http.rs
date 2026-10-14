@@ -148,8 +148,7 @@ fn respond_cloud(
     // One byte names the size and the type.
     let Ok(probe) = read(0, 1) else { return stream.write_all(&plain(404, "Not Found")) };
     let Some(total) = probe.total else { return stream.write_all(&plain(502, "Bad Gateway")) };
-    let content_type =
-        probe.content_type.unwrap_or_else(|| "application/octet-stream".into());
+    let content_type = probe.content_type.unwrap_or_else(|| "application/octet-stream".into());
     let mime = content_type.split(';').next().unwrap_or("").trim().to_string();
     let range = match head.values("range").first() {
         None => None,
