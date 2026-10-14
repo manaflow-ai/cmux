@@ -1,7 +1,7 @@
 // Tooltips for plain `title` attributes, for pages (the agent pane) whose controls carry them. A
-// native `title` tooltip in a web view waits about a second, draws where the pointer happens to
-// be, and can run past the view's edge. Each `title` shows here instead: at once, with no hover
-// delay (POLISH), and kept inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
+// native `title` tooltip in a web view draws where the pointer happens to be and can run past the
+// view's edge. Each `title` shows here instead, kept inside the window, after the native tooltip's
+// hover delay (Leo, 2026-10-13); moving straight on to the next control shows its tooltip at once. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
@@ -11,6 +11,10 @@ const EDGE = 6;
 /// After a scroll, how long the page stays still before the element under the pointer shows its
 /// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
 const SCROLL_QUIET = 150;
+/// How long the pointer rests on a control before its tooltip shows: the native tooltip's delay.
+export const TOOLTIP_DELAY = 1000;
+/// After a tooltip goes away, how long the next control's shows at once, as the native one does.
+export const TOOLTIP_WARM = 400;
 const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
@@ -134,11 +138,28 @@ export function installTooltips(doc: Document): () => void {
   // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
   // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
   let frame: number | undefined;
+  let wait: ReturnType<typeof setTimeout> | undefined;
+  // Until when a new hover shows at once: a tooltip was on screen a moment ago.
+  let warmUntil = 0;
   const hide = () => {
     if (frame !== undefined) win.cancelAnimationFrame(frame);
-    frame = undefined;
+    if (wait !== undefined) clearTimeout(wait);
+    frame = wait = undefined;
+    if (!tip.hidden) warmUntil = Date.now() + TOOLTIP_WARM;
     tip.hidden = true;
     target = undefined;
+  };
+  /// Shows `target`'s tooltip after the hover delay, or on the next frame while warm.
+  const schedule = () => {
+    const nextFrame = () => {
+      wait = undefined;
+      frame = win.requestAnimationFrame(() => {
+        frame = undefined;
+        show();
+      });
+    };
+    if (Date.now() < warmUntil) nextFrame();
+    else wait = setTimeout(nextFrame, TOOLTIP_DELAY);
   };
   let quiet: ReturnType<typeof setTimeout> | undefined;
   // The element under the pointer while a scroll is under way.
@@ -154,10 +175,7 @@ export function installTooltips(doc: Document): () => void {
     hide();
     if (!element || !textOf(element)) return;
     target = element;
-    frame = win.requestAnimationFrame(() => {
-      frame = undefined;
-      show();
-    });
+    schedule();
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
@@ -170,6 +188,8 @@ export function installTooltips(doc: Document): () => void {
   const dismiss = () => {
     const under = target;
     hide();
+    // Only moving from one control to the next keeps tooltips quick, not a click or a scroll.
+    warmUntil = 0;
     target = under;
   };
   const onScroll = () => {
@@ -185,7 +205,7 @@ export function installTooltips(doc: Document): () => void {
       if (!element?.isConnected || element === target || !textOf(element)) return;
       hide();
       target = element;
-      show();
+      schedule();
     }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);

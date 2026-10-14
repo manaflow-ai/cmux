@@ -109,9 +109,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
     <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t)}>
       <header className="acpmux-floating-header">
         <StatusMark status={floating.status} />
-        <span className="acpmux-floating-title" title={floating.title}>
-          {floating.title}
-        </span>
+        <span className="acpmux-floating-title">{floating.title}</span>
         <button
           type="button"
           className="acpmux-header-tool"
@@ -164,8 +162,8 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         type="button"
         className="acpmux-floating-bar-open"
         aria-label={`${t("render.expand")}: ${floating.title}`}
-        // The bar cuts the title and last line short; the tooltip has both in full.
-        title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
+        title={t("render.expand")}
+        data-tooltip-shortcut="⌘J"
         onClick={() => floating.setCollapsed(false)}
       >
         <StatusMark status={floating.status} />

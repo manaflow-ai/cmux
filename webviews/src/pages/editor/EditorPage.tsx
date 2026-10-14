@@ -78,9 +78,7 @@ export function EditorPage({ store, status, strings, editorRef, emptyState }: Ed
     <div className="ed-page" data-status={state.status} data-read-only={state.readOnly}>
       {settings.toolbar ? (
         <header className="ed-toolbar">
-          <span className="ed-file" title={path}>
-            {state.phase === "loading" ? t(L.loading) : fileName(path)}
-          </span>
+          <span className="ed-file">{state.phase === "loading" ? t(L.loading) : fileName(path)}</span>
           <span className={`ed-save ed-save-${state.readOnly ? "read-only" : state.status}`} aria-live="polite">
             {state.phase === "ready" ? saveStatus : ""}
           </span>

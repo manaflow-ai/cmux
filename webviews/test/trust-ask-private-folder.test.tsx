@@ -72,7 +72,7 @@ test("a chat's private folder is named in words, its path in the tooltip", async
   );
   const text = host.querySelector(".acpmux-trust-ask-text")!;
   expect(text.textContent).toBe("The agent can edit and run code in this chat's private folder");
-  expect(text.getAttribute("title")).toBe(privateFolder);
+  expect(text.hasAttribute("title")).toBe(false);
 });
 
 test("a project folder keeps its name", async () => {

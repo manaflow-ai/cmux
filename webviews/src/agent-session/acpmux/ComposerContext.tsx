@@ -185,7 +185,7 @@ export function ComposerContext({
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker" title={branch}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
@@ -390,7 +390,7 @@ function FolderMenu({
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
-    <span ref={control} className="acpmux-location-picker" title={current}>
+    <span ref={control} className="acpmux-location-picker">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
@@ -409,7 +409,7 @@ function FolderMenu({
                   {folders.map((folder) => (
                     <MenuRadioItem key={folder.id} value={folder.id} className="acpmux-menu-item">
                       <ProjectBadge project={{ cwd: folder.id, label: folder.label }} />
-                      <span className="acpmux-menu-text" title={folder.id}>
+                      <span className="acpmux-menu-text">
                         <span className="acpmux-menu-label">{folder.label}</span>
                         <span className="acpmux-menu-description">{folder.detail ?? folder.id}</span>
                       </span>
@@ -567,7 +567,7 @@ function LocationPicker({
   const suggestions = shown.map((option) => option.id);
   if (typedPath && !suggestions.includes(typedPath)) suggestions.push(typedPath);
   return (
-    <span ref={control} className="acpmux-location-picker" title={selected}>
+    <span ref={control} className="acpmux-location-picker">
       <button
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
