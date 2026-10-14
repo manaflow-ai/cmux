@@ -1013,3 +1013,33 @@ this; it needs a device check.
 
 New Terminal keeps waiting for the host (a terminal has no page to show
 before it exists) but uses the same one-card slot.
+
+## Round 19: the Safari parity audit (tabs-parity-audit.md)
+
+Mock host (`tabs-combined`, 5 tabs) on the mini-cmux15 iPhone 17 Pro
+simulator, AXe input, `simctl recordVideo` frame times. The Safari numbers
+are the audit's.
+
+| Audit item | Safari | Before (audit, 586de4e / 4daaf01) | After (this round) |
+|---|---|---|---|
+| D1 fling close (100 pt / 0.12 s) | Keeps going left at about 1170 pt/s, gone about 190 ms after it accelerates; count at about 99 ms | Parks at x ≈ 210 for 100–130 ms, fades in place, gone at about 400 ms; count at about 297 ms | Release at v = −1244 pt/s. The card flies left lifted and opaque, off screen 170–185 ms after release (`fling-after.mp4` f9–f20). Its tab leaves 99/190 of the way out: reflow from f18 (≈ 140 ms), count changes at ≈ 150 ms. A refused close (`CMUX_NEXT_MOCK_CLOSE_FAIL=all`) flies, springs back to its slot and shows the toast; the count stays 5 |
+| D2 close the last tab | A fresh start page, 0.95 → 1 in about 200 ms, "1" | Empty grid, "0 Tabs" | ✕ on the lone card: the start page appears at about 0.95 one frame after the tap and is full screen about 200 ms later (`lt.mp4` f3–f15). The grid never shows "0 Tabs" |
+| D3 swipe tracking | 100 pt drag → −104.6 pt; right 100 pt → +44 pt; a 100 pt / 1 s swipe closes | −90.3 pt; +34 pt; springs back | The card follows from touch-down. Right band 44 pt for 100 pt (unit test). The 100 pt / 1 s swipe now closes (`sw.mp4`: fly-off at 3.42–3.55 s, reflow after) |
+| D4 bar swipe on a menu button | Never opens a menu | Opens ≡ or the terminal title's menu; a later swipe closed a tab | A swipe from ≡ and one from the terminal title capsule: no menu; the title swipe switched to the next tab |
+| D5 New Tab origin | Centred at 0.6–0.77, blurred, over the blurred grid; tail 0.34 / 0.97, v0 10 | Grew from the grid slot | Centred at 0.7, blurred (8 pt, sharpening), the grid blurs behind; 0.34 / 0.97 with 10 progress/s (`nt5.mp4`: first frame f8, 2.432 s; settled about 2.66 s). The (+) menu stays |
+| D6 long press | Lift, dim, menu; long press + drag reorders | Nothing | The system context menu lifts the card: Copy Link, Duplicate Tab, Close Tab, Close Other Tabs (terminals: the two close items). Duplicate puts the copy right after the original; Close Other Tabs leaves one card. Long press then move dragged Hacker News into slot 1 with GitHub reflowing (AXe moves by repeated touch-downs; AXe cannot end that drag, so the drop's end was not checked). The other cards do not dim (system menu) |
+| D7 swipe up on the bar (270 pt / 0.2 s) | Interactive; t99 390–442 ms, rest 740–783 ms | No response | Card width 0.60 of the way at 120 ms, t99 390 ms after onset, at rest 465 ms (Safari creeps for longer) |
+| D8 ✕ reflow spring | 0.432 / 0.890 | 0.39 / 0.94 | Nothing overrides it: the measured curve (`xc.mp4`) fits the constant 0.43 / 0.89 with rms 0.85 pt (max 2.15; free fit 0.402 / 0.925). Safari's raw curve fits best as 0.426 / 0.875 starting about 8 ms later; the 10.4 pt lead at 117 ms (was 10.8) is that onset. No change |
+| D9 reflow stacking | Fixed for the whole move | Swapped mid-flight (Build A) | Explicit z order by grid index. Crossing cards (Hacker News, zsh, top) keep their order in every frame of `xz.mp4` / `xz2.mp4`; the swap did not reproduce before the change either |
+| D10 count after ✕ | 66–99 ms | 132–165 ms | 67 ms (`xc.mp4`); the live terminal card's ✕ is optimistic too |
+| D11 zoom-in launch | — | — | Unchanged (device check pending) |
+| D12 swipe during the zoom-out | Accepted | Ignored | A swipe whose touch landed at progress 0.957 (280 ms in; AXe cannot land sooner) closed its card |
+| D13 Mac-side new tab | Animated insert | Pops in (code reading) | New mock hook `CMUX_NEXT_MOCK_MAC_NEW_TAB=9`: the card fades in over about 250 ms and the count goes 5 → 6 (`mac.mp4` f42–f58) |
+| D14 GitHub card in the AX tree | — | Often missing, no ", tab" | Present with ", tab" on 3 fresh grid loads and with the GitHub tab ("Not showing on your Mac") active; not reproduced |
+
+CmuxTabsKit got D1 (the source's `close(_:)` runs halfway out; remove the
+tab at once), D2, D3, D4, D5 (a created tab grows from the centre), D6
+(`cardMenu(for:)`, `supportsReordering`, `moveTab(_:to:)`), D7, D9 and
+D12. D13 and D14 are app-specific (host events, the app's accessibility
+tree). In the demo the fling removes its tab about 150 ms after release (the
+demo's web views keep the main thread busy), and the reflow follows.
