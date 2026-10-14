@@ -19,6 +19,7 @@ No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui
 Usage: home-thread-reply-check.py --tag <tag> [--app APP] [--out DIR]
 """
 import argparse, json, os, socket, subprocess, sys, time
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -263,7 +264,7 @@ finally:
     print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
         process.terminate()
-    acp = f"{home}/.acpmux/tags/{opts.tag}"
+    acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
