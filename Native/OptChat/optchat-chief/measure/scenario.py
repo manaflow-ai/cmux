@@ -415,10 +415,15 @@ def chiefux_turns():
         "(2) count the lines containing ERROR in {work}/fixtures/app.log; "
         "(3) sum the amount column of each CSV in {work}/fixtures/sub3/ and give the grand total. "
         "Report all the numbers.",
-        ["all", ["num", 16], ["num", 17], ["num", CSV_GRAND]])
+        ["all", ["num", 4], ["num", 7], ["num", 5], ["num", 17], ["num", CSV_GRAND]])
     add("u05", 20, "long",
         "Go through every file under {work}/fixtures (all subfolders), read each one, and write a one-line summary of each "
         "into {work}/parity/inventory.md. Then tell me how many files you summarized.", ["num", 10])
+    # The review's heavy case (36 tool calls in one Chief turn): 30+ separate commands.
+    add("u06", 20, "heavy",
+        "Audit {work}/fixtures: for each of its 10 files (all subfolders) run three separate shell commands, one per tool call: "
+        "`wc -l`, `wc -w` and `shasum -a 256`. Then write a table of all the results into {work}/parity/audit.md "
+        "and tell me the total line count of the 10 files.", ["num", 349])
     return t
 
 
