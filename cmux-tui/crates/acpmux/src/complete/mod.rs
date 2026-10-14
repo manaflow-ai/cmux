@@ -4,10 +4,12 @@
 //!
 //! It is the live-model probe's shape (`crate::live_models`), not a chat:
 //! the harness CLI runs once, headless, with the harness's login and profile
-//! env and its bound route (`hub/complete.rs`), in a fresh empty folder, and
-//! its answer is read from stdout (Codex: `--output-last-message`).
+//! env and its bound route (`hub/complete.rs`), in one fixed empty cwd
+//! ([`places`]), and its answer is read from stdout (Codex:
+//! `--output-last-message`).
 //!
 //! - [`recipes`]: which harnesses have a headless recipe and their exact argv.
+//! - [`codex_config`]: the user's own Codex model provider, passed back.
 //! - [`model_pick`]: the harness's small model when the caller names none.
 //! - [`run`]: the child under a deadline, its whole process group killed on
 //!   timeout, stdout capped.

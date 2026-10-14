@@ -224,7 +224,7 @@ pub fn invocation(
         }
         Recipe::OpenCode => {
             args.extend(strings(&["run", "--pure", "--format", "default", "--dir"]));
-            args.push(dir.to_string_lossy().into_owned());
+            args.push(folders.cwd.to_string_lossy().into_owned());
             if let Some(m) = model {
                 args.extend(["--model".to_owned(), m.to_owned()]);
             }

@@ -8,6 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// The name every run folder starts with (`run::RunDir`).
+pub const RUN_PREFIX: &str = "acpmux-complete-";
+
 /// A run folder older than this at daemon start is a crashed run's: no
 /// completion runs longer than `MAX_TIMEOUT_MS`.
 pub const STALE_RUN: Duration = Duration::from_secs(10 * 60);
@@ -31,9 +34,12 @@ impl Places {
     /// `<acpmux home>/complete`, or a folder in the per-user temp dir when
     /// the acpmux home is a guarded folder (`protected_folders`).
     pub fn root_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
-        // hq#1957: not implemented yet (the failing tests come first).
-        let _ = home;
-        acpmux_home.to_path_buf()
+        let own = acpmux_home.join("complete");
+        if crate::protected_folders::refusal_in(&own, home).is_none() {
+            own
+        } else {
+            std::env::temp_dir().join("acpmux-oneshot")
+        }
     }
 
     /// The fixed cwd of every run.
@@ -48,15 +54,29 @@ impl Places {
 
     /// Creates the folders, owner-only.
     pub fn ensure(&self) -> anyhow::Result<()> {
-        // hq#1957: not implemented yet (the failing tests come first).
-        anyhow::bail!("not implemented")
+        for dir in [self.root.clone(), self.cwd(), self.runs()] {
+            crate::agent_host::ensure_private_dir(&dir)?;
+        }
+        Ok(())
     }
 
     /// Removes run folders (`acpmux-complete-*`) last changed at least
     /// `older_than` ago; returns how many.
     pub fn sweep_stale_runs(&self, older_than: Duration) -> usize {
-        // hq#1957: not implemented yet (the failing tests come first).
-        let _ = older_than;
-        0
+        let Ok(entries) = std::fs::read_dir(self.runs()) else { return 0 };
+        let mut swept = 0;
+        for entry in entries.flatten() {
+            let run = entry.file_name().to_string_lossy().starts_with(RUN_PREFIX);
+            let old = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age >= older_than);
+            if run && old && std::fs::remove_dir_all(entry.path()).is_ok() {
+                swept += 1;
+            }
+        }
+        swept
     }
 }

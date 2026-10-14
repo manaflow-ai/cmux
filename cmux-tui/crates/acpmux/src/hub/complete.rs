@@ -8,6 +8,7 @@ use crate::complete::{
     self, CompleteError, Request,
     codex_config::CodexUserConfig,
     model_pick,
+    places::Places,
     recipes::{self, Recipe},
     run::{self, RunDir, RunError},
 };
@@ -176,8 +177,18 @@ impl Hub {
             .await
             .map_err(|_| timed_out())?
             .map_err(|e| failed(e.to_string()))?;
-        let dir = RunDir::new().map_err(|e| failed(format!("a run folder: {e}")))?;
-        let folders = recipes::Folders { cwd: dir.path(), run: dir.path() };
+        // One fixed empty cwd; this run's files in its own folder (`places.rs`).
+        let places = tokio::task::spawn_blocking(|| {
+            let places = Places::for_daemon();
+            places.ensure().map(|()| places)
+        })
+        .await
+        .map_err(|e| failed(e.to_string()))?
+        .map_err(|e| failed(format!("the run folders: {e:#}")))?;
+        let cwd = places.cwd();
+        let dir =
+            RunDir::new_in(&places.runs()).map_err(|e| failed(format!("a run folder: {e}")))?;
+        let folders = recipes::Folders { cwd: &cwd, run: dir.path() };
         let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
             .with_codex_overrides(&codex.overrides);
         if let Some(file) = &inv.prompt_file {
@@ -191,7 +202,7 @@ impl Hub {
         let mut cmd = crate::agent::harness_command(
             name,
             &spawn,
-            dir.path(),
+            &cwd,
             Some((inv.program.clone(), inv.args.clone())),
             None,
         )

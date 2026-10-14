@@ -107,8 +107,8 @@ pub async fn read_file_capped(path: &Path, cap: usize) -> Vec<u8> {
     }
 }
 
-/// A fresh, empty, private folder for one completion, removed when dropped:
-/// the CLI's cwd, so no project `CLAUDE.md` or `AGENTS.md` loads.
+/// A fresh, private folder for one completion's prompt and output files,
+/// removed when dropped (never the CLI's cwd: `places.rs`).
 pub struct RunDir {
     path: PathBuf,
 }
@@ -125,7 +125,11 @@ impl RunDir {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
-        let path = parent.join(format!("acpmux-complete-{}-{n}-{nanos:08x}", std::process::id()));
+        let path = parent.join(format!(
+            "{}{}-{n}-{nanos:08x}",
+            super::places::RUN_PREFIX,
+            std::process::id()
+        ));
         let mut builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
