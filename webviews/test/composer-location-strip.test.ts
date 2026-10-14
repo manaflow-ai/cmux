@@ -242,8 +242,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height: 560 }, deviceScaleFactor: 2 });
       await page.goto(stageURL(surface.entry, surface.variant));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.evaluate(() => {
-        document.fonts.ready;
+      await page.evaluate(async () => {
+        await document.fonts.ready;
         (document.activeElement as HTMLElement | null)?.blur();
       });
       const probe = await page.evaluate((card) => {

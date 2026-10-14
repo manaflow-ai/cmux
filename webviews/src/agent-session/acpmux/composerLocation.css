@@ -20,7 +20,7 @@
   box-sizing: border-box;
   border-radius: 10px 10px 0 0;
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-composer-glass));
-  --acpmux-strip-edge: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --acpmux-strip-edge: var(--acpmux-composer-edge);
   box-shadow:
     inset 0 .5px 0 var(--acpmux-strip-edge),
     inset .5px 0 0 var(--acpmux-strip-edge),
@@ -401,6 +401,28 @@
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button { border-radius: 7px; }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons button:not(.acpmux-permission-deny) { background: var(--agent-accent); color: var(--agent-accent-text, #fff); }
 .acpmux-permission-panel .acpmux-permission-surface .acpmux-permission-buttons .acpmux-permission-deny { background: transparent; border: 0; color: var(--agent-muted); }
+
+/* The seam: under the strip the card draws its rim (--acpmux-card-ring, resting or focused) on a
+   layer that leaves out the stretch the strip stands on, so the strip and the card read as one
+   surface; the card's edge meets the strip's sides. Leo: the card's top hairline showed under it. */
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box,
+.nt-composer:has(.acpmux-composer-strip) .nt-box {
+  box-shadow: none;
+}
+.acpmux-composer:has(> .acpmux-composer-strip) > .acpmux-composer-box::before,
+.nt-composer:has(.acpmux-composer-strip) .nt-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: var(--acpmux-card-ring);
+  pointer-events: none;
+  --acpmux-seam: linear-gradient(#000 0 0) 50% 0 / calc(100% - 2 * var(--acpmux-strip-inset, 18px) - 1px) 2px no-repeat;
+  -webkit-mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0), var(--acpmux-seam);
+  mask-composite: exclude;
+}
 
 /* The strip's controls are the small ghost buttons, centered in its fixed height. */
 .acpmux-composer-strip .acpmux-location-button,
