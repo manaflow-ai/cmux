@@ -298,9 +298,22 @@ actor APIClient {
             if actualStatus == 429 {
                 // The edge may answer with an HTML page instead of a Stack
                 // JSON error, so classify by status, never by body.
+                let observation = StackAuthRateLimitObservation(
+                    endpoint: StackAuthRateLimitReporting.endpoint(of: request.url),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    ),
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+                )
                 var details = httpResponse.stackDiagnostics(status: actualStatus)
-                if let seconds = retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After")) {
+                details[StackAuthError.endpointKey] = observation.endpoint
+                details[StackAuthError.bodyKindKey] = observation.bodyKind.rawValue
+                if let seconds = observation.retryAfterSeconds {
                     details[StackAuthError.retryAfterSecondsKey] = seconds
+                }
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(observation)
                 }
                 throw StackAuthError(
                     code: "RATE_LIMITED",
@@ -324,6 +337,9 @@ actor APIClient {
             
             // Success
             if actualStatus >= 200 && actualStatus < 300 {
+                if !StackAuthRateLimitReporting.callerReports {
+                    StackAuthRateLimitReporting.observer?.stackAuthRequestDidSucceed()
+                }
                 return (data, httpResponse)
             }
             
@@ -373,7 +389,7 @@ actor APIClient {
         case transientFailure
         /// The server answered 429. Tokens are preserved like a transient
         /// failure, and no new exchange starts until the backoff passes.
-        case rateLimited(retryAfterSeconds: TimeInterval?)
+        case rateLimited(retryAfterSeconds: TimeInterval?, bodyKind: StackAuthRateLimitObservation.BodyKind)
     }
 
     /// Performs the actual token refresh request, classifying the result so the
@@ -425,7 +441,11 @@ actor APIClient {
             }
             if httpResponse.statusCode == 429 {
                 return .rateLimited(
-                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After"))
+                    retryAfterSeconds: retryAfterSeconds(httpResponse.value(forHTTPHeaderField: "Retry-After")),
+                    bodyKind: StackAuthRateLimitReporting.bodyKind(
+                        contentType: httpResponse.value(forHTTPHeaderField: "Content-Type"),
+                        data: data
+                    )
                 )
             }
             return .transientFailure
@@ -448,15 +468,25 @@ actor APIClient {
         }
         let outcome = await refresh(refreshToken: refreshToken)
         switch outcome {
-        case .rateLimited(let retryAfter):
+        case .rateLimited(let retryAfter, let bodyKind):
             refreshRateLimitStreak += 1
             let delaySeconds = Self.rateLimitDelaySeconds(
                 retryAfterSeconds: retryAfter,
                 streak: refreshRateLimitStreak
             )
             refreshRateLimitedUntil = refreshClock.now() &+ UInt64(delaySeconds * 1_000_000_000)
+            StackAuthRateLimitReporting.observer?.stackAuthDidRateLimit(StackAuthRateLimitObservation(
+                endpoint: StackAuthRateLimitReporting.endpoint(of: URL(string: "\(baseUrl)/api/v1/auth/oauth/token")),
+                bodyKind: bodyKind,
+                retryAfterSeconds: retryAfter,
+                refreshBackoffSeconds: delaySeconds,
+                refreshAttempt: refreshRateLimitStreak
+            ))
             return .transientFailure
         case .success, .definitivelyRejected:
+            if case .success = outcome, refreshRateLimitStreak > 0 {
+                StackAuthRateLimitReporting.observer?.stackAuthTokenRefreshDidRecover()
+            }
             refreshRateLimitStreak = 0
             refreshRateLimitedUntil = nil
             return outcome

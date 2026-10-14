@@ -347,4 +347,79 @@ describe("ingest sampling of routine Cloud polls", () => {
     expect(attribute(cloudSpanToOtlp(parsed.spans[0]!, 50))).toEqual({ intValue: "50" });
     expect(attribute(cloudSpanToOtlp(parsed.spans[0]!))).toEqual({ intValue: "1" });
   });
+
+  test("exports a sign-in rate-limit record under the dashboard contract and only to traces", async () => {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const instanceId = "6f1c2d3e-4a5b-4c6d-8e7f-901234567890";
+    const limited = span({
+      operation: "session", phase: "authentication", outcome: "failure", failure: "rate_limit",
+      httpStatus: 429, attempt: 2, parentSpanId: undefined,
+      auth: { event: "stack_rate_limited", phase: "token_refresh", retryAfterS: 60, backoffS: 60, bodyKind: "html", endpoint: "/api/v1/auth/oauth/token" },
+    });
+    const recovered = span({
+      eventId: "8cc333de-a1bc-4eb1-8d69-1decd01e17a9", operation: "session", phase: "authentication",
+      outcome: "success", failure: undefined, attempt: 0, parentSpanId: undefined,
+      auth: { event: "stack_rate_limit_recovered", phase: "token_refresh", limitedForS: 75 },
+    });
+    const payload = { ...batch([limited, recovered], "production"), client: { ...batch().client, channel: "production", instanceId } };
+    const sent: { url: string; body: any }[] = [];
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        await exportCloudDiagnostics(value.spans.map((item) => ({
+          userId, eventId: item.eventId, attempts: 1, payload: { client: value.client, span: item },
+        })), {
+          origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+          identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+          errorsDataset: "test-errors", environment: "production", revision: "abcdef123",
+        }, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+
+    expect((await handler(request(payload))).status).toBe(202);
+    expect(sent.map((item) => item.url)).toEqual(["https://us-east-1.aws.edge.axiom.co/v1/traces"]);
+    const exported = sent[0]!.body.resourceSpans.map((resourceSpan: any) => {
+      const attributes = (list: any[]) => Object.fromEntries(list.map((item: any) => [item.key, item.value.stringValue ?? Number(item.value.intValue)]));
+      const otlp = resourceSpan.scopeSpans[0].spans[0];
+      return { resource: attributes(resourceSpan.resource.attributes), name: otlp.name, status: otlp.status.code, attributes: attributes(otlp.attributes) };
+    });
+    expect(exported[0]).toMatchObject({
+      resource: { "service.instance.id": instanceId, "cmux.client.channel": "production", "cmux.observation.source": "client" },
+      name: "cmux.auth.stack_rate_limited", status: 2,
+      attributes: {
+        "cmux.observation.source": "client", "cmux.auth.phase": "token_refresh", "cmux.auth.retry_after_s": 60,
+        "cmux.auth.backoff_s": 60, "cmux.auth.attempt": 2, "cmux.auth.body_kind": "html",
+        "http.status_code": 429, "cmux.auth.endpoint": "/api/v1/auth/oauth/token",
+      },
+    });
+    expect(exported[1]).toMatchObject({
+      name: "cmux.auth.stack_rate_limit_recovered", status: 1,
+      attributes: { "cmux.auth.phase": "token_refresh", "cmux.auth.limited_for_s": 75 },
+    });
+    expect(Object.keys(exported[0].attributes).filter((key) => key.startsWith("cmux.cloud."))).toEqual([]);
+  });
+
+  test("rejects a sign-in rate-limit record that carries a query, an address or no 429", async () => {
+    const auth = { event: "stack_rate_limited", phase: "session_check", backoffS: 30, bodyKind: "json" };
+    const base = { operation: "session", phase: "authentication", failure: "rate_limit", httpStatus: 429, parentSpanId: undefined };
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }), checkIngress: async () => true,
+      accept: async (_userId, value) => value.spans.length, scheduleDrain: () => {}, now: () => now,
+    });
+    for (const rejected of [
+      span({ ...base, auth: { ...auth, endpoint: "/api/v1/users/me?token=secret" } }),
+      span({ ...base, auth: { ...auth, endpoint: "/api/v1/contact-channels/person@example.com" } }),
+      span({ ...base, httpStatus: 500, auth: { ...auth, endpoint: "/api/v1/users/me" } }),
+      span({ ...base, auth: { ...auth, endpoint: "/api/v1/users/me", note: "free text" } }),
+    ]) {
+      expect((await handler(request(batch([rejected])))).status).toBe(400);
+    }
+    expect((await handler(request(batch([span({ ...base, auth: { ...auth, endpoint: "/api/v1/users/me" } })])))).status).toBe(202);
+  });
 });
