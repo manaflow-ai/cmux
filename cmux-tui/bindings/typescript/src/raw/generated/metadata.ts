@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e. */
+/* cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3c4d99116f18d453f50afb84d6d30808836ebc783fd04b1947d4a4ccbb671e0e" as const;
+export const SDK_IR_SHA256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -688,6 +688,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Releases this connection's interest in the leased chief's wake queue."
+    ]
+  },
+  "cloud-participant-avatar-get": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "participant-avatars-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only (and the person's authenticated page). Needs cloud-conversations-v1 too. Calls the cloud. See spec/commands.md."
     ]
   },
   "cloud-session-clear": {
@@ -3408,6 +3418,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "chief-changed": {
+    "since": 12,
+    "capability": "chief-events-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
   "client-attached": {
     "since": 6,
     "capability": null,
@@ -3708,6 +3726,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe-deltas"
+    ],
+    "emission": "emitted"
+  },
+  "participant-avatar-changed": {
+    "since": 12,
+    "capability": "participant-avatars-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -15222,6 +15248,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-participant-avatar-get": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "participant_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-session-clear": {
     "request": {
       "additional_properties": false,
@@ -26380,6 +26435,40 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "chief-changed": {
+    "additional_properties": false,
+    "fields": {
+      "change": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "created",
+            "updated",
+            "deleted"
+          ]
+        }
+      },
+      "chief": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "chief-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "client-attached": {
     "additional_properties": false,
     "fields": {
@@ -27985,6 +28074,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "participant-avatar-changed": {
+    "additional_properties": false,
+    "fields": {
+      "avatar": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "participant-avatar-changed"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

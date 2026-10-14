@@ -7,6 +7,7 @@ import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
 import type { Strings } from "../shared/i18n";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Avatar } from "./Avatar";
 import { HomeIcon } from "./icons";
 import { RunMark, runBlocks, runLabel, shownStatus, useNow } from "./RunCard";
 import { runCost, runTokens, safeLink, type RunEntry } from "./runs";
@@ -101,7 +102,10 @@ export function RunSheet({ entry, people, strings, place, asked, onClose, onLoad
           </div>
           <h2 className="lg-sheet-title">{run.title || asked || format("run.by", author)}</h2>
           <p className="lg-sheet-meta">
-            <span>{author}</span>
+            <span className="lg-run-author">
+              <Avatar participant={people.get(run.author)} size={16} />
+              {author}
+            </span>
             <span>{runLabel(run, now, strings)}</span>
             {run.stepCount > 0 && (
               <span>{run.stepCount === 1 ? t("run.steps.one") : format("run.steps.many", String(run.stepCount))}</span>

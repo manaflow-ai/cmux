@@ -4,6 +4,7 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
+export { avatarGetRoute, avatarSetRoute } from "./home-avatar-routes.ts"
 import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**

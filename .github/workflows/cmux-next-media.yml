@@ -98,7 +98,8 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.route.outputs.runs_on }}
     # Cold, one PR's first tour builds base and head from scratch: the base
     # alone took 35 min to reach its web bundles (job 115856352658). Later
-    # tours of the PR reuse its per-tag DerivedData.
+    # tours of the PR reuse its per-tag DerivedData while it is among the
+    # most recently used on that Mac (scripts/ci/prune_media_derived_data.py).
     timeout-minutes: 120
     permissions:
       contents: read
@@ -199,6 +200,17 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.11.1"
+
+      # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
+      # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
+      # Keep this run's pair and the most recently used other pair; a dir
+      # that is open or was built within the tour timeout is never removed.
+      - name: Bound the tour DerivedData on this Mac
+        if: steps.scope.outputs.is_ui == 'true'
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/prune_media_derived_data.py \
+            --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
       - name: Download pre-built GhosttyKit.xcframework for both revisions
         if: steps.scope.outputs.is_ui == 'true'
@@ -369,8 +381,20 @@ jobs:
           data = json.loads(pathlib.Path(sys.argv[1]).read_text())
           status = data.get("status", "unknown")
           tours = ", ".join(data.get("tours", [])) or "none"
+          # Name only the tours (and side) that failed, not every tour that ran.
+          failed = set()
+          for path in pathlib.Path(sys.argv[1]).parent.glob("*/manifest.json"):
+              try:
+                  manifest = json.loads(path.read_text())
+                  steps = [step for step in manifest.get("steps") or [] if isinstance(step, dict)]
+              except (OSError, ValueError, AttributeError):
+                  failed.add(path.parent.name)
+                  continue
+              if manifest.get("error") or manifest.get("frames_error") or not steps \
+                      or any(step.get("status") == "failed" for step in steps):
+                  failed.add(path.parent.name)
           if status == "recorder-failed":
-              print(f"The path-selected recorder failed for {tours}; see the run artifact and failed manifests.")
+              print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
           elif status == "no-ui-paths":
               print("No UI paths changed; no interaction tour was needed.")
           PY

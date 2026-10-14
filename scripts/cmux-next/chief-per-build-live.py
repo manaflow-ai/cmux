@@ -5,9 +5,12 @@ a temp Chief root (CMUX_NEXT_CHIEF_ROOT), never ~/.cmux/chief.
 
   0. The shared home of older builds: app A runs on ROOT/default
      (CMUX_NEXT_CHIEF_HOME), one message M0 gets a reply, A quits (end sessions).
+     Messages go through each build's bundled `cmux chief -p --chief-home`
+     (the Chief home's conversation owner and brain), never through the Home
+     UI: this proof is about the per-build brain, daemons and sockets.
   1. A as NIGHTLY (CMUX_NEXT_CHIEF_BUILD_ID=com.cmuxterm.app.nightly, a DEBUG
      override) resolves ROOT/default: its brain holds that lock, the memory
-     still holds M0 once and Home shows it.
+     still holds M0 once and the owner's Chief DM holds it.
   2. B, a copy of the app named "B.app" with bundle id com.cmuxterm.app.debug
      and no LSEnvironment tag (the untagged DEV build, ad-hoc signed), runs as
      cmux NEXT's NIGHTLY identity
@@ -82,6 +85,7 @@ class App:
         self.acpmux = os.path.join(app, "Contents/Resources/bin/acpmux")
         self.socket = f"/tmp/cmux-debug-{tag}.sock"
         self.proc = None
+        self.owner_said = ""
 
     def answers(self):
         """Whether this app's control socket answers."""
@@ -93,10 +97,12 @@ class App:
         the bundle alone (no app terminal env), else None. Never starts one."""
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
         try:
-            out = subprocess.run([self.cli, "--json", "server", "status"], env=env,
-                                 capture_output=True, text=True, timeout=30).stdout
-            status = json.loads(out)
-        except (OSError, ValueError, subprocess.TimeoutExpired):
+            run = subprocess.run([self.cli, "--json", "daemon", "status"], env=env,
+                                 capture_output=True, text=True, timeout=30)
+            self.owner_said = f"exit {run.returncode}: {run.stdout.strip()[:300]} {run.stderr.strip()[-300:]}"
+            status = json.loads(run.stdout)
+        except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+            self.owner_said = f"{getattr(self, 'owner_said', '')} ({error!r})"
             return None
         return (status.get("session"), status.get("pid")) if status.get("status") == "running" else None
 
@@ -133,22 +139,27 @@ class App:
         say(f"{self.name} ({self.tag}) pid {self.proc.pid}: {'up' if up else 'NOT UP'}")
         return bool(up)
 
-    def chief_row(self):
-        rows = [c for c in (self.rpc("debug.home") or {}).get("conversations", []) if "agent_mux" in c.get("participants", [])]
-        return rows[0] if rows else None
-
-    def shown(self):
-        return [(m["author"], m["text"]) for m in (self.chief_row() or {}).get("shown_tail", [])]
-
-    def send(self, text):
-        say(self.name, "drive", self.rpc("debug.home.drive", {"action": "focus"}),
-            self.rpc("debug.home.drive", {"action": "type", "text": text}), self.rpc("debug.home.drive", {"action": "send"}))
-
-        def answered():
-            shown = self.shown()
-            mine = [i for i, (_, t) in enumerate(shown) if t == text]
-            return mine and any(a == "agent_mux" for a, _ in shown[mine[-1] + 1:])
-        return bool(wait(answered, opts.reply_wait, 2))
+    def send(self, home, text):
+        """`text` as the person through this build's bundled `cmux chief` (pipe mode,
+        `--chief-home`): the Chief home's conversation owner, never the Home UI.
+        True when the Chief posted a reply. The brain runs already, so the CLI
+        starts nothing; a "started" line on stderr is a failure."""
+        if not wait(lambda: chief_conversation(home), 120, 1):
+            say(self.name, "no Chief conversation in the owner of", home, chief_owner_socket(home))
+            return False
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
+        try:
+            run = subprocess.run([self.cli, "--json", "chief", "-p", text, "--chief-home", home, "--no-wait-agents",
+                                  "--timeout", str(int(opts.reply_wait))], env=env, stdin=subprocess.DEVNULL,
+                                 capture_output=True, text=True, timeout=opts.reply_wait + 60)
+        except subprocess.TimeoutExpired:
+            say(self.name, "cmux chief -p did not end")
+            return False
+        replies = [line for line in run.stdout.splitlines() if line.strip()]
+        say(self.name, f"cmux chief -p exit {run.returncode}; {len(replies)} replies; stderr {run.stderr.strip()[-400:]!r};"
+            f" first reply {(replies or [''])[0][:300]}")
+        started = "started the Chief" in run.stderr
+        return run.returncode == 0 and bool(replies) and not started
 
     def quit(self, home):
         self.rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
@@ -195,6 +206,70 @@ def memory_count(home, text):
     except sqlite3.Error:
         return -1
     return sum(1 for kind, body in rows if kind == "user" and text in body)
+
+
+def chief_owner_socket(home):
+    """The Chief home's conversation owner socket: the app's record in client.log,
+    else the owner's rule (ChiefHome.socket: cmux-chief-<fnv1a32 of the root> in
+    the Darwin user temp dir)."""
+    h = 0x811C9DC5
+    for byte in home.encode():
+        h = ((h ^ byte) * 0x01000193) & 0xFFFFFFFF
+    name = f"cmux-chief-{h:08x}.sock"
+    try:
+        lines = [l for l in open(os.path.join(home, "client.log")) if "control socket at " in l]
+        logged = lines[-1].split("control socket at ", 1)[1].strip() if lines else None
+    except OSError:
+        logged = None
+    if logged and logged.endswith("/" + name) and os.path.exists(logged):
+        return logged
+    base = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip() or "/tmp"
+    for candidate in (os.path.join(base, f"cmux-tui-{os.getuid()}", name), f"/tmp/cmux-tui-{os.getuid()}/{name}"):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def owner_call(path, cmd, **fields):
+    """One request to a cmux-tui owner (its line protocol); the reply data, else {}."""
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(20)
+        conn.connect(path)
+        stream = conn.makefile("rwb")
+        stream.write((json.dumps({"id": 7, "cmd": cmd, **fields}) + "\n").encode())
+        stream.flush()
+        for line in stream:
+            reply = json.loads(line)
+            if reply.get("id") == 7:
+                conn.close()
+                return reply.get("data") or {}
+        conn.close()
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def chief_conversation(home):
+    """The id of the Chief DM (the oldest conversation with agent_mux, as `cmux chief`
+    selects it) in the conversation owner of `home`, else None."""
+    owner = chief_owner_socket(home)
+    if not owner:
+        return None
+    rows = [c for c in owner_call(owner, "conversation-list").get("conversations") or []
+            if any((p.get("id") if isinstance(p, dict) else p) == "agent_mux" for p in c.get("participants") or [])]
+    rows.sort(key=lambda c: (str(c.get("created_at", "")), str(c.get("id", ""))))
+    return rows[0].get("id") if rows else None
+
+
+def chief_texts(home):
+    """(author, text) of the last messages of the Chief DM of `home`, from its owner."""
+    owner, conversation = chief_owner_socket(home), chief_conversation(home)
+    if not owner or not conversation:
+        return []
+    messages = owner_call(owner, "conversation-snapshot", conversation=conversation, tail=50).get("messages") or []
+    return [(m.get("author"), m.get("text") or " ".join(p.get("text", "") for p in m.get("parts") or []))
+            for m in messages]
 
 
 def acpmux_daemon(app, home):
@@ -289,7 +364,7 @@ open(os.path.join(NIGHTLY_HOME, "migration.json"), "w").write('{"status": "test 
 try:
     # 0. the shared home of older builds
     a.launch({"CMUX_NEXT_CHIEF_HOME": NIGHTLY_HOME, "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
-    ok0 = wait(lambda: brain_pid(NIGHTLY_HOME), 180) and a.send(m0)
+    ok0 = wait(lambda: brain_pid(NIGHTLY_HOME), 180) and a.send(NIGHTLY_HOME, m0)
     say(f"step 0: shared home {NIGHTLY_HOME}: brain and reply {'ok' if ok0 else 'FAILED'}")
     a.quit(NIGHTLY_HOME)
     acpmux_shutdown(a, os.path.join(ACPMUX_ROOT, "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")))
@@ -302,12 +377,12 @@ try:
     a_brain = wait(lambda: brain_pid(NIGHTLY_HOME), 180)
     a_acpmux = pane_daemon(a, A_ACPMUX)
     say(f"step 1: NIGHTLY acpmux (pid, socket inode) {a_acpmux} in {A_ACPMUX}")
-    shown_m0 = wait(lambda: any(t == m0 for _, t in a.shown()), 60)
+    shown_m0 = wait(lambda: any(t == m0 for _, t in chief_texts(NIGHTLY_HOME)), 60)
     count = memory_count(NIGHTLY_HOME, m0)
-    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY))
+    others = sorted(n for n in os.listdir(ROOT) if n not in ("default", NEXT_NIGHTLY) and not n.startswith("."))
     a_owner = wait(a.owner, 60)
-    say(f"step 1: NIGHTLY brain {a_brain} on default; Home shows M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
-    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}")
+    say(f"step 1: NIGHTLY brain {a_brain} on default; the owner's Chief DM holds M0: {bool(shown_m0)}; memory has M0 {count}x; other homes {others}")
+    say(f"step 1: A owner daemon (session, pid) {a_owner}; control socket {a.socket}; daemon status said {a.owner_said}")
     if not (a_brain and shown_m0 and count == 1 and not others and a_acpmux
             and a_owner and a_owner[0] == f"cmux-app-{TAG}" and a_owner[1]):
         failed = failed or 1
@@ -322,8 +397,13 @@ try:
     b.socket = B_SOCKET
     # B's key session must not exist yet: else B would adopt another untagged
     # DEV build's daemon (and its terminals), and the cleanup would stop it.
-    if b.owner():
-        say(f"step 2: an owner daemon already serves {B_SESSION}; B cannot run here")
+    # Absent only when the session's socket refuses the connection
+    # (server.unavailable); any other answer may be a real untagged DEV daemon.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_", "XDG_RUNTIME"))}
+    probe = subprocess.run([b.cli, "--json", "--session", B_SESSION, "daemon", "status"], env=env,
+                           capture_output=True, text=True, timeout=30)
+    if probe.returncode != 3 or "server.unavailable" not in probe.stdout + probe.stderr:
+        say(f"step 2: {B_SESSION} is not provably absent (exit {probe.returncode}: {(probe.stdout + probe.stderr).strip()[:300]}); B cannot run here")
         b_owned = False
         failed = failed or 2
         raise SystemExit
@@ -335,18 +415,21 @@ try:
     b_acpmux = pane_daemon(b, B_ACPMUX)
     a_acpmux_2 = acpmux_daemon(a, A_ACPMUX)
     say(f"step 2: B acpmux {b_acpmux} in {B_ACPMUX}; A acpmux now {a_acpmux_2} (was {a_acpmux})")
-    wait(lambda: b.chief_row(), 60)
-    b_shown = b.shown()
+    b_dm = wait(lambda: chief_conversation(B_HOME), 60)
+    b_shown = chief_texts(B_HOME)
+    # A brain opens its tools socket after it connects; give B's a bounded wait.
+    wait(lambda: os.path.exists(os.path.join(B_HOME, "optchat", "tools.sock")), 60)
     sockets = {h: os.path.exists(os.path.join(h, "optchat", "tools.sock")) for h in (NIGHTLY_HOME, B_HOME)}
-    say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B shows {len(b_shown)} messages;"
+    say(f"step 2: B brain {b_brain} on {B_HOME}; A brain {brain_pid(NIGHTLY_HOME)}; B's Chief DM {b_dm} holds {len(b_shown)} messages;"
         f" M0 in B: {any(t == m0 for _, t in b_shown)}; tools sockets {sockets}; memory M0 in B {memory_count(B_HOME, m0)}")
     b_owner = wait(b.owner, 60)
     a_owner_2 = a.owner()
     b_state = os.path.join(B_STATE, "tui")
+    say(f"step 2: B daemon status said {b.owner_said}")
     say(f"step 2: B owner {b_owner} (want session {B_SESSION}); B control socket {B_SOCKET} answers:"
         f" {b.answers()}; B state dir {b_state} exists {os.path.isdir(b_state)};"
         f" A owner now {a_owner_2} (was {a_owner})")
-    if not (b_brain and b_brain != a_brain and not any(t == m0 for _, t in b_shown) and all(sockets.values())
+    if not (b_brain and b_brain != a_brain and b_dm and not any(t == m0 for _, t in b_shown) and all(sockets.values())
             and memory_count(B_HOME, m0) <= 0
             and b_acpmux and a_acpmux_2 == a_acpmux and b_acpmux[0] != (a_acpmux or (0,))[0]
             and b_owner and b_owner[0] == B_SESSION and b_owner[1] and b_owner[1] != (a_owner or (0, 0))[1]
@@ -357,7 +440,7 @@ try:
     acpmux_shutdown(b, B_ACPMUX)
     after = brain_pid(NIGHTLY_HOME)
     a_acpmux_3 = acpmux_daemon(a, A_ACPMUX)
-    replied = a.send(m1)
+    replied = a.send(NIGHTLY_HOME, m1)
     a_owner_3 = a.owner()
     say(f"step 3: after B quit, A brain {after} (was {a_brain}, alive {bool(a_brain) and alive(a_brain)}); A replied {replied};"
         f" A acpmux {a_acpmux_3} (was {a_acpmux}); A owner {a_owner_3} (was {a_owner});"
@@ -380,8 +463,9 @@ finally:
         # B's own owner daemon (its per-key session, absent before B started), if
         # quitEndSessions left it, and the state it wrote under its key.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-        subprocess.run([b.cli, "server", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
-                       capture_output=True, timeout=60)
+        stop = subprocess.run([b.cli, "--json", "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
+                              capture_output=True, text=True, timeout=60)
+        say(f"cleanup: B daemon stop exit {stop.returncode}: {(stop.stdout + stop.stderr).strip()[:300]}")
         if b_state_new:
             shutil.rmtree(B_STATE, ignore_errors=True)
     # Nothing of the run stays: the B copy and the temp homes with their memory.
