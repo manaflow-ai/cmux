@@ -116,14 +116,14 @@
   border-radius: 3px;
   background: var(--agent-page-bg, white);
   color: var(--agent-text);
-  box-shadow: 0 1px 2px color-mix(in srgb, black 15%, transparent);
+  box-shadow: var(--elevation-1);
 }
 .acpmux-pdf-sheet.is-large {
   width: min(210px, 52vw);
   height: min(280px, 58vh);
   margin: 0 auto;
   border-radius: 6px;
-  box-shadow: 0 8px 24px color-mix(in srgb, black 18%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-sheet-fold {
   position: absolute;
@@ -182,7 +182,7 @@
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
-  box-shadow: 0 16px 44px color-mix(in srgb, black 28%, transparent);
+  box-shadow: var(--elevation-2);
 }
 .acpmux-pdf-viewer-bar {
   display: flex;

@@ -43,19 +43,50 @@ BINARY = os.path.join(APP, "Contents/MacOS", info.get("CFBundleExecutable", ""))
 
 
 def socket_path():
-    """Mirror of ControlSocketPath.resolve for the bundle id (CmuxNextControl)."""
-    slug = lambda s: re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
-    for channel in ("nightly", "rc", "staging"):
-        base = "com.cmuxterm.app." + channel
-        if bundle_id == base:
-            return "/tmp/cmux-%s.sock" % channel
-        if bundle_id.startswith(base + "."):
-            return "/tmp/cmux-%s-%s.sock" % (channel, slug(bundle_id[len(base) + 1:]))
-    if bundle_id.startswith("com.cmuxterm.app.debug."):
-        return "/tmp/cmux-debug-%s.sock" % slug(bundle_id[len("com.cmuxterm.app.debug."):])
+    """Mirror of BuildIdentity.controlSocket (CmuxNextCompat BuildIdentity+AppNames,
+    schemas/build-identity/vectors.json app_daemon): kept names where they belong to
+    one build or DEV tag, else /tmp/cmux-<kind>--<fnv1a32 of the build key>.sock."""
+    slug = lambda s: re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or None
+    name = os.path.basename(APP)[:-len(".app")] if APP.endswith(".app") else ""
+    shipped = slug((info.get("LSEnvironment") or {}).get("CMUX_TAG") or "")
+    if shipped is None and name.startswith("cmux DEV "):
+        shipped = slug(name[len("cmux DEV "):])
+    kinds = [("com.cmuxterm.app.nightly", "nightly"), ("com.cmuxterm.app.staging", "staging"),
+             ("com.cmuxterm.app.debug", "debug"), ("com.cmuxterm.app.rc", "rc"), ("com.cmuxterm.app", "release")]
+    kind, suffix = "debug", None
+    for prefix, k in kinds:
+        if bundle_id == prefix:
+            kind = k
+            break
+        if bundle_id.startswith(prefix + "."):
+            kind, suffix = ("debug" if k == "release" else k), bundle_id[len(prefix) + 1:]
+            break
+    suffix_tag = slug(suffix) if suffix is not None else None
+    owned = ("nightly", "rc", "staging", "cmux-next")
     if bundle_id == "com.cmuxterm.app.debug":
-        return "/tmp/cmux-debug.sock"
-    return os.path.expanduser("~/.local/state/cmux/cmux.sock")
+        if shipped and shipped not in owned:
+            return "/tmp/cmux-debug-%s.sock" % shipped
+    elif shipped is None or shipped == suffix_tag:
+        if bundle_id == "com.cmuxterm.app":
+            return os.path.expanduser("~/.local/state/cmux/cmux.sock")
+        if bundle_id in ("com.cmuxterm.app.nightly", "com.cmuxterm.app.rc", "com.cmuxterm.app.staging"):
+            return "/tmp/cmux-%s.sock" % kind
+        if bundle_id == "com.cmuxterm.app.nightly.cmux-next":
+            return "/tmp/cmux-nightly-cmux-next.sock"
+        if (bundle_id.startswith("com.cmuxterm.app.debug.") and re.fullmatch(r"[a-z0-9]+(\.[a-z0-9]+)*", suffix)
+                and suffix_tag not in owned):
+            return "/tmp/cmux-debug-%s.sock" % suffix_tag
+
+    def fnv(text):
+        value = 0x811C9DC5
+        for byte in text.encode():
+            value = ((value ^ byte) * 0x01000193) & 0xFFFFFFFF
+        return "%08x" % value
+    component = re.sub(r"[^A-Za-z0-9._]+", "-", bundle_id).strip("-.")
+    key = component if component == bundle_id else "%s--%s" % (component or "unbundled", fnv(bundle_id))
+    if shipped and shipped != suffix_tag:
+        key += "--" + shipped
+    return "/tmp/cmux-%s--%s.sock" % (kind, fnv(key))
 
 
 SOCKET = socket_path()

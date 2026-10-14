@@ -20,6 +20,9 @@
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
+         location = "group:CmuxAppAttest">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef

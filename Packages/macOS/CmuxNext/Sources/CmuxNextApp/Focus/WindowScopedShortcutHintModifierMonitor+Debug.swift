@@ -7,7 +7,7 @@ extension WindowScopedShortcutHintModifierMonitor {
         NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags,
                         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
                         context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false,
-                        keyCode: flags.contains(.control) ? 59 : 55)
+                        keyCode: flags.contains(.command) ? 55 : flags.contains(.control) ? 59 : flags.contains(.option) ? 58 : 56)
     }
 }
 #endif

@@ -121,6 +121,10 @@ impl Hub {
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
+            // A background shell, a subagent's too (`processes.rs`).
+            if d == "in" && kind == "background_task_update" {
+                tap_hub.note_process(&tap_session, &rec);
+            }
             logged
         })
     }

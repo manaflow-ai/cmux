@@ -188,6 +188,10 @@ moves the tab back without closing anything:
 {"id":16,"cmd":"undo-layout","pane":2}
 ```
 
+`tab-split-keep-focus-v1` adds `keep_focus` to `move-tab-to-split` and
+`move-tab-to-column`: the new pane does not take focus, so an app can open a
+pane for an agent while the user types in another one.
+
 `tab-split-respawn-v1` adds `respawn` to `move-tab-to-split`. A pane's only
 tab dropped on that pane's own edge then splits the pane: the daemon leaves a
 fresh tab of the given kind (a new terminal, or a new browser tab) in the old

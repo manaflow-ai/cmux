@@ -42,7 +42,8 @@ extension HomeService {
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
                 settleHomeEnsure(generation)
-                homeWorkspaceStep = "ensured \(home)"
+                homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
+                    TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, services: services, completion: $3) })
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
@@ -141,7 +142,7 @@ extension HomeService {
         // The local Chief is looked up (never created) once a chief is placed.
         let localChief = if placed == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = placed == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, placed: placed) else { return }
+        guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, placed: placed), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -198,7 +199,7 @@ extension HomeService {
         let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A placed chief's brain runs on its server: no local brain host for its tab.
-        if conversation != cloudChief?.mainConversation { homeDidOpen() }
+        if conversation != cloudChief?.mainConversation { homeDidOpen(asked: true) }
         return view
     }
 
