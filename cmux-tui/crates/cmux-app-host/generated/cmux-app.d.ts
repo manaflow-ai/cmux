@@ -23,6 +23,7 @@ declare namespace Cmux {
   type BrowserSnapshot = { id: string /* browser_… */; tab_id: string /* tab_… */; url: string; title: string; loading: boolean; source: Cmux.BrowserSource; status: Cmux.BrowserStatus; error: string | null; frames_stalled: boolean; size: Cmux.Size; extra?: Record<string, Cmux.JsonValue> }
   type BrowserSource = "external" | "launched"
   type BrowserStatus = "starting" | "live" | "failed"
+  type BrowserTabProfileResult = { tab_id: string /* tab_… */; profile_id: string; changed: boolean }
   type BrowserViewerResizeResult = { accepted: boolean; size: Cmux.PixelSize; outcome: Cmux.ViewAttachmentOutcome }
   type Budget = { wall_clock_seconds?: number; vm_minutes?: number; model_spend_usd?: unknown; tool_calls?: number }
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
@@ -141,7 +142,7 @@ declare namespace Cmux {
   type GrantId = string
   type GroupColor = string
   type HistoryEntriesListResult = { entries: Array<Cmux.HistoryEntry>; revision: string }
-  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string window?: string; location?: Cmux.HistoryTrailLocation }
+  type HistoryEntry = { id: string; kind: Cmux.HistoryKind; at_ms: string; title: string; detail?: string; machine?: string; workspace?: string; available: boolean; current?: boolean; running?: boolean; url?: string; profile?: string; closed_kind?: "terminal_tab" | "browser_tab" | "screen" | "workspace"; cwd?: string; command?: string; exit_code?: number; session_id?: string; provider?: string; window?: string; location?: Cmux.HistoryTrailLocation }
   type HistoryKind = "page" | "location" | "closed" | "command" | "agent"
   type HistoryPurgeResult = { purged: number }
   type HistoryRange = "hour" | "today" | "week" | "month" | "all"
@@ -356,6 +357,7 @@ declare namespace Cmux {
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
   type TeamAiLimitMember = { user: Cmux.UserId; display_name: string; role: string; limit_usd: unknown; source: "personal" | "team" | "default"; spent_usd: unknown }
+  type TeamAiUsageLine = { billed: boolean; included_usd: unknown | null; per_seat: boolean; seats: number; spent_usd: unknown; period_start: number | null; period_end: number; stop_applies: boolean; stopped: boolean }
   type TeamAuditEntry = { n: number; op: string; actor: string; at: number; category: "admin" | "billing"; summary: string; detail: string; hash: string }
   type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
@@ -517,6 +519,8 @@ interface CmuxGlobal {
         /** `browser.tab.emulate.clear` (mutation, scope `browser:write`) */
         clear: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
       }
+      /** `browser.tab.set_profile` (mutation, scope `browser:write`) */
+      set_profile: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; profile: string }, Cmux.MutationResult<Cmux.BrowserTabProfileResult>>
     }
   }
   caffeinate: {
@@ -1345,8 +1349,8 @@ interface CmuxGlobal {
   }
   team: {
     ai_limit: {
-      /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend. */
-      get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; next_cursor?: string | null }>
+      /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
+      get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; team_usage?: Cmux.TeamAiUsageLine; next_cursor?: string | null }>
     }
     device: {
       /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
