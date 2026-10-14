@@ -5,7 +5,9 @@ import Foundation
 /// use (`GET /api/vm` `limits.poolVcpus`, `poolMemoryMb`, `usedVcpus`,
 /// `usedMemoryMb`). Every active machine draws from one pool; paused and
 /// stopped machines do not. The server enforces the pool; this type only lets
-/// the client explain it before a create or resize fails.
+/// the client explain it before a create or resize fails. When present,
+/// `minimumVcpus` and `minimumMemoryMb` are the server-advertised smallest
+/// shape and are used only for the informational exhausted warning.
 public struct CloudVMResourcePool: Equatable, Sendable {
     /// Whether a wire status represents a machine that currently consumes its
     /// shared CPU and memory reservation. Provider and catalog payloads use
@@ -27,11 +29,22 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     ///   - poolMemoryMb: Memory the plan shares across its machines, in MB.
     ///   - usedVcpus: vCPUs held by provisioning and running machines.
     ///   - usedMemoryMb: Memory held by provisioning and running machines, in MB.
-    public init(poolVcpus: Int, poolMemoryMb: Int, usedVcpus: Int, usedMemoryMb: Int) {
+    ///   - minimumVcpus: Server-advertised smallest machine shape, when known.
+    ///   - minimumMemoryMb: Server-advertised smallest machine shape, when known.
+    public init(
+        poolVcpus: Int,
+        poolMemoryMb: Int,
+        usedVcpus: Int,
+        usedMemoryMb: Int,
+        minimumVcpus: Int? = nil,
+        minimumMemoryMb: Int? = nil
+    ) {
         self.poolVcpus = poolVcpus
         self.poolMemoryMb = poolMemoryMb
         self.usedVcpus = usedVcpus
         self.usedMemoryMb = usedMemoryMb
+        self.minimumVcpus = minimumVcpus
+        self.minimumMemoryMb = minimumMemoryMb
     }
 
     /// Reads the pool from a `limits` object. Nil when the plan has no pool
@@ -42,11 +55,28 @@ public struct CloudVMResourcePool: Equatable, Sendable {
               let poolMemoryMb = Self.positiveInt(limits["poolMemoryMb"]),
               let usedVcpus = Self.nonNegativeInt(limits["usedVcpus"]),
               let usedMemoryMb = Self.nonNegativeInt(limits["usedMemoryMb"]) else { return nil }
+        let hasMinimumShape = [limits["minimumVcpus"], limits["minimumMemoryMb"]].contains { raw in
+            guard let raw else { return false }
+            return !(raw is NSNull)
+        }
+        let minimumVcpus: Int?
+        let minimumMemoryMb: Int?
+        if hasMinimumShape {
+            guard let parsedVcpus = Self.positiveInt(limits["minimumVcpus"]),
+                  let parsedMemoryMb = Self.positiveInt(limits["minimumMemoryMb"]) else { return nil }
+            minimumVcpus = parsedVcpus
+            minimumMemoryMb = parsedMemoryMb
+        } else {
+            minimumVcpus = nil
+            minimumMemoryMb = nil
+        }
         self.init(
             poolVcpus: poolVcpus,
             poolMemoryMb: poolMemoryMb,
             usedVcpus: usedVcpus,
-            usedMemoryMb: usedMemoryMb
+            usedMemoryMb: usedMemoryMb,
+            minimumVcpus: minimumVcpus,
+            minimumMemoryMb: minimumMemoryMb
         )
     }
 
@@ -58,6 +88,12 @@ public struct CloudVMResourcePool: Equatable, Sendable {
     public let usedVcpus: Int
     /// Memory held by provisioning and running machines, in MB.
     public let usedMemoryMb: Int
+    /// Smallest server-advertised machine shape, when the control plane sends
+    /// both dimensions. Missing metadata is a legacy response boundary.
+    public let minimumVcpus: Int?
+    /// Smallest server-advertised machine shape, when the control plane sends
+    /// both dimensions. Missing metadata is a legacy response boundary.
+    public let minimumMemoryMb: Int?
 
     /// vCPUs a new or resumed machine can still take.
     public var freeVcpus: Int { max(0, poolVcpus - usedVcpus) }
@@ -100,9 +136,14 @@ public struct CloudVMResourcePool: Equatable, Sendable {
         )
     }
 
-    /// Whether even the smallest machine (2 vCPU / 4 GB) no longer fits.
+    /// Whether the server-advertised smallest machine no longer fits.
+    ///
+    /// Older control planes do not advertise a minimum shape. In that case
+    /// this remains false so the client does not recreate a product minimum
+    /// from a historical 2 vCPU / 4 GB fallback.
     public var isExhausted: Bool {
-        shortfall(vcpus: 2, memoryMb: 4096) != nil
+        guard let minimumVcpus, let minimumMemoryMb else { return false }
+        return shortfall(vcpus: minimumVcpus, memoryMb: minimumMemoryMb) != nil
     }
 
     /// Explains a shortfall in the New Machine sheet.

@@ -222,12 +222,13 @@ public enum MachineSnapshotBuilder: Sendable {
         now: Date = Date()
     ) -> MachinePlanSnapshot? {
         guard let limits else { return nil }
-        let isPaidPlan = MachinePlanSnapshot.isPaidPlanID(limits.planId)
+        let isPaidPlan = limits.isPaidPlan ?? MachinePlanSnapshot.isPaidPlanID(limits.planId)
         let expiresAt = isPaidPlan ? nil : earliestFreeAccessExpiry(limits: limits, machines: machines)
         return MachinePlanSnapshot(
             activeCount: activeCount,
             maxActiveVms: limits.maxActiveVms,
             planId: limits.planId,
+            isPaidPlan: limits.isPaidPlan,
             freeAccessWindowDays: limits.freeAccessWindowDays,
             freeAccessExpiresAt: expiresAt,
             freeAccessBanner: freeAccessBanner(expiresAt: expiresAt, isPaidPlan: isPaidPlan, now: now),

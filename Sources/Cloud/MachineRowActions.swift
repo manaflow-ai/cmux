@@ -17,15 +17,14 @@ struct MachineRowActions {
     let resizeDisk: @MainActor (String, Int) -> Void
     var resizeCPU: @MainActor (String, Int) -> Void = { _, _ in }
     var resizeMemory: @MainActor (String, Int) -> Void = { _, _ in }
-    /// Standard targets stay visible in the menu so unavailable sizes can be
-    /// shown disabled. The fallback ceilings are Pro, so a missing or stale
-    /// limits response never makes a Max-only action clickable.
-    var resizeDiskOptionsGiB: [Int] = [64, 128, 256]
-    var resizeDiskMaximumGiB: Int = 128
-    var resizeCPUOptions: [Int] = [2, 4, 8, 12, 16, 32]
-    var resizeCPUMaximum: Int = 8
-    var resizeMemoryOptionsGiB: [Int] = [8, 16, 24, 32, 64]
-    var resizeMemoryMaximumGiB: Int = 16
+    /// Resource targets are populated from `vm.list` capability metadata. An
+    /// empty list means an older control plane cannot safely offer resize UI.
+    var resizeDiskOptionsGiB: [Int] = []
+    var resizeDiskMaximumGiB: Int = 0
+    var resizeCPUOptions: [Int] = []
+    var resizeCPUMaximum: Int = 0
+    var resizeMemoryOptionsGiB: [Int] = []
+    var resizeMemoryMaximumGiB: Int = 0
     /// The current shared subscription pool. The menu compares the live shape
     /// for grow-only checks and subtracts the machine's durable pool claim for
     /// aggregate capacity.

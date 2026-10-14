@@ -233,6 +233,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
         diskByMemoryMb: [String: Int]? = nil,
+        defaultMemoryMb: Int? = nil,
+        maxVcpus: Int? = nil,
         maxDiskMb: Int? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
@@ -257,6 +259,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             memoryUpgradePlansByMb: memoryUpgradePlansByMb,
             vcpusByMemoryMb: vcpusByMemoryMb,
             diskByMemoryMb: diskByMemoryMb,
+            defaultMemoryMb: defaultMemoryMb,
+            maxVcpus: maxVcpus,
             maxDiskMb: maxDiskMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
@@ -294,6 +298,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             memoryUpgradePlansByMb: cachedLimits?.memoryUpgradePlansByMb,
             vcpusByMemoryMb: cachedLimits?.vcpusByMemoryMb,
             diskByMemoryMb: cachedLimits?.diskByMemoryMb,
+            defaultMemoryMb: cachedLimits?.defaultMemoryMb,
+            maxVcpus: cachedLimits?.maxVcpus,
             maxDiskMb: cachedLimits?.maxDiskMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             planIsLoading: initialPlan.isLoading,

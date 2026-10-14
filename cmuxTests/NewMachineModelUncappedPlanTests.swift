@@ -34,8 +34,18 @@ struct NewMachineModelUncappedPlanTests {
     @Test("Max is uncapped on the ladder too: every size allowed, nothing locked")
     func maxPlanHasNoLockedSizes() {
         let plan = MachinePlanSnapshot(activeCount: 2, maxActiveVms: nil, planId: "max", freeAccessWindowDays: 0)
-        let model = NewMachineModel(mode: .newMachine, plan: plan, memoryOptionsMb: NewMachineModel.memoryOptionsMb) { _ in true }
-        #expect(model.memoryOptions == NewMachineModel.memoryOptionsMb)
+        let memoryOptions = [4_096, 8_192, 16_384, 24_576, 32_768, 65_536]
+        let vcpusByMemoryMb = Dictionary(uniqueKeysWithValues: memoryOptions.map { (String($0), max(1, $0 / 2_048)) })
+        let diskByMemoryMb = Dictionary(uniqueKeysWithValues: memoryOptions.map { (String($0), $0 * 4) })
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: plan,
+            memoryOptionsMb: memoryOptions,
+            vcpusByMemoryMb: vcpusByMemoryMb,
+            diskByMemoryMb: diskByMemoryMb,
+            defaultMemoryMb: 8_192
+        ) { _ in true }
+        #expect(model.memoryOptions == memoryOptions)
         #expect(model.lockedMemoryOptions.isEmpty)
         #expect(model.lockedSizesNoteText == nil)
     }
