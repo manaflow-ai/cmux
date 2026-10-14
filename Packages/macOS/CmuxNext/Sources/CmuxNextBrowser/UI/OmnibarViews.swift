@@ -124,8 +124,9 @@ final class OmnibarPillView: NSView {
         CATransaction.commit()
     }
 
-    /// `fade`: how a hover change shows (`ChromeHover.fade`); a state change
-    /// (editing, card) eases.
+    /// `fade`: how the ring shows on a hover change (`ChromeHover.fade`); a
+    /// state change (editing, card) eases. The fill eases in and out
+    /// (`ChromeHover.paint`).
     private func refresh(animated: Bool, fade: MotionFade? = .hover) {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
@@ -141,9 +142,10 @@ final class OmnibarPillView: NSView {
                     layer?.shadowColor = Palette.shadow.cgColor
                 } else if look.material == .transparent {
                     // Flat and clear: no fill at rest or while editing (the
-                    // ring shows focus), the hover lift, the opaque card top.
+                    // ring shows focus); on hover the toolbar buttons' see-through
+                    // hover fill, not the opaque lift; the opaque card top.
                     fill = switch state {
-                    case .idle: isHovering ? OmnibarStyle.barHoverFill : .clear
+                    case .idle: isHovering ? Palette.hoverFill : .clear
                     case .editing: .clear
                     case .card: OmnibarStyle.cardFill
                     }
@@ -153,7 +155,13 @@ final class OmnibarPillView: NSView {
                     case .editing, .card: OmnibarStyle.cardFill
                     }
                 }
-                layer?.backgroundColor = fill.cgColor
+                // The backing layer takes no implicit action, so the fill
+                // fades with an explicit animation: it eases between rest,
+                // hover and editing (Reduce Motion: at once); the card top
+                // shows at once with the card.
+                if let layer {
+                    ChromeHover.paint(layer, fill.alphaComponent > 0 ? fill : nil, animated: animated && state != .card, clearing: .hover)
+                }
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
             layer?.borderWidth = Metrics.lineWidth(ring)
