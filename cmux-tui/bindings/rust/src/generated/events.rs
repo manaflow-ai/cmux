@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2aa331c20b3e6ca393f281f5bf1ff219ba1c48d5e9ffceb4cca2b82ef05e14f5.
+// cmux-tui mux protocol 12, IR 3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -92,6 +92,24 @@ pub struct BrowserStateEvent {
     pub surface: T::Id,
     pub title: String,
     pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChiefChangedEventChange {
+    #[serde(rename = "created")]
+    Created,
+    #[serde(rename = "updated")]
+    Updated,
+    #[serde(rename = "deleted")]
+    Deleted,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefChangedEvent {
+    pub change: ChiefChangedEventChange,
+    pub chief: String,
 }
 
 #[rustfmt::skip]
@@ -897,6 +915,7 @@ pub enum Event {
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
+    ChiefChanged(ChiefChangedEvent),
     ClientAttached(ClientAttachedEvent),
     ClientChanged(ClientChangedEvent),
     ClientDetached(ClientDetachedEvent),
@@ -984,6 +1003,7 @@ impl Event {
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
+            Self::ChiefChanged(_) => Some("chief-changed"),
             Self::ClientAttached(_) => Some("client-attached"),
             Self::ClientChanged(_) => Some("client-changed"),
             Self::ClientDetached(_) => Some("client-detached"),
@@ -1070,6 +1090,7 @@ impl Event {
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
+            Self::ChiefChanged(_) => Some(&CHIEF_CHANGED_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
             Self::ClientChanged(_) => Some(&CLIENT_CHANGED_EVENT_METADATA),
             Self::ClientDetached(_) => Some(&CLIENT_DETACHED_EVENT_METADATA),
@@ -1195,6 +1216,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("browser-state") => match serde_json::from_value::<BrowserStateEvent>(raw.clone()) {
             Ok(event) => Event::BrowserState(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("chief-changed") => match serde_json::from_value::<ChiefChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ChiefChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

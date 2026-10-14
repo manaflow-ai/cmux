@@ -39,10 +39,11 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Map, Value, json};
 
 use super::{
-    ClientTransport, MessageWriter, Mux, ResourceError, ResourceOperation, send_resource_response,
+    ClientTransport, MessageWriter, Mux, MuxEvent, ResourceError, ResourceOperation,
+    send_resource_response,
 };
 use crate::chief_registry::{self, AvatarChange, ChiefStore, Refusal};
-use crate::conversation_store::LOCAL_USER;
+use crate::conversation_store::{ConversationEvent, LOCAL_USER};
 use crate::resource_router::ParsedResourceRequest;
 
 use ResourceOperation as Op;
@@ -73,6 +74,10 @@ enum Caller {
 
 /// The capability that names the person's page as a caller.
 pub const CHIEF_PROFILE_WS_CAPABILITY: &str = "chief-profile-ws-v1";
+
+/// The `chief-changed` event on `subscribe` (cx-ebm.60.4): Home and the
+/// Channels page redraw their Chiefs on it instead of polling.
+pub const CHIEF_EVENTS_CAPABILITY: &str = "chief-events-v1";
 
 pub(super) fn handle(
     mux: &Arc<Mux>,
@@ -264,6 +269,15 @@ fn mutate(
                 super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
             }
             if !replayed {
+                let change = match operation {
+                    Op::ChiefProfileCreate => "created",
+                    Op::ChiefProfileDelete => "deleted",
+                    _ => "updated",
+                };
+                mux.emit(MuxEvent::Conversation(Arc::new(ConversationEvent::Chief {
+                    chief: record.id.clone(),
+                    change,
+                })));
                 mux.chiefs().brains.chief_written(
                     &record,
                     operation == Op::ChiefProfileCreate,
