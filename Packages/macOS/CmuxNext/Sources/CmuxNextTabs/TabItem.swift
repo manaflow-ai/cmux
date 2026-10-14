@@ -40,6 +40,10 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// takes no hover card. A blank browser tab is not one (an incognito or
     /// app tab's record keeps about:blank while its page shows a site).
     public var isNewTabPage = false
+    /// The App's stand-in for a tab the store is still creating: the first
+    /// tab this strip has not shown takes its cell in place
+    /// (`TabStripView.adoptReplacements`), so a new tab is one element.
+    public var isProvisional = false
     /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?

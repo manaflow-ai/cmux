@@ -34,6 +34,7 @@ public struct TabItemMapping {
             status: status(tab)
         )
         item.isNewTabPage = isNewTabPage
+        item.isProvisional = ProvisionalTab.isProvisional(tab.id)
         if busy.state.replacesTabIcon { item.indicator = busy.state }
         item.busyStyle = busy.style
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
