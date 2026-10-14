@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -1534,6 +1535,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -3515,58 +3567,6 @@
       "title" : {
         "key" : "settings.computerUse.driver",
         "text" : "Computer Use Driver"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "privacy",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.freeModel",
-        "text" : "AI Models"
-      },
-      "help" : {
-        "key" : "settings.freeModel.enabled.help",
-        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "freeModel.enabled",
-      "keywords" : [
-        "ai",
-        "model",
-        "free",
-        "sign in",
-        "agents",
-        "models"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "freeModel",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : {
-        "key" : "settings.freeModel.enabled.summary",
-        "text" : "Free AI model while signed out"
-      },
-      "title" : {
-        "key" : "settings.freeModel.enabled",
-        "text" : "Free AI Model Without Sign-In"
       },
       "validation" : "portable"
     },
@@ -23532,7 +23532,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "500801fb8cd18e1a7b6cfd27819cf8052f8352c46c0ec241deb629be208146c1",
+  "schema_hash" : "79ba0b66fc126d687eb79e0c9bea69f92e4a99b526d0f57f793ab8fdb25479ac",
   "sections" : [
     {
       "id" : "general",
