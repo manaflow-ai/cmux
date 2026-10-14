@@ -18,7 +18,7 @@ import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
-import { DaemonGate, InstanceBar, type DaemonSource, type HostCredential } from "./DaemonGate";
+import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -57,9 +57,10 @@ export function mountDaemonHomeChannelsPage(
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <DaemonGate source={source} strings={strings}>
-        {(daemon, pages) => (
+        {(daemon) => (
+          // The Home is the whole surface: the instance bar (workspace count, New Workspace) is
+          // not part of the Channels view.
           <div className="hc-daemon">
-            <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
             <DaemonHome daemon={daemon} strings={strings} />
           </div>
         )}

@@ -34,6 +34,8 @@ export interface ComposerProps {
   /** Take the keyboard focus when it opens (an inline edit started from the keyboard). */
   focusOnOpen?: boolean;
   className?: string;
+  /** The quiet shape: one field, the format toolbar folded until Aa opens it. */
+  quiet?: boolean;
 }
 
 const FORMAT_GROUPS: ReadonlyArray<ReadonlyArray<{ format: MarkdownFormat; icon: HomeIconName; key: string }>> = [
@@ -70,10 +72,11 @@ export function Composer({
   onCancel,
   focusOnOpen,
   className,
+  quiet = false,
 }: ComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialValue);
-  const [showFormats, setShowFormats] = useState(true);
+  const [showFormats, setShowFormats] = useState(!quiet);
   const [active, setActive] = useState("");
   const [pop, setPop] = useState<Pop | undefined>();
   const [emoji, setEmoji] = useState<EmojiTable | undefined>();
@@ -122,7 +125,7 @@ export function Composer({
   return (
     <div
       ref={root}
-      className={`hc-composer${disabled ? " disabled" : ""}${editing ? " hc-edit" : ""}${className ? ` ${className}` : ""}`}
+      className={`hc-composer${quiet ? " quiet" : ""}${disabled ? " disabled" : ""}${editing ? " hc-edit" : ""}${className ? ` ${className}` : ""}`}
     >
       {showFormats && (
         <Toolbar label={t("format.toolbar")} className="hc-format">

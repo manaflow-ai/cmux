@@ -40,6 +40,12 @@ export interface MessageRowProps {
   parent?: HomeMessage;
   /** A link opened this message: it is marked (the timeline scrolls to it). */
   highlighted?: boolean;
+  /** The keyboard's message. */
+  focused?: boolean;
+  /** An optimistic send the owner has not shown yet ("sending"), or that failed. */
+  sendState?: "sending" | "failed";
+  onRetry?(id: string): void;
+  onDiscard?(id: string): void;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -62,6 +68,10 @@ export const MessageRow = memo(function MessageRow({
   depth = 0,
   parent,
   highlighted = false,
+  focused = false,
+  sendState,
+  onRetry,
+  onDiscard,
 }: MessageRowProps) {
   const { t, format } = strings;
   const author = people.get(message.author);
@@ -72,7 +82,8 @@ export const MessageRow = memo(function MessageRow({
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
   return (
     <article
-      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}`}
+      className={`hc-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${sendState ? ` ${sendState}` : ""}`}
+      data-message={message.id}
       aria-label={`${author?.name ?? message.author}, ${time}`}
       data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
     >
@@ -105,6 +116,17 @@ export const MessageRow = memo(function MessageRow({
         ) : (
           message.parts.map((part, index) => <Part key={index} part={part} strings={strings} />)
         )}
+        {sendState === "failed" && (
+          <div className="hc-send-failed" role="alert">
+            <span>{t("send.failed")}</span>
+            <button type="button" className="hc-link-button" onClick={() => onRetry?.(message.id)}>
+              {t("send.retry")}
+            </button>
+            <button type="button" className="hc-link-button" onClick={() => onDiscard?.(message.id)}>
+              {t("send.discard")}
+            </button>
+          </div>
+        )}
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
         )}
@@ -131,7 +153,7 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
       </div>
-      {!message.retracted && !editing && (
+      {!message.retracted && !editing && !sendState && (
         <MessageActions
           strings={strings}
           canEdit={canEdit}

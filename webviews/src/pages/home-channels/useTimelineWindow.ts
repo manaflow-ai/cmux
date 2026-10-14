@@ -112,6 +112,8 @@ export function useTimelineWindow(
   rows: readonly WindowRow[],
   conversation: string | undefined,
   focus?: string,
+  /** Where a newly opened conversation starts: its newest message, or its first (a thread). */
+  start: "bottom" | "top" = "bottom",
 ): TimelineWindow {
   const [metrics] = useState(() => new TimelineMetrics());
   const snapshot = useSyncExternalStore(metrics.subscribe, metrics.getSnapshot);
@@ -149,7 +151,9 @@ export function useTimelineWindow(
     if (conversation !== state.conversation) {
       const first = state.conversation === undefined;
       state.conversation = conversation;
-      state.atBottom = true;
+      state.atBottom = start === "bottom";
+      state.anchor = undefined;
+      if (start === "top") element.scrollTop = 0;
       // The new rows re-render from estimates and re-measure; this effect runs again after that.
       if (!first) metrics.reset();
     }

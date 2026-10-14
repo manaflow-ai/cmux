@@ -6,7 +6,8 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { DraftBook, type HomeDraft } from "./drafts";
-import { hashLink, mergeMessages, threadOf } from "./model";
+import { channelIds, hashLink, mergeMessages, threadOf } from "./model";
+import { indexEntries, type ThreadEdit, type ThreadEdits, type ThreadIndexEntry, type ThreadStatus } from "./threads";
 import {
   HomeOps,
   type HomeConversation,
@@ -27,6 +28,16 @@ const LINK_PAGES = 20;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
+
+/** A message I sent that the owner has not shown yet (an optimistic send). It shows at once,
+ * marked; the owner's copy (same client message id) replaces it, or it stays as "not sent". */
+export interface PendingSend {
+  message: HomeMessage;
+  state: "sending" | "failed";
+}
+
+/** Most channels whose threads the list reads ahead (for "N open threads") after the inbox loads. */
+const INDEX_AHEAD = 12;
 
 /** The open thread as the owner's thread read returned it (`cmux.home.thread`), kept current by
  * events. Absent on a host without the read: the panel shows the window's replies. */
@@ -67,6 +78,16 @@ export interface HomeSnapshot {
   /** The message a link opened: the timeline or thread panel scrolls to it and marks it. */
   highlight?: string;
   error?: string;
+  /** My sends the owner has not shown yet, oldest first. */
+  pending: readonly PendingSend[];
+  /** Participants writing right now (typing or a running reply), with the conversation. */
+  busy: ReadonlyMap<string, string>;
+  /** Thread status and owner edits (page memory until the owner stores thread fields). */
+  threadEdits: ThreadEdits;
+  /** Threads the page has read per conversation (the list's "N open threads"). */
+  threadIndex: ReadonlyMap<string, readonly ThreadIndexEntry[]>;
+  /** Client message ids of messages I started as a thread (a thread before its first reply). */
+  startedThreads: readonly string[];
 }
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
@@ -93,6 +114,11 @@ export class HomeChannelsStore {
       typing: [],
       threadsSeen: new Set(),
       threadStats: new Map(),
+      pending: [],
+      busy: new Map(),
+      threadEdits: new Map(),
+      threadIndex: new Map(),
+      startedThreads: [],
     };
   }
 
@@ -214,6 +240,7 @@ export class HomeChannelsStore {
       this.set({ me: inbox.me, conversations, connection: "online", loading: false, error: undefined });
       if (selected && selected !== this.snapshot.selected) await this.select(selected);
       else if (selected) await this.reloadPage(selected);
+      void this.readAhead();
     } catch (error) {
       this.set({ error: describe(error), loading: false });
     }
@@ -268,6 +295,8 @@ export class HomeChannelsStore {
         unseen,
         draft: this.drafts.draft(id),
         threadStats: withStats(this.snapshot.threadStats, page.threads),
+        threadIndex: withIndex(this.snapshot.threadIndex, id, indexEntries(page.messages, page.threads)),
+        pending: this.settled(messages),
       });
       this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
@@ -293,6 +322,7 @@ export class HomeChannelsStore {
         messages: merged,
         hasOlder: older.messages.length === PAGE && (merged[0]?.seq ?? 1) > 1,
         threadStats: withStats(this.snapshot.threadStats, older.threads),
+        threadIndex: withIndex(this.snapshot.threadIndex, selected, indexEntries(older.messages, older.threads)),
       });
     } catch (error) {
       this.set({ error: describe(error) });
@@ -334,6 +364,7 @@ export class HomeChannelsStore {
       this.set({
         threadView: { root, messages, hasMore: page.hasMore, loading: false },
         threadStats: withStats(this.snapshot.threadStats, [page.thread]),
+        pending: this.settled(messages),
       });
     } catch (error) {
       if (!current()) return;
@@ -345,22 +376,110 @@ export class HomeChannelsStore {
 
   /** Sends text to the open conversation, or in the open thread as a reply to `parent` (the root
    * or any reply: threads nest without a limit). The owner's event shows it. */
-  async send(text: string, thread?: string, parent?: string): Promise<boolean> {
+  async send(text: string, thread?: string, parent?: string, asThread = false): Promise<boolean> {
     const conversation = this.snapshot.selected;
     const trimmed = text.trim();
-    if (!this.client || !conversation || !trimmed) return false;
+    const me = this.snapshot.me?.id;
+    if (!this.client || !conversation || !trimmed || !me) return false;
+    // Optimistic: the message shows at once; the owner's copy (same key) replaces it.
+    const key = this.key("send");
+    const message: HomeMessage = {
+      id: `pending:${key}`,
+      conversation,
+      seq: Number.MAX_SAFE_INTEGER - 1_000_000 + this.nextKey,
+      author: me,
+      createdAt: Date.now(),
+      retracted: false,
+      parts: [{ type: "text", text: trimmed, mentions: [] }],
+      reactions: [],
+      clientMessageId: key,
+    };
+    if (thread) message.threadRoot = thread;
+    if (parent) message.replyTo = { message: parent, partIndex: 0 };
+    this.set({
+      pending: [...this.snapshot.pending, { message, state: "sending" }],
+      ...(asThread ? { startedThreads: [...this.snapshot.startedThreads, key] } : {}),
+    });
+    void this.deliver(message);
+    return true;
+  }
+
+  /** Sends one pending message to the owner; a failure keeps it as "not sent" (Retry sends again
+   * with the same key, so the owner never takes it twice). */
+  private async deliver(message: HomeMessage): Promise<void> {
+    if (!this.client) return;
+    const part = message.parts[0];
     try {
       await this.client.call(HomeOps.send, {
-        conversation,
-        text: trimmed,
-        threadRoot: thread,
-        replyTo: parent,
-        idempotencyKey: this.key("send"),
+        conversation: message.conversation,
+        text: part?.type === "text" ? part.text : "",
+        threadRoot: message.threadRoot,
+        replyTo: message.replyTo?.message,
+        idempotencyKey: message.clientMessageId,
       });
-      return true;
     } catch (error) {
-      this.set({ error: describe(error) });
-      return false;
+      this.set({
+        error: describe(error),
+        pending: this.snapshot.pending.map((p) => (p.message.id === message.id ? { ...p, state: "failed" } : p)),
+      });
+    }
+  }
+
+  retrySend(id: string): void {
+    const entry = this.snapshot.pending.find((p) => p.message.id === id);
+    if (!entry) return;
+    this.set({ pending: this.snapshot.pending.map((p) => (p.message.id === id ? { ...p, state: "sending" } : p)) });
+    void this.deliver(entry.message);
+  }
+
+  discardSend(id: string): void {
+    this.set({ pending: this.snapshot.pending.filter((p) => p.message.id !== id) });
+  }
+
+  /** The pending sends the owner has not shown in `messages` yet. */
+  private settled(messages: readonly HomeMessage[]): readonly PendingSend[] {
+    if (this.snapshot.pending.length === 0) return this.snapshot.pending;
+    const me = this.snapshot.me?.id;
+    const keys = new Set(messages.filter((m) => m.author === me).map((m) => m.clientMessageId));
+    const left = this.snapshot.pending.filter((p) => !keys.has(p.message.clientMessageId));
+    return left.length === this.snapshot.pending.length ? this.snapshot.pending : left;
+  }
+
+  /** Resolves or reopens a thread (page memory until the owner stores thread fields). */
+  setThreadStatus(root: string, status: ThreadStatus): void {
+    this.editThread(root, { status });
+  }
+
+  /** Gives a thread to a participant (page memory until the owner stores thread fields). */
+  setThreadOwner(root: string, owner: string): void {
+    this.editThread(root, { owner });
+  }
+
+  private editThread(root: string, edit: ThreadEdit): void {
+    const next = new Map(this.snapshot.threadEdits);
+    next.set(root, { ...next.get(root), ...edit });
+    this.set({ threadEdits: next });
+  }
+
+  /** Reads the newest page of the channels the list shows, for their thread counts. Bounded, once
+   * per inbox load, and never for the open conversation (its page is read anyway). */
+  private async readAhead(): Promise<void> {
+    if (!this.client) return;
+    const conversations = [...this.snapshot.conversations.values()];
+    const channels = channelIds(conversations, this.snapshot.me?.id);
+    const order = conversations
+      .filter((c) => channels.has(c.id) && c.id !== this.snapshot.selected && !this.snapshot.threadIndex.has(c.id))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, INDEX_AHEAD);
+    for (const conversation of order) {
+      try {
+        const page = await this.client.call<HomePage>(HomeOps.page, { conversation: conversation.id, tail: PAGE });
+        this.set({
+          threadIndex: withIndex(this.snapshot.threadIndex, conversation.id, indexEntries(page.messages, page.threads)),
+        });
+      } catch {
+        return;
+      }
     }
   }
 
@@ -479,6 +598,14 @@ export class HomeChannelsStore {
       conversations.delete(id);
     }
     if (conversations) patch.conversations = conversations;
+    const busy = nextBusy(this.snapshot.busy, batch);
+    if (busy) patch.busy = busy;
+    if (batch.messages?.length) {
+      const pending = this.settled(batch.messages);
+      if (pending !== this.snapshot.pending) patch.pending = pending;
+      const index = indexReplies(this.snapshot.threadIndex, batch.messages);
+      if (index) patch.threadIndex = index;
+    }
     const selected = this.snapshot.selected;
     const incoming = (batch.messages ?? []).filter((message) => message.conversation === selected);
     if (incoming.length > 0) patch.messages = mergeMessages(this.snapshot.messages, incoming, WINDOW);
@@ -522,6 +649,53 @@ export class HomeChannelsStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The index with one conversation's entries merged in (a later read wins per root). */
+function withIndex(
+  current: ReadonlyMap<string, readonly ThreadIndexEntry[]>,
+  conversation: string,
+  entries: readonly ThreadIndexEntry[],
+): ReadonlyMap<string, readonly ThreadIndexEntry[]> {
+  const byRoot = new Map((current.get(conversation) ?? []).map((entry) => [entry.root, entry]));
+  for (const entry of entries) byRoot.set(entry.root, entry);
+  return new Map(current).set(conversation, [...byRoot.values()]);
+}
+
+/** New replies counted into the index of conversations the page has read. */
+function indexReplies(
+  current: ReadonlyMap<string, readonly ThreadIndexEntry[]>,
+  messages: readonly HomeMessage[],
+): ReadonlyMap<string, readonly ThreadIndexEntry[]> | undefined {
+  let next: Map<string, readonly ThreadIndexEntry[]> | undefined;
+  for (const message of messages) {
+    const root = threadOf(message);
+    const list = (next ?? current).get(message.conversation);
+    if (!root || !list || message.editedAt) continue;
+    const found = list.find((entry) => entry.root === root);
+    const entry = found
+      ? { ...found, replyCount: found.replyCount + 1, lastAt: message.createdAt }
+      : { root, author: "", replyCount: 1, lastAt: message.createdAt };
+    next ??= new Map(current);
+    next.set(message.conversation, [...list.filter((e) => e.root !== root), entry]);
+  }
+  return next;
+}
+
+/** Who is writing now, across every conversation: typing and running replies. */
+function nextBusy(current: ReadonlyMap<string, string>, batch: HomeEventBatch): Map<string, string> | undefined {
+  if (!batch.typing?.length && !batch.drafts?.length && !batch.connection) return undefined;
+  const next = new Map(batch.connection === "offline" ? [] : current);
+  for (const item of batch.drafts ?? []) {
+    if (item.done) next.delete(item.participant);
+    else next.set(item.participant, item.conversation);
+  }
+  for (const entry of batch.typing ?? []) {
+    if (entry.on) next.set(entry.participant, entry.conversation);
+    else next.delete(entry.participant);
+  }
+  for (const message of batch.messages ?? []) if (!message.editedAt) next.delete(message.author);
+  return next;
 }
 
 /** The stats map with these owner stats replacing the roots they name. */

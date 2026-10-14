@@ -45,7 +45,8 @@ function participant(raw: Json): HomeParticipant {
   return {
     id: String(raw.id),
     kind: raw.kind === "agent" ? "agent" : "human",
-    name: chief ? "Chief" : String(raw.display_name ?? raw.id),
+    // Several Chiefs can share a Home, each with its own name; an unnamed one is "Chief".
+    name: String(raw.display_name ?? (chief ? "Chief" : raw.id)),
     chief,
   };
 }
@@ -149,6 +150,7 @@ export function conversation(raw: Json, me: string): HomeConversation {
   };
   const text = plain(last);
   if (text !== undefined) result.lastText = text;
+  if (last && typeof last.author === "string") result.lastAuthor = last.author;
   return result;
 }
 

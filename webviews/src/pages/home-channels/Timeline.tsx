@@ -32,6 +32,14 @@ export interface TimelineProps {
   className?: string;
   /** What the empty timeline says. */
   empty?: string;
+  /** The keyboard's message (marked, scrolled into view). */
+  focused?: string;
+  /** My optimistic sends in these rows, by message id. */
+  pending?: ReadonlyMap<string, "sending" | "failed">;
+  onRetry?(id: string): void;
+  onDiscard?(id: string): void;
+  /** A thread reads from its first message; a conversation opens at its newest. */
+  start?: "bottom" | "top";
 }
 
 const estimate = (row: TimelineRow) =>
@@ -57,6 +65,11 @@ export function Timeline({
   highlight,
   className,
   empty,
+  focused,
+  pending,
+  onRetry,
+  onDiscard,
+  start = "bottom",
 }: TimelineProps) {
   const timeFormat = useMemo(
     () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
@@ -68,7 +81,7 @@ export function Timeline({
   );
   const sized = useMemo(() => rows.map((row) => ({ key: row.key, estimate: estimate(row) })), [rows]);
   // Destructured: `scroller` alone is the ref; the rest are plain render values.
-  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight);
+  const { items, total, scroller, measure, onScroll } = useTimelineWindow(sized, conversation, highlight ?? focused, start);
   if (rows.length === 0)
     return <div className={`hc-timeline-empty ${className ?? ""}`}>{empty ?? strings.t("timeline.empty")}</div>;
   return (
@@ -133,6 +146,10 @@ export function Timeline({
                     depth={row.depth}
                     parent={row.parent}
                     highlighted={row.message.id === highlight}
+                    focused={row.message.id === focused}
+                    sendState={pending?.get(row.message.id)}
+                    onRetry={onRetry}
+                    onDiscard={onDiscard}
                   />
                 )}
               </div>

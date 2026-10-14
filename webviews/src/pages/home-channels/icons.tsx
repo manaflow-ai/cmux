@@ -20,7 +20,15 @@ export type HomeIconName =
   | "addReaction"
   | "more"
   | "close"
-  | "chevronRight";
+  | "chevronRight"
+  | "chevronDown"
+  | "compose"
+  | "search"
+  | "back"
+  | "statusOpen"
+  | "statusResolved"
+  | "threads"
+  | "timeline";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -88,6 +96,26 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   ),
   close: <path d="M5 5l10 10M15 5 5 15" />,
   chevronRight: <path d="m8 5 5 5-5 5" />,
+  chevronDown: <path d="m5.5 8 4.5 4.5L14.5 8" />,
+  compose: <path d="M10.5 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16h9a1.5 1.5 0 0 0 1.5-1.5v-5M14.5 3.5l2 2L10 12l-2.6.6L8 10z" />,
+  search: (
+    <>
+      <circle cx="9" cy="9" r="5" />
+      <path d="m13 13 3.5 3.5" />
+    </>
+  ),
+  back: <path d="M12 5 7 10l5 5" />,
+  statusOpen: <circle cx="10" cy="10" r="6" />,
+  statusResolved: (
+    <>
+      <circle cx="10" cy="10" r="6.75" fill="currentColor" stroke="none" />
+      <path d="m7 10.2 2 2 4-4.4" stroke="var(--hc-on-text)" strokeWidth="1.8" />
+    </>
+  ),
+  threads: <path d="M4 5.5h12M4 10h12M4 14.5h7" />,
+  timeline: (
+    <path d="M5 5.5A1.5 1.5 0 0 1 6.5 4h7A1.5 1.5 0 0 1 15 5.5v6a1.5 1.5 0 0 1-1.5 1.5H9.5L6.5 16v-3h0A1.5 1.5 0 0 1 5 11.5z" />
+  ),
 };
 
 export function HomeIcon({ name, size = 20 }: { name: HomeIconName; size?: number }) {

@@ -68,13 +68,14 @@ export default componentEntry<Props>({
   covers: [
     "page:cmux.home-channels",
     "pages/home-channels/HomeChannelsPage.tsx#HomeChannelsPage",
-    "pages/home-channels/Rail.tsx#Rail",
+    "pages/home-channels/ConversationList.tsx#ConversationList",
     "pages/home-channels/Timeline.tsx#Timeline",
     "pages/home-channels/MessageRow.tsx#MessageRow",
     "pages/home-channels/Avatar.tsx#Avatar",
     "pages/home-channels/Composer.tsx#Composer",
-    "pages/home-channels/ThreadPanel.tsx#ThreadPanel",
-    "pages/home-channels/Switcher.tsx#Switcher",
+    "pages/home-channels/WorkThreadView.tsx#WorkThreadView",
+    "pages/home-channels/ThreadsList.tsx#ThreadsList",
+    "pages/home-channels/Palette.tsx#Palette",
     "pages/home-channels/MessageActions.tsx#MessageActions",
     "pages/home-channels/EmojiPicker.tsx#EmojiPicker",
     "pages/home-channels/AddChannel.tsx#AddChannel",
@@ -123,7 +124,7 @@ export default componentEntry<Props>({
       props: { select: "c-release" },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
       },
@@ -140,7 +141,7 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("rev", { selector: switcherField });
@@ -152,7 +153,7 @@ export default componentEntry<Props>({
       props: { select: "c-release" },
       checks: { longFrameFailMs: openFrame },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail"));
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-list"));
         await ctx.press("Meta+k");
         await ctx.waitFor(() => switcherOpen(ctx));
         await ctx.type("zzzz", { selector: switcherField });
@@ -256,8 +257,8 @@ export default componentEntry<Props>({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".hc-rail-add"));
-        await ctx.click({ selector: ".hc-rail-add" });
+        await ctx.waitFor(() => ctx.document.querySelector(".hc-list-header .hc-icon-button"));
+        await ctx.click({ selector: ".hc-list-header .hc-icon-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".hc-add-channel input"));
         await ctx.type("launch", { selector: ".hc-add-channel input" });
       },

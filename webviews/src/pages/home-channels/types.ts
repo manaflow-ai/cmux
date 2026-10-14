@@ -50,6 +50,8 @@ export interface HomeConversation {
   muted: boolean;
   pinned: boolean;
   lastText?: string;
+  /** Who wrote the last message (a Chief waiting on me, a row's preview author). */
+  lastAuthor?: string;
 }
 
 export interface HomeMention {
