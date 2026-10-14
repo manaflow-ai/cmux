@@ -140,8 +140,9 @@ public final class AgentChatSurface {
         switch command {
         case .chatSend(let prompt):
             Task {
-                composerFocused = true
-                try? await Task.sleep(for: .milliseconds(500))
+                // Text goes into the composer without focusing it: a raised keyboard on a
+                // fresh simulator shows the system's swipe-typing tip over the composer.
+                // The composer expands because it has content.
                 for character in prompt {
                     text.append(character)
                     try? await Task.sleep(for: .milliseconds(28))
@@ -149,7 +150,6 @@ public final class AgentChatSurface {
                 try? await Task.sleep(for: .milliseconds(400))
                 store.send(prompt: text)
                 text = ""
-                composerFocused = false
             }
         case .chatScroll(let toTop):
             following = !toTop
