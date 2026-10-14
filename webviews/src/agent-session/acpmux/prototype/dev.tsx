@@ -1,4 +1,6 @@
 // Sidebar prototype entry (prototype.html), dev server only; the shipped pane never imports it.
+// desktop.css first, as in the bundle: it defines the shared tokens (the elevation scale).
+import "../../../pages/shared/desktop.css";
 import "../../shared/styles.css";
 import "../styles.css";
 import "../conversation/conversation.css";

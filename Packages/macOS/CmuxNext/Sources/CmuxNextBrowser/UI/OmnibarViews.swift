@@ -113,9 +113,11 @@ final class OmnibarPillView: NSView {
         layer?.cornerRadius = radius
         glass?.cornerRadius = radius
         if look.shadow && drawsGlass && state != .card {
-            layer?.shadowOpacity = 0.18
-            layer?.shadowRadius = 6
-            layer?.shadowOffset = CGSize(width: 0, height: -1)
+            // The raised elevation step (PopupStyle.elevation2), as every floating surface.
+            let elevation = PopupStyle.elevation2
+            layer?.shadowOpacity = Float(elevation.alpha)
+            layer?.shadowRadius = elevation.layerRadius
+            layer?.shadowOffset = elevation.layerOffset()
             layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
         } else {
             layer?.shadowOpacity = 0
@@ -184,9 +186,10 @@ final class OmnibarCardTopView: NSView {
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         // The one popup shadow (PopupStyle), as the panel of rows below.
-        card.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
-        card.shadowRadius = PopupStyle.standard.shadowBlur / 2 // CA radius ≈ half a CSS blur (PopupHostView)
-        card.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
+        let elevation = PopupStyle.elevation2
+        card.shadowOpacity = Float(elevation.alpha)
+        card.shadowRadius = elevation.layerRadius
+        card.shadowOffset = elevation.layerOffset()
         layer?.addSublayer(card)
         refresh()
     }
