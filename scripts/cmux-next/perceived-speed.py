@@ -51,6 +51,7 @@ SURFACES = {
     "palette": {"key": ["p", ["command", "shift"]], "after": ["escape", []]},
     "terminal": {"action": "newTab.ofKind", "args": {"kind": "terminal"}, "after": ["w", ["command"]]},
     "browser": {"action": "newTab.ofKind", "args": {"kind": "browser"}, "after": ["w", ["command"]]},
+    "whats-new": {"action": "updates.whatsNew", "after": ["w", ["command"]]},
     "workspace-switch": {"prep": ["n", ["command"]], "key": ["1", ["command"]], "after": None},
 }
 
