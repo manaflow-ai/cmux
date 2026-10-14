@@ -148,7 +148,7 @@ struct SubagentBeside {
     /// The tiled stack's panes in the layout of its first pane's workspace: a pane of a tiled tab,
     /// unless it also holds a chat that isn't tiled (the chat's own pane). A tiled tab moved to
     /// another workspace, or a pane the layout doesn't list yet, is left out.
-    private static func stack(_ session: String, services: AppServices) -> (LayoutModel, Set<LayoutPaneID>)? {
+    private static func stack(_ session: String, services: AppServices) -> (model: LayoutModel, panes: Set<LayoutPaneID>)? {
         let tabs = services.agentTabs
         let keys = AgentSubagentPanes.session(session).tiled(isOpen: { tabs.locate($0) != nil }).map { tabs.resolve($0) }
         let panes = keys.compactMap { services.locateTab($0)?.1 }
