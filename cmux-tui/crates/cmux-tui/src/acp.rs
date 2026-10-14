@@ -173,6 +173,41 @@ pub(crate) fn daemon_acpmux_starter() -> Option<cmux_tui_core::server::AcpmuxSta
     }))
 }
 
+/// How the session daemon hands the machine's acpmux off to this binary's
+/// build before an `agent-update-apply` (`agent-update-v1`): this binary's
+/// `acp daemon shutdown --keep-agents` (agents keep running) and then `acp
+/// daemon start` with the home [`daemon_acpmux_starter`] uses, whose acpmux
+/// adopts them; with this binary's acpmux build, which the daemon compares to
+/// the running one. None with `ACPMUX_SOCKET`, as the starter.
+#[cfg(unix)]
+pub(crate) fn daemon_acpmux_handoff() -> Option<(String, cmux_tui_core::server::AcpmuxHandoff)> {
+    if env_value("ACPMUX_SOCKET").is_some() {
+        return None;
+    }
+    let home = daemon_acpmux_home()?;
+    let exe = std::env::current_exe().ok()?;
+    let start = daemon_acpmux_starter()?;
+    let handoff: cmux_tui_core::server::AcpmuxHandoff = std::sync::Arc::new(move || {
+        let mut command = std::process::Command::new(&exe);
+        for name in TERMINAL_IDENTITY_ENV {
+            command.env_remove(name);
+        }
+        let status = command
+            .env("ACPMUX_HOME", &home)
+            .args(["acp", "daemon", "shutdown", "--keep-agents"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|error| format!("acpmux daemon shutdown: {error}"))?;
+        if !status.success() {
+            return Err(format!("acpmux daemon shutdown exited with {status}"));
+        }
+        start()
+    });
+    Some((acpmux::hub::BUILD.to_owned(), handoff))
+}
+
 /// The cmux terminal a process runs in; a detached acpmux has none (the
 /// same claims the detached owner drops, local_owner.rs; socket and config
 /// variables stay).
