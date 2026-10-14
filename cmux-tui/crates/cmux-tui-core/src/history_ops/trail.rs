@@ -13,7 +13,8 @@
 //! - the same place (machine and tab) as the newest entry refreshes it;
 //! - with `steps: workspaces` (the default, `navigation.history.steps`), a
 //!   location in the newest entry's sidebar item (the same top page, or the
-//!   same workspace on the same machine) replaces that entry's place;
+//!   same workspace on the same machine) replaces that entry's place, unless
+//!   the step is a `jump`;
 //! - a quick pass: when the newest entry was entered less than
 //!   [`COALESCE_MS`] before this step (and the step is no `jump`), the newest
 //!   entry is dropped; when the entry before it is this place, that entry is
@@ -135,7 +136,10 @@ impl TrailDocument {
         let Step { window, location, at_ms, workspace_steps, jump } = step;
         if let Some(newest) = self.entries.last_mut() {
             let same_place = newest.place() == place(&location);
-            if same_place || (workspace_steps && same_sidebar_item(&newest.location, &location)) {
+            // A jump is the base rule only (Swift `recordJump`): never a sidebar replace.
+            let sidebar =
+                workspace_steps && !jump && same_sidebar_item(&newest.location, &location);
+            if same_place || sidebar {
                 let changed = newest.location != location || newest.window != window;
                 newest.location = location;
                 window.clone_into(&mut newest.window);
