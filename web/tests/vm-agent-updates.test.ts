@@ -316,19 +316,11 @@ function shimmedEnv(g: Guest): NodeJS.ProcessEnv {
   return { ...g.env, PATH: `${g.env.PATH}:${shims}` };
 }
 
-/** A clone marker in `g`'s tree whose mtime is `offsetSeconds` from now. */
-function cloneMarker(g: Guest, offsetSeconds: number): string {
-  const marker = path.join(g.root, "clone-started");
-  writeFileSync(marker, "");
-  const at = Date.now() / 1000 + offsetSeconds;
-  utimesSync(marker, at, at);
-  return marker;
-}
-
 /**
- * Stand-ins for `date +%s` and `sleep`, first on PATH: a sleep advances the
- * fake clock instead of waiting (plus `jumpOnFirstSleep`, a snapshot resume)
- * and records how many GitHub calls had been made before it.
+ * Stand-ins for `date +%s` and `sleep`, first on PATH. `date +%s` reads a
+ * fixed epoch plus the fake clock's offset, never the real clock; a sleep
+ * advances the offset instead of waiting (plus `jumpOnFirstSleep`, a snapshot
+ * resume) and records how many GitHub calls had been made before it.
  */
 function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
   const dir = path.join(g.root, "clock");
@@ -337,9 +329,10 @@ function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
   if (opts.jumpOnFirstSleep) writeFileSync(path.join(dir, "jump"), `${opts.jumpOnFirstSleep}\n`);
   const calls = path.join(g.github, "calls.log");
   const realDate = existsSync("/bin/date") ? "/bin/date" : "/usr/bin/date";
+  const epoch = 1_800_000_000;
   writeFileSync(path.join(dir, "date"), [
     "#!/bin/sh",
-    `if [ "$#" = 1 ] && [ "$1" = "+%s" ]; then echo $(( $(${realDate} +%s) + $(cat '${dir}/offset') )); else exec ${realDate} "$@"; fi`,
+    `if [ "$#" = 1 ] && [ "$1" = "+%s" ]; then echo $(( ${epoch} + $(cat '${dir}/offset') )); else exec ${realDate} "$@"; fi`,
     "",
   ].join("\n"));
   writeFileSync(path.join(dir, "sleep"), [
@@ -354,6 +347,13 @@ function fakeClock(g: Guest, opts: { jumpOnFirstSleep?: number } = {}) {
   chmodSync(path.join(dir, "sleep"), 0o755);
   return {
     env: { ...g.env, PATH: `${dir}:${g.env.PATH}` },
+    /** A clone marker in `g`'s tree written `offsetSeconds` from the fake clock's start. */
+    marker(offsetSeconds: number): string {
+      const marker = path.join(g.root, "clone-started");
+      writeFileSync(marker, "");
+      utimesSync(marker, epoch + offsetSeconds, epoch + offsetSeconds);
+      return marker;
+    },
     sleeps(): { seconds: number; fetchedBefore: number }[] {
       const file = path.join(dir, "sleeps");
       if (!existsSync(file)) return [];
@@ -399,7 +399,7 @@ describe("guest agent updates", () => {
     // Off the daemon's start on a resumed clone, and at idle priority.
     expect(latest).toContain(GUEST_CLONE_STARTED_MARKER);
     expect(latest).toContain("nice -n 19");
-    expect(latest).toContain("ionice -c 3");
+    expect(latest).toContain("ionice -t -c 3");
     expect(latest).toContain(GUEST_AGENT_UPDATES_LOG);
     // Root runs it directly; the work user goes through passwordless sudo.
     expect(latest.startsWith(`if [ "$(id -u)" = 0 ]; then sh -c `)).toBe(true);
@@ -442,14 +442,12 @@ describe("guest agent updates", () => {
     const g = await guest();
     publish(g, "codex", "2.0.0");
     const clock = fakeClock(g);
-    const marker = cloneMarker(g, 0);
+    const marker = clock.marker(0);
     const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(/update: waiting (59\d|600)s for the resumed machine to settle/);
+    expect(result.stdout).toContain(`update: waiting ${GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS}s for the resumed machine to settle`);
     const sleeps = clock.sleeps();
-    expect(sleeps).toHaveLength(1);
-    expect(sleeps[0]!.seconds).toBeGreaterThanOrEqual(590);
-    expect(sleeps[0]!.fetchedBefore).toBe(0);
+    expect(sleeps).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
     expect(state(g)).toMatchObject({ ok: true, versions: { codex: "2.0.0" } });
   });
 
@@ -457,7 +455,7 @@ describe("guest agent updates", () => {
     const g = await guest();
     publish(g, "codex", "2.0.0");
     const clock = fakeClock(g, { jumpOnFirstSleep: 3600 });
-    const marker = cloneMarker(g, 0);
+    const marker = clock.marker(0);
     const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
     expect(result.status).toBe(0);
     const sleeps = clock.sleeps();
@@ -470,7 +468,7 @@ describe("guest agent updates", () => {
     const g = await guest();
     publish(g, "codex", "2.0.0");
     const clock = fakeClock(g);
-    const marker = cloneMarker(g, 6 * 3600);
+    const marker = clock.marker(6 * 3600);
     const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...launchPaths(g, ""), cloneStartedMarker: marker })], { env: clock.env });
     expect(result.status).toBe(0);
     expect(clock.sleeps()).toEqual([{ seconds: GUEST_AGENT_UPDATES_RESUME_WINDOW_SECONDS, fetchedBefore: 0 }]);
@@ -483,7 +481,7 @@ describe("guest agent updates", () => {
       publish(g, "codex", "2.0.0");
       const clock = fakeClock(g);
       const paths = launchPaths(g, "");
-      const marker = age === null ? paths.cloneStartedMarker : cloneMarker(g, age);
+      const marker = age === null ? paths.cloneStartedMarker : clock.marker(age);
       const result = await runChild("sh", ["-c", guestAgentUpdaterLaunchScript({ ...paths, cloneStartedMarker: marker })], { env: clock.env });
       expect(result.status).toBe(0);
       expect(result.stdout).not.toContain("waiting");

@@ -577,8 +577,9 @@ const GUEST_AGENT_UPDATES_PATHS: GuestAgentUpdatesPaths = {
 
 /**
  * The detached updater run: wait out the resume window, then run the updater
- * at low priority (nice 19, plus ionice's idle class, which only BFQ honors;
- * the window is the real protection). The window is measured from the clone
+ * at low priority (nice 19, plus ionice's idle class when ionice is present;
+ * only BFQ honors that class, and -t runs the updater even if it cannot be
+ * set; the window is the real protection). The window is measured from the clone
  * marker's mtime and re-read after every wait. Two clock hazards are handled:
  *   * A fork or checkpoint taken while this waits resumes with its clocks
  *     jumped, so the sleep returns at once, possibly before the fork's boot
@@ -610,7 +611,7 @@ export function guestAgentUpdaterLaunchScript(paths: GuestAgentUpdatesPaths = GU
     `if [ $((woke - now)) -gt $((left + ${GUEST_AGENT_UPDATES_RESUME_JUMP_SLACK_SECONDS})) ]; then since=$woke; fi`,
     `done`,
     `io=""`,
-    `if command -v ionice >/dev/null 2>&1; then io="ionice -c 3"; fi`,
+    `if command -v ionice >/dev/null 2>&1; then io="ionice -t -c 3"; fi`,
     `exec nice -n 19 $io ${guestAgentUpdaterCommand(paths.configDir, paths.updater)}`,
   ].join("\n");
 }
