@@ -1735,6 +1735,55 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testFocusShortcutToggleRestoresFocusedTerminalAndHidesRightSidebar() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try XCTUnwrap(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try XCTUnwrap(mainWindow(for: windowId))
+            let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try XCTUnwrap(manager.selectedWorkspace)
+            let panelId = try XCTUnwrap(workspace.focusedPanelId)
+            let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
+            let context = try XCTUnwrap(appDelegate.mainWindowContext(for: manager))
+            let fileExplorerState = try XCTUnwrap(context.fileExplorerState)
+            let controller = try XCTUnwrap(appDelegate.keyboardFocusCoordinator(for: window))
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            terminalPanel.hostedView.setVisibleInUI(true)
+            terminalPanel.hostedView.setActive(true)
+            await startAndWaitForLiveSurface(terminalPanel.surface)
+            let terminalFocused = await appDelegate.focusTerminalForTesting(
+                terminalPanel,
+                workspace: workspace,
+                in: window
+            )
+            XCTAssertTrue(terminalFocused)
+            XCTAssertTrue(window.firstResponder === terminalPanel.hostedView.surfaceView)
+
+            XCTAssertTrue(
+                controller.toggleRightSidebarOrTerminalFocus(
+                    mode: .sessions,
+                    focusFirstItem: false
+                )
+            )
+            XCTAssertTrue(fileExplorerState.isVisible)
+            XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+
+            XCTAssertTrue(controller.toggleRightSidebarOrTerminalFocus())
+            XCTAssertFalse(fileExplorerState.isVisible)
+            XCTAssertEqual(workspace.focusedPanelId, panelId)
+            XCTAssertEqual(
+                controller.intent,
+                .mainPanel(workspaceId: workspace.id, panelId: panelId)
+            )
+            XCTAssertTrue(window.firstResponder === terminalPanel.hostedView.surfaceView)
+        }
+    }
+
+    @MainActor
     func testHostedTerminalDescendantClearsRightSidebarIntentOnFocusSync() {
         let workspaceId = UUID()
         let surface = TerminalSurface(
@@ -1762,6 +1811,29 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
 
         XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
         XCTAssertEqual(controller.focusToggleDestination(currentResponder: descendant), .rightSidebar)
+    }
+
+    private func startAndWaitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previousOnRuntimeReady = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previousOnRuntimeReady }
+        let readiness = AsyncStream<Void> { continuation in
+            surface.onRuntimeReady = {
+                previousOnRuntimeReady?()
+                continuation.yield()
+                continuation.finish()
+            }
+        }
+        surface.requestInputDemandSurfaceStartIfNeeded()
+        for await _ in readiness { break }
+    }
+
+    private func mainWindow(for windowId: UUID) -> NSWindow? {
+        AppDelegate.shared?.windowForMainWindowId(windowId)
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        mainWindow(for: windowId)?.close()
     }
 }
 
