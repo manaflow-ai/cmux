@@ -24,6 +24,27 @@ import Testing
         init(_ on: Bool) { self.on = on }
     }
 
+    static func npSignals(_ tag: String) {
+        var text = "NPDIAG signals \(tag):"
+        for sig in [SIGTERM, SIGINT, SIGHUP, SIGQUIT, SIGUSR1, SIGUSR2, SIGPIPE] {
+            var old = sigaction()
+            sigaction(sig, nil, &old)
+            let handler = unsafeBitCast(old.__sigaction_u.__sa_handler, to: Int.self)
+            text += " \(sig)=\(handler)"
+            if handler > 1 {
+                var info = Dl_info()
+                if dladdr(UnsafeRawPointer(bitPattern: handler), &info) != 0, let name = info.dli_sname { text += "(\(String(cString: name)))" }
+                if let file = info.dli_fname { text += "[\(String(cString: file).split(separator: "/").last ?? "")]" }
+            }
+        }
+        FileHandle.standardError.write(Data((text + "\n").utf8))
+    }
+    static let npDiag: Void = {
+        npSignals("start")
+        atexit { NowPlayingCardTests.npSignals("atexit") }
+    }()
+    init() { _ = Self.npDiag; Self.npSignals("test") }
+
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     /// An 8 pt square of color, as PNG.
