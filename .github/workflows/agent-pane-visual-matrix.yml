@@ -1,0 +1,40 @@
+name: Agent pane visual matrix
+
+on:
+  pull_request:
+    paths:
+      - 'webviews/src/agent-session/**'
+      - 'webviews/scripts/agent-pane/**'
+      - '.github/workflows/agent-pane-visual-matrix.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        case_group: [streaming-dark-normal, queue-steer-light-normal, pr-chip-dark-normal, permission-dark-narrow, images-light-normal, wallpaper-dark-wide]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: webviews/package.json
+      - run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: webviews
+      - run: bunx playwright install --with-deps chromium
+        working-directory: webviews
+      - run: heavy --mem 4G bun scripts/agent-pane/visual-matrix.mjs --cases "$CASE_GROUP" --out "../artifacts/agent-pane-visual/$CASE_GROUP"
+        working-directory: webviews
+        env:
+          CASE_GROUP: ${{ matrix.case_group }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-pane-visual-${{ matrix.case_group }}
+          path: artifacts/agent-pane-visual/${{ matrix.case_group }}
+          if-no-files-found: error
