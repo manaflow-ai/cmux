@@ -79,6 +79,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private var startedTeamID: String?
     /// The Mac whose data and connection state the link last fed.
     @ObservationIgnored private var dataMacID: String?
+    /// Macs whose cnx host predates the `version` service (link protocol 1):
+    /// they work, but drop links under load; the status line says to update.
+    @ObservationIgnored private var outdatedMacs: Set<String> = []
     /// How often discovery looks while the active team has no online Mac, and otherwise.
     static let waitingPoll: Duration = .seconds(4)
     static let idlePoll: Duration = .seconds(30)
@@ -463,6 +466,7 @@ public final class LiveCoordinator {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
             }
         }
+        Task { [weak self] in await self?.checkVersion(link, macID: macID) }
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -478,6 +482,22 @@ public final class LiveCoordinator {
         // own `daemon` channel of this link; open ones reattach now.
         terminals.removeAll { $0.session == nil }
         for terminal in terminals { terminal.session?.reconnect() }
+    }
+
+    /// Asks the Mac's host which link protocol it speaks. A host that refuses
+    /// the `version` service is from before link protocol 2 (control frames
+    /// ahead of data, no reader stalls) and drops links under load.
+    private func checkVersion(_ link: any MacLink, macID: String) async {
+        guard let channel = try? await link.openChannel(service: "version", args: [:]) else { return }
+        let reply = try? await channel.receive()
+        await channel.close(code: "eof", reason: "")
+        let object = reply.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let protocolVersion = object?["link"] as? Int ?? 1
+        log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
+        let outdated = protocolVersion < 2
+        guard outdated != outdatedMacs.contains(macID) else { return }
+        if outdated { outdatedMacs.insert(macID) } else { outdatedMacs.remove(macID) }
+        phaseChanged()
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
@@ -616,7 +636,9 @@ public final class LiveCoordinator {
         updateMacState(phase, target: target)
         var status = store.macLinkStatus
         status = [:]
-        if let target, let line = phase.statusLine(macName: target.name) { status[target.macID] = line }
+        if let target, let line = phase.statusLine(macName: target.name) {
+            status[target.macID] = outdatedMacs.contains(target.macID) ? line + " · Update cmux on this Mac" : line
+        }
         if status != store.macLinkStatus { store.macLinkStatus = status }
         bannerTask?.cancel()
         let name = target?.name ?? "Mac"

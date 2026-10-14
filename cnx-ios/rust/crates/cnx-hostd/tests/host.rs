@@ -157,6 +157,14 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
     echo.send(Bytes::from_static(b"ping")).await.unwrap();
     assert_eq!(echo.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"ping"))));
 
+    // version: what the Mac runs, so a phone can tell an outdated Mac.
+    let mut version = link.open("version", serde_json::json!({})).await.unwrap();
+    let (bytes, code) = drain(&mut version).await;
+    assert_eq!(code, "eof");
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(value["link"], 2);
+    assert!(value["hostd"].is_string());
+
     // daemon: allowed lines reach the socket, denied ones are answered locally,
     // and responses stay whole lines in order.
     let mut daemon = link.open("daemon", serde_json::json!({})).await.unwrap();

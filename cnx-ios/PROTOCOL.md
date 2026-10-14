@@ -155,7 +155,12 @@ at most 256 KiB; larger writes are split into several `data` frames.
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
 
-A side sends `ping` and `pong` ahead of queued channel data. The keepalive
+A channel whose owner does not read it may hold the link reader for at
+most 3 s; then that channel is closed `overflow` on both sides and the rest
+of the link keeps flowing (before 2026-10-14 one unread channel, say a
+terminal screen that never attached, stopped every channel and the pongs,
+and the peer's keepalive closed the link). A side sends `ping` and `pong`
+ahead of queued channel data. The keepalive
 pings every 15 s and closes the link (`keepalive timed out`) only when
 nothing at all, not a pong and no other frame, arrived for 20 s after a
 ping. (Before, a ping queued behind megabytes of data on a slow relay and a
@@ -172,11 +177,38 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   carries exactly one WebSocket text message (a JSON value) in each direction.
 - `file`: `{"path"}` read-only stream of a file inside a workspace root, for artifact preview.
 - `echo`: test service.
+- `version` (link protocol 2, added 2026-10-14): one data frame
+  `{"hostd": "<version>", "link": 2}`, then `eof`. A host that refuses it
+  with `unknown_service` speaks link protocol 1 (keepalive pings queued
+  behind data, a reader that stalls on one full channel); the phone keeps
+  the link and says "Update cmux on this Mac".
 
 A service that ends normally closes its channel with `{code:"eof"}`; a
 refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 `unavailable`. When the link itself drops, local channels see
 `link_closed`.
+
+## Connection setup (phone)
+
+Nothing here changes the wire; it is how a phone keeps a dial short.
+
+- The phone keeps its link device's signaling socket open between dials
+  (and opens it at launch and on foreground, before any Mac is asked for);
+  a dial reuses it. Signaling sockets send a WebSocket ping every 15 s and
+  close after 40 s without any inbound frame, so a kept socket is never a
+  dead TCP connection. A reused socket that does not answer a ping within
+  2.5 s while a dial runs is replaced and the dial redone.
+- `GET /v1/ice` is cached for half its `ttl` (60 s when it lists no TURN
+  server) by the phone and by `cnx-hostd`, which refreshes it in the
+  background so an answer never waits on it.
+- WebRTC nominates the first working candidate pair (host, srflx and prflx
+  at once; relay after 300 ms unless relay only).
+- A signaling socket lost after the answer does not fail a WebRTC dial or
+  answer: ICE and DTLS finish without it. Lost before the answer, the dial
+  fails at once and the app redials without showing an error; it shows a
+  failure only after the second consecutive failure.
+- `cnx-hostd` reconnects a socket that was up for 20 s or more 150 ms after
+  it drops (a Worker deploy resets every socket), instead of 1 s.
 
 ## Transport switch
 

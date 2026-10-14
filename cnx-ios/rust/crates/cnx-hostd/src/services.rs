@@ -35,6 +35,7 @@ pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingCha
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
+        "version" => version(&sender).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -61,6 +62,21 @@ impl Refusal {
     fn new(code: &'static str, reason: impl Into<String>) -> Self {
         Self { code, reason: reason.into() }
     }
+}
+
+/// What the Mac side runs, so a phone can tell an outdated Mac (whose
+/// hostd refuses this service with `unknown_service`) and say so.
+pub const LINK_PROTOCOL: u32 = 2;
+
+async fn version(sender: &ChannelSender) -> Result<(), Refusal> {
+    let reply = serde_json::json!({
+        "hostd": env!("CARGO_PKG_VERSION"),
+        // 2: control frames ahead of data, any frame counts as life, the
+        // reader never stalls on one full channel, the `version` service.
+        "link": LINK_PROTOCOL,
+    });
+    let _ = sender.send(Bytes::from(reply.to_string())).await;
+    Ok(())
 }
 
 async fn echo(sender: &ChannelSender, mut receiver: ChannelReceiver) -> Result<(), Refusal> {
