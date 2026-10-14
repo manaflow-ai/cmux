@@ -57,7 +57,11 @@ pub(super) fn run(global: &GlobalArgs, chief_home: Option<&Path>) -> i32 {
     match &brain {
         Ok(true) => eprintln!("cmux: {}", m.shutdown_brain.replace("{home}", &root)),
         Ok(false) => {}
-        Err(why) => eprintln!("cmux: {why}"),
+        Err(why) => {
+            // The brain still runs: its next crash is restarted as before.
+            let _ = std::fs::remove_file(&marker);
+            eprintln!("cmux: {why}");
+        }
     }
     let daemon = stop_daemon(global, &home);
     if brain.is_err() { 1 } else { daemon }

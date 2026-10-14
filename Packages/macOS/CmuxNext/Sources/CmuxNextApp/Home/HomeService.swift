@@ -176,7 +176,7 @@ final class HomeService {
 
     /// Home opened in a window (or its owner reconnected, not `asked`): start
     /// the Chief home's brain host when none runs (ChiefBrainKeeper).
-    func homeDidOpen(asked: Bool = true) {
+    func homeDidOpen(asked: Bool) {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()

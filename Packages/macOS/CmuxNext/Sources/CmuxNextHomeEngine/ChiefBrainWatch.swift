@@ -100,8 +100,11 @@ public final class ChiefBrainWatch {
             guard let self else { return }
             let next = await restart()
             restarting = false
-            // Quit came while it started: this host must not outlive the quit.
-            if stopped, let next, ChiefHostStop.isChiefHost(next) {
+            // Quit, or `cmux chief shutdown`, came while it started: this
+            // host must not outlive it.
+            // concurrency-allow: one small stat after a restart
+            let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
+            if stopped || shutdown, let next, ChiefHostStop.isChiefHost(next) {
                 kill(next, SIGTERM)
                 return
             }

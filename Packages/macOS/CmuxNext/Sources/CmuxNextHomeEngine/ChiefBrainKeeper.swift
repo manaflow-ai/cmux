@@ -38,10 +38,11 @@ public final class ChiefBrainKeeper {
 
     /// Starts the brain when none runs and none is starting; whether a host
     /// is starting or watched afterwards. After `cmux chief shutdown` only an
-    /// ask (`asked`: Home shown, the Settings engine panel) starts it again,
-    /// and takes the shutdown's marker away; the owner coming back does not.
+    /// ask (`asked`: Home shown, an engine set) starts it again and takes
+    /// the shutdown's marker away; the owner coming back or a panel's read
+    /// does not.
     @discardableResult
-    public func ensure(asked: Bool = true) -> Bool {
+    public func ensure(asked: Bool) -> Bool {
         if watch?.isStopped == true || !HomeBrainHost.canStart() { return false }
         let marker = home.shutdownMarker
         // concurrency-allow: one small stat per ask
