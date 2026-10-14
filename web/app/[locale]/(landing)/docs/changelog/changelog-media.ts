@@ -64,7 +64,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
       {
         title: "Steadier Cloud",
         description:
-          "Cloud connects on the first try, recovers frozen machines and dead tunnels, and explains a full resource pool instead of reporting a missing plan. Shared team members can enable Cloud, and the upgrade offer shows your next plan tier.",
+          "Cloud recovers frozen machines and wedged terminal links, shows a new split's terminal sooner, and explains a full resource pool instead of reporting a missing plan. Shared team members can enable Cloud, and the upgrade offer shows your next plan tier.",
       },
       {
         title: "Calmer Sign-In",
@@ -79,7 +79,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
       {
         title: "Move Around From the Keyboard",
         description:
-          "Ctrl-Tab and Cmd-Shift-] / [ move between sidebar workspaces from any pane. Ctrl-Cmd-E focuses the sidebar, Ctrl-Cmd-1 through 9 focuses a pane by number, and Cmd-Shift-B jumps back to the pane where you last sent a prompt.",
+          "Ctrl-Cmd-E focuses the sidebar, Ctrl-Cmd-1 through 9 focuses a pane by number, and Cmd-Shift-B jumps back to the pane where you last sent a prompt.",
         tryIt: "Press `⌃⌘1` to focus the first pane.",
       },
       {

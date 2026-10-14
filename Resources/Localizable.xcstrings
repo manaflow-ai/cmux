@@ -571442,7 +571442,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "  （Antigravity、Claude Code、Grok、Muse 和 Pi 的鉤子會透過 cmux 包裝器自動注入）"
+            "value": "  （Antigravity、Claude Code、Grok、Muse 和 Pi 的掛鉤會透過 cmux 包裝器自動注入）"
           }
         }
       }
