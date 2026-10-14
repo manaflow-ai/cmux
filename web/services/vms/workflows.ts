@@ -2257,8 +2257,11 @@ export function pauseVm(input: {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (observed !== "paused" && observed !== "stopped") {
-      if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
-      yield* pause(vm.provider, providerVmId).pipe(
+      const pauseOperation = Effect.gen(function* () {
+        if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+        yield* pause(vm.provider, providerVmId);
+      });
+      yield* pauseOperation.pipe(
         Effect.timeoutFail({
           duration: PAUSE_OPERATION_TIMEOUT_MS,
           onTimeout: () => new VmOperationDeadlineError({

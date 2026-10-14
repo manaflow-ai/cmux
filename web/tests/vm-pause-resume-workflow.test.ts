@@ -19,6 +19,7 @@ type Recorded = {
   paused: string[];
   resumed: string[];
   statusProbes: string[];
+  runtimeBudgets: Array<{ id: string; seconds: number | null }>;
   statuses: Array<{ id: string; status: string }>;
   reservations: string[];
   skipActiveLimits: boolean[];
@@ -62,12 +63,13 @@ function fakes(options: {
   providerStatuses?: Array<"creating" | "running" | "paused">;
   pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails" | "probe_hangs";
   pauseHangs?: boolean;
+  runtimeBudgetHangs?: boolean;
   withPause?: boolean;
   withResume?: boolean;
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
   onReservation?: (reservation: { vcpus: number; memoryMb: number; diskMb: number }) => void;
 }) {
-  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
+  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], runtimeBudgets: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
   const repo = {
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
@@ -117,6 +119,10 @@ function fakes(options: {
           return options.pauseHangs ? Effect.never : Effect.void;
         },
       }),
+    setRuntimeBudget: (_provider: string, providerVmId: string, seconds: number | null) => {
+      recorded.runtimeBudgets.push({ id: providerVmId, seconds });
+      return options.runtimeBudgetHangs ? Effect.never : Effect.void;
+    },
     ...(options.withResume === false
       ? {}
       : {
@@ -256,6 +262,22 @@ describe("pauseVm", () => {
     expect(exit._tag).toBe("Left");
     expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
     expect(recorded.paused).toEqual(["fs-1"]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a Go runtime-budget update that never answers fails within the pause bound", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({ billingPlanId: "go" }), pauseState: "not_paused", runtimeBudgetHangs: true,
+    });
+    const exit = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
+      yield* TestClock.adjust(PAUSE_OPERATION_TIMEOUT_MS);
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(exit._tag).toBe("Left");
+    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(recorded.runtimeBudgets).toEqual([{ id: "fs-1", seconds: 0 }]);
+    expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
   });
 
