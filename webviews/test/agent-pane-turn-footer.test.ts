@@ -157,9 +157,8 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
       const box = (selector: string) => actions.querySelector(selector)!.getBoundingClientRect();
       // The last button of each row of actions: a prompt's and the reply's. A plain prompt shows
       // no hover actions (Copy and Edit are in its context menu), so the column's edge stands in.
-      const prompt = [...document.querySelectorAll<HTMLElement>(".cv-user__actions button")]
-        .at(-1)
-        ?.getBoundingClientRect() ?? row;
+      const prompt =
+        [...document.querySelectorAll<HTMLElement>(".cv-user__actions button")].at(-1)?.getBoundingClientRect() ?? row;
       const summary = box(".cv-turn-summary");
       const time = box(".cv-turn-time");
       const group = box(".cv-turn-action-group");
