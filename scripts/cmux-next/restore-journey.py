@@ -452,6 +452,7 @@ def restore_acpmux_config():
 # ---- the local web server: pages that report their own path and scroll ---------------------
 
 REPORTS = {}  # page name -> latest {path, scrollY, at}
+LIVE_READ = {}  # the seeded history page's outside-folder read probe, before the first quit
 SINCE = 0.0  # when the last quit ended: reports older than this are stale
 SERVED = set()
 REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
@@ -467,6 +468,15 @@ def outside_image():
         with open(path, "wb") as f:
             f.write(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
                                   "0000000d49444154789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082"))
+    return path
+
+
+def outside_text():
+    """A text file beside `outside_image`, outside the local history pages' folder."""
+    path = os.path.join(os.path.dirname(outside_image()), "secret.txt")
+    if not os.path.exists(path):
+        with open(path, "w") as f:
+            f.write("rj-secret")
     return path
 
 
@@ -486,14 +496,20 @@ def page_html(name, base=""):
     # with access to its own folder cannot (`ext` 0), after a reopen too.
     if opts.hist_file and name.startswith("hist"):
         link += f"<img id='probe' src='file://{outside_image()}' style='width:1px;height:1px'>"
+        # And to read a file outside its folder (`rd`): a fresh load cannot (fetch from a file page),
+        # so a restore that read it would have widened the page's file access.
+        read = (f"try{{var x=new XMLHttpRequest();x.open('GET','file://{outside_text()}',false);x.send();"
+                "rd=x.responseText.indexOf('rj-secret')>=0?1:0;}catch(e){rd=0;}")
+    else:
+        read = ""
     # Both history pages report as one tab ("hist").
     tab = "hist" if name.startswith("hist") else name
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
 <h1>rj {name}</h1>{link}{body}
 <script>
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
-var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1;
-new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&t='+Date.now();}}
+var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1,rd=-1;{read}
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&rd='+rd+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
@@ -511,6 +527,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 REPORT_LOG.append((q.get("page", [""])[0], time.time()))
                 REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]),
                                                    "history": int(q.get("h", ["0"])[0]), "ext": int(q.get("ext", ["-1"])[0]),
+                                                   "read": int(q.get("rd", ["-1"])[0]),
                                                    "at": time.time()}
             self.send_response(204)
             self.end_headers()
@@ -1165,9 +1182,15 @@ def load_rows(variant, launched):
                     f"history_start {status.get('history_start')!r}, engine_state_saved {status.get('engine_state_saved')!r}, "
                     f"can_go_back {status.get('can_go_back')!r}" + ("" if "history_start" in status else f"; {json.dumps(status)[:160]}"), "browser"))
     if opts.hist_file:
-        ext = (REPORTS.get("hist") or {}).get("ext")
+        # Only a report the reopened page sent counts (a pre-quit one would pass falsely).
+        fresh = REPORTS.get("hist") if (REPORTS.get("hist") or {}).get("at", 0) > launched else {}
+        ext = fresh.get("ext")
         RESULTS.append((f"{variant}: page[hist] cannot show a file outside its folder", ext == 0,
                         f"probe {ext} (1 shown, 0 refused, -1 no probe)", "browser"))
+        read = fresh.get("read")
+        RESULTS.append((f"{variant}: page[hist] reads no more outside its folder than a fresh load",
+                        read is not None and 0 <= read <= max(LIVE_READ.get("hist") or 0, 0),
+                        f"read {read} after the reopen, {LIVE_READ.get('hist')} on the page loaded fresh (1 read, 0 refused, -1 no probe)", "browser"))
 
 
 def journey(base):
@@ -1184,6 +1207,9 @@ def journey(base):
             # writers debounce 500 ms); the rows check what was saved, not what was still in flight.
             time.sleep(2)
         expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
+        if opts.hist_file and "hist" in REPORTS and "hist" not in LIVE_READ:
+            # The seeded page, loaded fresh by link clicks: what a fresh load may read.
+            LIVE_READ["hist"] = REPORTS["hist"].get("read")
         started = SINCE = time.time()
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))

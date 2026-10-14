@@ -28,6 +28,9 @@ final class TabCell {
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill.
     var isWindowMain = true { didSet { if oldValue != isWindowMain { updateColors(animated: false) } } }
+    /// The strip's window is on screen and not fully covered: a busy indicator spins only then
+    /// (cx-qtgj2: a minimized or covered window costs no spinner frames).
+    var isWindowVisible = true { didSet { if oldValue != isWindowVisible, item.isBusy { updateSpinner() } } }
     /// The selected (or lifted) tab's fill shows.
     var fillsSelection: Bool { (isSelected && isWindowMain) || isLifted }
     /// Hover may start the title marquee (off while a drag or rename runs).
