@@ -37,19 +37,23 @@ nonisolated struct WorkspaceAutoName: Equatable {
     }
 
     /// The name to write to the daemon once (variant `persist`), or nil to
-    /// write nothing. `alreadyRenamed`: this app renamed (or asked to rename)
-    /// the workspace before, so it never does again.
+    /// write nothing: only a front chat's generated title, only for a
+    /// workspace of this Mac's daemon (`isLocalMachine`; a remote or Cloud
+    /// workspace is never renamed, so two Macs never race). `alreadyRenamed`:
+    /// this app renamed (or asked to rename) the workspace before, so it
+    /// never does again.
     func persistedName(name: String, title: String?, front: Front?, isLocalMachine: Bool, alreadyRenamed: Bool) -> String? {
-        guard variant == .persist, !alreadyRenamed else { return nil }
-        // An incognito page's title stays in memory: the daemon keeps workspace names in closed history.
-        if case .browser(_, offTheRecord: true)? = front { return nil }
-        return label(name: name, title: title, front: front)
+        guard enabled, variant == .persist, isLocalMachine, !alreadyRenamed, !Self.isUserNamed(name: name, title: title) else { return nil }
+        // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
+        // page's title is transient, so those stay live labels.
+        guard case let .chat(_, _, generatedTitle)? = front else { return nil }
+        return NewWorkspaceName.clean(generatedTitle)
     }
 
     /// Whether a rename decided earlier may still go out now that the
     /// workspace is named `currentName` and titled `currentTitle`.
     func confirmsRename(currentName: String, currentTitle: String?) -> Bool {
-        true
+        !Self.isUserNamed(name: currentName, title: currentTitle)
     }
 
     /// Whether the user named the workspace: a title, or a name the daemon did not give.

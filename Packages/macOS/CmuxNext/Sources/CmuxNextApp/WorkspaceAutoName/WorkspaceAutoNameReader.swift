@@ -25,7 +25,8 @@ struct WorkspaceAutoNameReader {
     func front(_ tab: TabModel) -> WorkspaceAutoName.Front? {
         if let session = tab.agentSession {
             if RestoredNewTabPages.shows(tab, in: services.agentTabs) { return .chat(userName: nil, title: nil) }
-            return .chat(userName: tab.name, title: AgentTurnStateStore.shared.title(for: session))
+            let turns = AgentTurnStateStore.shared
+            return .chat(userName: tab.name, title: turns.title(for: session), generatedTitle: turns.generatedTitle(for: session))
         }
         if tab.kind == .conversation || tab.page != nil || tab.appTab != nil { return nil }
         guard tab.kind == .browser else { return .terminal(TabMoves.nameInput(tab, services: services)) }
