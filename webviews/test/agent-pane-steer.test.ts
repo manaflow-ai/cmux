@@ -289,6 +289,20 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
+    test("a turn that starts after Stop is never judged by that Stop", async () => {
+      const page = await openChat();
+      await page.getByRole("button", { name: "Stop" }).click();
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      // The stopped turn had already ended (the button was a frame stale): no turn_end follows,
+      // and the next prompt's turn starts inside Stop's grace.
+      record("turn_started", { turnId: "turn-2" });
+      await page.waitForTimeout(6_000);
+      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+      await page.close();
+    });
+
     test("/permissions is not sent to Claude: the composer keeps it and names the access menu", async () => {
       const page = await openChat();
       const before = prompts.length;
