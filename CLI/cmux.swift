@@ -36460,6 +36460,7 @@ function sessionState(sessionId) {
       assistantPreamble: null,
       cwd: null,
       lastStopKind: null,
+      turnKeys: new Set(),
       updatedAt: Date.now(),
     });
   }
@@ -36523,10 +36524,24 @@ function sessionStatusType(status) {
   return firstString(status.type, status.status, status.state)?.toLowerCase() || null;
 }
 
+// A turn publishes exactly one terminal stop. Only a turn identity this
+// session has not seen clears it, so a repeated update for the same prompt
+// cannot reopen a finished turn. A missing identity starts a new turn.
+function beginTurn(sessionId, turnKey) {
+  const state = sessionState(sessionId);
+  if (turnKey) {
+    if (state.turnKeys.has(turnKey)) return;
+    state.turnKeys.add(turnKey);
+    if (state.turnKeys.size > 50) state.turnKeys.delete(state.turnKeys.values().next().value);
+  }
+  state.lastStopKind = null;
+}
+
+// The first terminal event settles the turn. A published stop cannot be
+// reclassified, so a later failure or idle for the same turn is dropped.
 function shouldSendStop(sessionId, kind) {
   const state = sessionState(sessionId);
-  if (state.lastStopKind === "failure") return false;
-  if (state.lastStopKind === "success" && kind === "success") return false;
+  if (state.lastStopKind) return false;
   state.lastStopKind = kind;
   return true;
 }
@@ -36680,7 +36695,7 @@ function trackMessage(event) {
     const role = info.role || props.role;
     if (messageId && sessionId && role) {
       messageRoles.set(messageId, { sessionId, role });
-      if (role === "user") sessionState(sessionId).lastStopKind = null;
+      if (role === "user") beginTurn(sessionId, messageId);
       if (messageRoles.size > 300) {
         messageRoles.delete(messageRoles.keys().next().value);
       }
@@ -36703,19 +36718,12 @@ function trackMessage(event) {
   }
 }
 
+// Busy status carries no turn identity; prompts and user messages own it.
 function resetTurnFromEvent(event) {
+  if (!["session.next.prompted", "session.next.prompt.admitted", "session.inbox.enqueued"].includes(event?.type)) return;
+  const sessionId = sessionIdFor(event);
   const props = eventProperties(event);
-  if (["session.next.prompted", "session.next.prompt.admitted", "session.inbox.enqueued"].includes(event?.type)) {
-    const sessionId = sessionIdFor(event);
-    if (sessionId) sessionState(sessionId).lastStopKind = null;
-    return;
-  }
-  if (event?.type === "session.status") {
-    if (sessionStatusType(props.status) === "busy") {
-      const sessionId = sessionIdFor(event);
-      if (sessionId) sessionState(sessionId).lastStopKind = null;
-    }
-  }
+  if (sessionId) beginTurn(sessionId, firstString(props.item?.id, props.messageID, props.promptID, props.id, event.id));
 }
 
 function sendStop(ctx, event, failed = false) {
@@ -36735,7 +36743,7 @@ const createCMUXSessionRestore = async (ctx) => {
       const props = eventProperties(event);
       switch (event && event.type) {
         case "session.created":
-          sessionState(sessionIdFor(event)).lastStopKind = null;
+          beginTurn(sessionIdFor(event), null);
           sendHook("session-start", ctx, event);
           break;
         case "session.updated":

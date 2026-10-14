@@ -127,9 +127,23 @@ const createCMUXFeed = async (ctx, options = {}) => {
         assistantPreamble: null,
         cwd: null,
         lastStopKind: null,
+        turnKeys: new Set(),
       });
     }
     return sessions.get(key);
+  };
+
+  // A turn publishes exactly one terminal stop. Only a turn identity this
+  // session has not seen clears it, so a repeated update for the same prompt
+  // cannot reopen a finished turn. A missing identity starts a new turn.
+  const beginTurn = (sessionId, turnKey) => {
+    const state = sessionState(sessionId);
+    if (turnKey) {
+      if (state.turnKeys.has(turnKey)) return;
+      state.turnKeys.add(turnKey);
+      if (state.turnKeys.size > 50) state.turnKeys.delete(state.turnKeys.values().next().value);
+    }
+    state.lastStopKind = null;
   };
 
   const contextForSession = (sessionId) => {
@@ -692,7 +706,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       if (!sid || !text) return null;
       const state = sessionState(sid);
       state.lastUserMessage = text;
-      state.lastStopKind = null;
+      beginTurn(sid, firstString(item.id, props.id, event.id));
       return base(sid, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -712,7 +726,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
       const role = info.role || props.role;
       if (messageId && sessionId && role) {
         messageRoles.set(messageId, { sessionId, role });
-        if (role === "user") sessionState(sessionId).lastStopKind = null;
+        if (role === "user") beginTurn(sessionId, messageId);
         if (messageRoles.size > 300) {
           messageRoles.delete(messageRoles.keys().next().value);
         }
@@ -730,7 +744,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
     const state = sessionState(meta.sessionId);
     if (meta.role === "user") {
       state.lastUserMessage = text;
-      state.lastStopKind = null;
+      beginTurn(meta.sessionId, part.messageID);
       return base(meta.sessionId, {
         hook_event_name: "UserPromptSubmit",
         tool_input: { prompt: text },
@@ -744,9 +758,10 @@ const createCMUXFeed = async (ctx, options = {}) => {
   };
 
   const shouldEmitStop = (sessionId, kind) => {
+    // The first terminal event settles the turn. A published stop cannot be
+    // reclassified, so a later failure or idle for the same turn is dropped.
     const state = sessionState(sessionId);
-    if (state.lastStopKind === "failure") return false;
-    if (state.lastStopKind === "success" && kind === "success") return false;
+    if (state.lastStopKind) return false;
     state.lastStopKind = kind;
     return true;
   };
@@ -807,8 +822,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
           const props = eventProperties(event);
           const info = props.info || {};
           const sid = sessionIdFromProperties(props) || "unknown";
+          beginTurn(sid, null);
           const state = sessionState(sid);
-          state.lastStopKind = null;
           state.cwd = info.directory || props.location?.directory || event.location?.directory || ctx?.location?.directory || ctx?.directory || state.cwd;
           pushTelemetry(base(sid, {
             hook_event_name: "SessionStart",
@@ -819,10 +834,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "session.status": {
           const props = eventProperties(event);
           const sid = sessionIdFromProperties(props);
-          if (sid && sessionStatusType(props.status) === "busy") {
-            sessionState(sid).lastStopKind = null;
-            break;
-          }
+          // Busy carries no turn identity; prompts and user messages own it.
+          if (sid && sessionStatusType(props.status) === "busy") break;
           if (!sessionStatusIsIdle(props.status)) break;
           if (!sid || !shouldEmitStop(sid, "success")) break;
           pushTelemetry(base(sid, {
@@ -870,7 +883,8 @@ const createCMUXFeed = async (ctx, options = {}) => {
         case "session.next.prompted":
         case "session.next.prompt.admitted": {
           const sid = sessionIdFromEvent(event);
-          if (sid) sessionState(sid).lastStopKind = null;
+          const props = eventProperties(event);
+          if (sid) beginTurn(sid, firstString(props.messageID, props.promptID, props.id, event.id));
           break;
         }
         case "session.deleted": {
