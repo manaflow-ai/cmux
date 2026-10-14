@@ -1264,6 +1264,8 @@ export function VirtualTranscript({
       for (const name of events) node.removeEventListener(name, endGlide);
     };
   }, []);
+  /// The footer of the turn the pointer is over (a turnSummary row's id).
+  const pointedTurn = useRef<string | undefined>(undefined);
   const scrolledTo = useRef({ top: 0, atLatest: false });
   /// Where the reader last saw it rest, measured in view; undefined until it is.
   const seenAnchor = useRef<ScrollAnchor | null | undefined>(undefined);
@@ -1814,6 +1816,30 @@ export function VirtualTranscript({
       for (const name of inputs) node?.removeEventListener(name, reader);
     };
   }, []);
+  // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
+  // anywhere from its prompt to its footer. Marked on the mounted rows, so a hover renders nothing.
+  let lastTurnId: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
+    if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
+  const markTurns = () => {
+    for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
+      node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
+      node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
+    }
+  };
+  useLayoutEffect(markTurns);
+  const pointAt = (target: EventTarget | null) => {
+    const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
+    const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
+    let footer: string | undefined;
+    for (let index = from; index >= 0 && index < rows.length && !footer; index += 1) {
+      if (index > from && rows[index]!.kind === "user") break;
+      if (rows[index]!.kind === "turnSummary") footer = rows[index]!.id;
+    }
+    if (footer === pointedTurn.current) return;
+    pointedTurn.current = footer;
+    markTurns();
+  };
   const behind = !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
@@ -1831,7 +1857,12 @@ export function VirtualTranscript({
         {find?.open && <ChatFindBar find={find} />}
         <FindReveal.Provider value={findReveal}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
-            <div ref={thread} className="acpmux-thread">
+            <div
+              ref={thread}
+              className="acpmux-thread"
+              onPointerOver={(event) => pointAt(event.target)}
+              onPointerLeave={() => pointAt(null)}
+            >
               {mountedRanges.flatMap(({ first, last }) =>
                 rows.slice(first, last).map((row, index) => {
                   const absoluteIndex = first + index;
