@@ -117,6 +117,7 @@ import Testing
         let surface = makeSurface()
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { runtimeSurface.deallocate() }
+        defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
@@ -142,6 +143,7 @@ import Testing
         var surface: TerminalSurface? = makeSurface()
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         defer { runtimeSurface.deallocate() }
+        defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
         surface?.installRuntimeSurfaceForTesting(runtimeSurface)
         cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
@@ -194,6 +196,7 @@ import Testing
         registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
         defer { runtimeSurface.deallocate() }
+        defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
         surface.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             #expect(
