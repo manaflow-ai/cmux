@@ -43,11 +43,18 @@ grep -qx "tree_state=ready" "$TMP/out" || fail "the job output must say ready:" 
 run failed ready
 [[ "$status" == 0 ]] && grep -qx "tree_state=ready" "$TMP/out" || fail "a failed answer followed by ready must succeed (exit $status):" "$out"
 
-# Nothing will publish it: after the grace polls, fail visibly.
-run failed failed failed failed
-[[ "$status" != 0 ]] || fail "a failed tree must fail the wait:" "$out"
+# The probe can say failed while a same-tree artifacts run is still active
+# (DEV run 38562080086 gave up at 12:25Z while run 38561677744 was publishing
+# its tree). Failed answers are polled like deferred ones until the deadline.
+run failed failed failed failed ready
+[[ "$status" == 0 ]] && grep -qx "tree_state=ready" "$TMP/out" || fail "repeated failed answers followed by ready must succeed (exit $status):" "$out"
+[[ "$(cat "$TMP/queue.n")" == 5 ]] || fail "expected 5 probes, got $(cat "$TMP/queue.n")"
+
+# Nothing published it by the deadline: fail visibly with the last state.
+WAIT=0 run failed failed
+[[ "$status" != 0 ]] || fail "a failed tree must fail the wait at the deadline:" "$out"
 grep -qx "tree_state=failed" "$TMP/out" || fail "the output must carry the failed state:" "$(cat "$TMP/out")"
-[[ "$(cat "$TMP/queue.n")" == 3 ]] || fail "a failed tree is polled twice more, then given up: got $(cat "$TMP/queue.n") probes"
+grep -q "still not published" <<<"$out" || fail "the deadline must give a reason:" "$out"
 
 # Still deferred at the deadline: fail, saying so.
 WAIT=0 run deferred deferred deferred
