@@ -2,14 +2,10 @@ import CmuxFoundation
 import Foundation
 import Security
 
-/// Where the app's headless cmux-tui links keep their client identity, and where the
-/// bundled client lives. Mirrors the CLI's `vmTuiClientStateDir` / `vmTuiDevicesStoreURL`
-/// (`CLI/CMUXCLI+VMTui.swift`) on purpose: the sidebar's links and the pane's
-/// `cmux vm-tui-connect` must present the same device to a machine's daemon, so one
-/// enrollment covers both. The CLI helpers are compiled only into the CLI target, hence
-/// the duplicate paths here.
+/// Where the app's headless cmux-tui links and CLI keep their shared client identity,
+/// device records, and server-advertised attach routes.
 public struct CloudTuiClientPaths: Sendable {
-    /// One enrolled device per machine, as the CLI stores it (`vm-tui-devices.json`).
+    /// One enrolled device per machine in `vm-tui-devices.json`.
     public struct DeviceRecord: Codable, Sendable, Equatable {
         public let deviceFingerprint: String
         public let updatedAtUnix: Int
@@ -25,10 +21,8 @@ public struct CloudTuiClientPaths: Sendable {
     }
 
     /// Stored in place of a device fingerprint for a machine this Mac reaches over
-    /// the trusted-carrier listener: there is no enrolled device, and the next link
-    /// dials `--carrier` again with no control-plane call. A real fingerprint means
-    /// the Mac enrolled before the machine's daemon served the trusted listener and
-    /// keeps presenting its stored key. Mirrored by the CLI's own store.
+    /// the trusted-carrier listener; the next link dials `--carrier` again with no
+    /// control-plane call.
     public static let carrierDeviceMarker = "carrier"
 
     public let home: URL
