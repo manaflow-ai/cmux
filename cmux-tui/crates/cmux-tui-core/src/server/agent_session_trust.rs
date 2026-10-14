@@ -77,6 +77,11 @@ pub(super) struct TrustParams {
 }
 
 impl TrustParams {
+    /// A Trust answer (the level that lets an agent run there).
+    pub(super) fn trusts(&self) -> bool {
+        self.level.as_deref() == Some("trusted")
+    }
+
     fn valid(&self) -> bool {
         let cwd = &self.cwd;
         (1..=MAX_CWD_BYTES).contains(&cwd.len())

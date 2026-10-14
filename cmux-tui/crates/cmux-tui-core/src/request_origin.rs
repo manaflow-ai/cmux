@@ -225,6 +225,21 @@ impl ConnectionOrigin {
             && cmux_local_auth::tokens_match(&params_sha256(params), &confirmation.params_sha256)
     }
 
+    #[cfg(unix)]
+    /// A page relay's ticket for `operation` (a verb outside the v2 catalog,
+    /// such as `agent-session-trust`): consumed whatever the outcome; true
+    /// when this relay holds a live one for exactly these params.
+    pub(crate) fn redeem_named_confirmation(
+        &mut self,
+        token: &str,
+        operation: &str,
+        params: &Value,
+        now_ms: u64,
+    ) -> bool {
+        self.role == HelloRole::PageRelay
+            && self.consume_confirmation(token, operation, params, now_ms)
+    }
+
     /// The origin of one request on this connection: the derived origin,
     /// narrowed by `claim`, then checked against the operation's needs.
     /// `operation`, `params` and `claim` come from the one typed parse of

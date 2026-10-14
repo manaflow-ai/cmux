@@ -75,6 +75,8 @@ pub use agent_session_start::{
     AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::AGENT_SESSION_TRUST_CAPABILITY;
+/// The verb a page relay's ticket names (`origin.confirmation.issue`).
+pub(crate) const AGENT_SESSION_TRUST_OPERATION: &str = "agent-session-trust";
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
 
@@ -379,6 +381,8 @@ pub(crate) enum Refusal {
     AboveHome,
     /// `agent-session-trust`: the home folder without the person's choice of it.
     HomeUnconfirmed,
+    /// `agent-session-trust`: a page relay's Trust answer without a live ticket.
+    GestureRequired,
 }
 
 impl Refusal {
@@ -401,6 +405,7 @@ impl Refusal {
             Self::HostUnverified => "agent_session.host_unverified",
             Self::AboveHome => "agent_session.above_home",
             Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
+            Self::GestureRequired => "origin.gesture_required",
         }
     }
 
@@ -428,6 +433,9 @@ impl Refusal {
             Self::AboveHome => "a folder above the home folder is never trusted from here",
             Self::HomeUnconfirmed => {
                 "the home folder is trusted only after the person chose it as the chat's folder"
+            }
+            Self::GestureRequired => {
+                "a page's Trust answer needs the person's gesture ticket for exactly this request"
             }
         }
     }
@@ -523,14 +531,36 @@ fn trust(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
-    params: serde_json::Map<String, Value>,
+    mut params: serde_json::Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    // The ticket leaves the params here; it names the rest of them.
+    let ticket = match params.remove("confirmation") {
+        None => None,
+        Some(Value::String(ticket)) => Some(ticket),
+        Some(_) => return refuse(writer, id, Refusal::BadRequest),
+    };
+    let named = Value::Object(params.clone());
+    let Ok(params) = serde_json::from_value::<agent_session_trust::TrustParams>(named.clone())
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return refuse(writer, id, Refusal::NotTrusted);
+    }
+    // hq-6d: a page relay's Trust answer carries the person's gesture
+    // ticket, and the daemon checks it (a page reaches the daemon through
+    // any host, not only this app's relay).
+    if params.trusts()
+        && super::origin_gate::page_relay_ticket(
+            mux,
+            client,
+            AGENT_SESSION_TRUST_OPERATION,
+            &named,
+            ticket.as_deref(),
+        ) == Some(false)
+    {
+        return refuse(writer, id, Refusal::GestureRequired);
     }
     let Some(socket) = mux.control_clients.agent_sessions.socket() else {
         return refuse(writer, id, Refusal::Unavailable);

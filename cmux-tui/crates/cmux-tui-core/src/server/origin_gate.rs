@@ -140,6 +140,33 @@ fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
 
+/// A page relay's Trust answer (`agent-session-trust` with level
+/// `trusted`, cx-1bhjj): true only when it carries a live single-use
+/// ticket the verified app minted for exactly these params on this relay
+/// (`origin.confirmation.issue`, the person's gesture). Any other connection
+/// (a plain unix client) is not checked here: it keeps acpmux's own rule.
+#[cfg(unix)]
+pub(super) fn page_relay_ticket(
+    mux: &Mux,
+    client: u64,
+    operation: &str,
+    params: &Value,
+    token: Option<&str>,
+) -> Option<bool> {
+    let now_ms = mux.control_clients.origin_clock.monotonic_ms();
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let origin = &mut state.clients.get_mut(&client)?.origin;
+    if origin.role != HelloRole::PageRelay {
+        return None;
+    }
+    Some(
+        token.is_some_and(|token| {
+            origin.redeem_named_confirmation(token, operation, params, now_ms)
+        }),
+    )
+}
+
 /// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with
 /// `decision: accept` needs the `frontend` actor. A connection that is not a
 /// local Unix one is left to the trusted-local refusal.
@@ -328,7 +355,9 @@ fn issue(
     // A catalog operation, or a routed one (page-router-v1 namespaces).
     let operation = string_field(request, "operation");
     let known = serde_json::from_value::<ResourceOperation>(json!(operation)).is_ok()
-        || crate::request_origin::page_router_table::routed(operation).is_some();
+        || crate::request_origin::page_router_table::routed(operation).is_some()
+        // A page relay's Trust answer (agent_session_trust.rs, cx-1bhjj).
+        || operation == "agent-session-trust";
     if !known {
         return Err(ResourceError::validation_invalid(
             Some("operation"),

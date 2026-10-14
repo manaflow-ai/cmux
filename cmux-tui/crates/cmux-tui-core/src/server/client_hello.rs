@@ -151,6 +151,10 @@ impl HelloGate {
                 return None;
             }
             Some("identify") if self.page_relay => return None,
+            // The folder trust of a chat (cx-1bhjj, hq-6d): a page reads it, and
+            // its Trust answer carries the person's ticket, which the verb
+            // checks itself (agent_session_attach.rs).
+            Some("agent-session-trust") if self.page_relay => return None,
             Some("subscribe") if self.page_relay => {
                 return (!self.page_events || !page_relay_subscribe(&value))
                     .then(|| page_relay_subscribe_refusal(id));
