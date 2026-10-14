@@ -1,7 +1,8 @@
 // Agent CLI health in a chat (cx-ny85): a chat whose agent CLI is signed out says so with a Log In
-// that runs the agent's login in a terminal tab; an outdated one offers its own update the same
-// way, Not Now for this chat and Skip This Version for good. An update that needs sudo, an
-// up-to-date or unknown one shows nothing (Settings > Agents has the details).
+// that runs the agent's login in a terminal tab; an outdated one updates in place through the host
+// (`harness.update`, cx-1mbnu), then offers Restart Chat (`harness.restart`); Not Now for this chat
+// and Skip This Version for good. An update that needs sudo, an up-to-date or unknown one shows
+// nothing (Settings > Agents has the details).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -52,12 +53,28 @@ afterEach(async () => {
 });
 
 type Opened = { kind: string; text: string; cwd?: string; run: boolean };
+type Call = {
+  method: string;
+  params: Record<string, unknown>;
+  resolve: (value: unknown) => void;
+  reject: (error: unknown) => void;
+};
+
+/// The host's calls, each answered by the test (`resolve`/`reject`), the way the native updater takes minutes.
+function host() {
+  const calls: Call[] = [];
+  const native = (method: string, params: Record<string, unknown>) =>
+    new Promise<unknown>((resolve, reject) => calls.push({ method, params, resolve, reject }));
+  return { calls, native };
+}
 
 async function render(
   container: HTMLElement,
   health: HarnessHealth | undefined,
   opened: Opened[] = [],
   harness = "codex",
+  native: (method: string, params: Record<string, unknown>) => Promise<unknown> = () => new Promise(() => undefined),
+  extra: { turnRunning?: boolean; onUpdated?: () => void } = {},
 ) {
   await act(async () => {
     root ??= createRoot(container);
@@ -68,10 +85,20 @@ async function render(
         name="Codex"
         cwd="/work"
         open={(params) => opened.push(params)}
+        native={native}
+        {...extra}
       />,
     );
   });
   return opened;
+}
+
+const text = (container: HTMLElement) => notice(container)?.textContent ?? "";
+const button = (container: HTMLElement, action: string) =>
+  container.querySelector<HTMLButtonElement>(`[data-notice-action="${action}"]`);
+async function answer(call: Call | undefined, value: unknown, failed = false) {
+  expect(call).toBeDefined();
+  await act(async () => (failed ? call!.reject(value) : call!.resolve(value)));
 }
 
 const notice = (container: HTMLElement) => container.querySelector<HTMLElement>("[data-harness-notice]");
@@ -104,10 +131,8 @@ test("a signed-out agent CLI says so, and Log In runs its login in a terminal ta
 
 test("an outdated agent CLI offers its own update; Skip This Version stays skipped until a newer one", async () => {
   const container = installDom();
-  const opened = await render(container, outdated);
+  await render(container, outdated);
   expect(notice(container)?.dataset.harnessNotice).toBe("outdated");
-  await press(container, "update");
-  expect(opened).toEqual([{ kind: "terminal", text: "npm install -g @openai/codex@latest", cwd: "/work", run: true }]);
   await press(container, "skip");
   expect(notice(container)).toBeNull();
   // Another chat, same version: still skipped. A newer version asks again.
@@ -142,4 +167,94 @@ test("a chat that switched agent never shows the previous agent's notice", async
   const opened = await render(container, signedOut, [], "claude");
   expect(notice(container)).toBeNull();
   expect(opened).toEqual([]);
+});
+
+test("Update runs the host's updater for this agent and says so while it works, without a terminal tab", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  const opened = await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  expect(calls.map(({ method, params }) => ({ method, params }))).toEqual([
+    { method: "harness.update", params: { id: "codex" } },
+  ]);
+  expect(opened).toEqual([]);
+  expect(text(container)).toContain("Updating Codex…");
+  // Every button waits for it: Not Now would lose the Restart Chat the update ends with.
+  expect(button(container, "update")?.disabled ?? true).toBe(true);
+  expect(button(container, "skip")?.disabled ?? true).toBe(true);
+  expect(button(container, "dismiss")?.disabled).toBe(true);
+});
+
+test("Restart Chat stays after the update even when the agent's health, read again, is current", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  // A reconnect reads health again: the CLI is current now, but this chat still runs 0.3.1.
+  await render(container, { ...outdated, version: "0.4.0", outdated: false, update: null }, [], "codex", native);
+  expect(text(container)).toContain("Codex 0.4.0 is installed. Restart the chat to use it.");
+  expect(button(container, "restart")).not.toBeNull();
+});
+
+test("a restart that failed says so and keeps Restart Chat", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  await press(container, "restart");
+  await answer(calls[1], { restarted: 0, after_turn: 0, failed: 1, error: "the agent did not start" });
+  expect(text(container)).toContain("Couldn't restart the chat: the agent did not start");
+  expect(button(container, "restart")?.disabled).toBe(false);
+});
+
+test("a finished update offers Restart Chat, which restarts the chat on the new version", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  let rechecks = 0;
+  await render(container, outdated, [], "codex", native, { onUpdated: () => rechecks++ });
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  expect(text(container)).toContain("Codex 0.4.0 is installed. Restart the chat to use it.");
+  await press(container, "restart");
+  expect(calls[1]?.method).toBe("harness.restart");
+  await answer(calls[1], { restarted: 1, after_turn: 0 });
+  expect(notice(container)).toBeNull();
+  expect(rechecks).toBe(1);
+});
+
+test("a chat mid-turn restarts when the turn ends; the card says so, then goes away", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  let rechecks = 0;
+  const onUpdated = () => rechecks++;
+  await render(container, outdated, [], "codex", native, { turnRunning: true, onUpdated });
+  await press(container, "update");
+  await answer(calls[0], { ok: true, version: "0.4.0" });
+  await press(container, "restart");
+  await answer(calls[1], { restarted: 0, after_turn: 1 });
+  expect(text(container)).toContain("The chat restarts on 0.4.0 when this turn ends.");
+  await render(container, outdated, [], "codex", native, { turnRunning: false, onUpdated });
+  expect(notice(container)).toBeNull();
+  expect(rechecks).toBe(1);
+});
+
+test("a failed update says why inline, and Try Again runs it again", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, outdated, [], "codex", native);
+  await press(container, "update");
+  await answer(calls[0], { ok: false, error: "npm exited with status 1" });
+  expect(text(container)).toContain("Couldn't update Codex: npm exited with status 1");
+  await press(container, "retry");
+  expect(calls[1]?.method).toBe("harness.update");
+  expect(text(container)).toContain("Updating Codex…");
+  // A refused call (an old host) says what it can.
+  await answer(calls[1], new Error(""), true);
+  expect(text(container)).toContain("Couldn't update Codex: The update didn't finish.");
+  await press(container, "retry");
+  await answer(calls[2], new Error("Not supported here."), true);
+  expect(text(container)).toContain("Couldn't update Codex: Not supported here.");
+  expect(button(container, "dismiss")).not.toBeNull();
 });
