@@ -112,6 +112,9 @@ class SidebarRowView: NSView {
     /// The row's disclosure chevron for debug.sidebar_rows: the pack icon it
     /// draws, its frame in the row and whether it shows; nil without one.
     var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { nil }
+    /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
+    /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
+    var debugIcon: String? { nil }
 
     /// Counts the times this row started opening its slot (clipped): an
     /// earlier open's completion, run early when a later update reopens the

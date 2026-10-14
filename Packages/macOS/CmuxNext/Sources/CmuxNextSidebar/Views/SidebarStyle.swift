@@ -50,10 +50,17 @@ enum SidebarStyle {
     static var dragThreshold: CGFloat { Metrics.space2 }
     static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
 
-    static var titleFont: NSFont { Typography.bodyEmphasized }
+    /// Workspace titles: regular weight, read or unread, selected or not
+    /// (Lawrence 2026-10-14: "sidebar text should not be bold by default").
+    /// Unread and selected rows stand out by color (`titleColor`), the
+    /// unread badge and the selection fill, never by weight.
+    static var titleFont: NSFont { Typography.body }
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
-    static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
+    /// A row title's color: the primary text color when the row is selected
+    /// or unread, the secondary one otherwise (the contrast step that
+    /// replaces the old bold unread title).
+    static func titleColor(emphasized: Bool) -> NSColor { emphasized ? Palette.textPrimary : Palette.textSecondary }
     static var subtitleFont: NSFont { Typography.caption }
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
