@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CMUXMobileCore
 import Bonsplit
 import Foundation
 import SwiftUI
@@ -15,6 +16,35 @@ enum ProUpgradePresenter {
 
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
+
+    /// Menu title for an upgrade entrypoint that offers `tier`, the next
+    /// tier above the account's plan (``CmuxPlanTier/upgradeOffer(isSignedIn:knownTier:)``).
+    nonisolated static func upgradeMenuTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "menu.help.upgradeToMax", defaultValue: "Upgrade to cmux Max…")
+        case .free, .go, .pro:
+            String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
+        }
+    }
+
+    /// Command palette title for the same offer, without the ellipsis.
+    nonisolated static func upgradeCommandTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "command.pro.upgradeToMax.title", defaultValue: "Upgrade to cmux Max")
+        case .free, .go, .pro:
+            String(localized: "command.pro.upgrade.title", defaultValue: "Upgrade to cmux Pro")
+        }
+    }
+
+    /// The offer every upgrade entrypoint shows, or nil when the account is
+    /// already on the top tier or its plan is not yet known.
+    @MainActor
+    static var currentUpgradeOffer: CmuxPlanTier? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow else { return .pro }
+        return flow.upgradeOffer
+    }
 
     @MainActor
     static func present(source: ProUpgradeSource) {

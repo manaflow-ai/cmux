@@ -1,6 +1,7 @@
 import CmuxCloud
 import AppKit
 import CMUXAuthCore
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxSettingsUI
 import Foundation
@@ -18,9 +19,17 @@ import Observation
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
-    var isProUpgradeAvailable: Bool { true }
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
+    /// The signed-in account's tier, or nil while it is unknown.
+    var planTier: CmuxPlanTier? { hasLoadedBillingPlan ? billingPlanState.tier : nil }
+    /// The tier every upgrade entrypoint offers, or nil to hide them.
+    var upgradeOffer: CmuxPlanTier? {
+        CmuxPlanTier.upgradeOffer(isSignedIn: currentIdentity != nil, knownTier: planTier)
+    }
+    /// The Settings plan row renders for every tier; it picks its own copy
+    /// and actions from ``planTier``. Menus gate on ``upgradeOffer`` instead.
+    var isProUpgradeAvailable: Bool { true }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }
@@ -272,7 +281,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             billingPlanState = billingPlanState.applyingSuccess(
                 for: identityID,
                 isPro: details.isPro,
-                canManageBilling: details.canManageBilling
+                canManageBilling: details.canManageBilling,
+                tier: details.tier
             )
             return true
         } catch {
