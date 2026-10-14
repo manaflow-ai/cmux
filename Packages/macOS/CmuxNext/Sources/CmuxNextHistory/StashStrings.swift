@@ -1,12 +1,12 @@
 import Foundation
 
 /// Strings of the Stashed page (Resources/Localizable.xcstrings).
-nonisolated enum StashStrings {
+public nonisolated enum StashStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, bundle: .module)
     }
 
-    static var title: String { t("stash.title", "Stashed Tabs") }
+    public static var title: String { t("stash.title", "Stashed Tabs") }
     static var empty: String { t("stash.empty", "No stashed tabs. Right-click a browser tab and choose Stash Tab to keep it here.") }
     static var untitled: String { t("stash.untitled", "Untitled Group") }
     static var restoreAll: String { t("stash.restoreAll", "Restore All") }
@@ -26,4 +26,6 @@ nonisolated enum StashStrings {
     }
     static var deletedTab: String { t("stash.deleted.tab", "Stashed tab deleted") }
     static var deletedGroup: String { t("stash.deleted.group", "Stashed group deleted") }
+    /// A Stash action whose run has no browser page to stash.
+    public static var noBrowserTab: String { t("stash.noBrowserTab", "No browser tab here to stash") }
 }
