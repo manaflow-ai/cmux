@@ -120,8 +120,11 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
   onHarnessEnable?(folder: string, id: string): void;
-  /// The model picker's + (see ModelPickerProps.onAddAgent).
+  /// Add harness… (see ModelPickerProps.onAddAgent): the picker's last row, and the whole chip
+  /// once acpmux has listed no harness at all.
   onAddAgent?(): void;
+  /// acpmux has answered with its harnesses: only then does an empty catalog mean none is installed.
+  harnessesListed?: boolean;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -149,6 +152,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  harnessesListed = false,
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
@@ -449,7 +453,7 @@ export function ComposerPickers({
 
   const chips = (
     <div className="acpmux-chips">
-      {(models.length > 0 || snapshot.catalog.length > 0 || harness) && (
+      {models.length > 0 || snapshot.catalog.length > 0 || harness ? (
         <ModelPicker
           catalog={pickerEntries}
           harness={harness}
@@ -478,6 +482,17 @@ export function ComposerPickers({
           }
           measureRoom={measurePickerRoom}
         />
+      ) : (
+        // No harness installed (Leo 2026-10-14): the chip itself adds one, a plain button styled as
+        // the model chip, with no menu and no chevron. Before acpmux answers, nothing shows.
+        harnessesListed &&
+        onAddAgent && (
+          <span className="acpmux-picker acpmux-model">
+            <button type="button" className="acpmux-picker-button acpmux-add-harness" onClick={onAddAgent}>
+              <span className="acpmux-model-name">{t("composer.addHarness")}</span>
+            </button>
+          </span>
+        )
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
       {(usage || snapshot.isWorking) && (

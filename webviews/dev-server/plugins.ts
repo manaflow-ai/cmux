@@ -320,6 +320,8 @@ const DEV_PAGES = [
   "settings",
   "passwords",
   "changelog",
+  "files",
+  "stats",
 ];
 
 function pagesHost(): Plugin {

@@ -2,7 +2,7 @@
 // timeline, composer) on the other, with the thread sheet over the timeline. A view over the Home
 // owners (HomeChannelsStore); no business rules live here. View state only: the palette, the
 // create popover, the inline editor, the keyboard's current message and a short notice.
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { AttachmentContext } from "./AttachmentViews";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
@@ -29,6 +29,7 @@ import {
   withDraft,
 } from "./model";
 import { Palette, type PaletteItem } from "./Palette";
+import { conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
 import { RouteSheets } from "./RouteSheets";
@@ -42,8 +43,23 @@ import { useHomeKeys } from "./useHomeKeys";
 
 const NOTICE_MS = 1600;
 
-export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore; strings: Strings }) {
+export function HomeChannelsPage({
+  store,
+  strings,
+  pane: fixedPane,
+}: {
+  store: HomeChannelsStore;
+  strings: Strings;
+  /** The pane a narrow page shows, instead of the hash's (the gallery, whose hash is its own). */
+  pane?: Pane;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
+  const shell = useRef<HTMLDivElement>(null);
+  const measured = useNarrow(shell);
+  const narrow = measured === true;
+  const hashPane = useHashPane();
+  const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
   const [palette, setPalette] = useState(false);
@@ -165,11 +181,38 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     onMarkRead: (id: string) => store.markConversationRead(id),
     onCopyLink: (id: string) => copyLink(undefined, id),
   };
-  const select = (id: string) => {
+  /** Opens a conversation: the hash names it (the narrow page shows its pane; a reload and the
+   * host see the same), and the store opens it at once. `replace`: a keyboard move through the
+   * list keeps one history entry. */
+  const select = (id: string, replace = false) => {
     setEditing(undefined);
     setFocused(undefined);
     void store.select(id);
+    // The hash records it (the narrow page's pane, a reload, the host); followHash sees it is open.
+    if (store.routed) setHash(conversationHash(id), replace);
   };
+  /** Back to the list (the narrow page's one pane). */
+  const back = () => {
+    if (store.routed) setHash("#/");
+  };
+  const canGoBack = narrow && pane === "conversation" && store.routed;
+  const listShown = narrow && pane === "list";
+  // A conversation behind the narrow page's list is not read; the keyboard follows the pane.
+  const lastPane = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (measured === undefined) return;
+    store.setShown(!listShown);
+    // Only a pane change moves focus (Back, a row), never the first measured render (the page may
+    // load in the background of the Home dock).
+    const changed = lastPane.current !== undefined && lastPane.current !== listShown;
+    lastPane.current = listShown;
+    if (!narrow || !changed) return;
+    const target = listShown
+      ? (document.querySelector<HTMLElement>("[data-list-row][aria-current]") ??
+        document.querySelector<HTMLElement>("[data-list-row]"))
+      : document.querySelector<HTMLElement>(".lg-back");
+    target?.focus({ preventScroll: true });
+  }, [store, measured, narrow, listShown]);
   const openThread = (root: string | undefined) => {
     setEditing(undefined);
     void store.openThread(root);
@@ -207,7 +250,7 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
     for (let step = 1; step <= n; step += 1) {
       const next = order[(((base + delta * step) % n) + n) % n];
       if (next && (!unreadOnly || isUnread(next))) {
-        select(next.id);
+        select(next.id, true);
         return;
       }
     }
@@ -215,14 +258,20 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   useHomeKeys({
     openPalette: () => setPalette(true),
     move: moveList,
-    escape: () => {
+    escape: (inField) => {
       if (sheetState.route) store.sheets.close();
       else if (palette) setPalette(false);
       else if (editing) setEditing(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
+      else if (canGoBack && !inField) back();
       else return false;
+      return true;
+    },
+    back: (inField) => {
+      if (!canGoBack || inField) return false;
+      back();
       return true;
     },
     step: (delta) => {
@@ -414,218 +463,234 @@ export function HomeChannelsPage({ store, strings }: { store: HomeChannelsStore;
   return (
     <AttachmentContext.Provider value={store.attachments}>
       <PicturesContext.Provider value={sheetState.pictures}>
-        <div className="lg-page">
-          <ConversationList
-            conversations={conversations}
-            channels={channels}
-            people={people}
-            activity={snap.activity}
-            me={me}
-            selected={snap.selected}
-            strings={strings}
-            onSelect={select}
-            onOpenPalette={() => setPalette(true)}
-            onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
-            actions={rowActions}
-          />
-          <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-            {snap.loading ? null : empty || !open ? (
-              <EmptyState
-                strings={strings}
-                noConversations={empty}
-                canCreate={online && caps.start}
-                onCreate={() => store.sheets.open({ kind: "newMessage" })}
-                onPalette={() => setPalette(true)}
-              />
-            ) : (
-              <>
-                <header className="lg-header">
-                  <span className="lg-header-mark">
-                    {channel ? (
-                      <ChannelMark />
-                    ) : (
-                      <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+        <div className="lg-shell" ref={shell}>
+          <div className="lg-page" data-pane={pane}>
+            <ConversationList
+              conversations={conversations}
+              channels={channels}
+              people={people}
+              activity={snap.activity}
+              me={me}
+              selected={snap.selected}
+              strings={strings}
+              onSelect={select}
+              onOpenPalette={() => setPalette(true)}
+              onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
+              actions={rowActions}
+            />
+            <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
+              {snap.loading ? null : empty || !open ? (
+                <EmptyState
+                  strings={strings}
+                  noConversations={empty}
+                  canCreate={online && caps.start}
+                  onCreate={() => store.sheets.open({ kind: "newMessage" })}
+                  onPalette={() => setPalette(true)}
+                />
+              ) : (
+                <>
+                  <header className="lg-header">
+                    <button
+                      type="button"
+                      className="hc-icon-button lg-back"
+                      aria-label={t("action.back")}
+                      title={t("action.back")}
+                      aria-keyshortcuts="Meta+["
+                      onClick={back}
+                    >
+                      <HomeIcon name="chevronLeft" size={16} />
+                    </button>
+                    <span className="lg-header-mark">
+                      {channel ? (
+                        <ChannelMark />
+                      ) : (
+                        <Avatar participant={open.participants.find((p) => p.id !== me)} size={20} state={state} />
+                      )}
+                    </span>
+                    <h1 className="lg-header-title">{name}</h1>
+                    <p className="lg-header-context">
+                      {state && state !== "idle" ? (
+                        <span className={`lg-state ${state}`}>
+                          {t(state === "working" ? "chief.working" : "chief.waiting")}
+                        </span>
+                      ) : state === "idle" ? (
+                        <span>{t("chief.idle")}</span>
+                      ) : null}
+                      {channel && <span>{format("header.members", String(open.participants.length))}</span>}
+                      {channel && threads.length > 0 && (
+                        <span>
+                          {openThreads === 1
+                            ? t("header.openThread.one")
+                            : format("header.openThreads", String(openThreads))}
+                        </span>
+                      )}
+                    </p>
+                    <span className="lg-spacer" />
+                    {!online && (
+                      <output className="lg-connection">
+                        {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                      </output>
                     )}
-                  </span>
-                  <h1 className="lg-header-title">{name}</h1>
-                  <p className="lg-header-context">
-                    {state && state !== "idle" ? (
-                      <span className={`lg-state ${state}`}>
-                        {t(state === "working" ? "chief.working" : "chief.waiting")}
-                      </span>
-                    ) : state === "idle" ? (
-                      <span>{t("chief.idle")}</span>
-                    ) : null}
-                    {channel && <span>{format("header.members", String(open.participants.length))}</span>}
-                    {channel && threads.length > 0 && (
-                      <span>
-                        {openThreads === 1
-                          ? t("header.openThread.one")
-                          : format("header.openThreads", String(openThreads))}
+                    {notice && <output className="lg-notice">{notice}</output>}
+                    {channel && (
+                      <span className="lg-faces" aria-hidden="true">
+                        {open.participants.slice(0, 4).map((p) => (
+                          <Avatar key={p.id} participant={p} size={20} />
+                        ))}
                       </span>
                     )}
-                  </p>
-                  <span className="lg-spacer" />
-                  {!online && (
-                    <output className="lg-connection">
-                      {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
+                    {online && caps.invite && open.owner === "local" && (
+                      <button
+                        type="button"
+                        className="hc-icon-button"
+                        aria-label={t("action.invite")}
+                        title={t("action.invite")}
+                        onClick={() => store.sheets.open({ kind: "invite", conversation: open.id })}
+                      >
+                        <HomeIcon name="personAdd" size={16} />
+                      </button>
+                    )}
+                    {online && openChief && (
+                      <button
+                        type="button"
+                        className="hc-icon-button"
+                        aria-label={t("action.editChief")}
+                        title={t("action.editChief")}
+                        onClick={() => store.sheets.open({ kind: "editChief", chief: openChief.id })}
+                      >
+                        <HomeIcon name="edit" size={16} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="hc-icon-button"
+                      aria-label={t("action.copyConversationLink")}
+                      title={t("action.copyConversationLink")}
+                      onClick={() => copyLink()}
+                    >
+                      <HomeIcon name="link" size={16} />
+                    </button>
+                  </header>
+                  {snap.error && (
+                    <output className="hc-error selectable">
+                      <span>{snap.error}</span>
+                      <button type="button" onClick={() => store.dismissError()}>
+                        {t("error.dismiss")}
+                      </button>
                     </output>
                   )}
-                  {notice && <output className="lg-notice">{notice}</output>}
-                  {channel && (
-                    <span className="lg-faces" aria-hidden="true">
-                      {open.participants.slice(0, 4).map((p) => (
-                        <Avatar key={p.id} participant={p} size={20} />
-                      ))}
-                    </span>
-                  )}
-                  {online && caps.invite && open.owner === "local" && (
-                    <button
-                      type="button"
-                      className="hc-icon-button"
-                      aria-label={t("action.invite")}
-                      title={t("action.invite")}
-                      onClick={() => store.sheets.open({ kind: "invite", conversation: open.id })}
-                    >
-                      <HomeIcon name="personAdd" size={16} />
-                    </button>
-                  )}
-                  {online && openChief && (
-                    <button
-                      type="button"
-                      className="hc-icon-button"
-                      aria-label={t("action.editChief")}
-                      title={t("action.editChief")}
-                      onClick={() => store.sheets.open({ kind: "editChief", chief: openChief.id })}
-                    >
-                      <HomeIcon name="edit" size={16} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="hc-icon-button"
-                    aria-label={t("action.copyConversationLink")}
-                    title={t("action.copyConversationLink")}
-                    onClick={() => copyLink()}
-                  >
-                    <HomeIcon name="link" size={16} />
-                  </button>
-                </header>
-                {snap.error && (
-                  <output className="hc-error selectable">
-                    <span>{snap.error}</span>
-                    <button type="button" onClick={() => store.dismissError()}>
-                      {t("error.dismiss")}
-                    </button>
-                  </output>
-                )}
-                <RunsContext.Provider value={runs}>
-                  <div className="lg-stage" ref={column} data-drop-zone>
-                    <Timeline
-                      conversation={snap.selected}
-                      rows={rows}
-                      people={people}
-                      me={me}
-                      strings={strings}
-                      loadingOlder={snap.loadingOlder}
-                      onLoadOlder={() => void store.loadOlder()}
-                      onOpenThread={(root) => openThread(root)}
-                      onReact={(message, value) => void store.react(message, value)}
-                      onCopyLink={(message) => copyLink(message)}
-                      highlight={snap.highlight}
-                      threadFor={threadFor}
-                      openThread={snap.thread}
-                      focused={focused}
-                      pendingState={pendingState}
-                      onRetry={(key) => store.retry(key)}
-                      onDiscard={(key) => store.discard(key)}
-                      stamp={stamp}
-                      empty={t("timeline.empty")}
-                      {...editActions("main")}
-                    />
-                    <div className="lg-typing" aria-live="polite">
-                      {typingNames.length === 1
-                        ? format("typing.one", typingNames[0]!)
-                        : typingNames.length > 1
-                          ? t("typing.many")
-                          : ""}
-                    </div>
-                    <div className="lg-main-compose">
-                      <Composer
-                        key={open.id}
-                        strings={strings}
-                        placeholder={format("composer.placeholder", place)}
-                        label={format("composer.placeholder", name)}
-                        disabled={!online}
-                        people={mentionable}
-                        onEditLast={() => {
-                          const last = lastEditable(snap.messages, me, new Set(threads.map((entry) => entry.root.id)));
-                          if (last) setEditing({ id: last.id, surface: "main" });
-                        }}
-                        attachments={uploads}
-                        dropZone={column}
-                        onSend={(text, files) => store.send(text, undefined, undefined, files)}
-                      />
-                    </div>
-                    {snap.thread && (
-                      <ThreadSheet
-                        key={snap.thread}
-                        root={snap.thread}
-                        thread={sheetThread}
-                        place={place}
-                        messages={threadSource}
-                        stats={snap.threadStats.get(snap.thread)}
-                        hasMore={snap.threadView?.hasMore}
-                        loadingMore={snap.threadView?.loading}
-                        onLoadMore={() => store.loadMoreReplies()}
+                  <RunsContext.Provider value={runs}>
+                    <div className="lg-stage" ref={column} data-drop-zone>
+                      <Timeline
+                        conversation={snap.selected}
+                        rows={rows}
                         people={people}
-                        mentionable={mentionable}
                         me={me}
                         strings={strings}
-                        canSend={online}
-                        highlight={snap.highlight}
-                        onClose={() => openThread(undefined)}
-                        onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
-                        owners={open.participants}
-                        onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
-                        onRename={(title) =>
-                          sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
-                        }
-                        onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
-                        attachments={uploads}
-                        onCopyLink={(message) => copyLink(message)}
+                        loadingOlder={snap.loadingOlder}
+                        onLoadOlder={() => void store.loadOlder()}
+                        onOpenThread={(root) => openThread(root)}
                         onReact={(message, value) => void store.react(message, value)}
+                        onCopyLink={(message) => copyLink(message)}
+                        highlight={snap.highlight}
+                        threadFor={threadFor}
+                        openThread={snap.thread}
+                        focused={focused}
                         pendingState={pendingState}
                         onRetry={(key) => store.retry(key)}
                         onDiscard={(key) => store.discard(key)}
-                        {...editActions("thread")}
+                        stamp={stamp}
+                        empty={t("timeline.empty")}
+                        {...editActions("main")}
                       />
-                    )}
-                    {runSheet && runSheet.run.conversation === snap.selected && (
-                      <RunSheet
-                        key={`${runSheet.run.author}:${runSheet.run.id}`}
-                        entry={runSheet}
-                        people={people}
-                        strings={strings}
-                        place={place}
-                        asked={askedLine(runSheet.run.answers[0], threadSource)}
-                        onClose={() => setOpenRun(undefined)}
-                        onLoad={runs.onLoad}
-                      />
-                    )}
-                  </div>
-                </RunsContext.Provider>
-              </>
-            )}
-          </section>
-          <RouteSheets
-            sheets={store.sheets}
-            state={sheetState}
-            strings={strings}
-            conversations={conversations}
-            me={me}
-          />
-          {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+                      <div className="lg-typing" aria-live="polite">
+                        {typingNames.length === 1
+                          ? format("typing.one", typingNames[0]!)
+                          : typingNames.length > 1
+                            ? t("typing.many")
+                            : ""}
+                      </div>
+                      <div className="lg-main-compose">
+                        <Composer
+                          key={open.id}
+                          strings={strings}
+                          placeholder={format("composer.placeholder", place)}
+                          label={format("composer.placeholder", name)}
+                          disabled={!online}
+                          people={mentionable}
+                          onEditLast={() => {
+                            const last = lastEditable(
+                              snap.messages,
+                              me,
+                              new Set(threads.map((entry) => entry.root.id)),
+                            );
+                            if (last) setEditing({ id: last.id, surface: "main" });
+                          }}
+                          attachments={uploads}
+                          dropZone={column}
+                          onSend={(text, files) => store.send(text, undefined, undefined, files)}
+                        />
+                      </div>
+                      {snap.thread && (
+                        <ThreadSheet
+                          key={snap.thread}
+                          root={snap.thread}
+                          thread={sheetThread}
+                          place={place}
+                          messages={threadSource}
+                          stats={snap.threadStats.get(snap.thread)}
+                          hasMore={snap.threadView?.hasMore}
+                          loadingMore={snap.threadView?.loading}
+                          onLoadMore={() => store.loadMoreReplies()}
+                          people={people}
+                          mentionable={mentionable}
+                          me={me}
+                          strings={strings}
+                          canSend={online}
+                          highlight={snap.highlight}
+                          onClose={() => openThread(undefined)}
+                          onToggleStatus={() => snap.thread && toggleStatus(snap.thread)}
+                          owners={open.participants}
+                          onSetOwner={(owner) => snap.thread && setOwner(snap.thread, owner)}
+                          onRename={(title) =>
+                            sheetRoot ? store.updateThread(sheetRoot, { title }) : Promise.resolve(false)
+                          }
+                          onSend={(text, parent, files) => store.send(text, snap.thread, parent, files)}
+                          attachments={uploads}
+                          onCopyLink={(message) => copyLink(message)}
+                          onReact={(message, value) => void store.react(message, value)}
+                          pendingState={pendingState}
+                          onRetry={(key) => store.retry(key)}
+                          onDiscard={(key) => store.discard(key)}
+                          {...editActions("thread")}
+                        />
+                      )}
+                      {runSheet && runSheet.run.conversation === snap.selected && (
+                        <RunSheet
+                          key={`${runSheet.run.author}:${runSheet.run.id}`}
+                          entry={runSheet}
+                          people={people}
+                          strings={strings}
+                          place={place}
+                          asked={askedLine(runSheet.run.answers[0], threadSource)}
+                          onClose={() => setOpenRun(undefined)}
+                          onLoad={runs.onLoad}
+                        />
+                      )}
+                    </div>
+                  </RunsContext.Provider>
+                </>
+              )}
+            </section>
+            <RouteSheets
+              sheets={store.sheets}
+              state={sheetState}
+              strings={strings}
+              conversations={conversations}
+              me={me}
+            />
+            {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+          </div>
         </div>
       </PicturesContext.Provider>
     </AttachmentContext.Provider>

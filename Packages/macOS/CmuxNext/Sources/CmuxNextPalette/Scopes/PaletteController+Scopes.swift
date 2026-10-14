@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDesign
 
 /// The scope graph and the scope prototypes of the palette
@@ -10,6 +11,11 @@ extension PaletteController {
         configureScopes(entry: PaletteTunables.scopeEntry.value, chip: PaletteTunables.scopeChip.value,
                         itemActions: PaletteTunables.itemActions.value)
         applyRankSettings()
+        // A setting's write lands after its row's command returned: the open page shows it then.
+        sources.settings?.observeChanges { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.model.reload()
+        }
     }
 
     /// Reads the user's aliases and pins (cmux.json) into the searcher. A change ranks the empty
@@ -21,6 +27,15 @@ extension PaletteController {
             return current != settings
         }
         if changed { model.frecencyRevision += 1 }
+    }
+
+    /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens
+    /// Settings. Nil when no scope names the action.
+    func scope(openedBy id: ActionID) -> PaletteScopeID? {
+        configureScopes()
+        let action = registry.canonicalID(for: id).rawValue
+        let graph = model.navigation.graph
+        return graph.order.first { graph.scopes[$0]?.openAction == action }
     }
 
     func configureScopes(entry: PaletteScopeEntryStyle, chip: PaletteScopeChipStyle, itemActions: PaletteItemActionsStyle) {

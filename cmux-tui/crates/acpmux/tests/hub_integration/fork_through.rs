@@ -23,6 +23,9 @@ mod claude_subagents;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
+// Claude's skills in the slash command list, which share these helpers too.
+#[path = "claude_skill_commands.rs"]
+mod claude_skill_commands;
 
 const FORK_OP: &str = "acp.session.fork";
 
