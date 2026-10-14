@@ -4,7 +4,8 @@
 // exactly one: the hairline in `--ui-popup-shadow` (ui/popupSurface.css).
 //
 // The check reads the stylesheets: each `box-shadow` that uses a popup token is expanded through
-// the popup tokens' definitions and must hold one inset hairline layer.
+// the popup tokens' definitions and must hold one inset hairline layer, with no border in the same
+// rule (a page's `.ui-popup` and the chat find bar drew a border over that hairline).
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
@@ -83,14 +84,26 @@ const layers = (value: string) => {
 const hairlines = (value: string) =>
   layers(expand(value)).filter((layer) => /^inset\s+0\s+0\s+0\s+[\d.]*\d(px)?\b/.test(layer));
 
-// Each box-shadow that names a popup token, with the selector of its rule.
+// A border drawn by the rule is an edge too: any `border`/`border-width` that is not 0 or none.
+const borders = (body: string) =>
+  [...body.matchAll(/(?:^|[;{\s])border(?:-width)?\s*:\s*([^;}]+)/g)]
+    .map((match) => match[1].trim())
+    .filter((value) => !/^(0(px)?|none)(\s*!important)?$/.test(value));
+
+// Each box-shadow that names a popup token, with the selector and the borders of its rule.
 const uses = css.flatMap(({ file, text }) =>
   [...text.matchAll(/box-shadow\s*:\s*([^;}]+)/g)]
     .filter((match) => POPUP_TOKENS.some((token) => match[1].includes(`var(${token}`)))
     .map((match) => {
       const open = text.lastIndexOf("{", match.index);
       const start = Math.max(text.lastIndexOf("}", open), text.lastIndexOf(";", open)) + 1;
-      return { file, selector: text.slice(start, open).trim().replace(/\s+/g, " "), value: match[1].trim() };
+      const body = text.slice(open + 1, text.indexOf("}", match.index));
+      return {
+        file,
+        selector: text.slice(start, open).trim().replace(/\s+/g, " "),
+        value: match[1].trim(),
+        borders: borders(body),
+      };
     }),
 );
 
@@ -107,11 +120,22 @@ describe("web popups draw one hairline edge", () => {
     }
   });
 
-  test("every menu and popover box-shadow resolves to exactly one hairline", () => {
+  test("every menu and popover draws exactly one edge: the hairline, no border", () => {
     expect(uses.length).toBeGreaterThan(0);
     for (const use of uses) {
-      expect({ ...use, hairlines: hairlines(use.value).length }).toEqual({ ...use, hairlines: 1 });
+      const edges = hairlines(use.value).length + use.borders.length;
+      expect({ ...use, edges }).toEqual({ ...use, edges: 1 });
     }
+  });
+
+  // appearance.borders none (data-borders on the root) clears the rim, as it clears the composer's.
+  test("appearance.borders none clears the popup hairline", () => {
+    const cleared = css.some(({ text }) =>
+      [...text.matchAll(/:root\[data-borders=("none"|none)\]\s*\{([^}]*)\}/g)].some((match) =>
+        /--ui-popup-edge\s*:\s*transparent/.test(match[2]),
+      ),
+    );
+    expect(cleared).toBe(true);
   });
 
   // The popups the coherence passes moved onto the shared elevation; each must still be covered.
@@ -133,6 +157,8 @@ describe("web popups draw one hairline edge", () => {
       ".acpmux-file-menu-list",
       ".nt-popover",
       ".acpmux-mp-cascade .acpmux-mp-sub",
+      ".acpmux-find__bar",
+      ".ui-popup",
     ]) {
       expect(selectors).toContain(popup);
     }
