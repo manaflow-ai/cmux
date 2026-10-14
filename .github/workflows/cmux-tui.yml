@@ -1424,12 +1424,14 @@ jobs:
       # Build the exact reference plugin beside the daemon artifact.
       build_agent_plugin: true
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
-      # The macOS builds go straight to the PR pool (Blacksmith), never the
-      # minis' side label: there they queued behind the side lane until the
-      # run was cancelled. A re-run takes the same route, as cmux-tui
-      # artifacts' macOS legs do on their re-runs.
-      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+      # The macOS builds go straight to Blacksmith macOS 15 on every attempt.
+      # Never the minis' side label: there they queued behind the side lane
+      # until the run was cancelled (#20612), and the light side label takes
+      # only light jobs. Never vars.MACOS_RUNNER_PR either: it names the
+      # 12 vCPU macOS 26 label the nightly app build needs, and Blacksmith's
+      # macOS capacity is shared. tests/test_ci_tui_routes_avoid_nightly_label.py
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+      macos_retry_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
       linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
       windows_runner: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
       checkout_ref: ${{ inputs.commit }}
