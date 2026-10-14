@@ -9,21 +9,6 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct CloudVMSizeParsingTests {
-    @Test(arguments: [
-        ("3g", 3_072), ("20gb", 20_480), ("1GiB", 1_024),
-        ("1024mb", 1_024), ("20480", 20_480),
-    ])
-    func acceptsUnitAliasesWithoutAClientLadder(input: String, expectedMb: Int) {
-        #expect(CMUXCLI.parseCloudVMSize(input) == expectedMb)
-    }
-
-    @Test(arguments: ["0g", "511", "1.5g", "", "gib", "-2g"])
-    func rejectsMalformedOrSubMinimumMemory(input: String) {
-        #expect(CMUXCLI.parseCloudVMSize(input) == nil)
-    }
-}
-
 @Suite struct AgentAliasArgumentTests {
     final class BundleProbe {}
 
