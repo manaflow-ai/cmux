@@ -8,6 +8,19 @@ private func proMax(count: Int) -> OverviewLayout {
 }
 
 struct OverviewLayoutTests {
+    /// One tab: a larger centred card (device Pro Max 294.7 pt at x 72.7;
+    /// simulator Pro 268 pt at x 66.7, top 122, bottom 500).
+    @Test func loneTabIsALargerCentredCard() {
+        let pro = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 1)
+        let r = pro.card(0)
+        #expect(r.width == 268 && r.minX == 67 && r.minY == 122)
+        #expect(abs(r.maxY - 500) < 1)
+        let max = proMax(count: 1).card(0)
+        #expect(abs(max.width - 294.7) < 2 && abs(max.midX - 220) < 0.5)
+        // Two tabs: back to columns.
+        #expect(proMax(count: 2).card(0).width == 196)
+    }
+
     /// Device screenshot (iPhone 17 Pro Max, 3x): 196 pt cards with a
     /// 15.2 pt continuous corner.
     @Test func proMaxCardCornerMatchesTheDevice() {

@@ -316,6 +316,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .modifier(GridFollowOffset(origin: CGPoint(x: g.rect.minX + (chrome.swiping ? chrome.swipeOffset : 0), y: g.rect.minY),
                                    scroll: phase == .overview ? gridScroll : nil))
         .opacity(asCard ? 0 : phase == .overview ? (activeID.map { cardSwipes.opacity($0) } ?? 1) : 1)
+        // On the settled grid this is the active card: it moves with the
+        // grid's reflow (a closed tab, the lone-tab layout) instead of jumping.
+        .animation(phase == .overview ? theme.motion.resolve(theme.motion.reflow) : nil, value: tabs.map(\.id))
         .accessibilityHidden(!settled)
         .tabsKitStatusBarStyle(overviewVisible ? nil : activeTab?.statusBarStyle)
     }
