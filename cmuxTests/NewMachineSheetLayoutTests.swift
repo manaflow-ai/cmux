@@ -41,9 +41,16 @@ struct NewMachineSheetLayoutTests {
                 mode: .newMachine,
                 plan: MachineSnapshotBuilder.planSnapshot(
                     activeCount: 0,
-                    limits: VMPlanLimits(maxActiveVms: 10, planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [4096, 8192])
+                    limits: VMPlanLimits(
+                        maxActiveVms: 10, planId: "pro", freeAccessWindowDays: 0,
+                        memoryOptionsMb: [4096, 8192], defaultMemoryMb: 4096,
+                        vcpusByMemoryMb: ["4096": 2, "8192": 4],
+                        diskByMemoryMb: ["4096": 16384, "8192": 32768]
+                    )
                 ),
-                memoryOptionsMb: [4096, 8192],
+                memoryOptionsMb: [4096, 8192], defaultMemoryMb: 4096,
+                vcpusByMemoryMb: ["4096": 2, "8192": 4],
+                diskByMemoryMb: ["4096": 16384, "8192": 32768],
                 sourceMachines: machines,
                 baseImage: forked ? .machine(machines[2]) : .defaultImage,
                 defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
@@ -117,6 +124,9 @@ struct NewMachineSheetLayoutTests {
                 memoryOptionsMb: [4096, 8192, 16384],
                 lockedMemoryOptionsMb: [32768, 65536],
                 memoryUpgradePlanId: "max",
+                defaultMemoryMb: 4096,
+                vcpusByMemoryMb: ["4096": 2, "8192": 4, "16384": 8],
+                diskByMemoryMb: ["4096": 16384, "8192": 32768, "16384": 65536],
                 resourcePool: pool
             ))
             model.applySourceMachines(Self.nightlyMachines(renamedAt: tick))
@@ -149,9 +159,17 @@ struct NewMachineSheetLayoutTests {
             mode: .newMachine,
             plan: MachineSnapshotBuilder.planSnapshot(
                 activeCount: 0,
-                limits: VMPlanLimits(maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 0, memoryOptionsMb: [8192, 16384])
+                limits: VMPlanLimits(
+                    maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 0,
+                    memoryOptionsMb: [8192, 16384], defaultMemoryMb: 8192,
+                    vcpusByMemoryMb: ["8192": 4, "16384": 8],
+                    diskByMemoryMb: ["8192": 32768, "16384": 65536]
+                )
             ),
             memoryOptionsMb: [8192, 16384],
+            defaultMemoryMb: 8192,
+            vcpusByMemoryMb: ["8192": 4, "16384": 8],
+            diskByMemoryMb: ["8192": 32768, "16384": 65536],
             sourceMachines: machines,
             defaults: UserDefaults(suiteName: "NewMachineSheetLayoutTests-\(UUID().uuidString)")!,
             submit: { _ in true }
