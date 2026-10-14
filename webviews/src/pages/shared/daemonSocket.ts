@@ -1,6 +1,7 @@
 // One WebSocket connection of a page to its cmux instance's daemon (cmux-tui spec/transports.md
 // "WebSocket"): the same raw protocol-12 envelopes the app sends on the Unix socket, one JSON
-// object per text frame. The first frame authenticates: the daemon credential, or a pairing request
+// object per text frame. The first frame authenticates (unless a same-origin relay already
+// authenticated upstream, `{ origin: true }`): the daemon credential, or a pairing request
 // the person approves on a human surface of that instance (the TUI, the verified app); the approved
 // pairing returns a reconnect credential. Credentials never go in a URL or a log line.
 //
@@ -54,8 +55,9 @@ export class DaemonSocket {
       let ready = false;
       socket.addEventListener("open", () => {
         if ("origin" in auth) {
-          // The relay authenticated upstream; a relay that did not closes the socket with 1008 on
-          // the first protocol frame, which rejects the identify below like a wrong token.
+          // The relay authenticated upstream. If it attached no credential, the daemon closes on the
+          // first protocol frame (1008, or another close code through the relay), which rejects
+          // the identify below like a wrong token.
           ready = true;
           resolve();
         } else if ("token" in auth) {
