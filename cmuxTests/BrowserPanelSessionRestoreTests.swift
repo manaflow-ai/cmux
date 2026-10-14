@@ -184,7 +184,7 @@ struct BrowserPanelSessionRestoreTests {
         let sourceBrowser = try #require(source.newBrowserSurface(
             inPane: sourcePane,
             url: URL(string: "about:blank"),
-            focus: false
+            focus: true
         ))
         let snapshot = source.sessionSnapshot(includeScrollback: false)
 
@@ -299,6 +299,7 @@ struct BrowserPanelSessionRestoreTests {
         let restoredPanelID = try #require(remap[sourceBrowser.id])
         let deferred = try #require(restored.panels[restoredPanelID])
 
+        #expect(restored.focusedPanelId == restoredPanelID)
         #expect(WorkspaceShareExporter.sceneSurfaceKind(
             for: deferred,
             isShareableTextBox: { _ in false }
