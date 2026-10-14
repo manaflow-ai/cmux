@@ -122,8 +122,7 @@
 /* Send fills with the accent (the text color, or the theme's hue with appearance.accent). */
 .acpmux-send{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--agent-accent,var(--agent-text));color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-send .acpmux-icon{width:16px;height:16px}
-/* An empty draft's Send is a faint disc, clearly off; a draft brings the accent fill back (.acpmux-send-ready). */
-/* The one off look, for an empty draft and for Send turned off (composerStates.css): 18% text over the composer surface, so the disc stays a visible step off the near-white light field and off the dark composer fill (9% vanished in both), with a 60% arrow. */
+/* The one off look, for an empty draft and for Send turned off (composerStates.css): 18% text over the composer surface, so the disc stays a visible step off the near-white light field and off the dark composer fill (9% vanished in both), with a 60% arrow. A draft brings the accent fill back (.acpmux-send-ready). */
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel){background:var(--acpmux-send-off-bg);color:var(--acpmux-send-off-fg)}
 .acpmux-send:not(.acpmux-send-ready):not(.acpmux-cancel):hover{background:color-mix(in srgb,var(--agent-text) 22%,transparent)}
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
