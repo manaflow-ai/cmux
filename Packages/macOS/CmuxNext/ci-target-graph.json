@@ -246,8 +246,10 @@
         "CmuxHomeRender"
       ],
       "reads": [
+        "Resources/ghostty/themes/",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
+        "scripts/cmux-next/bundle-ghostty-resources.sh",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "tests/fixtures/classic-to-next/"
       ]
