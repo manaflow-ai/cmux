@@ -155,7 +155,12 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     let codex_file = npm.join("lib/node_modules/@zed-industries/codex-acp/bin/codex-acp.js");
     let codex = npm.join("bin/codex-acp");
     program(&codex_file, &codex, "codex-acp 0.3.1");
-    profile(&user, "codex", &format!("command = \"{}\"\n", codex.display()));
+    // No `codex` on its PATH: its sign-in is the model probe's answer below.
+    profile(
+        &user,
+        "codex",
+        &format!("command = \"{}\"\n[env]\nPATH = \"/usr/bin:/bin\"\n", codex.display()),
+    );
     // npm, a prefix this user cannot write: the update needs sudo, shown, never run.
     let npm_ro = root.join("npm-ro");
     let opencode = npm_ro.join("bin/opencode");
@@ -616,15 +621,16 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// `fake` at `dir/codex`: `codex login status` exits `code`, as Codex does
-/// (0 signed in, 1 "Not logged in").
-fn codex_login(dir: &Path, code: i32) {
+/// A fake `codex` at `dir/codex`: `codex login status` prints `says` and exits
+/// `code`, as Codex does (0 "Logged in using ChatGPT", 1 "Not logged in", and 1
+/// for a check it could not make).
+fn codex_login(dir: &Path, code: i32, says: &str) {
     std::fs::create_dir_all(dir).unwrap();
     let file = dir.join("codex");
     std::fs::write(
         &file,
         format!(
-            "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\n[ {code} = 0 ] && echo 'Logged in using ChatGPT' || echo 'Not logged in'\nexit {code}\n"
+            "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\necho '{says}'\nexit {code}\n"
         ),
     )
     .unwrap();
@@ -642,19 +648,45 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     let user = root.join("config").join("harnesses");
     let adapter = root.join("npm/bin/codex-acp");
     program(&root.join("npm/lib/codex-acp.js"), &adapter, "codex-acp 0.3.1");
-    for (id, code) in [("codex-out", 1), ("codex-in", 0)] {
+    // Each Codex harness runs the adapter with its own `codex` first on PATH.
+    for (id, code, says, extra) in [
+        ("codex-out", 1, "Not logged in", ""),
+        ("codex-in", 0, "Logged in using ChatGPT", ""),
+        // A check Codex could not make (a custom provider, a bad config) is no sign-out.
+        ("codex-unsure", 1, "Error checking login status: bad config", ""),
+        // Signed in since its model probe failed to sign in: the fresh answer wins.
+        ("codex-back", 0, "Logged in using ChatGPT", ""),
+        // A CODEX_HOME acpmux cannot resolve here: the default home says nothing about it.
+        (
+            "codex-elsewhere",
+            1,
+            "Not logged in",
+            "CODEX_HOME = \"${env:ACPMUX_HEALTH_NO_SUCH_HOME}\"\n",
+        ),
+    ] {
         let bin = root.join(format!("bin-{id}"));
-        codex_login(&bin, code);
+        codex_login(&bin, code, says);
         profile(
             &user,
             id,
             &format!(
-                "command = \"{}\"\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n",
+                "command = \"{}\"\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n{extra}",
                 adapter.display(),
                 bin.display()
             ),
         );
     }
+    // A wrapper that runs Codex somewhere else: this Mac's sign-in says nothing about it.
+    let bin = root.join("bin-codex-remote");
+    codex_login(&bin, 1, "Not logged in");
+    profile(
+        &user,
+        "codex-remote",
+        &format!(
+            "command = \"/usr/bin/env\"\nargs = [\"codex-acp\"]\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n",
+            bin.display()
+        ),
+    );
     let claude = home.join(".local/bin/claude");
     program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
     let signed = root.join("claude-signed");
@@ -675,6 +707,10 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     }
 
     let hub = hub_for(&root, &user, &home);
+    hub.probe_errors
+        .lock()
+        .unwrap()
+        .insert("codex-back".into(), "Not signed in: run `codex login`".into());
     let mut app = Client::open(&hub, Origin::LocalApp);
     let reply = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
 
@@ -682,6 +718,10 @@ async fn health_reads_codex_login_status_and_claude_credentials_without_a_check(
     assert_eq!(auth("codex-out").as_deref(), Some("signedOut"), "{reply}");
     assert_eq!(row(&reply, "codex-out")["login"], "codex login", "{reply}");
     assert_eq!(auth("codex-in").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("codex-unsure").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("codex-back").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("codex-elsewhere").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("codex-remote").as_deref(), Some("unknown"), "{reply}");
     assert_eq!(auth("claude-in").as_deref(), Some("signedIn"), "{reply}");
     assert_eq!(auth("claude-none").as_deref(), Some("unknown"), "{reply}");
 
