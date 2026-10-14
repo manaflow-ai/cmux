@@ -16,8 +16,8 @@ home = args[args.index("--mux-home") + 1]
 os.makedirs(os.path.join(home, "state"), exist_ok=True)
 inherited = os.environ.get("FAKE_BRAIN_LOCK_FD")
 if inherited:
-    # The app's restart of a brain that exited (FAKE_BRAIN_RESTART): the
-    # lock passes to the new brain with no gap.
+    # The app's restart of a brain that exited (restart-on-term): the lock
+    # passes to the new brain with no gap.
     lock = os.fdopen(int(inherited), "a+")
 else:
     lock = open(os.path.join(home, "state", "host.lock"), "a+")
@@ -42,7 +42,7 @@ with open(os.path.join(home, "daemon-socket"), "w") as where:
 if inherited:
     while True:
         time.sleep(1)
-if os.environ.get("FAKE_BRAIN_RESTART") == "1":
+if os.path.exists(os.path.join(home, "restart-on-term")):
     import signal, subprocess
     # The app (ChiefBrainWatch) starts a new brain when one exits, also
     # after a SIGTERM; this stand-in does it once.
@@ -369,13 +369,16 @@ fn chief_shutdown_stops_a_restarted_brain_and_the_session_daemon() {
     let sandbox = Sandbox::new("chief-shutdown-restart");
     let home = sandbox.isolated();
     let home_arg = home.to_str().unwrap();
-    let restart = [("FAKE_BRAIN_RESTART", "1")];
-    let output = sandbox.chief_with(&["--chief-home", home_arg, "-p", "hello"], &restart);
+    // The CLI passes the brain only an allowlisted environment: a file in
+    // the home turns the stand-in's restart on.
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("restart-on-term"), "").unwrap();
+    let output = sandbox.chief(&["--chief-home", home_arg, "-p", "hello"]);
     assert_success(&output);
     let socket = PathBuf::from(fs::read_to_string(home.join("daemon-socket")).unwrap());
     assert!(UnixStream::connect(&socket).is_ok(), "the session daemon runs");
 
-    let shutdown = sandbox.chief_with(&["shutdown", "--chief-home", home_arg], &restart);
+    let shutdown = sandbox.chief(&["shutdown", "--chief-home", home_arg]);
     let brains: Vec<u32> = fs::read_to_string(home.join("brain-starts.log"))
         .unwrap_or_default()
         .lines()
