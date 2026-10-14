@@ -129,6 +129,16 @@ def launch():
 
 def make_workspaces():
     have = perf_names()
+    # The ticking workspaces of an earlier run of this tag kept their state, but their terminals exited
+    # with that app session: close them, so this run makes them again with live shells.
+    old_ticking = sorted(n for n in have if n.startswith("perf-tick-"))
+    if old_ticking:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            closed = list(pool.map(lambda n: cli("workspace", n, "close"), old_ticking))
+        bad = [r.stderr.strip()[-160:] for r in closed if r.returncode != 0]
+        note(not bad, f"closed {len(old_ticking)} ticking workspaces of an earlier run ({bad[:2]})")
+        have = perf_names()
+        summary["ticking_left_after_close"] = len([n for n in have if n.startswith("perf-tick-")])
     ticking = [f"perf-tick-{i:02d}" for i in range(opts.ticking) if f"perf-tick-{i:02d}" not in have]
     empty = [f"perf-{i:04d}" for i in range(opts.count - opts.ticking) if f"perf-{i:04d}" not in have]
     start = time.monotonic()
@@ -244,7 +254,7 @@ def find_wheel():
         after = row_titles()
         sweep("up", 6)
         row_titles()
-        moved = bool(after) and after != before
+        moved = bool(after - before)
         tried.append({"variant": dict(variant), "before": len(before), "new_after": len(after - before), "moved": moved,
                       "errors": [json.dumps(b)[:200] for b in bad[:2]]})
         print(f"wheel variant {variant}: {tried[-1]}", flush=True)
