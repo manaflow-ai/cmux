@@ -111,13 +111,14 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
                         "bytes": avatar.bytes, "data": STANDARD.encode(data)}})),
                 }
             }
-            _ => mutate(mux, store, &caller, request),
+            _ => mutate(mux, client, store, &caller, request),
         }
     })
 }
 
 fn mutate(
     mux: &Mux,
+    client: u64,
     store: &mut ChiefStore,
     caller: &Caller,
     request: &ParsedResourceRequest,
@@ -158,10 +159,7 @@ fn mutate(
             json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
         ));
     }
-    let actor = match caller {
-        Caller::Owner | Caller::Page => LOCAL_USER.to_owned(),
-        Caller::Chief(me) => me.clone(),
-    };
+    let actor = audit_actor(mux, client, caller);
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
@@ -192,6 +190,21 @@ fn mutate(
             Err(ResourceError::idempotency_conflict(&key, &committed))
         }
         Err(refusal) => Err(refused(operation, &refusal)),
+    }
+}
+
+/// The actor the ledger records for a write: a page's write (a page
+/// WebSocket, or the host's page relay) is told apart from a terminal's,
+/// `user_local via page:<page>` (`user_local via websocket` for a page with no
+/// page id); a Chief is its own id.
+fn audit_actor(mux: &Mux, client: u64, caller: &Caller) -> String {
+    match caller {
+        Caller::Chief(me) => me.clone(),
+        Caller::Owner | Caller::Page => match super::origin_gate::connection_page(mux, client) {
+            Some(page) => format!("{LOCAL_USER} via page:{page}"),
+            None if *caller == Caller::Page => format!("{LOCAL_USER} via websocket"),
+            None => LOCAL_USER.to_owned(),
+        },
     }
 }
 

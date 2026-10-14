@@ -282,8 +282,82 @@ fn the_host_page_relay_changes_grants_and_deletes_only_with_the_persons_gesture(
         ),
     );
     ok(&deleted);
+    assert!(
+        ledger_actors(&mux).iter().all(|actor| actor == "user_local via page:home-channels"),
+        "{:?}",
+        ledger_actors(&mux)
+    );
     let listed = ok(&send(&mux, &relay, &v2("chief.profile.list", &params(json!({})), None, None)));
     let ids: Vec<&str> =
         listed["chiefs"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
     assert_eq!(ids, vec!["agent_mux"], "{listed}");
+}
+
+/// Who the ledger records for each write (`chief.profile.*` op ledger).
+fn ledger_actors(mux: &Arc<Mux>) -> Vec<String> {
+    let store = mux.chiefs().store.lock().unwrap();
+    store.as_ref().map(crate::chief_registry::ChiefStore::ledger_actors).unwrap_or_default()
+}
+
+#[test]
+fn a_page_write_is_recorded_as_the_page_and_no_page_field_stands_in_for_the_gesture() {
+    let mux = mux("audit");
+    let no_page = websocket(&mux, None);
+    let channels = websocket(&mux, Some("home-channels"));
+    let terminal = connect(&mux, ClientTransport::Unix);
+    create(&mux, &no_page, "From a browser", "audit-1");
+    let id = create(&mux, &channels, "From the app page", "audit-2");
+    create(&mux, &terminal, "From a terminal", "audit-3");
+    assert_eq!(
+        ledger_actors(&mux),
+        vec!["user_local via websocket", "user_local via page:home-channels", "user_local"],
+    );
+
+    // Only the host's confirmation on its page relay carries the person's
+    // gesture: a field, a claim or an envelope member the page makes up does not.
+    let widen = |extra: Value| {
+        let mut fields = json!({"chief": id, "tools": ["browser", "spawn"]});
+        for (key, value) in extra.as_object().unwrap() {
+            fields[key] = value.clone();
+        }
+        params(fields)
+    };
+    let attempts = [
+        v2("chief.profile.update", &widen(json!({"confirmed": true})), Some("fake-1"), None),
+        v2("chief.profile.update", &widen(json!({"gesture": true})), Some("fake-2"), None),
+        v2(
+            "chief.profile.update",
+            &widen(json!({})),
+            Some("fake-3"),
+            Some(json!({"claim": "user"})),
+        ),
+        v2(
+            "chief.profile.update",
+            &widen(json!({})),
+            Some("fake-4"),
+            Some(json!({"claim": "user", "confirmation": "made-up"})),
+        ),
+        v2(
+            "chief.profile.delete",
+            &params(json!({"chief": id, "confirmed": true})),
+            Some("fake-5"),
+            None,
+        ),
+    ];
+    for conn in [&no_page, &channels] {
+        for attempt in &attempts {
+            let mut request = attempt.clone();
+            request["gesture"] = json!(true);
+            for request in [attempt, &request] {
+                let reply = send(&mux, conn, request);
+                assert_eq!(reply["ok"], false, "{request}: {reply}");
+            }
+        }
+    }
+    let kept = ok(&send(
+        &mux,
+        &channels,
+        &v2("chief.profile.get", &params(json!({"chief": id})), None, None),
+    ));
+    assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
 }

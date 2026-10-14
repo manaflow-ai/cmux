@@ -272,6 +272,18 @@ impl ChiefStore {
     /// `request` answers the committed result with `replayed` true; another
     /// request under the key is [`Refusal::KeyConflict`]. The newest
     /// [`LEDGER_KEYS_PER_ACTOR`] keys of each actor are kept.
+    /// The ledger's actors, oldest first (tests: who a write is recorded as).
+    #[cfg(test)]
+    pub(crate) fn ledger_actors(&self) -> Vec<String> {
+        let mut statement =
+            self.connection.prepare("SELECT actor FROM op_ledger ORDER BY seq").expect("ledger");
+        statement
+            .query_map([], |row| row.get(0))
+            .expect("ledger rows")
+            .collect::<Result<_, _>>()
+            .expect("ledger actors")
+    }
+
     pub(crate) fn mutate(
         &mut self,
         actor: &str,

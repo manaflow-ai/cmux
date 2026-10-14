@@ -324,6 +324,14 @@ pub(super) fn set_page(mux: &Mux, client: u64, page: String) {
     }
 }
 
+/// The page id of `client` (a page WebSocket's handshake Origin, or a page
+/// relay's hello), or `None` (also for a client with no record). For the
+/// audit actor only: an access decision reads [`websocket_admission`].
+pub(super) fn connection_page(mux: &Mux, client: u64) -> Option<String> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).and_then(|record| record.origin.page.clone())
+}
+
 /// How a WebSocket connection was admitted, for the Chief registry
 /// (`chief-profile-ws-v1`): `None` for a client with no record or a poisoned
 /// registry lock (fail closed).

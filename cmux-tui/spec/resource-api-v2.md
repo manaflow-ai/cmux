@@ -1178,7 +1178,11 @@ text and avatar. A create or update that names a grant field (`tools`,
 the person's gesture: `origin.forbidden` reason `gesture_required` on the
 WebSocket, which never carries a confirmation; the host's page relay of page
 `home-channels` brings it (page-router.md). A create with no grant field gets
-the default grant. Every other connection is refused with `origin.forbidden`. A Chief reads every
+the default grant. Only the host's confirmation on its page relay carries the
+gesture; no request field or claim the page makes up stands in for it. The
+operation ledger records a page's write as `user_local via page:<page>` (`user_local
+via websocket` with no page id), so a page write is told apart from a terminal's.
+Every other connection is refused with `origin.forbidden`. A Chief reads every
 record and changes only its own fields that its `self_edit` lists; tools,
 harnesses, engine and `self_edit` are the owner's only, as are create and
 delete. Any other Chief request is `operation.failed` reason
