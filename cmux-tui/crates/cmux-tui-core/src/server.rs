@@ -194,6 +194,7 @@ mod cmd_subscribe;
 mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
+mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
@@ -856,7 +857,13 @@ enum Command {
         rows: Option<u16>,
     },
     Send {
-        surface: SurfaceId,
+        /// The terminal surface; or `terminal_id` (exactly one).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
+        /// being created (the input is queued for it, `mux::creating_input`).
+        #[serde(default)]
+        terminal_id: Option<String>,
         #[serde(default)]
         text: Option<String>,
         /// Base64-encoded raw bytes, written verbatim to the pty.
@@ -2094,7 +2101,6 @@ impl Command {
         match self {
             Self::PasteImage { surface, .. } => Some(*surface),
             Self::SetClientSizing { surface, .. }
-            | Self::Send { surface, .. }
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
@@ -2133,6 +2139,7 @@ impl Command {
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
+            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -3108,8 +3115,8 @@ fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, surface, text, bytes, paste)
+        Command::Send { surface, terminal_id, text, bytes, paste } => {
+            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
         }
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
