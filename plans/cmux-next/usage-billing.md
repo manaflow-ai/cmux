@@ -305,6 +305,12 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
 
 ## 10. Live steps for Lawrence (none done; all test-mode work above)
 
+Lawrence's answers (2026-10-14, through the chief):
+- Included amounts: keep the test values, Go 5, Pro 20, Max 100, Team 20 USD per month.
+- Team included amount: support BOTH per team and per seat (the per-seat form needs the pusher to
+  subtract seats x amount and a flat price; to build).
+- Invoice finalization grace period: 1 hour.
+
 1. Restricted live key (Stripe Dashboard only): Billing meter events Write, Subscriptions Read,
    Subscription items Write, Prices Read, Customers Read. Store it in the team store; it goes to the
    production Worker as STRIPE_USAGE_KEY. The code refuses every live key today: the live switch is
