@@ -28,59 +28,59 @@ pub const WS_ATTACHMENTS_CAPABILITY: &str = "ws-attachments-v1";
 /// `commit` and `cancel` (`upload`).
 #[derive(Deserialize)]
 pub(super) struct UploadParams {
-    op: String,
+    pub(super) op: String,
     #[serde(default)]
-    conversation: Option<String>,
+    pub(super) conversation: Option<String>,
     #[serde(default)]
-    sha256: Option<String>,
+    pub(super) sha256: Option<String>,
     #[serde(default)]
-    byte_count: Option<u64>,
+    pub(super) byte_count: Option<u64>,
     #[serde(default)]
-    mime_type: Option<String>,
+    pub(super) mime_type: Option<String>,
     #[serde(default)]
-    name: Option<String>,
+    pub(super) name: Option<String>,
     #[serde(default)]
-    width: Option<u32>,
+    pub(super) width: Option<u32>,
     #[serde(default)]
-    height: Option<u32>,
+    pub(super) height: Option<u32>,
     #[serde(default)]
-    duration_ms: Option<u64>,
+    pub(super) duration_ms: Option<u64>,
     /// A video's poster `{sha256, byte_count, mime_type}`.
     #[serde(default)]
-    poster: Option<Value>,
+    pub(super) poster: Option<Value>,
     /// An image's preview `{sha256, byte_count, mime_type}`.
     #[serde(default)]
-    preview: Option<Value>,
+    pub(super) preview: Option<Value>,
     #[serde(default)]
-    upload: Option<String>,
+    pub(super) upload: Option<String>,
     /// `original`, `poster` or `preview`.
     #[serde(default)]
-    piece: Option<String>,
+    pub(super) piece: Option<String>,
     #[serde(default)]
-    offset: Option<u64>,
+    pub(super) offset: Option<u64>,
     #[serde(default)]
-    data: Option<String>,
+    pub(super) data: Option<String>,
 }
 
 /// `conversation-attachment-read`: up to `length` (default and maximum
 /// 4 MiB) bytes of one variant (`original`, `poster` or `preview`) from `offset`.
 #[derive(Deserialize)]
 pub(super) struct ReadParams {
-    conversation: String,
-    hash: String,
+    pub(super) conversation: String,
+    pub(super) hash: String,
     #[serde(default)]
-    variant: Option<String>,
+    pub(super) variant: Option<String>,
     #[serde(default)]
-    offset: Option<u64>,
+    pub(super) offset: Option<u64>,
     #[serde(default)]
-    length: Option<u64>,
+    pub(super) length: Option<u64>,
 }
 
-fn required<T>(value: Option<T>, field: &str) -> anyhow::Result<T> {
+pub(super) fn required<T>(value: Option<T>, field: &str) -> anyhow::Result<T> {
     value.ok_or_else(|| anyhow::anyhow!("bad request: {field} is required"))
 }
 
-fn piece(value: Option<String>, field: &str) -> anyhow::Result<Piece> {
+pub(super) fn piece(value: Option<String>, field: &str) -> anyhow::Result<Piece> {
     match value.as_deref() {
         None | Some("original") => Ok(Piece::Original),
         Some("poster") => Ok(Piece::Poster),
@@ -91,7 +91,10 @@ fn piece(value: Option<String>, field: &str) -> anyhow::Result<Piece> {
     }
 }
 
-fn derived(value: Option<Value>, field: &str) -> anyhow::Result<Option<DerivedDeclaration>> {
+pub(super) fn derived(
+    value: Option<Value>,
+    field: &str,
+) -> anyhow::Result<Option<DerivedDeclaration>> {
     value
         .filter(|value| !value.is_null())
         .map(|value| super::conversations::decode(value, field))
@@ -104,12 +107,12 @@ fn derived(value: Option<Value>, field: &str) -> anyhow::Result<Option<DerivedDe
 /// download offers.
 #[derive(Deserialize)]
 pub(super) struct LinkParams {
-    conversation: String,
-    hash: String,
+    pub(super) conversation: String,
+    pub(super) hash: String,
     #[serde(default)]
-    variant: Option<String>,
+    pub(super) variant: Option<String>,
     #[serde(default)]
-    name: Option<String>,
+    pub(super) name: Option<String>,
 }
 
 /// The person's own clients: a Unix socket connection or an authenticated
@@ -201,6 +204,33 @@ pub(super) fn read(mux: &Mux, client: u64, params: ReadParams) -> anyhow::Result
     }))
 }
 
+/// A link's offered file name: the upload rules for a name, never an
+/// executable or active-document extension.
+pub(super) fn checked_name(name: Option<String>) -> anyhow::Result<Option<String>> {
+    match name {
+        None => Ok(None),
+        Some(name)
+            if cmux_conversation::valid_attachment_name(&name)
+                && !cmux_conversation::is_denied_name(&name) =>
+        {
+            Ok(Some(name))
+        }
+        Some(_) => {
+            Err(crate::conversation_store::attachments::AttachmentRejected("validation_invalid")
+                .into())
+        }
+    }
+}
+
+/// The JSON a link answers with.
+pub(super) fn link_reply(token: &str) -> Value {
+    let ttl = crate::conversation_store::attachments::links::LINK_TTL;
+    json!({
+        "path": format!("/attachments/{token}"),
+        "expires_in_ms": u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX),
+    })
+}
+
 /// `conversation-attachment-link`: `{path, expires_in_ms}`. `path` is
 /// `/attachments/<token>` on this daemon's WebSocket listener (HTTP `GET` or
 /// `HEAD`, byte ranges); the token ends after `expires_in_ms` or a restart.
@@ -209,25 +239,9 @@ pub(super) fn link(mux: &Mux, client: u64, params: LinkParams) -> anyhow::Result
     let actor = mux.conversation_principal(client);
     let LinkParams { conversation, hash, variant, name } = params;
     let variant = piece(variant, "variant")?;
-    let name = match name {
-        None => None,
-        // The upload rules for a name: never an executable or active-document extension.
-        Some(name)
-            if cmux_conversation::valid_attachment_name(&name)
-                && !cmux_conversation::is_denied_name(&name) =>
-        {
-            Some(name)
-        }
-        Some(_) => anyhow::bail!(crate::conversation_store::attachments::AttachmentRejected(
-            "validation_invalid"
-        )),
-    };
+    let name = checked_name(name)?;
     let token = mux.with_conversations(|store| {
         store.attachment_link(&actor, &conversation, &hash, variant, name)
     })?;
-    let ttl = crate::conversation_store::attachments::links::LINK_TTL;
-    Ok(json!({
-        "path": format!("/attachments/{token}"),
-        "expires_in_ms": u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX),
-    }))
+    Ok(link_reply(&token))
 }

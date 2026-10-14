@@ -86,12 +86,7 @@ extension AgentTabStore {
         if linked { linkedSessions.insert(key) }
         if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = key }
         track(key, in: store)
-        if let spare, let newTab {
-            standaloneViews.remove(spare)
-            wire(spare.model, key: key)
-            views[key] = spare
-            spare.adoptNewTab(newTab.page)
-        }
+        if let spare, let newTab { adoptSpare(spare, key: key, page: newTab.page) }
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
         if remote { remoteCreations[key] = pending }
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
@@ -199,6 +194,14 @@ extension AgentTabStore {
         // must then name the store tab directly, including conversion and project reads.
         if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
+    }
+
+    /// Local tab `key` adopts the prewarmed `spare` as its page; the chat it becomes still opens tabs (cx-ckt2z).
+    func adoptSpare(_ spare: AgentPaneView, key: String, page: AgentPaneNewTab) {
+        standaloneViews.remove(spare)
+        (views[key], spare.model.allowsTabConversion) = (spare, true)
+        wire(spare.model, key: key)
+        spare.adoptNewTab(page)
     }
 
     /// The page of tab `key` reported `session` (a new chat started, or the user changed the chat
