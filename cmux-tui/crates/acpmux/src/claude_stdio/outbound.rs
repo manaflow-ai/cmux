@@ -114,9 +114,16 @@ impl Translator {
                             return Outbound::Lines(vec![line]);
                         }
                         self.in_turn.store(true, Ordering::SeqCst);
+                        self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
-                        self.pending.lock().await.insert(id.to_string(), Pending::Prompt);
+                        let mut pending = self.pending.lock().await;
+                        *self.abandoned.lock().await = pending
+                            .iter()
+                            .filter(|(_, p)| matches!(p, Pending::Prompt))
+                            .map(|(k, _)| k.clone())
+                            .collect();
+                        pending.insert(id.to_string(), Pending::Prompt);
                         Outbound::Lines(vec![line])
                     }
                     method::SESSION_SET_MODE => {
