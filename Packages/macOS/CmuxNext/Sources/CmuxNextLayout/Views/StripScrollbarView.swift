@@ -160,8 +160,15 @@ final class StripScrollbarView: NSView {
         }
     }
 
-    override var isHidden: Bool {
-        didSet { syncOccluder() }
+    // Called for the bar's own `isHidden` and for an ancestor's (a screen switch, an empty workspace).
+    override func viewDidHide() {
+        super.viewDidHide()
+        syncOccluder()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        syncOccluder()
     }
 
     override func viewDidMoveToWindow() {
@@ -170,8 +177,9 @@ final class StripScrollbarView: NSView {
     }
 
     /// The shown thumb's band (full band height, so hover thickening stays inside it) in window
-    /// coordinates as this bar's occluder, nothing otherwise. A window it left drops it.
-    private func syncOccluder() {
+    /// coordinates as this bar's occluder, nothing otherwise. A window it left drops it. Also run
+    /// when an ancestor moved without an `update` (a screen sliding in or out).
+    func syncOccluder() {
         let rect = isShown && !isHiddenOrHasHiddenAncestor ? thumbRect.map { convert($0, to: nil) } : nil
         if let old = occludedWindow, old !== window {
             WindowOverlayHost.existingHost(for: old)?.setOccluder(id: occluderID, rect: nil)
