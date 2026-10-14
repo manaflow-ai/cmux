@@ -224,12 +224,12 @@ public actor FreeTierAttestProvider {
                 }
                 let attestation = try await attest.attestKey(keyID, clientDataHash: hash)
                 let token = try await attest.deviceCheckToken()
-                return ["key_id": keyID, "attestation": attestation.base64EncodedString(),
+                return ["key_id": keyID, "attestation": Self.base64URL(attestation),
                         "device_token": token.base64EncodedString()]
             case "assert":
                 guard let keyID = try keys.load() else { return ["error": "invalid_key"] }
                 let assertion = try await attest.generateAssertion(keyID, clientDataHash: hash)
-                return ["key_id": keyID, "assertion": assertion.base64EncodedString()]
+                return ["key_id": keyID, "assertion": Self.base64URL(assertion)]
             default:
                 return ["error": "refused"]
             }
@@ -254,6 +254,13 @@ public actor FreeTierAttestProvider {
         } catch {
             return ["error": "failed"]
         }
+    }
+
+    /// Unpadded base64url: the cmux API's token route decodes proofs only in that form
+    /// (the DeviceCheck token stays standard base64, as Apple expects it).
+    private static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
 
     private static func encode(_ object: [String: Any]) -> Data {

@@ -616,7 +616,7 @@ impl FreeTier {
                     let body = json!({
                         "key_id": field(&reply, "key_id")?,
                         "challenge": challenge,
-                        "assertion": field(&reply, "assertion")?,
+                        "assertion": base64url(&field(&reply, "assertion")?),
                     });
                     match self.post_token(origin, "/v1/inference/free/token", &body).await {
                         // The grant's month ended (or the key is unknown): a fresh key, because
@@ -655,7 +655,7 @@ impl FreeTier {
             let body = json!({
                 "platform": platform,
                 "key_id": field(&reply, "key_id")?,
-                "attestation": field(&reply, "attestation")?,
+                "attestation": base64url(&field(&reply, "attestation")?),
                 "device_token": field(&reply, "device_token")?,
                 "challenge": challenge,
             });
@@ -763,6 +763,13 @@ impl Provider {
 }
 
 /// A string field of a provider reply: base64 text, bounded.
+/// The same bytes as unpadded base64url. The token route decodes only base64url
+/// (home-core device-proof b64u), so a standard-base64 proof from the app would
+/// be refused there and every renewal would fall back to a fresh key.
+fn base64url(value: &str) -> String {
+    value.trim_end_matches('=').replace('+', "-").replace('/', "_")
+}
+
 fn field(reply: &Value, name: &str) -> Result<String, LeaseError> {
     let value = reply.get(name).and_then(Value::as_str).ok_or(LeaseError::App("failed".into()))?;
     if value.is_empty()
