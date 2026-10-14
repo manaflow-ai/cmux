@@ -25,6 +25,12 @@ public struct HoverCardBody {
     }
 }
 
+/// A card body that can say what it shows, for `debug.hover_cards` (GUI proofs read it).
+@MainActor
+public protocol HoverCardTextReporting {
+    var reportedLines: [String] { get }
+}
+
 /// A view with hover card targets (a tab strip, a sidebar list).
 public protocol HoverCardSource: AnyObject {
     /// The window the targets are in.
