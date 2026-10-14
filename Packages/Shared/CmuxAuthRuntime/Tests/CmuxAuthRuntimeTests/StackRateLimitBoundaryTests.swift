@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import Foundation
 import Observation
+import os
 import Testing
 @testable import CmuxAuthRuntime
 
@@ -35,6 +36,17 @@ struct StackRateLimitBoundaryTests {
         session.deliver(harness.callbackURL(state: harness.callbackState(session)))
 
         await harness.waitFor { harness.flow.isRetryingAfterRateLimit }
+        let limited = harness.telemetry.events
+        #expect(limited.map(\.phase) == [.signInCompletion])
+        guard case let .rateLimited(retryAfter, backoff, attemptNumber, bodyKind, endpoint) = limited.first?.kind else {
+            Issue.record("expected a rate-limited record, got \(limited)")
+            return
+        }
+        #expect(retryAfter == nil)
+        #expect((1...2).contains(backoff))
+        #expect(attemptNumber == 1)
+        #expect(bodyKind == "html")
+        #expect(endpoint == "/api/v1/users/me")
         #expect(harness.flow.lastFailure == .rateLimited)
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
@@ -50,6 +62,14 @@ struct StackRateLimitBoundaryTests {
         #expect(server.responseCount("GET", "/api/v1/users/me", status: 200) >= 1)
         // Backoff without Retry-After waits 1-2 s before the first retry.
         #expect(ContinuousClock.now - started >= .seconds(1))
+        let records = harness.telemetry.events
+        #expect(records.count == 2)
+        #expect(records.last?.phase == .signInCompletion)
+        guard case let .recovered(limitedFor) = records.last?.kind else {
+            Issue.record("expected a recovered record, got \(records)")
+            return
+        }
+        #expect((1...30).contains(limitedFor))
     }
 
     /// A JSON 429 with Retry-After is honored before the retry.
@@ -97,6 +117,10 @@ struct StackRateLimitBoundaryTests {
         #expect(harness.flow.isRetryingAfterRateLimit == false)
         #expect(server.requestCount("GET", "/api/v1/users/me") == AuthRateLimit.maximumRetries + 1)
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
+        // Seven 429s about 1 s apart give one record per 10 s window, so
+        // telemetry does not grow with the retries.
+        #expect((1...2).contains(harness.telemetry.events.count))
+        #expect(harness.telemetry.events.first?.phase == .signInCompletion)
     }
 
     /// A 429 on the team list after a session check keeps the session,
@@ -135,6 +159,21 @@ struct StackRateLimitBoundaryTests {
         #expect(harness.coordinator.teamScopeRateLimit == nil)
         #expect(server.responseCount("GET", "/api/v1/teams", status: 429) == 1)
         #expect(harness.coordinator.isAuthenticated)
+        let records = harness.telemetry.events
+        #expect(records.map(\.phase) == [.sessionCheck, .sessionCheck])
+        guard case let .rateLimited(retryAfter, backoff, attemptNumber, bodyKind, endpoint) = records.first?.kind else {
+            Issue.record("expected a rate-limited record, got \(records)")
+            return
+        }
+        #expect(retryAfter == 2)
+        #expect((2...3).contains(backoff))
+        #expect(attemptNumber == 1)
+        #expect(bodyKind == "html")
+        #expect(endpoint == "/api/v1/teams")
+        guard case .recovered = records.last?.kind else {
+            Issue.record("expected a recovered record, got \(records)")
+            return
+        }
     }
 
     /// Sign-out during the rate-limit wait ends the wait at once and the
@@ -173,6 +212,7 @@ private struct RealStackSignInHarness {
     let coordinator: AuthCoordinator
     let tokenStore: FileStackTokenStore
     let factory: FakeBrowserAuthSessionFactory
+    let telemetry: TelemetryRecorder
     let accessToken = testAccessJWT(issuedSecondsAgo: 5, expiresInSeconds: 600)
 
     init(server: LocalStackHTTPServer) throws {
@@ -184,6 +224,7 @@ private struct RealStackSignInHarness {
             noAutomaticPrefetch: true
         )
         let keyValues = FakeKeyValueStore()
+        let telemetry = TelemetryRecorder()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: CMUXAuthSessionCache(keyValueStore: keyValues, key: "has_tokens"),
@@ -191,7 +232,8 @@ private struct RealStackSignInHarness {
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: keyValues, key: "selected_team"),
             anchor: FakeAnchor(),
             config: .test,
-            launch: .plain()
+            launch: .plain(),
+            rateLimitTelemetry: telemetry.source
         )
         let factory = FakeBrowserAuthSessionFactory()
         flow = HostBrowserSignInFlow(
@@ -204,6 +246,7 @@ private struct RealStackSignInHarness {
             openExternalURL: { _ in true }
         )
         self.coordinator = coordinator
+        self.telemetry = telemetry
         self.tokenStore = tokenStore
         self.factory = factory
     }
@@ -234,4 +277,16 @@ private struct RealStackSignInHarness {
         }
         watchdog.cancel()
     }
+}
+
+/// Collects the rate-limit records one harness's flows emit.
+private final class TelemetryRecorder: Sendable {
+    let source = StackRateLimitTelemetry()
+    private let recorded = OSAllocatedUnfairLock(initialState: [StackRateLimitTelemetryEvent]())
+
+    init() {
+        source.setSink { [recorded] event in recorded.withLock { $0.append(event) } }
+    }
+
+    var events: [StackRateLimitTelemetryEvent] { recorded.withLock { $0 } }
 }
