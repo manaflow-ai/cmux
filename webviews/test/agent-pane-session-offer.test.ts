@@ -50,6 +50,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     cwd: "/home/dev/api",
     worktree: false,
     harness: "codex",
+    model: "gpt-5.5",
   };
   let seq = 0;
   let history: Record_[] = [];
@@ -88,7 +89,7 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       case "_acpmux/watch":
         return { result: { sessions: [summary()] } };
       case "_acpmux/attach":
-        if (params.sessionId !== SESSION) return { error: { code: -32602, message: "only the offering chat" } };
+        if (params.sessionId !== SESSION) return { result: { session: summary(CHILD), lastSeq: 0, events: [] } };
         wanted = Array.isArray(params.kinds) ? params.kinds : undefined;
         return { result: { session: summary(), lastSeq: seq, events: history.filter(passes) } };
       case "_acpmux/events":
@@ -158,6 +159,10 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
     await page.getByText("Add the upload endpoint").first().waitFor({ timeout: 60_000 });
     return page;
   }
+  async function waitUntil(done: () => boolean) {
+    for (let tries = 0; !done() && tries < 100; tries++) await Bun.sleep(50);
+    expect(done()).toBe(true);
+  }
   const chip = (page: Page) => page.locator(".acpmux-session-offer");
 
   describe("an agent's session offer", () => {
@@ -178,6 +183,9 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       const created = calls.find((c) => c.method === "session/new");
       expect(created?.params.cwd).toBe(offer.cwd);
       expect(created?.params._meta?.acpmux?.harness).toBe("codex");
+      expect(created?.params.model).toBe("gpt-5.5");
+      // The prompt goes after the answer, and its turn ends at once here: its attach ends with it.
+      await waitUntil(() => calls.some((c) => c.method === "_acpmux/detach" && c.params.sessionId === CHILD));
       const prompt = calls.find((c) => c.method === "session/prompt");
       expect(prompt?.params.sessionId).toBe(CHILD);
       expect(JSON.stringify(prompt?.params.prompt)).toContain(offer.prompt);
@@ -185,8 +193,14 @@ await requireBrowserLane("agent-pane-session-offer.test.ts", async () => {
       expect(respond.map((c) => c.params)).toEqual([
         { sessionId: SESSION, offerId: offer.offerId, outcome: "accepted", childSessionId: CHILD },
       ]);
-      // This chat stays shown: nothing attached to the new one here.
-      expect(calls.some((c) => c.method === "_acpmux/attach" && c.params.sessionId === CHILD)).toBe(false);
+      // This chat stays shown. The new one is attached only hidden, before its prompt (which would
+      // attach it as seen), so its turn is not marked seen here.
+      const childCalls = calls.filter((c) => c.params.sessionId === CHILD).map((c) => c.method);
+      expect(childCalls).toEqual(["_acpmux/attach", "session/prompt", "_acpmux/detach"]);
+      expect(calls.find((c) => c.method === "_acpmux/attach" && c.params.sessionId === CHILD)?.params.visible).toBe(
+        false,
+      );
+      expect(await page.locator(".acpmux-session-offer-title").first().innerText()).toBe(offer.title);
       expect(await chip(page).getByRole("button", { name: "Start" }).count()).toBe(0);
       await page.close();
     });

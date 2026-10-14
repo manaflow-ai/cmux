@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionOffer } from "../model";
 import { errorMessage } from "../transportErrors";
@@ -22,38 +22,44 @@ export function OfferChip({
   const t = useT();
   const [busy, setBusy] = useState<"start" | "dismiss">();
   const [error, setError] = useState<string>();
+  const titleId = useId();
+  // Busy until acpmux's decision record answers the chip, so its buttons never come back between.
   const run = (which: "start" | "dismiss", action: () => Promise<unknown>) => {
     setBusy(which);
     setError(undefined);
-    action().then(
-      () => setBusy(undefined),
-      (failure: unknown) => {
-        setBusy(undefined);
-        setError(errorMessage(failure) || t("offer.failed"));
-      },
-    );
+    action().catch((failure: unknown) => {
+      setBusy(undefined);
+      setError(errorMessage(failure) || t("offer.failed"));
+    });
   };
   const child = offer.childSessionId;
   return (
-    <div className="acpmux-session-offer" data-outcome={offer.outcome ?? "open"} aria-live="polite">
+    <div className="acpmux-session-offer" data-outcome={offer.outcome ?? "open"}>
       <div className="acpmux-session-offer-text">
         <span className="acpmux-session-offer-label">
           {t("offer.label")}
           {offer.worktree && ` · ${t("offer.worktree")}`}
         </span>
-        <span className="acpmux-session-offer-title">{offer.title}</span>
+        <span className="acpmux-session-offer-title" id={titleId}>
+          {offer.title}
+        </span>
         {error && (
           <span className="acpmux-session-offer-error" role="alert">
             {error}
           </span>
         )}
       </div>
-      <div className="acpmux-session-offer-row">
+      <div className="acpmux-session-offer-row" aria-live="polite">
         {offer.outcome === "accepted" ? (
           <>
             <span className="acpmux-session-offer-status">{t("offer.started")}</span>
             {child && (
-              <button type="button" className="acpmux-session-offer-action" onClick={() => onOpen(child)}>
+              <button
+                type="button"
+                className="acpmux-session-offer-action"
+                aria-describedby={titleId}
+                onClick={() => onOpen(child)}
+              >
                 {t("offer.open")}
               </button>
             )}
@@ -67,6 +73,7 @@ export function OfferChip({
             <button
               type="button"
               className="acpmux-session-offer-action"
+              aria-describedby={titleId}
               disabled={busy !== undefined}
               onClick={() => run("start", onStart)}
             >
@@ -75,6 +82,7 @@ export function OfferChip({
             <button
               type="button"
               className="acpmux-session-offer-action"
+              aria-describedby={titleId}
               disabled={busy !== undefined}
               onClick={() => run("dismiss", onDismiss)}
             >

@@ -3656,12 +3656,13 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const offer = client.offer(String(offerId));
             if (!chat || !offer) throw new Error(translate("offer.failed"));
-            const cwd = offer.worktree ? await offerWorktree(callNative, offer.cwd) : offer.cwd;
+            const cwd = offer.worktree ? await offerWorktree(callNative, offer) : offer.cwd;
             return client.startOffer(chat, offer, cwd);
           },
           "chat.offer.dismiss": async ({ offerId }) => {
             const chat = client.selectedSession;
-            if (chat) await client.dismissOffer(chat, String(offerId));
+            if (!chat) throw new Error(translate("error.notOpen"));
+            await client.dismissOffer(chat, String(offerId));
           },
           // Open on a started offer: beside this chat, as a side chat opens; else here.
           "chat.offer.open": async ({ sessionId }) => {

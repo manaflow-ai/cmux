@@ -2026,30 +2026,48 @@ export class AcpmuxDirectClient {
   async dismissOffer(sessionId: string, offerId: string): Promise<void> {
     await this.request("_acpmux/offer_respond", { sessionId, offerId, outcome: "dismissed" });
   }
-  /// Start on an offer's chip: starts the offered chat in `cwd` without showing it, answers the
-  /// offer with it (acpmux makes `sessionId` its parent), then sends it the offer's prompt. A
-  /// refused answer ends the new chat. Returns the new chat.
+  /// Start on an offer's chip: starts the offered chat in `cwd` on the offer's agent and model
+  /// without showing it, answers the offer with it (acpmux makes `sessionId` its parent), then
+  /// sends it the offer's prompt. A refused answer ends the new chat. Returns the new chat.
   async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string): Promise<string> {
-    const child = await this.startSession(offer.harness, cwd);
+    const params = newSessionParams({ cwd }, offer.harness);
+    if (offer.model) params.model = offer.model;
+    // A trust question routes as any new chat's does; Trust starts the offer again.
+    const again = () => void this.startOffer(sessionId, offer, cwd).catch(() => undefined);
+    const child = (await this.newSession(params, again))?.sessionId;
     if (!child) throw new Error(translate("offer.failed"));
     try {
       await this.request("_acpmux/offer_respond", {
         sessionId,
         offerId: offer.offerId,
         outcome: "accepted",
-        childSessionId: child,
+        childSessionId: String(child),
       });
     } catch (error) {
-      this.discard(child);
+      this.discard(String(child));
       throw error;
     }
-    // The prompt's reply comes when its turn ends; the new chat shows how it goes.
-    void this.request("session/prompt", {
-      sessionId: child,
-      prompt: promptBlocks(offer.prompt, []),
-      _meta: { acpmux: { promptId: crypto.randomUUID() } },
-    }).catch(() => undefined);
-    return child;
+    void this.promptUnseen(String(child), offer.prompt);
+    return String(child);
+  }
+  /// Sends `text` to chat `sessionId`, which this pane does not show. acpmux attaches a prompt's
+  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first, the
+  /// prompt adds nothing, and the attach ends with the turn (unless the pane shows it by then).
+  private async promptUnseen(sessionId: string, text: string): Promise<void> {
+    try {
+      await this.request("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
+      // The reply comes when the turn ends; the chat shows how it goes.
+      await this.request("session/prompt", {
+        sessionId,
+        prompt: promptBlocks(text, []),
+        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+      });
+    } catch {
+      // A prompt acpmux refused shows in the chat itself.
+    } finally {
+      if (this.selectedSessionId !== sessionId)
+        void this.request("_acpmux/detach", { sessionId }).catch(() => undefined);
+    }
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
