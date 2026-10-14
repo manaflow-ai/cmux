@@ -87,7 +87,7 @@ public nonisolated struct WindowFrame: Sendable {
                 let i = (y * width + x) * 4
                 counted += 1
                 if max(abs(Int(pixels[i]) - Int(b.pixels[i])), abs(Int(pixels[i + 1]) - Int(b.pixels[i + 1])),
-                       abs(Int(pixels[i + 2]) - Int(b.pixels[i + 2]))) > channelStep { differing += 1 }
+                       abs(Int(pixels[i + 2]) - Int(b.pixels[i + 2]))) > Self.channelStep { differing += 1 }
             }
         }
         return counted == 0 ? 0 : Double(differing) / Double(counted)
