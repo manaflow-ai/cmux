@@ -153,7 +153,12 @@ import Testing
         labeled.themedToolTip = "Reload"
         presenter.enter(try Self.tracker(container))
         presenter.enter(try Self.tracker(labeled))
-        clock.advance(by: .milliseconds(600))
+        // Past any delay (the standard and AppKit's), before a shown tooltip's recheck could hide it;
+        // in steps, so a wait armed on enter is asleep before the clock passes it.
+        for _ in 0..<10 {
+            try await Self.settle()
+            clock.advance(by: .milliseconds(100))
+        }
         try await Self.settle()
         #expect(presenter.shown == nil, "hovering the button titled Reload showed \(presenter.shown?.text ?? "")")
     }

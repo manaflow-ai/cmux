@@ -206,8 +206,8 @@ import Testing
     }
 
     /// Moving down the list with a little drift toward the card is not heading
-    /// into it: the card slides to the next row at once, as before the safe
-    /// triangle.
+    /// into it, even right by the card where the safe triangle is widest: the
+    /// card slides to the next row at once, as before the safe triangle.
     @Test func movingDownTheListWithDriftSlidesTheCardAtOnce() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
@@ -216,8 +216,9 @@ import Testing
         _ = try await Self.dwell(on: rows[0], list, coordinator, clock)
         guard case let .workspace(next) = rows[1].key else { return }
         let target = WorkspaceHoverCardController.targetID(next)
-        // Row 0's middle to row 1's middle, 3 pt down and 1 pt toward the card every 4 ms.
-        var point = NSPoint(x: list.bounds.midX, y: rows[0].y + rows[0].height / 2)
+        // Near the list's right edge, by the card (the safe triangle is widest there), from row 0's
+        // middle to row 1's, 3 pt down and 1 pt toward the card every 4 ms.
+        var point = NSPoint(x: list.bounds.maxX - 16, y: rows[0].y + rows[0].height / 2)
         let end = rows[1].y + rows[1].height / 2
         var onNextRow: Int?
         var slidAfter: Int?
