@@ -38,6 +38,9 @@ public final class DesignSettings {
     public var animationBounce: MotionBounce = .none
     /// `ui.animations.{splits,newTab,newWorkspace}` set to false.
     public var disabledAnimations: Set<MotionKind> = []
+    /// `ui.paneAnimations`: pane layout changes spring when true (see
+    /// `Motion.animatesPaneLayout`); off by default.
+    public var paneAnimations = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
