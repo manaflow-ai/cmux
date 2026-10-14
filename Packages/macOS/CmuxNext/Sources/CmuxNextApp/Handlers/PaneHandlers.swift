@@ -111,8 +111,7 @@ enum PaneHandlers {
         // focus moves only after the reply, and on the optimistic path the swap to the daemon's
         // pane remounts the view. The provisional view takes keys by terminal id at once (cx-wb5.78).
         let window = content == nil ? nil : controller?.view.window
-        let earlyTab = daemon.queuesCreatingInput ? provisional?.tabID : nil
-        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: earlyTab)
+        let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil)
         ctx.registry.track(Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }

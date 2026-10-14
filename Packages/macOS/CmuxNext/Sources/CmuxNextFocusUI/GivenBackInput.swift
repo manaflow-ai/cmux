@@ -7,6 +7,8 @@ public import Foundation
 /// terminal the user did not type them for (and may hold a Return).
 @MainActor
 public final class GivenBackInput {
+    /// The app's one holder.
+    public static let shared = GivenBackInput()
     private var bytes = Data()
     private var since: ContinuousClock.Instant?
     private let limit: Duration
