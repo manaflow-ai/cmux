@@ -26,7 +26,7 @@ public struct LinkPairing: Sendable {
     /// What the phone says when a paired Mac's identity changed.
     public static let identityChanged = String(localized: """
         This Mac's identity changed, so this iPhone won't connect: it may not be your Mac. \
-        If you reinstalled cmux or replaced the Mac, remove it in Settings → Paired Macs, then let it add itself again.
+        If you reinstalled cmux or replaced the Mac, remove it in Settings → Devices, then let it add itself again.
         """)
 
     /// Where pairing with the linked Mac stands.

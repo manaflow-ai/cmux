@@ -82,7 +82,7 @@ public final class CnxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotifi
     }
 }
 
-/// Settings → Connection and account deletion over the live coordinator.
+/// Settings → Devices and account deletion over the live coordinator.
 @MainActor
 final class LiveDeviceDirectory: SettingsDeviceDirectory {
     private weak var live: LiveCoordinator?
@@ -141,8 +141,8 @@ final class LiveDeviceDirectory: SettingsDeviceDirectory {
 #endif
 
 #if DEBUG && os(iOS)
-/// DEBUG mock mode only (Settings → Developer → Mock data): Settings →
-/// Paired Macs over the sample store, so the removal UI can be exercised
+/// DEBUG mock mode only (Settings → Developer → Mock): Settings →
+/// Devices over the sample store, so the removal UI can be exercised
 /// and captured without a signed-in Mac. Compiled out of Production.
 @MainActor
 final class MockDeviceDirectory: SettingsDeviceDirectory {

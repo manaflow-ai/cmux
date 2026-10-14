@@ -144,8 +144,8 @@ struct DemoDriver {
         await pause(1.2)
     }
 
-    /// Live link with the default dial, then Settings → Developer → Relay
-    /// only switched on (as a tap would, through the same `UserDefaults` key
+    /// Live link with the default dial, then Settings → Transport → Relay
+    /// only (Developer) switched on (as a tap would, through the same `UserDefaults` key
     /// the toggle is bound to), then back to Workspaces, where the Mac's
     /// status line shows the TURN or relay path.
     private func relayOnly() async {
@@ -155,7 +155,7 @@ struct DemoDriver {
         demoLog.info("demo: settings developer")
         shell.tab = .settings
         await pause(1.0)
-        shell.settingsScrollTarget = "bottom"
+        shell.settingsPath = [.transport]
         await pause(2.0)
         demoLog.info("demo: relay only on")
         UserDefaults.standard.set(true, forKey: DeveloperOptions.relayOnlyKey)
@@ -178,7 +178,7 @@ struct DemoDriver {
         await pause(1.5)
         shell.settingsScrollTarget = "bottom"
         await pause(2.0)
-        shell.settingsPath = [.pairedMacs]
+        shell.settingsPath = [.devices]
         await pause(1.5)
         shell.settingsPath = []
         await pause(1.0)

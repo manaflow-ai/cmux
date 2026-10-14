@@ -72,7 +72,7 @@ public final class CnxAuthModel {
     /// Production) use the production Stack project and its
     /// `https://cmux.com/auth/callback`, and never read launch overrides.
     /// Reads launch overrides from the environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
-    /// `CNX_MOCK_AUTH=1` (or Settings → Developer → Mock data) signs in a
+    /// `CNX_MOCK_AUTH=1` (or Settings → Developer → Mock) signs in a
     /// local mock user, and
     /// `CNX_STACK_EMAIL` / `CNX_STACK_PASSWORD` auto-login a Stack test account.
     public static func live(environment: [String: String], bundleIdentifier: String?) -> CnxAuthModel {

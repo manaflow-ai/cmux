@@ -222,7 +222,7 @@ public struct RootView: View {
         live.applyAccountTeams(teams, selectedID: team.id)
     }
 
-    /// Every sign-out path (setup's footer, Settings → Log out, a session the
+    /// Every sign-out path (setup's footer, Settings → Sign out, a session the
     /// service ended) lands here: live data stops, the account's teams, Macs,
     /// workspaces and stored preferences go, the device ids are replaced (the
     /// service binds them to their first user), and Welcome crossfades in,

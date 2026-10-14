@@ -50,6 +50,20 @@ public struct MacNameDisambiguation: Sendable, Equatable {
         return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day())) · ID \(tag)"
     }
 
+    /// "Aziz's MacBook Pro 3F2A": the name followed by the same tag the
+    /// Devices row shows in its capsule (Settings). The name alone when unique.
+    public func taggedName(id: String, name: String) -> String {
+        guard let tag = tags[id] else { return name }
+        return "\(name) \(tag)"
+    }
+
+    /// "Added Oct 13" for a Mac whose name collides and whose added date is
+    /// known; nil otherwise (the tag itself shows next to the name).
+    public func added(for id: String, addedAt: Date?) -> String? {
+        guard tags[id] != nil, let addedAt else { return nil }
+        return "Added \(addedAt.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
     /// Names that differ only by case or surrounding spaces read the same.
     static func key(_ name: String) -> String {
         name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

@@ -58,6 +58,15 @@ public enum DeveloperOptions {
         mockData || environment["CNX_MOCK_AUTH"] == "1"
     }
 
+    /// Settings → Developer's "Mock (layout only)" switch: on whenever mock
+    /// data is in use (the stored switch or `CNX_MOCK_AUTH=1`), and `forced`
+    /// (locked on) when the launch environment sets it.
+    public static func mockSwitch(stored: Bool, environment: [String: String] = ProcessInfo.processInfo.environment)
+        -> (on: Bool, forced: Bool) {
+        let forced = environment["CNX_MOCK_AUTH"] == "1"
+        return (stored || forced, forced)
+    }
+
     /// Scripted demos a developer can pick for the next launch.
     public static let demos: [(id: String, title: String)] = [
         ("live", "Live tour"),

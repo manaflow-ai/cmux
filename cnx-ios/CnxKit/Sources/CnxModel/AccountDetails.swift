@@ -63,6 +63,15 @@ public enum SignInMethod: Hashable, Sendable, Identifiable {
         return nil
     }
 
+    /// The detail Settings → Account shows next to the method: the code's
+    /// address only when it differs from the account's own email (shown
+    /// once, in the header).
+    public func detail(accountEmail: String?) -> String? {
+        guard let detail else { return nil }
+        if let accountEmail, detail.caseInsensitiveCompare(accountEmail) == .orderedSame { return nil }
+        return detail
+    }
+
     /// The methods for a Stack user: OAuth providers (deduplicated, in Stack's
     /// order), then email code, password and passkey when enabled.
     public static func methods(oauthProviderIDs: [String], otpEmail: String?, hasPassword: Bool, hasPasskey: Bool) -> [SignInMethod] {
