@@ -121,6 +121,17 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
+                // A participant's own list state (a pin, a "marked unread")
+                // goes only to connections that act as that participant.
+                MuxEvent::Conversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            if *participant != event_mux.conversation_principal(client)
+                    ) =>
+                {
+                    continue;
+                }
                 // A run's steps go only to a connection that asked for runs in
                 // set-client-info (`conversation-runs-v1`): old clients never
                 // see the event, and its steps can be large.

@@ -207,10 +207,11 @@ final class TabCell {
 
     private func updateLift() {
         themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
-        // The one popover shadow (PopupStyle), not a darker drag shadow.
-        backgroundLayer.shadowRadius = PopupStyle.standard.shadowBlur
-        backgroundLayer.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
-        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? PopupStyle.standard.shadowAlpha : 0), fade: .lift)
+        // The raised elevation step (PopupStyle.elevation2), not a darker drag shadow.
+        let elevation = PopupStyle.elevation2
+        backgroundLayer.shadowRadius = elevation.layerRadius
+        backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
+        Motion.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
