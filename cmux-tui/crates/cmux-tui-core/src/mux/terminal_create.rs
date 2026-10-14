@@ -260,6 +260,8 @@ impl Mux {
             surface.set_name(Some(name));
         }
         if surface.terminal_host_identity().is_some() {
+            #[cfg(debug_assertions)]
+            created_terminal_bind_test_gate(&workspace_key);
             // Launch/Ready intentionally releases the registry lock around
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
@@ -450,5 +452,32 @@ impl Mux {
             placement.ok_or_else(|| anyhow::anyhow!("created terminal has no live surface"))?;
         let created_path = self.created_resource_path_in_state(&state, surface.id)?;
         Ok((placement, terminal.workspace_key, changed, created_path))
+    }
+}
+
+/// Debug builds only: a socket test holds the create of the terminal for
+/// workspace `CMUX_TUI_TEST_CREATE_BIND_GATE_KEY` between its surface insert
+/// and its pane binding, to run another mutation in that window (cx-95uaf).
+/// The daemon writes `entered` in the folder `CMUX_TUI_TEST_CREATE_BIND_GATE`
+/// and goes on when the test writes `release` there, or after 10 s, so a
+/// stray setting cannot wedge a create. Release builds have no seam.
+#[cfg(debug_assertions)]
+fn created_terminal_bind_test_gate(workspace_key: &str) {
+    let (Ok(key), Some(folder)) = (
+        std::env::var("CMUX_TUI_TEST_CREATE_BIND_GATE_KEY"),
+        std::env::var_os("CMUX_TUI_TEST_CREATE_BIND_GATE"),
+    ) else {
+        return;
+    };
+    if key != workspace_key {
+        return;
+    }
+    let folder = std::path::PathBuf::from(folder);
+    if std::fs::write(folder.join("entered"), b"").is_err() {
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !folder.join("release").exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
