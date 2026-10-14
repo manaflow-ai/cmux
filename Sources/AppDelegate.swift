@@ -20148,6 +20148,10 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        // Web Inspector and other web views' responders are not page content.
+        let firstResponderIsPageContent = firstResponderWebView.map {
+            !$0.cmuxResponderBelongsToOtherWebContent(self.firstResponder)
+        } ?? false
         let firstResponderHasMarkedText = shortcutResponderHasMarkedText(self.firstResponder)
         let firstResponderIsCommandPaletteFieldEditor = Self.cmuxCommandPaletteOwnsFieldEditor(
             self.firstResponder as? NSTextView,
@@ -20385,15 +20389,24 @@ private extension NSWindow {
             return true
         }
 
-        // Web forms rely on Return/Enter flowing through keyDown. Route it directly to the first responder.
+        // WebKit's focused responder can be an internal view or field editor.
+        // The owning web view must receive Return so its native form handling runs.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderIsBrowser: firstResponderIsPageContent,
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            // Consume only our exact synchronous replay, preventing the alert beep
+            // without swallowing a different event or redispatching into WebKit.
+            if cmuxIsForceDispatchingKeyDown(event) { return true }
             if browserWebKitKeyDownReentry { return false }
-            guard let target = self.firstResponder else { return false }
+            guard let target = firstResponderWebView else { return false }
+            if event.modifierFlags.contains(.command),
+               AppDelegate.shared?.isBrowserFocusModeActive(for: target) != true,
+               AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+                return true
+            }
             if cmuxForceDispatchKeyDownOnce(event, to: target, reason: "browser Return/Enter") {
                 return true
             }
@@ -20458,6 +20471,7 @@ private extension NSWindow {
         }
 
         if let firstResponderWebView,
+           firstResponderIsPageContent,
            AppDelegate.shared?.isBrowserFocusModeActive(for: firstResponderWebView) == true {
             let handled = firstResponderWebView.performKeyEquivalent(with: event)
 #if DEBUG
