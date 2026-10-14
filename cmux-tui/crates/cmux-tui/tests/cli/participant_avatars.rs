@@ -217,6 +217,13 @@ fn a_person_sets_their_own_picture_and_nobody_sets_another_persons() {
     let read = get(&mut me, "user_mira");
     assert_eq!(STANDARD.decode(read["data"].as_str().unwrap()).unwrap(), GIF);
     assert_eq!(read["media_type"], "image/gif");
+    // The key makes a retry safe: the same request answers the committed write; another
+    // request under the key is refused and changes nothing.
+    let again = ok(&set(&mut mira, "user_mira", GIF, "mira-1"));
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(again["value"], hers["value"]);
+    assert_eq!(reason(&set(&mut mira, "user_mira", PNG, "mira-1")), "idempotency.conflict");
+    assert_eq!(get(&mut me, "user_mira")["media_type"], "image/gif");
     // A participant with no picture reads as null.
     assert!(get(&mut me, "user_nobody").is_null());
 

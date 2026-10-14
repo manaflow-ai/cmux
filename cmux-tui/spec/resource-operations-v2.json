@@ -21528,7 +21528,7 @@
         "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief only its own and only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
         "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
         "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
-        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1."
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
       ]
     },
     "project.add": {

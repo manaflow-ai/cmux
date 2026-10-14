@@ -236,6 +236,10 @@ export class UserDO extends OwnerDO<UserState> {
     const engine = this.existing()
     if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "unknown_participant", message: "unknown user" }
     const state = engine.currentState
+    // The same admission as every account op: the principal kind, a live install and its grant.
+    if (!userPathAllowed(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    const denied = admit("cloud:UserDO", "participant.avatar.set", principal, (p) => grantFor(state, p), Date.now())
+    if (denied) return { ok: false, code: denied.code, message: denied.message }
     const refused = mayAvatarSet(entity, principal, participant, (id) => chiefActive(state, id))
     if (refused) return refused
     if (!avatarsConfigured(this.env)) return { ok: false, code: "home.not_configured", message: "avatars are not configured on this deployment" }
@@ -245,12 +249,25 @@ export class UserDO extends OwnerDO<UserState> {
       if ("ok" in checked) return checked
       ref = checked.ref
     }
-    return this.ctx.blockConcurrencyWhile(async () => {
-      const bucket = this.env.HOME_ATTACHMENTS!
-      if (ref && data) await bucket.put(avatarKey(entity, ref.sha256), data, { httpMetadata: { contentType: ref.media_type } })
-      for (const gone of this.avatars.put(participant, ref)) await bucket.delete(avatarKey(entity, gone))
-      return { ok: true as const, avatar: ref }
+    const bucket = this.env.HOME_ATTACHMENTS!
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      // The blob first, then its reference: a failed write changes nothing.
+      if (ref && data) {
+        try {
+          await bucket.put(avatarKey(entity, ref.sha256), data, { httpMetadata: { contentType: ref.media_type } })
+        } catch (error) {
+          return { ok: false as const, code: "owner.unreachable", message: `the picture could not be stored: ${String(error)}` }
+        }
+      }
+      const gone = [...this.avatars.put(participant, ref)]
+      // References of Chiefs that are gone for good (tombstones, or no record) go too.
+      for (const stale of this.avatars.participants().filter((id) => id.startsWith("agent_") && !state.chiefs?.[id])) gone.push(...this.avatars.put(stale, null))
+      return { ok: true as const, avatar: ref, gone }
     })
+    if (!result.ok) return result
+    // Unreferenced blobs: best effort (a failed delete leaves bytes nothing names).
+    for (const sha of new Set(result.gone)) await bucket.delete(avatarKey(entity, sha)).catch(() => undefined)
+    return { ok: true, avatar: result.avatar }
   }
 
   /** RPC: participant.avatar.get: the reference and the bytes (base64), or null. */

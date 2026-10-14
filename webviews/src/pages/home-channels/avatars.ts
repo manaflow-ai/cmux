@@ -15,25 +15,35 @@ interface AvatarReply {
 const MAX_KEPT = 256;
 
 export class AvatarService {
-  private readonly pictures = new Map<string, Promise<string | null>>();
+  /** Read pictures (null: the participant has none) and when each was read. */
+  private readonly pictures = new Map<string, { picture: Promise<string | null>; at: number }>();
   private readonly listeners = new Map<string, Set<() => void>>();
 
-  constructor(private readonly client: PageClient) {}
+  constructor(
+    private readonly client: PageClient,
+    /** A picture is read again after this long (a Cloud picture has no change event here). */
+    private readonly maxAgeMs = 10 * 60_000,
+  ) {}
 
-  /** The participant's picture as a data URL, or null (none, or an older host). */
+  /** The participant's picture as a data URL, or null (none, or an older host). A failed read
+   *  is not kept: the next render asks again. */
   picture(participant: string): Promise<string | null> {
-    let found = this.pictures.get(participant);
-    if (found) {
+    const kept = this.pictures.get(participant);
+    if (kept && Date.now() - kept.at < this.maxAgeMs) {
       this.pictures.delete(participant);
-    } else {
-      found = this.client
-        .call<AvatarReply>(HomeOps.avatar, { participant })
-        .then((reply) => (reply?.avatar ? `data:${reply.avatar.mediaType};base64,${reply.avatar.data}` : null))
-        .catch(() => null);
+      this.pictures.set(participant, kept);
+      return kept.picture;
     }
-    this.pictures.set(participant, found);
+    const picture = this.client
+      .call<AvatarReply>(HomeOps.avatar, { participant })
+      .then((reply) => (reply?.avatar ? `data:${reply.avatar.mediaType};base64,${reply.avatar.data}` : null));
+    picture.catch(() => {
+      if (this.pictures.get(participant)?.picture === picture) this.pictures.delete(participant);
+    });
+    this.pictures.delete(participant);
+    this.pictures.set(participant, { picture, at: Date.now() });
     while (this.pictures.size > MAX_KEPT) this.pictures.delete(this.pictures.keys().next().value!);
-    return found;
+    return picture.catch(() => null);
   }
 
   /** A participant's picture changed: read it again and redraw its tiles. */
@@ -66,8 +76,9 @@ export function useAvatarPicture(participant: string | undefined): string | null
     if (!service || !participant) return;
     return service.watch(participant, () => setGeneration((n) => n + 1));
   }, [service, participant]);
+  // A new participant starts from its initials; a changed picture stays until the new one loads.
+  useEffect(() => setPicture(null), [participant]);
   useEffect(() => {
-    setPicture(null);
     if (!service || !participant) return;
     let live = true;
     void service.picture(participant).then((url) => {

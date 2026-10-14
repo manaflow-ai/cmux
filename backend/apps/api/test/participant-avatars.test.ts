@@ -89,14 +89,25 @@ describe("participant avatars (Cloud)", { timeout: 60_000 }, () => {
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
     const tok = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(sig), agent: chief.id })).json.access_token as string
     const byChief = await op(tok, "participant.avatar.set", { participant_id: chief.id, bytes: b64(PNG) })
-    // Refused before or at the account (the gate's auth.forbidden, or the avatar rule's forbidden).
-    expect(byChief.json.ok ?? false).toBe(false)
-    expect(["forbidden", "auth.forbidden"]).toContain(byChief.json.error?.code ?? byChief.json.code)
+    expect(byChief.json.ok).toBe(false)
+    expect(byChief.json.error.code).toBe("forbidden")
 
-    // One participant moves off the shared blob: it stays (still referenced); the second clear deletes it.
-    expect((await op(session, "participant.avatar.set", { participant_id: chief.id, clear: true })).json.value.avatar).toBeNull()
+    // A revoked install's still-valid token sets nothing (the account's admission runs first).
+    const plain = (await call("/v1/auth/token", undefined, await (async () => {
+      const c = await call("/v1/auth/challenge", undefined, { user, install })
+      const s = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${c.json.message_prefix}${c.json.nonce}`))
+      return { user, install, nonce: c.json.nonce, signature: b64u(s) }
+    })())).json.access_token as string
+    expect((await op(plain, "participant.avatar.set", { participant_id: user, bytes: b64(PNG) })).json.ok).toBe(true)
+    expect((await op(session, "install.revoke", { install })).json.ok).toBe(true)
+    const revoked = await op(plain, "participant.avatar.set", { participant_id: user, bytes: b64(GIF) })
+    expect(revoked.json.ok).toBe(false)
+    expect(revoked.json.error.code).toBe("auth.forbidden")
+    expect((await read(reader.session, "participant.avatar.get", { participant_id: user })).json.value.avatar.sha256).toBe(await sha(PNG))
+
+    // The user moved to PNG above; the Chief still names the GIF: it stays until the Chief clears it.
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).not.toBeNull()
-    expect((await op(session, "participant.avatar.set", { participant_id: user, bytes: b64(PNG) })).json.ok).toBe(true)
+    expect((await op(session, "participant.avatar.set", { participant_id: chief.id, clear: true })).json.value.avatar).toBeNull()
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
   })
 })

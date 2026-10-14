@@ -151,16 +151,25 @@ pub(super) fn person_avatar(
     })
 }
 
-/// Sets or clears a person's avatar in the shared store (the caller's rule
-/// is participant_avatars.rs's).
+/// Sets or clears a person's avatar in the shared store, once per key (the
+/// caller's rule is participant_avatars.rs's).
 pub(super) fn set_person_avatar(
     mux: &Mux,
     operation: Op,
     participant: &str,
+    key: &str,
+    request: &Value,
     change: AvatarChange,
-) -> Result<(Option<chief_registry::AvatarRef>, u64), ResourceError> {
+) -> Result<chief_registry::PersonAvatarWrite, ResourceError> {
     with_store(mux, operation, |store| {
-        store.set_person_avatar(participant, change).map_err(|e| internal(operation, &e))
+        match store.set_person_avatar(participant, key, request, change) {
+            Ok(Ok(write)) => Ok(write),
+            Ok(Err(Refusal::KeyConflict(committed))) => {
+                Err(ResourceError::idempotency_conflict(key, &committed))
+            }
+            Ok(Err(refusal)) => Err(refused(operation, &refusal)),
+            Err(e) => Err(internal(operation, &e)),
+        }
     })
 }
 
@@ -194,6 +203,14 @@ fn mutate(
         Op::ChiefProfileAvatarSet => Some(avatar_change(operation, fields)?),
         _ => None,
     };
+    let picture_before = match operation {
+        Op::ChiefProfileAvatarSet => store
+            .get(chief_field(fields))
+            .map_err(|e| internal(operation, &e))?
+            .and_then(|record| record.avatar)
+            .map(|avatar| avatar.sha256),
+        _ => None,
+    };
     if let Caller::Chief(me) = caller {
         self_edit_allowed(store, operation, me, &chief, &profile)?;
     }
@@ -216,7 +233,10 @@ fn mutate(
         .map_err(|e| internal(operation, &e))?;
     match outcome {
         Ok((record, replayed)) => {
-            if !replayed && operation == Op::ChiefProfileAvatarSet {
+            if !replayed
+                && operation == Op::ChiefProfileAvatarSet
+                && picture_before.as_deref() != record.avatar.as_ref().map(|a| a.sha256.as_str())
+            {
                 super::participant_avatars::publish(mux, &record.id, record.avatar.as_ref());
             }
             if !replayed {
@@ -289,11 +309,23 @@ pub(super) fn avatar_change(
             let bytes = STANDARD.decode(data).map_err(|_| {
                 ResourceError::validation_invalid(Some("data"), "data must be base64")
             })?;
+            // The alias takes media_type as before: one of the four types, and the
+            // bytes' own. participant.avatar.set takes the type from the bytes only.
+            let claimed = fields.get("media_type").and_then(Value::as_str);
+            if operation == Op::ChiefProfileAvatarSet
+                && !claimed.is_some_and(|t| chief_registry::AVATAR_TYPES.contains(&t))
+            {
+                return Err(refused(
+                    operation,
+                    &Refusal::Invalid(
+                        "media_type",
+                        "must be image/png, image/jpeg, image/gif or image/webp".into(),
+                    ),
+                ));
+            }
             let media_type =
                 chief_registry::validate_avatar(&bytes).map_err(|r| refused(operation, &r))?;
-            // The type is the bytes'; a claimed type (the alias's media_type)
-            // that contradicts them is refused, as the alias always did.
-            if let Some(claimed) = fields.get("media_type").and_then(Value::as_str)
+            if let Some(claimed) = claimed
                 && claimed != media_type
             {
                 return Err(refused(

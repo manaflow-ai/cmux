@@ -64,6 +64,11 @@ export class AvatarRefs {
     return r ? { sha256: r.sha256, media_type: r.media_type as AvatarMediaType, bytes: Number(r.bytes) } : null
   }
 
+  /** Every participant with a reference. */
+  participants(): ReadonlyArray<string> {
+    return this.sql.exec<{ participant: string }>(`SELECT participant FROM avatar_ref`).toArray().map((r) => r.participant)
+  }
+
   /** Sets or clears a reference; returns the blobs no participant references any more. */
   put(participant: string, ref: AvatarRef | null): ReadonlyArray<string> {
     const old = this.get(participant)

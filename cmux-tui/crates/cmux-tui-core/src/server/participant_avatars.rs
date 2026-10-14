@@ -85,6 +85,14 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
         }
         if let Some(bytes) = fields.get("bytes") {
             chief_fields.insert("data".into(), bytes.clone());
+            // The alias wants a media_type: the bytes' own (a bad picture fails on data).
+            let sniffed = bytes
+                .as_str()
+                .and_then(|b| STANDARD.decode(b).ok())
+                .and_then(|b| crate::chief_registry::sniff_avatar(&b));
+            if let Some(media_type) = sniffed {
+                chief_fields.insert("media_type".into(), json!(media_type));
+            }
         }
         let mut written =
             chief_registry_resource::set_chief_avatar(mux, client, &chief_fields, key)?;
@@ -108,16 +116,29 @@ fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Val
         change_fields.insert("clear".into(), clear.clone());
     }
     let change = chief_registry_resource::avatar_change(operation, &change_fields)?;
-    let before = chief_registry_resource::person_avatar(mux, operation, participant)?
-        .map(|(avatar, _)| avatar.sha256);
-    let (stored, revision) =
-        chief_registry_resource::set_person_avatar(mux, operation, participant, change)?;
-    if before.as_deref() != stored.as_ref().map(|a| a.sha256.as_str()) {
-        publish(mux, participant, stored.as_ref());
+    if key.is_empty() {
+        return Err(ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "a mutation needs an idempotency key",
+        ));
+    }
+    let request_json =
+        json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
+    let write = chief_registry_resource::set_person_avatar(
+        mux,
+        operation,
+        participant,
+        &key,
+        &request_json,
+        change,
+    )?;
+    if write.changed {
+        publish(mux, participant, write.avatar.as_ref());
     }
     let (_, generation) = mux.registry_identity();
-    Ok(json!({"value": {"participant_id": participant, "avatar": stored},
-              "generation": generation, "revision": revision.to_string(), "replayed": false}))
+    Ok(json!({"value": {"participant_id": participant, "avatar": write.avatar},
+              "generation": generation, "revision": write.revision.to_string(),
+              "replayed": write.replayed}))
 }
 
 /// The person's own clients of the local conversations, never a remote or
