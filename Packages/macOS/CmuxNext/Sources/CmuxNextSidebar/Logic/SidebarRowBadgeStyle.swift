@@ -65,3 +65,37 @@ nonisolated struct WorkspaceRowBadges: Equatable {
         }
     }
 }
+
+/// How many glyphs the stack shows before the rest go to the tooltip and hover card (Debug
+/// Settings `sidebar.rowBadgeStack`; Leo 2026-10-14: five, adjustable to 3 or 7).
+public nonisolated enum SidebarRowBadgeStackCap: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    case three, five, seven
+
+    public var limit: Int {
+        switch self {
+        case .three: 3
+        case .five: 5
+        case .seven: 7
+        }
+    }
+
+    public var tunableTitle: String { "\(limit) glyphs" }
+
+    public static let tunable = Tunable<SidebarRowBadgeStackCap>.choice(
+        "sidebar.rowBadgeStack", .sidebar, "Row badge stack size",
+        help: "How many glyphs the stack row badge shows before the rest read in the tooltip and hover card.",
+        default: .five, code: "SidebarRowBadgeStackCap.tunable")
+}
+
+/// Debug Settings `sidebar.rowBadgePreview`: a section of sample rows with 1 to 7 pending items,
+/// so the row badges can be seen without real sessions. The rows are placeholders: nothing
+/// selects, opens or closes them.
+public nonisolated enum SidebarRowBadgePreview {
+    public static let tunable = Tunable<Bool>.toggle(
+        "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
+        help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
+        default: false, code: "SidebarRowBadgePreview.tunable")
+
+    /// The preview rows' section.
+    public static func sections() -> [SidebarSection] { [] }
+}
