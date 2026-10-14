@@ -42,6 +42,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var facts: [Fact] = []
         let detail = workspace.detail
         if let reason = detail.needsInput { facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3)) }
+        // The unread notification's text, which a compact row no longer draws by default.
+        if let text = workspace.notificationText, !text.isEmpty { facts.append(Fact(icon: .notification, text: text, lines: 2)) }
         if let agent = workspace.agentName {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · ")))
         }
