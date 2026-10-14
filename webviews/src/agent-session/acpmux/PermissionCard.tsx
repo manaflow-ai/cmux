@@ -53,7 +53,6 @@ function permissionOptionDescription(
   permission: AcpmuxPermission,
   option: PermissionOption,
   kind: KnownPermissionKind | undefined,
-  harness?: string,
 ): string | undefined {
   if (kind !== "allow_always" && kind !== "allow_chat") return option.description;
   return option.rule || permission.rule || option.description;
@@ -225,7 +224,7 @@ export function PermissionCard({
             <PermissionActionButton
               key={option.id}
               label={permissionOptionLabel(option, t, harness)}
-              description={permissionOptionDescription(permission, option, kind, harness)}
+              description={permissionOptionDescription(permission, option, kind)}
               shortcut={shortcut}
               className={
                 deny ? "acpmux-permission-deny" : kind === "allow_once" ? "acpmux-permission-primary" : undefined
