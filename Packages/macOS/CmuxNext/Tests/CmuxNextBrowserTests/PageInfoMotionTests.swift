@@ -65,6 +65,10 @@ import Testing
         let panel = try Self.panel(of: window)
         controller.close()
         controller.perform(.show(.main))
+        // Another suite's window taking key while this runs in parallel closes the bubble, as it
+        // should (`onKeyElsewhere`, `onResignKey`); this test is about the fade only (cx-7l2nc).
+        panel.onKeyElsewhere = nil
+        panel.onResignKey = nil
         try await Self.until { panel.alphaValue == 1 }
         // Past the earlier close's end, so a late completion of it would show here.
         try await Task.sleep(for: .milliseconds(600))
