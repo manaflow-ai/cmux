@@ -129,6 +129,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
