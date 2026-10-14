@@ -1,0 +1,242 @@
+#if os(iOS)
+import Foundation
+import Observation
+import UIKit
+
+/// The terminal screen's state, shared by the UIKit controller (surface,
+/// scrolling, keyboard tracking) and the SwiftUI chrome (toolbar, composer,
+/// key bar, sheets). The session is the data source.
+@MainActor
+@Observable
+public final class TerminalModel {
+    public let session: any TerminalSession
+    public let artifactSource: any ArtifactSource
+
+    public internal(set) var title: String
+    public internal(set) var programName: String
+    /// Alternate screen: the program owns scrolling; the frame pins to the composer.
+    public internal(set) var isTUI = false
+    public internal(set) var keyboardVisible = false
+    /// The terminal surface is first responder: keys go to the PTY as typed.
+    public internal(set) var directTyping = false
+    public internal(set) var isScrolledUp = false
+    /// Whether the screen shows the Mac's terminal; anything else draws the
+    /// connecting placeholder over it.
+    public internal(set) var connectionState: TerminalConnectionState
+    var sticky = TerminalStickyModifiers()
+
+    // Composer
+    public var composerText = ""
+    var composerFocused = false
+    /// Incremented to ask the composer field to take focus.
+    var composerFocusRequest = 0
+    /// Focus asked for before the composer was on screen (a new tab).
+    var composerFocusOnAppear = false
+    public internal(set) var attachments: [ComposerAttachment] = []
+    var showPhotoPicker = false
+    var showFileImporter = false
+
+    // Artifacts
+    public internal(set) var artifacts: [TerminalArtifact] = []
+    public var showArtifacts = false {
+        didSet { if showArtifacts, !oldValue { reconcileArtifactsWithScreen() } }
+    }
+    var artifactPath: [TerminalArtifact] = []
+    /// Previews of HTML and Markdown show their source.
+    var previewShowsSource = false
+    private var extractor = ArtifactExtractor()
+    private var reconcilePending = false
+
+    let joystickEngine = JoystickEngine()
+
+    /// Embedded (workspace tab): the page as last seen, for the tab grid card.
+    public internal(set) var snapshot: UIImage?
+
+    /// Set by the controller.
+    weak var controller: TerminalViewController?
+
+    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh") {
+        self.session = session
+        self.artifactSource = artifactSource
+        self.title = title
+        self.programName = session.programName
+        self.connectionState = session.connectionState
+        joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
+    }
+
+    func ingest(_ event: TerminalSessionEvent) {
+        let connection = connectionState.applying(event)
+        if connection != connectionState { connectionState = connection }
+        switch event {
+        case .output(let data):
+            let found = extractor.scan(data)
+            if !found.isEmpty { artifacts.append(contentsOf: found) }
+            if showArtifacts { scheduleReconcile() }
+        case .alternateScreen(let on):
+            isTUI = on
+            programName = session.programName
+        case .title(let text):
+            title = text
+            programName = session.programName
+        case .exited:
+            break
+        case .connection:
+            break
+        }
+    }
+
+    /// The stream scan sees a path the sender broke at the right margin as
+    /// two references. The surface's screen text has logical lines (soft
+    /// wraps joined, full-width rows continued), so the list is rescanned
+    /// against it whenever Files and Links is open.
+    func reconcileArtifactsWithScreen() {
+        guard let surface = controller?.surface, let text = surface.screenText() else { return }
+        let columns = surface.grid.columns
+        artifacts = extractor.reconcile(artifacts, screenText: text, columns: columns > 0 ? columns : nil)
+    }
+
+    /// Output arrives in bursts and the surface parses it off the main queue:
+    /// one rescan per main-queue turn, after the burst.
+    private func scheduleReconcile() {
+        guard !reconcilePending else { return }
+        reconcilePending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            reconcilePending = false
+            if showArtifacts { reconcileArtifactsWithScreen() }
+        }
+    }
+
+    var composerPlaceholder: String {
+        directTyping ? "Typing into terminal" : "Send to \(programName)"
+    }
+
+    // MARK: Actions
+
+    /// The always-visible keyboard button: hide, or show for the last input target.
+    public func toggleKeyboard() {
+        if keyboardVisible {
+            controller?.hideKeyboard()
+        } else if isTUI || directTyping {
+            controller?.focusTerminal()
+        } else {
+            focusComposer()
+        }
+    }
+
+    public func hideKeyboard() {
+        controller?.hideKeyboard()
+    }
+
+    /// Opens the files-and-links sheet.
+    public func showFilesAndLinks() {
+        showArtifacts = true
+    }
+
+    public func paste() {
+        controller?.surface.paste(nil)
+    }
+
+    /// Ctrl-<letter> to the program (`c` interrupts, `l` clears).
+    public func sendControl(_ letter: Character) {
+        keyBar(.chord(letter))
+    }
+
+    #if DEBUG
+    /// DEBUG: the controller's layout and viewport state, for demo timelines.
+    public var debugState: String { controller?.debugState ?? "-" }
+    #endif
+
+    /// Refreshes `snapshot` from the live page (the grid is about to show it).
+    public func captureSnapshot() {
+        if let image = controller?.snapshot() { snapshot = image }
+    }
+
+    public func focusComposer() {
+        directTyping = false
+        // The field may not exist yet (a new tab whose page just appeared):
+        // it then takes focus once it is in a window.
+        composerFocusOnAppear = true
+        composerFocusRequest += 1
+    }
+
+    /// The send button: text plus Return; empty is a bare Return (Enter).
+    public func send() {
+        let paths = attachments.map(\.remotePath)
+        var text = composerText
+        if !paths.isEmpty {
+            text = (paths.joined(separator: " ") + (text.isEmpty ? "" : " " + text))
+        }
+        controller?.surface.sendText(text, pressReturn: true)
+        composerText = ""
+        attachments.removeAll()
+    }
+
+    public func sendWithoutReturn() {
+        controller?.surface.sendText(composerText, pressReturn: false)
+        composerText = ""
+    }
+
+    func addAttachment(_ attachment: ComposerAttachment) {
+        attachments.append(attachment)
+    }
+
+    func removeAttachment(_ id: ComposerAttachment.ID) {
+        attachments.removeAll { $0.id == id }
+    }
+
+    // MARK: Key bar
+
+    func keyBar(_ key: KeyBarKey) {
+        guard let surface = controller?.surface else { return }
+        switch key {
+        case .escape: surface.sendKey(usage: TerminalHIDUsage.escape)
+        case .tab: surface.sendKey(usage: TerminalHIDUsage.tab)
+        case .shiftTab: surface.sendKey(usage: TerminalHIDUsage.tab, mods: .shift)
+        case .control: surface.tapSticky(.control)
+        case .alternate: surface.tapSticky(.alternate)
+        case .up: surface.sendKey(usage: TerminalHIDUsage.up)
+        case .down: surface.sendKey(usage: TerminalHIDUsage.down)
+        case .left: surface.sendKey(usage: TerminalHIDUsage.left)
+        case .right: surface.sendKey(usage: TerminalHIDUsage.right)
+        case .chord(let letter): surface.sendControl(letter)
+        case .symbol(let text): surface.perform(surface.input.insertText(text))
+        case .paste: surface.paste(nil)
+        case .hideKeyboard: controller?.hideKeyboard()
+        }
+        sticky = surface.input.sticky
+    }
+
+    func joystick(_ direction: JoystickDirection) {
+        keyBar(direction.key)
+    }
+
+    // MARK: Scrolling
+
+    public func scrollToBottom() {
+        controller?.scrollToBottom(animated: true)
+    }
+}
+
+/// A photo, video or file waiting in the composer.
+public struct ComposerAttachment: Identifiable, Sendable {
+    public enum Kind: Sendable { case image, video, file }
+    public let id = UUID()
+    public var kind: Kind
+    public var name: String
+    public var thumbnail: UIImage?
+    public var byteCount: Int?
+
+    public init(kind: Kind, name: String, thumbnail: UIImage? = nil, byteCount: Int? = nil) {
+        self.kind = kind
+        self.name = name
+        self.thumbnail = thumbnail
+        self.byteCount = byteCount
+    }
+
+    /// Where the upload lands on the Mac (the mock does not upload).
+    var remotePath: String {
+        "~/.cnx/uploads/" + name.replacingOccurrences(of: " ", with: "_")
+    }
+}
+#endif

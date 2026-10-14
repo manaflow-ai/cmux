@@ -1,0 +1,391 @@
+#!/usr/bin/env bash
+# TestFlight build of cnx-ios for App Store Connect app "cmux INTERNAL"
+# (bundle dev.cmux.app.internal, ASC app id 6791408425): archive -> export an
+# App Store IPA -> verify -> validate with Apple. Nothing is uploaded unless
+# --upload is passed. Never targets cmux (com.cmux.app), BETA or DEMO.
+#
+# usage: cnx-ios/scripts/testflight-build.sh [--ref <git ref>] [--marketing-version X.Y.Z]
+#          [--build-number N] [--internal-only] [--allow-backend-down]
+#          [--allow-package-drift] [--unsigned] [--skip-validate] [--upload]
+#
+#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION);
+#                         must be >= every version already uploaded to cmux INTERNAL
+#   --build-number        CFBundleVersion (default: 14-digit UTC timestamp, like the
+#                         ios/ INTERNAL lane); must be above the latest INTERNAL build
+#   --internal-only       testFlightInternalTestingOnly: the build can never go to
+#                         external groups (e.g. "cmux family")
+#   --allow-backend-down  archive even if the production Worker's /v1/health is not
+#                         live with only the production Stack project (never with --upload)
+#   --allow-package-drift build even if CmuxTabsKit/CmuxConversation differ from upstream
+#   --unsigned            no distribution identity needed: archive unsigned and run the
+#                         binary checks only (no export, no validation)
+#   --skip-validate       skip `altool --validate-app`
+#   --upload              upload the validated IPA to cmux INTERNAL (off by default)
+#
+# Environment:
+#   CNX_PROD_API_BASE   production Worker URL (default: project.yml)
+#   CNX_SIGN_IDENTITY   SHA-1 of the distribution identity (default: the first one in
+#                       the keychain that the profile authorizes)
+#   CNX_BUILDS_ROOT     output root (default ~/cnx-ios-builds)
+#   CNX_XCFRAMEWORK     use this CnxFFI.xcframework instead of the cache or a build
+#
+# Credentials: App Store Connect calls use only the shared profile
+# "cmux-shared Team Key" (key RUML2V4CW7) via `asc --strict-auth`. altool needs
+# the key as a file: it is copied from the asc keychain item into a private
+# temp directory for the one call and removed on exit; it is never printed.
+#
+# Output: ~/cnx-ios-builds/<UTC date>-<shortsha>-testflight/
+#   CnxApp.xcarchive, CnxApp.ipa, ExportOptions.plist, MANIFEST.md, logs/
+set -euo pipefail
+export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+
+# --- Fixed identity (never derived from the environment) ------------------
+app_id=6791408425
+app_name="cmux INTERNAL"
+bundle_id=dev.cmux.app.internal
+team=7WLXT3NR37
+asc_profile="cmux-shared Team Key"
+asc_key_id=RUML2V4CW7
+asc_issuer=94d76068-119d-45cd-8700-86eb7a1a6235
+profile_name="cmux Internal Distribution"
+prod_stack_project=9790718f-14cd-4f7e-824d-eaf527a82b82
+config=TestFlight
+
+ref=HEAD marketing="" build_number="" internal_only=false allow_backend_down=0
+allow_drift=0 unsigned=0 skip_validate=0 upload=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ref) ref=$2; shift 2 ;;
+    --marketing-version) marketing=$2; shift 2 ;;
+    --build-number) build_number=$2; shift 2 ;;
+    --internal-only) internal_only=true; shift ;;
+    --allow-backend-down) allow_backend_down=1; shift ;;
+    --allow-package-drift) allow_drift=1; shift ;;
+    --unsigned) unsigned=1; shift ;;
+    --skip-validate) skip_validate=1; shift ;;
+    --upload) upload=1; shift ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+if [[ $upload == 1 && ( $allow_backend_down == 1 || $unsigned == 1 || $skip_validate == 1 || $allow_drift == 1 ) ]]; then
+  echo "error: --upload cannot be combined with --allow-backend-down, --unsigned, --skip-validate or --allow-package-drift" >&2
+  exit 2
+fi
+
+asc_() { asc --profile "$asc_profile" --strict-auth "$@"; }
+log() { printf '\n==> %s\n' "$*"; }
+die() { echo "error: $*" >&2; exit 1; }
+json() { python3 -I -c "$1" 2>/dev/null; }  # reads one JSON document on stdin (asc may append warnings)
+notes=()
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo=$(git -C "$script_dir" rev-parse --show-toplevel)
+sha=$(git -C "$repo" rev-parse --verify "$ref^{commit}")
+short=${sha:0:10}
+root=${CNX_BUILDS_ROOT:-$HOME/cnx-ios-builds}
+name="$(date -u +%Y%m%d)-$short-testflight"
+out="$root/$name"
+work="$root/.work/$name"
+cache="$root/.cache"
+private=$(mktemp -d); chmod 700 "$private"
+trap 'rm -rf "$private"' EXIT
+
+# --- App Store Connect: credentials and the exact app record ----------------
+log "App Store Connect: profile, app record"
+asc_ auth status --validate --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
+ok=d.get("profile")=="cmux-shared Team Key" and any(
+    c["name"]=="cmux-shared Team Key" and c["keyId"]=="RUML2V4CW7" and c.get("validation")=="works"
+    for c in d["credentials"])
+sys.exit(0 if ok else 1)' || die "asc profile \"$asc_profile\" is missing, invalid, or not key $asc_key_id"
+record=$(asc_ apps view --id "$app_id" --output json | json '
+import json,sys
+a=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]["attributes"]
+print(a["name"]+"|"+a["bundleId"])')
+[[ "$record" == "$app_name|$bundle_id" ]] || die "app $app_id is \"$record\", expected \"$app_name|$bundle_id\""
+echo "app $app_id = $app_name ($bundle_id), key $asc_key_id"
+
+# --- Versions above everything already in cmux INTERNAL --------------------
+log "versions"
+max_marketing=$(asc_ testflight pre-release list --app "$app_id" --paginate --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
+v=[tuple(map(int,x["attributes"]["version"].split("."))) for x in d["data"]]
+print(".".join(map(str,max(v))) if v else "0")')
+max_build=$(asc_ builds list --app "$app_id" --sort -version --limit 1 --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]["data"]
+print(d[0]["attributes"]["version"] if d else "0")')
+[[ -n "$marketing" ]] || marketing=$(git -C "$repo" show "$sha:cnx-ios/project.yml" | awk '/^    MARKETING_VERSION:/{print $2; exit}')
+[[ "$marketing" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || die "marketing version '$marketing' is not X.Y.Z"
+python3 -I -c 'import sys; a,b=(tuple(map(int,x.split("."))) for x in sys.argv[1:]); sys.exit(0 if a>=b else 1)' "$marketing" "$max_marketing" \
+  || die "marketing version $marketing is below $max_marketing, the highest in $app_name; TestFlight would never offer it"
+[[ -n "$build_number" ]] || build_number=$(date -u +%Y%m%d%H%M%S)
+[[ "$build_number" =~ ^[0-9]+$ ]] || die "build number '$build_number' must be digits (the INTERNAL lane uses UTC timestamps)"
+python3 -I -c 'import sys; sys.exit(0 if int(sys.argv[1])>int(sys.argv[2]) else 1)' "$build_number" "$max_build" \
+  || die "build number $build_number is not above $max_build, the latest $app_name build"
+echo "version $marketing ($build_number); $app_name has up to $max_marketing ($max_build)"
+
+# --- Production backend ----------------------------------------------------
+api_base=${CNX_PROD_API_BASE:-$(git -C "$repo" show "$sha:cnx-ios/project.yml" | awk '/^    CNX_PROD_API_BASE:/{print $2; exit}' | sed 's#\$()##')}
+log "production Worker $api_base"
+health=$(curl -fsS -m 15 "$api_base/v1/health" 2>/dev/null || true)
+if echo "$health" | python3 -I -c '
+import json,sys
+d=json.load(sys.stdin)
+sys.exit(0 if d.get("ok") and d.get("stackProjects")==[sys.argv[1]] else 1)' "$prod_stack_project" 2>/dev/null; then
+  echo "live: $health"
+elif [[ $allow_backend_down == 1 ]]; then
+  echo "WARNING: $api_base/v1/health is not a live production Worker (${health:-no response}); continuing (--allow-backend-down)" >&2
+  notes+=("The production Worker \`$api_base\` was not live at build time (\`/v1/health\`: ${health:-no response}). Do not distribute this build.")
+else
+  die "$api_base/v1/health is not a live production Worker with only Stack project $prod_stack_project (got: ${health:-no response}). Deploy cnx-ios-api-prod or set CNX_PROD_API_BASE."
+fi
+
+# --- Shared packages must match upstream -----------------------------------
+log "shared packages vs upstream"
+if ! "$script_dir/check-tabskit-sync.sh" --ref "$sha"; then
+  [[ $allow_drift == 1 ]] || die "shared iOS packages differ from upstream; sync them or pass --allow-package-drift (never for an upload)"
+  notes+=("Shared packages differ from upstream (check-tabskit-sync.sh).")
+fi
+
+# --- Signing material -------------------------------------------------------
+profile_path="" profile_uuid="" identity=""
+if [[ $unsigned == 0 ]]; then
+  log "signing: profile \"$profile_name\", distribution identity"
+  profile_id=$(asc_ bundle-ids list --paginate --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
+print(next(b["id"] for b in d["data"] if b["attributes"]["identifier"]=="dev.cmux.app.internal"))' \
+    | xargs -I{} asc --profile "$asc_profile" --strict-auth bundle-ids profiles list --id {} --output json | json '
+import json,sys
+d=json.JSONDecoder().raw_decode(sys.stdin.read())[0]
+p=[p for p in d["data"] if p["attributes"]["name"]=="cmux Internal Distribution"
+   and p["attributes"]["profileType"]=="IOS_APP_STORE" and p["attributes"]["profileState"]=="ACTIVE"]
+print(p[0]["id"] if p else "")')
+  [[ -n "$profile_id" ]] || die "no ACTIVE IOS_APP_STORE profile \"$profile_name\" for $bundle_id"
+  asc_ profiles download --id "$profile_id" --output "$private/profile.mobileprovision" >/dev/null
+  security cms -D -i "$private/profile.mobileprovision" > "$private/profile.plist"
+  profile_uuid=$(plutil -extract UUID raw "$private/profile.plist")
+  [[ "$(plutil -extract Entitlements.application-identifier raw "$private/profile.plist")" == "$team.$bundle_id" ]] \
+    || die "profile $profile_id is not for $team.$bundle_id"
+  # Xcode 16+ reads profiles from UserData; older tools from MobileDevice.
+  for d in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" "$HOME/Library/MobileDevice/Provisioning Profiles"; do
+    mkdir -p "$d"; cp "$private/profile.mobileprovision" "$d/$profile_uuid.mobileprovision"
+  done
+  profile_path="$private/profile.mobileprovision"
+  keychain_ids=$(security find-identity -v -p codesigning | awk '/[0-9A-F]{40}/{print $2}')
+  authorized=$(python3 -I -c '
+import plistlib,hashlib,sys
+p=plistlib.load(open(sys.argv[1],"rb"))
+print("\n".join(hashlib.sha1(c).hexdigest().upper() for c in p["DeveloperCertificates"]))' "$private/profile.plist")
+  if [[ -n "${CNX_SIGN_IDENTITY:-}" ]]; then
+    identity=$CNX_SIGN_IDENTITY
+  else
+    identity=$(grep -Fx -f <(echo "$authorized") <<<"$keychain_ids" | head -1 || true)
+  fi
+  if [[ -z "$identity" ]] || ! grep -qx "$identity" <<<"$keychain_ids" || ! grep -qx "$identity" <<<"$authorized"; then
+    die "no distribution identity in this keychain that \"$profile_name\" authorizes. The profile allows these certificate SHA-1s:
+$(sed 's/^/  /' <<<"$authorized")
+Import one of their .p12 files into the login keychain (see verify/testflight-readiness.md), or rerun with --unsigned for an unsigned archive."
+  fi
+  echo "profile $profile_uuid, identity $identity"
+fi
+
+rm -rf "$out" "$work"
+mkdir -p "$out/logs" "$work/src" "$cache"
+log "cnx-ios $config archive $sha -> $out"
+
+# --- Source (the commit only) ----------------------------------------------
+paths=(cnx-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
+       cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
+git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+
+# --- CnxFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
+key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cnx-ios/rust")" \
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-wg")" \
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" | shasum | cut -c1-16)
+xcf_dest="$work/src/cnx-ios/CnxKit/Frameworks/CnxFFI.xcframework"
+mkdir -p "$(dirname "$xcf_dest")"
+if [[ -n "${CNX_XCFRAMEWORK:-}" ]]; then
+  cp -R "$CNX_XCFRAMEWORK" "$xcf_dest"
+  notes+=("CnxFFI.xcframework came from CNX_XCFRAMEWORK, not built from this SHA.")
+elif [[ -d "$cache/xcframework/$key/CnxFFI.xcframework" ]]; then
+  echo "xcframework: cache hit $key"
+  cp -R "$cache/xcframework/$key/CnxFFI.xcframework" "$xcf_dest"
+else
+  log "xcframework: building (key $key)"
+  mkdir -p "$cache/cnx-rust-target"
+  ln -s "$cache/cnx-rust-target" "$work/src/cnx-ios/rust/target"
+  JOBS=${JOBS:-8} bash "$work/src/cnx-ios/rust/scripts/build-xcframework.sh" > "$out/logs/xcframework.log" 2>&1 \
+    || { tail -30 "$out/logs/xcframework.log"; exit 1; }
+  rm -rf "$cache/xcframework/$key"; mkdir -p "$cache/xcframework/$key"
+  cp -R "$xcf_dest" "$cache/xcframework/$key/"
+fi
+
+# --- Archive ----------------------------------------------------------------
+cd "$work/src/cnx-ios"
+xcodegen generate -q
+grep -q '^  TestFlight: release' project.yml || die "$sha has no TestFlight configuration"
+archive="$out/CnxApp.xcarchive"
+args=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
+      -destination 'generic/platform=iOS' -archivePath "$archive"
+      -derivedDataPath "$work/dd" -clonedSourcePackagesDirPath "$cache/spm"
+      MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
+      CNX_PROD_API_BASE="$api_base")
+if [[ $unsigned == 1 ]]; then
+  args+=(CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=$team)
+else
+  args+=(CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=$team CODE_SIGN_IDENTITY="$identity"
+         PROVISIONING_PROFILE_SPECIFIER="$profile_uuid")
+fi
+log "xcodebuild archive"
+xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
+  || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }
+archived_app="$archive/Products/Applications/CnxApp.app"
+
+# --- Checks on any app bundle ------------------------------------------------
+check_app() {  # <CnxApp.app>
+  local app=$1 info="$1/Info.plist" bad=()
+  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" --shipping
+  [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
+  [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
+  [[ "$(plutil -extract CFBundleDisplayName raw "$info")" == "$app_name" ]] || bad+=("CFBundleDisplayName")
+  [[ "$(plutil -extract CNXAPIBase raw "$info")" == "$api_base" ]] || bad+=("CNXAPIBase")
+  [[ "$(plutil -extract ITSAppUsesNonExemptEncryption raw "$info")" == true ]] || bad+=("ITSAppUsesNonExemptEncryption")
+  local k; for k in NSCameraUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription \
+      NSMicrophoneUsageDescription NSLocalNetworkUsageDescription UILaunchScreen; do
+    plutil -extract "$k" raw "$info" >/dev/null 2>&1 || plutil -extract "$k" xml1 -o /dev/null "$info" 2>/dev/null || bad+=("$k")
+  done
+  plutil -extract CFBundleIcons.CFBundlePrimaryIcon xml1 -o /dev/null "$info" 2>/dev/null || bad+=("CFBundleIcons (app icon)")
+  [[ -f "$app/Assets.car" ]] || bad+=("Assets.car")
+  plutil -lint -s "$app/PrivacyInfo.xcprivacy" 2>/dev/null || bad+=("PrivacyInfo.xcprivacy")
+  [[ ${#bad[@]} == 0 ]] || { printf '  - %s\n' "${bad[@]}" >&2; die "$app fails the TestFlight checks"; }
+  echo "ok: Info.plist, icon, launch screen, privacy manifest, usage strings"
+}
+
+# Entitlements of a signed app must be exactly what TestFlight needs.
+check_entitlements() {  # <CnxApp.app>
+  codesign --verify --strict --deep "$1"
+  codesign -d --entitlements - --xml "$1" 2>/dev/null > "$private/ent.plist"
+  python3 -I - "$private/ent.plist" "$team" "$bundle_id" <<'PY'
+import plistlib,sys
+e=plistlib.load(open(sys.argv[1],"rb")); team,bid=sys.argv[2],sys.argv[3]
+want={"application-identifier":f"{team}.{bid}","com.apple.developer.team-identifier":team,
+      "aps-environment":"production","get-task-allow":False,"beta-reports-active":True,
+      "com.apple.developer.applesignin":["Default"],"keychain-access-groups":[f"{team}.{bid}"]}
+bad=[f"{k}: {e.get(k)!r} != {v!r}" for k,v in want.items() if e.get(k)!=v]
+extra=sorted(set(e)-set(want))
+if bad or extra:
+    print("\n".join(["  - "+b for b in bad]+["  - unexpected "+x for x in extra]),file=sys.stderr); sys.exit(1)
+print("ok: entitlements "+", ".join(sorted(e)))
+PY
+}
+
+log "checks: archived app"
+check_app "$archived_app"
+
+ipa="" validated="not run" signing="unsigned (--unsigned)"
+if [[ $unsigned == 0 ]]; then
+  check_entitlements "$archived_app"
+  # --- Export an App Store IPA ---------------------------------------------
+  log "export (app-store-connect)"
+  cat > "$out/ExportOptions.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>destination</key><string>export</string>
+  <key>teamID</key><string>$team</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>$identity</string>
+  <key>provisioningProfiles</key><dict><key>$bundle_id</key><string>$profile_uuid</string></dict>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+  <key>uploadSymbols</key><true/>
+  <key>testFlightInternalTestingOnly</key><$internal_only/>
+</dict>
+</plist>
+EOF
+  xcodebuild -exportArchive -archivePath "$archive" -exportPath "$work/export" \
+    -exportOptionsPlist "$out/ExportOptions.plist" > "$out/logs/export.log" 2>&1 \
+    || { grep -E "error" "$out/logs/export.log" | sort -u | head -20; die "export failed (logs/export.log)"; }
+  ipa="$out/CnxApp.ipa"
+  mv "$work/export/"*.ipa "$ipa"
+  signing="distribution identity $identity, profile \"$profile_name\" ($profile_uuid)"
+
+  # --- Verify the IPA exactly as it would be uploaded ----------------------
+  log "checks: exported IPA"
+  rm -rf "$work/ipa" && mkdir -p "$work/ipa" && ditto -x -k "$ipa" "$work/ipa"
+  check_app "$work/ipa/Payload/CnxApp.app"
+  check_entitlements "$work/ipa/Payload/CnxApp.app"
+
+  # --- Validate with Apple (no upload) -------------------------------------
+  # altool reads the API key from a file: copy it out of the asc keychain item
+  # into the private temp dir for this call only.
+  write_p8() {
+    security find-generic-password -s asc -a "asc:credential:$asc_profile" -w 2>/dev/null \
+      | python3 -I -c '
+import json,sys,re
+raw=sys.stdin.read().strip()
+try:
+    d=json.loads(raw); k=next((v for kk,v in d.items() if "private" in kk.lower() and "BEGIN" in str(v)),"")
+except Exception:
+    k=raw if "BEGIN PRIVATE KEY" in raw else ""
+if not k: sys.exit(1)
+open(sys.argv[1],"w").write(k if k.endswith("\n") else k+"\n")' "$private/AuthKey_$asc_key_id.p8" \
+      || die "could not read the key for \"$asc_profile\" from the asc keychain item"
+    chmod 600 "$private/AuthKey_$asc_key_id.p8"
+  }
+  if [[ $skip_validate == 0 ]]; then
+    log "altool --validate-app"
+    write_p8
+    if xcrun altool --validate-app -f "$ipa" -t ios --apiKey "$asc_key_id" --apiIssuer "$asc_issuer" \
+         --p8-file-path "$private/AuthKey_$asc_key_id.p8" --output-format json > "$out/logs/validate.json" 2> "$out/logs/validate.log"; then
+      validated="passed ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+    else
+      cat "$out/logs/validate.json" "$out/logs/validate.log" | tail -30
+      die "Apple validation failed (logs/validate.json)"
+    fi
+    echo "validation: $validated"
+  else
+    validated="skipped (--skip-validate)"
+  fi
+
+  if [[ $upload == 1 ]]; then
+    log "UPLOAD to $app_name ($app_id)"
+    [[ -f "$private/AuthKey_$asc_key_id.p8" ]] || write_p8
+    xcrun altool --upload-app -f "$ipa" -t ios --apiKey "$asc_key_id" --apiIssuer "$asc_issuer" \
+      --p8-file-path "$private/AuthKey_$asc_key_id.p8" --output-format json > "$out/logs/upload.json" 2>&1 \
+      || { tail -30 "$out/logs/upload.json"; die "upload failed"; }
+    notes+=("Uploaded to $app_name at $(date -u +%Y-%m-%dT%H:%M:%SZ). Add What to Test notes from cnx-ios/verify/testflight-metadata.md before distributing.")
+  fi
+fi
+
+# --- Manifest ---------------------------------------------------------------
+{
+  cat <<EOF
+# cnx-ios TestFlight build $name
+
+| | |
+| --- | --- |
+| Commit | \`$sha\` ($(git -C "$repo" log -1 --format='%s' "$sha")) |
+| Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1) |
+| App Store Connect | "$app_name", app id $app_id, bundle \`$bundle_id\` |
+| Version | $marketing ($build_number); $app_name had up to $max_marketing ($max_build) |
+| Configuration | $config: -O, \`CNX_PRODUCTION CNX_TESTFLIGHT\`, no DEBUG; production Stack project \`$prod_stack_project\` |
+| Service | \`$api_base\` |
+| Signing | $signing |
+| Internal-only | $internal_only |
+| Apple validation | $validated |
+| Uploaded | $([[ $upload == 1 ]] && echo yes || echo "no (upload with --upload)") |
+EOF
+  [[ ${#notes[@]} == 0 ]] || printf '\n## Notes\n\n'
+  for n in "${notes[@]+"${notes[@]}"}"; do echo "- $n"; done
+} > "$out/MANIFEST.md"
+rm -rf "$work"
+log "done: $out"
+cat "$out/MANIFEST.md"
