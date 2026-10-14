@@ -6,10 +6,12 @@
 // its own, stacked right of the chat. A host that opens none (the gallery, the floating chat, an
 // older app) shows the subagent in this pane instead.
 //
-// With "Tile subagents automatically" on (the summary card's switch, kept in localStorage; off
-// unless turned on), a chat pane tiles each subagent its chat starts while the pane shows it. The
+// With "Tile subagents automatically" on (the summary card's switch and a Settings row, both
+// `agentPane.tileSubagentsAutomatically` in cmux.json via composerSettings.ts; off unless turned
+// on), a chat pane tiles each subagent its chat starts while the pane shows it. The
 // subagents a chat already had when the pane first showed it open none: they are history.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
+import { showComposerControl, useComposerSettings } from "../composerSettings";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
 import { subagentsIn } from "./subagentRows";
@@ -24,40 +26,14 @@ export const SUBAGENTS_TILE = "subagents:tile";
 export const revealedSubagent = (value: string) =>
   value.startsWith(SUBAGENT_REVEAL) ? value.slice(SUBAGENT_REVEAL.length) || undefined : undefined;
 
-const KEY = "cmux.acpmux.subagentPanes";
 /// A subagent that started this long before the pane showed its chat still counts as new: the
 /// snapshot that names it can trail its start.
 const HISTORY_SLACK_MS = 3_000;
-const listeners = new Set<() => void>();
-/// Off unless turned on: a saved "off" (the old switch's) stays off.
-const read = () => {
-  try {
-    return globalThis.localStorage?.getItem(KEY) === "on";
-  } catch {
-    return false;
-  }
-};
-
-const setAutoOpen = (next: boolean) => {
-  try {
-    globalThis.localStorage?.setItem(KEY, next ? "on" : "off");
-  } catch {
-    // No storage: the choice holds until the page reloads.
-  }
-  for (const listener of listeners) listener();
-};
+const setAutoOpen = (on: boolean) => showComposerControl("tileSubagentsAutomatically", on);
 
 /// Whether new subagents tile in panes of their own (off unless turned on).
 export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
-  const on = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    read,
-    () => false,
-  );
-  return [on, setAutoOpen];
+  return [useComposerSettings().tileSubagentsAutomatically, setAutoOpen];
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;

@@ -192,9 +192,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
-    /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
-    /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
-    /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
+    /// `pane.showContextUsage`, `pane.showDictation` or `pane.tileSubagentsAutomatically` with `{show}`:
+    /// the composer's Hide or Show Context Usage, the mic's Hide dictation button, or the Subagents
+    /// card's switch, which the host writes to cmux.json at `path` (`agentPane.showContextUsage`,
+    /// `agentPane.showDictation`, `agentPane.tileSubagentsAutomatically`).
     case composerSetting(path: [String], show: Bool)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
