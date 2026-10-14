@@ -2,6 +2,8 @@ import CmuxConversationCore
 import Foundation
 import ImageIO
 
+// The mock Chief is DEBUG and Demo only: never compiled into Production.
+#if DEBUG
 /// A local Chief for UI work and demos: a seeded history, read receipts,
 /// a typing indicator while Chief "thinks", replies drawn from what was
 /// asked, and tapbacks on messages that thank or praise it. The real Chief
@@ -66,6 +68,11 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
         Task { await engine.close() }
     }
 
+    /// Hide Alerts and Send Read Receipts, kept for this run only.
+    public func updateListState(_ change: ConversationListStateChange) async throws -> ConversationInfo {
+        await engine.updateListState(change)
+    }
+
     actor Engine {
         let identity: ChiefIdentity
         let sleep: Sleep
@@ -75,6 +82,14 @@ public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendabl
         private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         private var replyIndex = 0
         private var uploads: [String: ConversationAttachment] = [:]
+        private var listState = ConversationListState(pinned: true, pinOrder: 0)
+
+        func updateListState(_ change: ConversationListStateChange) -> ConversationInfo {
+            listState = listState.applying(change)
+            var info = identity.info(id: conversationID)
+            info.listState = listState
+            return info
+        }
 
         init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep) {
             self.identity = identity
@@ -266,6 +281,7 @@ struct ChiefMockScript {
         return fallbacks[index % fallbacks.count]
     }
 }
+#endif
 
 /// Pixel size of encoded image bytes (JPEG, PNG, HEIC), read from the header.
 struct ChiefImageSize {

@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import CmuxAgentQuestion
 import Foundation
 
@@ -323,3 +325,4 @@ public final class MockAgentSession: AgentSessionSource {
         try await stream(S.finalAnswer(cellular: cellular), messageID: "m-final")
     }
 }
+#endif

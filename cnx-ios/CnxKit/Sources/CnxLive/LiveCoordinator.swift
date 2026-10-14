@@ -343,7 +343,9 @@ public final class LiveCoordinator {
                 await acpmux.bind(nil)
             }
             if chiefLive {
-                ChiefSession.shared.use(ChiefMockBackend())
+                // Live mode never falls back to the mock Chief.
+                ChiefSession.shared.use(ChiefOfflineBackend())
+                ChiefSession.shared.status = nil
                 chiefLive = false
             }
             return
@@ -383,6 +385,7 @@ public final class LiveCoordinator {
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
         }
+        session.macName = link.target?.name
         terminals.removeAll { $0.session == nil }
         terminals.append(WeakTerminal(session: session))
         return session
@@ -397,23 +400,52 @@ public final class LiveCoordinator {
         }
     }
 
-    /// Chief over the daemon's local conversations, when the Mac's link allows them.
+    /// Chief on the Mac: its Chief owner over the link's scoped `chief`
+    /// channel (cnx-hostd). Every failure leaves Chief offline with the
+    /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
+        let session = ChiefSession.shared
+        session.macName = self.link.target?.name
+        func offline(_ reason: String) {
+            chiefStatus = reason
+            session.status = reason
+            if chiefLive || !(session.backend is ChiefOfflineBackend) {
+                session.use(ChiefOfflineBackend(reason: reason))
+            }
+            chiefLive = false
+            log.info("chief unavailable: \(reason, privacy: .public)")
+        }
         do {
-            let channel = try await link.openChannel(service: "daemon", args: [:])
+            let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
             let client = DaemonClient(channel: channel)
             let probe = try await client.request("conversation-list", params: [:])
-            if let object = try? JSONSerialization.jsonObject(with: probe) as? [String: Any], object["ok"] as? Bool == false {
-                chiefStatus = "Chief on this Mac: \(object["error"] as? String ?? "unavailable")"
+            let object = try? JSONSerialization.jsonObject(with: probe) as? [String: Any]
+            if object?["ok"] as? Bool == false {
                 await channel.close(code: "eof", reason: "chief unavailable")
-                log.info("chief unavailable: \(self.chiefStatus ?? "", privacy: .public)")
+                offline(String(localized: "Chief on this Mac: \(object?["error"] as? String ?? "unavailable")"))
                 return
             }
-            ChiefSession.shared.use(ChiefDaemonBackend(client: client))
+            let conversations = (object?["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
+            let identity = ChiefIdentity.standard
+            let hasChief = conversations.contains { summary in
+                let ids = (summary["participants"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+                return ids.contains(identity.chiefID) && ids.contains(identity.meID)
+            }
+            guard hasChief else {
+                await channel.close(code: "eof", reason: "chief not started")
+                offline(ChiefDaemonBackend.notStarted)
+                return
+            }
+            session.status = nil
+            session.use(ChiefDaemonBackend(client: client))
             chiefLive = true
             chiefStatus = nil
         } catch {
-            chiefStatus = "Chief on this Mac: \(LinkController.reason(error))"
+            // An older hostd without the `chief` service closes it as unknown.
+            let reason = LinkController.reason(error)
+            offline(reason.contains("unknown_service") || reason.contains("no service chief")
+                ? String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
+                : String(localized: "Chief on this Mac: \(reason)"))
         }
     }
 

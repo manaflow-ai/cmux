@@ -1,3 +1,5 @@
+// DEBUG and Demo builds only: mock content is never compiled into Production.
+#if DEBUG
 import Foundation
 
 /// Scripted output of the mock shell. Paths and URLs in it feed the artifacts list.
@@ -302,3 +304,4 @@ struct MockVim {
         return text
     }
 }
+#endif

@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CnxModel
 import Foundation
 import Observation
 
@@ -10,18 +11,27 @@ import Observation
 public final class ChiefSession {
     public static let shared = ChiefSession(backend: defaultBackend())
 
-    /// The mock Chief, or in DEBUG builds the package's conversation
-    /// simulator (`services/conversation-sim`) when `CNX_CHIEF_SIM` names its
-    /// WebSocket (`ws://127.0.0.1:4870/ws?conversation=direct`), so Chief can
-    /// be compared with the package's own lab host on the same data
-    /// (verify/imsg-parity.md).
+    /// Chief before a Mac link: offline (``ChiefOfflineBackend``). DEBUG
+    /// builds use the package's conversation simulator
+    /// (`services/conversation-sim`) when `CNX_CHIEF_SIM` names its WebSocket
+    /// (`ws://127.0.0.1:4870/ws?conversation=direct`), so Chief can be
+    /// compared with the package's own lab host on the same data
+    /// (verify/imsg-parity.md), and the scripted mock only with mock content on.
     static func defaultBackend() -> any ConversationBackend {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["CNX_CHIEF_SIM"], let url = URL(string: raw) {
             return ConversationSimBackend(endpoint: url)
         }
         #endif
-        return ChiefMockBackend()
+        return fallbackBackend(mockContentEnabled: DeveloperOptions.mockContentEnabled)
+    }
+
+    /// The backend with no Mac link: the mock only with mock content on (DEBUG).
+    public static func fallbackBackend(mockContentEnabled: Bool) -> any ConversationBackend {
+        #if DEBUG
+        if mockContentEnabled { return ChiefMockBackend() }
+        #endif
+        return ChiefOfflineBackend()
     }
 
     public private(set) var store: ConversationStore
@@ -29,19 +39,69 @@ public final class ChiefSession {
     public private(set) var unreadCount = 0
     public private(set) var isTyping = false
     public private(set) var isConnected = false
+    /// Why Chief is not reachable (no Mac, Chief not started there), set by
+    /// whoever swaps the backend; nil when there is nothing to explain.
+    public var status: String?
+    /// The backend the store runs on.
+    public private(set) var backend: any ConversationBackend
     public let identity: ChiefIdentity
+    /// The brain's engine controls, when the backend is the Mac's Chief.
+    public private(set) var control: ChiefControl?
+    /// The Mac Chief runs on, for the settings page.
+    public var macName: String?
+    public let preferences: ChiefPreferences
+    /// Messages waiting for Chief to connect (``ChiefOutbox``).
+    public private(set) var outbox: [ConversationComposeMessage] = []
+    private let outboxStore: ChiefOutbox
+    /// Newest message seq already seen; newer ones from Chief alert.
+    private var alertedSeq: Int?
 
-    public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard) {
+    public init(backend: any ConversationBackend, identity: ChiefIdentity = .standard,
+                preferences: ChiefPreferences = ChiefPreferences(), outbox: ChiefOutbox? = nil) {
         self.identity = identity
+        self.preferences = preferences
+        outboxStore = outbox ?? .standard
+        self.outbox = outboxStore.load()
+        self.backend = backend
         store = ConversationStore(backend: backend)
+        control = (backend as? ChiefDaemonBackend)?.control
+        ChiefAlerts.shared.install()
         attach()
     }
 
-    /// Swaps the backend (mock to `ChiefDaemonBackend` once a Mac link is up).
+    /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is up).
     public func use(_ backend: any ConversationBackend) {
         store.stop()
+        self.backend = backend
         store = ConversationStore(backend: backend)
+        control = (backend as? ChiefDaemonBackend)?.control
+        alertedSeq = nil
         attach()
+    }
+
+    /// The conversation the store shows, once connected.
+    public var conversationID: String? { store.info?.id }
+
+    /// Hide Alerts, as the details page and Home's pin show it.
+    public private(set) var isMuted = false
+    public private(set) var sendsReadReceipts = true
+
+    /// Hide Alerts; `rejected` runs if the change could not be saved.
+    public func setMuted(_ muted: Bool, rejected: (@MainActor () -> Void)? = nil) {
+        store.updateListState(ConversationListStateChange(muted: muted)) { _ in rejected?() }
+        if muted, let id = conversationID { ChiefAlerts.shared.clearDelivered(conversationID: id) }
+    }
+
+    public func setSendsReadReceipts(_ on: Bool, rejected: (@MainActor () -> Void)? = nil) {
+        store.updateListState(ConversationListStateChange(sendReadReceipts: on)) { _ in rejected?() }
+    }
+
+    /// Renames the conversation on the Mac (`title.set`).
+    public func rename(_ title: String) async throws {
+        guard let backend = backend as? ChiefDaemonBackend else {
+            throw ConversationBackendError(code: -1, message: String(localized: "Chief isn't connected to a Mac"))
+        }
+        try await backend.rename(title)
     }
 
     private func attach() {
@@ -62,13 +122,125 @@ public final class ChiefSession {
         if isTyping != typing { isTyping = typing }
         let connected = store.connection == .connected
         if isConnected != connected { isConnected = connected }
+        let listState = store.info?.listState
+        if isMuted != (listState?.muted ?? false) { isMuted = listState?.muted ?? false }
+        if sendsReadReceipts != (listState?.sendReadReceipts ?? true) { sendsReadReceipts = listState?.sendReadReceipts ?? true }
+        alertNewMessages()
+        flushOutbox()
+    }
+
+    /// Sends a message to Chief: now when Chief has connected, else into the
+    /// outbox, which goes out when it connects (never dropped silently).
+    public func send(_ message: ConversationComposeMessage) {
+        guard !message.isEmpty else { return }
+        if store.meID != nil, store.connection == .connected {
+            store.sendWhenConnected(message)
+            return
+        }
+        outbox.append(message)
+        outboxStore.save(outbox)
+    }
+
+    /// Drops what waits in the outbox (the user chose not to send it).
+    public func discardOutbox() {
+        outbox = []
+        outboxStore.save(outbox)
+    }
+
+    private func flushOutbox() {
+        guard !outbox.isEmpty, store.meID != nil, store.connection == .connected else { return }
+        let waiting = outbox
+        outbox = []
+        outboxStore.save(outbox)
+        for message in waiting { store.sendWhenConnected(message) }
+    }
+
+    /// Alerts for Chief's messages that arrived live (not the first page).
+    private func alertNewMessages() {
+        guard store.connection == .connected, let id = conversationID else { return }
+        let newest = store.messages.compactMap(\.seq).max() ?? 0
+        guard let seen = alertedSeq else {
+            alertedSeq = newest
+            return
+        }
+        guard newest > seen else { return }
+        alertedSeq = newest
+        for message in store.messages where (message.seq ?? 0) > seen && message.senderID == identity.chiefID {
+            ChiefAlerts.shared.notify(message, title: store.info?.title ?? identity.title, conversationID: id, preferences: preferences)
+        }
+    }
+
+    /// Why Chief cannot answer now, for the list and the settings page.
+    public var unavailableReason: String? {
+        if isConnected { return nil }
+        return status ?? (backend as? ChiefOfflineBackend)?.reason
     }
 
     /// The list's preview line for the newest message.
     public var preview: String {
-        guard let message = lastMessage else { return "Ask Chief to run agents on your Macs." }
+        if let waiting = outbox.last {
+            return String(localized: "Waiting to send: \(waiting.text.isEmpty ? String(localized: "Attachment") : waiting.text)")
+        }
+        guard let message = lastMessage else { return unavailableReason ?? "Ask Chief to run agents on your Macs." }
         if message.isUnsent { return "Message unsent" }
         if message.text.isEmpty, !message.attachments.isEmpty { return "Attachment" }
         return message.text
+    }
+}
+
+// MARK: - Outbox
+
+/// Messages written to Chief before it connected (New Message to Chief
+/// while the link is still coming up, or the Mac has no Chief yet). They
+/// are kept on disk, survive a backend swap and a relaunch, and go out in
+/// order once Chief connects; after that the transcript shows each one's
+/// delivery (and Not Delivered, with retry) as for any message.
+public struct ChiefOutbox: Sendable {
+    struct Item: Codable, Equatable {
+        var text: String
+        var images: [Image]
+
+        struct Image: Codable, Equatable {
+            var data: Data
+            var width: Int
+            var height: Int
+            var mimeType: String
+        }
+    }
+
+    let file: URL?
+
+    public init(file: URL?) {
+        self.file = file
+    }
+
+    public static var standard: ChiefOutbox {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        return ChiefOutbox(file: directory?.appendingPathComponent("cnx-chief-outbox.json"))
+    }
+
+    func load() -> [ConversationComposeMessage] {
+        guard let file, let data = try? Data(contentsOf: file),
+              let items = try? JSONDecoder().decode([Item].self, from: data) else { return [] }
+        return items.map { item in
+            ConversationComposeMessage(text: item.text, images: item.images.map {
+                ConversationComposeImage(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
+            })
+        }
+    }
+
+    func save(_ messages: [ConversationComposeMessage]) {
+        guard let file else { return }
+        guard !messages.isEmpty else {
+            try? FileManager.default.removeItem(at: file)
+            return
+        }
+        let items = messages.map { message in
+            Item(text: message.text, images: message.images.map {
+                Item.Image(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
+            })
+        }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? JSONEncoder().encode(items).write(to: file, options: [.atomic, .completeFileProtection])
     }
 }
