@@ -47,6 +47,50 @@ public struct PopupStyle: Sendable {
     }
 }
 
+/// One step of the shared elevation scale (Leo 2026-10-14, no dramatic shadows): a tight,
+/// low-alpha black drop under a surface, whose thin rim carries the edge. The web scale is the
+/// same numbers (`--elevation-1`/`--elevation-2`, webviews/src/pages/shared/desktop.css;
+/// subtle-elevation.test.ts holds the two in step).
+public struct Elevation: Sendable, Equatable {
+    /// How far the shadow falls below the surface, in points.
+    public let offset: CGFloat
+    /// The blur, as CSS and `NSShadow.shadowBlurRadius` measure it.
+    public let blur: CGFloat
+    /// The black's alpha (a layer's `shadowOpacity` over an opaque shadow color).
+    public let alpha: CGFloat
+
+    public init(offset: CGFloat, blur: CGFloat, alpha: CGFloat) {
+        self.offset = offset
+        self.blur = blur
+        self.alpha = alpha
+    }
+
+    /// Core Animation's `shadowRadius` for this blur (about half a CSS blur).
+    public var layerRadius: CGFloat { blur / 2 }
+
+    /// The `CALayer.shadowOffset` that falls below the surface: negative y in AppKit's y-up
+    /// layers, positive in a flipped (y-down) one.
+    public func layerOffset(flipped: Bool = false) -> CGSize {
+        CGSize(width: 0, height: flipped ? offset : -offset)
+    }
+
+    /// This elevation as an `NSShadow` in black (AppKit's offset is y-up: negative falls below).
+    public func shadow() -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(alpha)
+        shadow.shadowBlurRadius = blur
+        shadow.shadowOffset = NSSize(width: 0, height: -offset)
+        return shadow
+    }
+}
+
+extension PopupStyle {
+    /// Rows, cards and inline surfaces: `0 1px 2px` black at 7%.
+    public static let elevation1 = Elevation(offset: 1, blur: 2, alpha: 0.07)
+    /// Popovers, menus, the palette, hover cards, toasts and a lifted tab: `0 2px 6px` black at 11%.
+    public static let elevation2 = Elevation(offset: 2, blur: 6, alpha: 0.11)
+}
+
 /// A popover window's content view: its card inset by
 /// `PopupStyle.standard.shadowMargin`, with the popup shadow in that band. The host
 /// draws the shadow itself, on a layer behind the card shaped by the card's
