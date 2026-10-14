@@ -1,14 +1,18 @@
 //! One completion's child: the prompt on stdin, stdout read up to
 //! [`OUTPUT_CAP`](super::OUTPUT_CAP) and stderr up to
-//! [`STDERR_CAP`](super::STDERR_CAP), all under one deadline. On timeout the
-//! child's whole process group is killed (the command starts its own group),
-//! so nothing it started outlives the request.
+//! [`STDERR_CAP`](super::STDERR_CAP), all under one deadline. When the
+//! leader exits, and on timeout, the child's whole process group is killed
+//! (the command starts its own group), so nothing it started outlives the
+//! request.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
+
+/// How long the pipes are read after the leader exited.
+const DRAIN: Duration = Duration::from_millis(500);
 
 /// What the child left.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,7 +31,9 @@ pub enum RunError {
 }
 
 /// Runs `cmd` with `input` on stdin (None: no stdin) until it exits or
-/// `timeout` passes.
+/// `timeout` passes. Its process group is killed when the leader exits (or
+/// on timeout), and the pipes are then drained for at most [`DRAIN`], so a
+/// background process holding stdout never turns an answer into a timeout.
 pub async fn run(
     mut cmd: Command,
     input: Option<&[u8]>,
@@ -44,37 +50,46 @@ pub async fn run(
     // The group id, kept: once the leader is reaped `child.id()` is None.
     let group = child.id();
     let stdin = child.stdin.take();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let work = async {
-        let write = async move {
-            if let (Some(mut pipe), Some(bytes)) = (stdin, input) {
-                // A CLI that exits without reading closes the pipe: not an error here.
-                let _ = pipe.write_all(bytes).await;
-                let _ = pipe.shutdown().await;
-            }
-        };
-        let (_, stdout, stderr) = tokio::join!(
-            write,
-            read_capped(stdout, super::OUTPUT_CAP),
-            read_capped(stderr, super::STDERR_CAP)
-        );
-        let status = child.wait().await;
-        (stdout, stderr, status)
+    // The readers own the pipes: a process the CLI left behind that still
+    // holds one does not hold the answer (see the drain below).
+    let mut stdout = tokio::spawn(read_capped(child.stdout.take(), super::OUTPUT_CAP));
+    let mut stderr = tokio::spawn(read_capped(child.stderr.take(), super::STDERR_CAP));
+    let write = async move {
+        if let (Some(mut pipe), Some(bytes)) = (stdin, input) {
+            // A CLI that exits without reading closes the pipe: not an error here.
+            let _ = pipe.write_all(bytes).await;
+            let _ = pipe.shutdown().await;
+        }
     };
-    // Bound first, so the finished future (and its borrow of `child`) is gone below.
-    let outcome = tokio::time::timeout(timeout, work).await;
-    match outcome {
-        Ok((stdout, stderr, status)) => {
-            let status = status.map_err(|e| RunError::Spawn(e.to_string()))?;
-            Ok(Output { stdout, stderr, success: status.success(), code: status.code() })
-        }
+    let waited = tokio::time::timeout(timeout, async {
+        let ((), status) = tokio::join!(write, child.wait());
+        status
+    })
+    .await;
+    // On every path: nothing the CLI started outlives the request, and a
+    // background process holding stdout lets go of it.
+    kill_group(group);
+    let status = match waited {
+        Ok(status) => status,
         Err(_) => {
-            kill_group(group);
             let _ = child.kill().await;
-            Err(RunError::Timeout)
+            stdout.abort();
+            stderr.abort();
+            return Err(RunError::Timeout);
         }
-    }
+    };
+    let status = status.map_err(|e| RunError::Spawn(e.to_string()))?;
+    // What the leader wrote is in the pipes; the drain is bounded in case a
+    // process outside the group still holds one.
+    let (stdout, stderr) = (drain(&mut stdout).await, drain(&mut stderr).await);
+    Ok(Output { stdout, stderr, success: status.success(), code: status.code() })
+}
+
+/// A reader's bytes, waited for at most [`DRAIN`]; then it is stopped.
+async fn drain(task: &mut tokio::task::JoinHandle<Vec<u8>>) -> Vec<u8> {
+    let got = tokio::time::timeout(DRAIN, &mut *task).await;
+    task.abort();
+    got.ok().and_then(Result::ok).unwrap_or_default()
 }
 
 /// Up to `cap` bytes of `pipe`; then the pipe is closed, so a CLI that

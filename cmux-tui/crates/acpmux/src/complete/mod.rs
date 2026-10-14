@@ -254,20 +254,17 @@ impl From<CompleteError> for RpcError {
 
 /// The answer from a finished CLI: `answer` is its stdout, or Codex's
 /// last-message file. Trimmed, cut to about `max_tokens` tokens on a
-/// character boundary. A failed run that names sign-in is
-/// [`CompleteError::SignedOut`].
+/// character boundary. A failed run whose stderr names sign-in is
+/// [`CompleteError::SignedOut`]; stdout (the model's text) never is.
 pub fn finish(
     harness: &str,
     out: &run::Output,
     answer: &[u8],
     max_tokens: u32,
 ) -> Result<String, CompleteError> {
-    let says_sign_in = || {
-        crate::harness_health::names_sign_in(&String::from_utf8_lossy(&out.stderr))
-            || crate::harness_health::names_sign_in(&String::from_utf8_lossy(&out.stdout))
-    };
     if !out.success {
-        if says_sign_in() {
+        // The CLI's own error, never the model's text on stdout.
+        if crate::harness_health::names_sign_in(&String::from_utf8_lossy(&out.stderr)) {
             return Err(CompleteError::SignedOut { harness: harness.to_owned() });
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
