@@ -150,6 +150,7 @@ public final class LinkController {
                 guard let self else { return }
                 switch result {
                 case .success(let rtt):
+                    ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
                     guard case .connected(_, let path, _) = self.phase else { return }
                     self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
                 case .failure(let error):

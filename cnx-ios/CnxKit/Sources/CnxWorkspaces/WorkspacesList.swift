@@ -323,7 +323,8 @@ public struct WorkspacesList: View {
     }
 
     @ViewBuilder private func emptySectionContent(_ mac: MacDevice, spacer: Bool) -> some View {
-        switch store.macDataPhase(mac.id) {
+        // An offline Mac keeps its presence wording; only online ones wait on this phone.
+        switch mac.isOnline ? store.macDataPhase(mac.id) : .offline {
         case .loading:
             SkeletonList(rows: 2, leadingSquare: nil)
                 .accessibilityLabel("Loading workspaces on \(mac.name)")
@@ -359,6 +360,7 @@ public struct WorkspacesList: View {
     /// One Mac chosen with nothing on screen: what to show while its list is
     /// unknown, or nil once it answered (or is offline).
     private func pendingState(_ mac: MacDevice) -> AnyView? {
+        guard mac.isOnline else { return nil }
         switch store.macDataPhase(mac.id) {
         case .loading:
             return AnyView(ScrollView { SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8) }
