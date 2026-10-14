@@ -250,7 +250,7 @@ let package = Package(
         // the pick it shares with macOS Now Playing, and the card's feed. Wiring stays in the App.
         .target(
             name: "CmuxNextNowPlaying",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextSidebar", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
@@ -731,6 +731,7 @@ let package = Package(
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
+                .process("MusicActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("NewTabActions.xcstrings"),
                 .process("Localizable.xcstrings"),
