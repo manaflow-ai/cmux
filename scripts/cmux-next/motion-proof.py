@@ -231,7 +231,7 @@ def run_config(name, settings):
         # A terminal tab with tabs after it (Cmd-T on the window's first tab, a New Tab page, only focuses it).
         order = tab_order()
         anchor = next((i for i, t in enumerate(order[:-1]) if "terminal" in str(t[2]).lower() and i < 8), 1)
-        key(str(anchor + 1), ["command"])
+        rpc("tab.focus", {"tab": order[anchor][0], "focus": True})  # Cmd-1..9 switch workspaces, not tabs
         time.sleep(0.6)  # test harness wait
         before = tab_order()
         results["gestures"].append(strip("after-current", os.path.join(out, "after-current"), "t", ["command"]))

@@ -85,9 +85,11 @@ enum DebugFrameStrip {
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, moving = 0, reversals = 0, jumps = 0
         var previous: Double?, maxStep = 0.0, peak = 0.0
-        for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
-            let outsideBefore = frame.difference(from: before, excluding: excluded)
-            let outsideFinal = frame.difference(from: last, excluding: excluded)
+        let shown = Array(frames.enumerated().filter { $0.element.milliseconds >= before.milliseconds })
+        let compared = await FrameStripComparison(frames: shown.map(\.element), before: before, last: last, excluded: excluded,
+                                                  content: content, tolerance: tolerance).rows()
+        for ((index, frame), row) in zip(shown, compared) {
+            let (outsideBefore, outsideFinal) = (row.outsideBefore, row.outsideFinal)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
             // Chrome progress from before (0) to final (1).
             let progress = outsideBefore + outsideFinal > 0 ? outsideBefore / (outsideBefore + outsideFinal) : (outsideBefore > 0 ? 1 : 0)
@@ -100,10 +102,9 @@ enum DebugFrameStrip {
             }
             peak = max(peak, progress)
             previous = progress
-            // The content area is the before frame or the final one, nothing in between.
-            let contentChanged = content.map { frame.difference(from: before, within: $0) > tolerance && frame.difference(from: last, within: $0) > tolerance } ?? false
-            // Flat, and not still the content from before the key (an empty terminal is flat too).
-            let isBlank = content.map { frame.flatness(in: $0) > 0.995 && frame.difference(from: before, within: $0) > tolerance } ?? false
+            // The content area is the before frame or the final one, nothing in between; blank: flat, and
+            // not still the content from before the key (an empty terminal is flat too).
+            let (contentChanged, isBlank) = (row.contentChanged, row.blank)
             if isIntermediate { intermediate += 1; moving += 1 }
             if contentChanged { contentIntermediate += 1 }
             if isBlank { blank += 1 }

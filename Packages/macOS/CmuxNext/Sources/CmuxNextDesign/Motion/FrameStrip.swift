@@ -111,6 +111,42 @@ extension Array where Element == FrameStripFrame {
     }
 }
 
+/// Each frame of a strip compared with the frame before the gesture and the last one, off the
+/// main actor: a debug build's pixel loops over a whole strip take seconds (the main-thread
+/// watchdog ended an app that ran them on the main actor, proof run 1014-020455-4ac116).
+public nonisolated struct FrameStripComparison: Sendable {
+    public struct Row: Sendable {
+        /// Share of pixels outside the excluded rects that differ from before / from the last frame.
+        public var outsideBefore: Double
+        public var outsideFinal: Double
+        /// The content rect is neither the before frame nor the last one.
+        public var contentChanged: Bool
+        /// The content rect is flat and no longer what it showed before.
+        public var blank: Bool
+    }
+
+    public let frames: [FrameStripFrame]
+    public let before: FrameStripFrame
+    public let last: FrameStripFrame
+    public let excluded: [CGRect]
+    public let content: CGRect?
+    public let tolerance: Double
+
+    public init(frames: [FrameStripFrame], before: FrameStripFrame, last: FrameStripFrame, excluded: [CGRect], content: CGRect?,
+                tolerance: Double) {
+        (self.frames, self.before, self.last, self.excluded, self.content, self.tolerance) = (frames, before, last, excluded, content, tolerance)
+    }
+
+    @concurrent public func rows() async -> [Row] {
+        frames.map { frame in
+            let changed = content.map { frame.difference(from: before, within: $0) > tolerance && frame.difference(from: last, within: $0) > tolerance } ?? false
+            let blank = content.map { frame.flatness(in: $0) > 0.995 && frame.difference(from: before, within: $0) > tolerance } ?? false
+            return Row(outsideBefore: frame.difference(from: before, excluding: excluded),
+                       outsideFinal: frame.difference(from: last, excluding: excluded), contentChanged: changed, blank: blank)
+        }
+    }
+}
+
 /// Reads one window's composited image back to back (a window server round trip each).
 public nonisolated struct FrameStripRecorder: Sendable {
     public let window: CGWindowID
@@ -157,8 +193,9 @@ public nonisolated struct MotionTravelSummary: Sendable, Equatable {
         for sample in MotionTrace.samples where sample.name == name && sample.time >= time {
             if sample.value > 0.5 { movingFrames += 1 }
             peak = Swift.max(peak, sample.value)
-            if sample.value < previous - 0.5 { falling = true }
-            if falling, sample.value > previous + 0.5 {
+            // Falling from a real motion (a few points' tail of an earlier gesture is not one).
+            if peak > 4, sample.value < previous - 0.5 { falling = true }
+            if falling, sample.value > previous + Swift.max(2, peak * 0.05) {
                 restarts += 1
                 falling = false
             }
