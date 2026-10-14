@@ -10,6 +10,8 @@ mod agent_message;
 #[cfg(unix)]
 mod agents;
 #[cfg(unix)]
+mod agents_doctor;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;

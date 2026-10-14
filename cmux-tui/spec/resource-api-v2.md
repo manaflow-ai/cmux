@@ -1177,8 +1177,24 @@ Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
 
 The callers are the owner (the rule of Chief control above) and the Chiefs: a
-Unix connection bound with `conversation-bind` to a live record's id. Every
-other connection is refused with `origin.forbidden`. A Chief reads every
+Unix connection bound with `conversation-bind` to a live record's id. With
+`chief-profile-ws-v1` the person's page is a caller too: an authenticated
+WebSocket acting as `user_local` that is no remote client and no bound agent,
+and is either page `home-channels` admitted with a credential bound to that
+page (`page-credential {page}`: the app's Channels page on its Chief owner) or
+a connection with no page Origin that presented the daemon's own credential.
+A pairing-store credential (an approved pairing, and the app's person page
+credential, which shares the store) is refused with or without a page Origin:
+a native client can send any Origin. Without a host gesture the page can change only display_name, role and the
+avatar. Create, and edits of instructions or personality, need the gesture,
+like delete and the grant fields (tools, harnesses, engine/harness/model/effort,
+self_edit): `origin.forbidden` reason `gesture_required` on the WebSocket,
+which never carries a confirmation; the host's page relay of page
+`home-channels` brings it (page-router.md). Only the host's confirmation on its page relay carries the
+gesture; no request field or claim the page makes up stands in for it. The
+operation ledger records a page's write as `user_local via page:<page>` (`user_local
+via websocket` with no page id), so a page write is told apart from a terminal's.
+Every other connection is refused with `origin.forbidden`. A Chief reads every
 record and changes only its own fields that its `self_edit` lists; tools,
 harnesses, engine and `self_edit` are the owner's only, as are create and
 delete. Any other Chief request is `operation.failed` reason
