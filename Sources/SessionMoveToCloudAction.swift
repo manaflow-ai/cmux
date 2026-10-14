@@ -36,11 +36,16 @@ protocol SessionMoveAgentStopping: AnyObject {
 /// on screen; every other safety check still applies), then runs
 /// `cmux session move <id> --to cloud[:<machine>]` from the session's cwd. The
 /// pane holds its wake from the stop on: a failed move resumes Claude in place,
-/// a finished one leaves it stopped because the session now runs on the machine.
+/// a finished one ends it here for good because the session now runs on the
+/// machine, and keeps the hold.
 @MainActor
 final class SessionMoveToCloudAction {
     static var shared = SessionMoveToCloudAction()
     static let statusKey = "cloud.move"
+    /// `cmux session move` exits with this status when the session already
+    /// reached the machine but a later step, such as opening its Cloud
+    /// terminal, failed. The conversation is no longer this Mac's to resume.
+    static let movedWithoutTerminalExitStatus: Int32 = 3
     /// Panes whose Claude was stopped for a move; they must not wake again here.
     private static var resumeHeldPanelIds: Set<UUID> = []
 
@@ -68,7 +73,13 @@ final class SessionMoveToCloudAction {
         self.resolveSnapshot = resolveSnapshot ?? { workspace, panelId in Self.liveSnapshot(workspace: workspace, panelId: panelId) }
         self.isCloudEnabled = isCloudEnabled ?? { CloudMachinesFeature.isEnabled }
         self.notifyFailure = notifyFailure ?? { workspaceId, body in Self.postFailureNotification(workspaceId: workspaceId, body: body) }
-        self.notifyMovedWithoutTerminal = notifyMovedWithoutTerminal ?? { _, _ in }
+        self.notifyMovedWithoutTerminal = notifyMovedWithoutTerminal ?? { workspaceId, body in
+            Self.postNotification(
+                workspaceId: workspaceId,
+                title: String(localized: "cloudMove.movedWithoutTerminal.title", defaultValue: "Moved to Cloud"),
+                body: body
+            )
+        }
     }
 
     static func holdsAgentResume(panelId: UUID) -> Bool {
@@ -76,9 +87,11 @@ final class SessionMoveToCloudAction {
     }
 
     /// The Claude session a move would carry, or nil when the pane is not a
-    /// local terminal running Claude or Cloud is off.
+    /// local terminal running Claude, its session is moving or has moved, or
+    /// Cloud is off.
     func canMove(workspace: Workspace, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         guard isCloudEnabled(),
+              !Self.resumeHeldPanelIds.contains(panelId),
               !workspace.isRemoteWorkspace,
               workspace.cloudVMID == nil,
               workspace.panels[panelId] is TerminalPanel,
@@ -112,28 +125,38 @@ final class SessionMoveToCloudAction {
             icon: "icloud.and.arrow.up", workspace: workspace, panelId: panelId
         )
         // Held before the stop commits: a pane on screen would wake Claude at once.
-        Self.resumeHeldPanelIds.insert(panelId)
+        // Only the call that placed the hold may release it.
+        let placedHold = Self.resumeHeldPanelIds.insert(panelId).inserted
         return Task { [weak workspace] in
             let refusal = await self.stopper.stopAgent(workspaceId: workspaceId, panelId: panelId)
             // An agent hibernated earlier is already stopped; moving it is safe.
             if let refusal, refusal != .alreadyHibernated {
                 self.inFlightSessionIds.remove(snapshot.sessionId.lowercased())
-                Self.resumeHeldPanelIds.remove(panelId)
+                if placedHold { Self.resumeHeldPanelIds.remove(panelId) }
                 if let workspace { self.showRefusal(refusal, workspace: workspace, panelId: panelId) }
                 return
             }
             let outcome = await self.runCLI(snapshot: snapshot, machine: machine, workspace: workspace, panelId: panelId)
             self.inFlightSessionIds.remove(snapshot.sessionId.lowercased())
             workspace?.clearStatusEntry(key: Self.statusKey, panelId: panelId)
-            if outcome?.succeeded == true { return }
-            Self.resumeHeldPanelIds.remove(panelId)
-            if refusal == nil { self.stopper.resumeAgent(workspaceId: workspaceId, panelId: panelId) }
-            self.notifyFailure(workspaceId, Self.failureBody(output: outcome?.output ?? ""))
+            switch outcome?.terminationStatus {
+            case .some(0):
+                self.stopper.endMovedAgent(workspaceId: workspaceId, panelId: panelId)
+            case .some(Self.movedWithoutTerminalExitStatus):
+                // The session is on the machine: resuming here would make a
+                // second writer, so end it here like a finished move.
+                self.stopper.endMovedAgent(workspaceId: workspaceId, panelId: panelId)
+                self.notifyMovedWithoutTerminal(workspaceId, Self.movedWithoutTerminalBody(output: outcome?.output ?? ""))
+            default:
+                if placedHold { Self.resumeHeldPanelIds.remove(panelId) }
+                if refusal == nil { self.stopper.resumeAgent(workspaceId: workspaceId, panelId: panelId) }
+                self.notifyFailure(workspaceId, Self.failureBody(output: outcome?.output ?? ""))
+            }
         }
     }
 
     private struct CLIOutcome: Sendable {
-        let succeeded: Bool
+        let terminationStatus: Int32
         let output: String
     }
 
@@ -162,7 +185,7 @@ final class SessionMoveToCloudAction {
                     self.setStatus(String(format: format, line), icon: "icloud.and.arrow.up", workspace: workspace, panelId: panelId)
                 },
                 onCompletion: { terminationStatus, output in
-                    continuation.resume(returning: CLIOutcome(succeeded: terminationStatus == 0, output: output))
+                    continuation.resume(returning: CLIOutcome(terminationStatus: terminationStatus, output: output))
                 }
             )
             if !launched { continuation.resume(returning: nil) }
@@ -216,6 +239,14 @@ final class SessionMoveToCloudAction {
         )
     }
 
+    /// The CLI's own account of the half-finished move, when it is safe to show.
+    static func movedWithoutTerminalBody(output: String) -> String {
+        lastSafeLine(of: output) ?? String(
+            localized: "cloudMove.movedWithoutTerminal.generic",
+            defaultValue: "The conversation is on the Cloud machine now, but its terminal didn't open."
+        )
+    }
+
     private static func lastSafeLine(of output: String) -> String? {
         output.split(whereSeparator: \.isNewline).reversed().lazy
             .compactMap { CloudVMActionLauncher.firstSafeLine(of: String($0)) }
@@ -237,8 +268,16 @@ final class SessionMoveToCloudAction {
             ?? workspace.restoredAgentSnapshotForContinuation(panelId: panelId)
     }
 
-    /// Follows ``MachineCreateNotifier``: anchored to the workspace while it exists.
     private static func postFailureNotification(workspaceId: UUID, body: String) {
+        postNotification(
+            workspaceId: workspaceId,
+            title: String(localized: "cloudMove.failed.title", defaultValue: "Couldn't Move to Cloud"),
+            body: body
+        )
+    }
+
+    /// Follows ``MachineCreateNotifier``: anchored to the workspace while it exists.
+    private static func postNotification(workspaceId: UUID, title: String, body: String) {
         guard let appDelegate = AppDelegate.shared else { return }
         let anchorTabID = appDelegate.tabManagerFor(tabId: workspaceId) != nil
             ? workspaceId
@@ -247,7 +286,7 @@ final class SessionMoveToCloudAction {
         TerminalNotificationStore.shared.addNotification(
             tabId: anchorTabID,
             surfaceId: nil,
-            title: String(localized: "cloudMove.failed.title", defaultValue: "Couldn't Move to Cloud"),
+            title: title,
             subtitle: "",
             body: body,
             retargetsToLiveSurfaceOwner: false
@@ -280,7 +319,8 @@ final class CloudVMSessionMoveLauncher: SessionMoveCLILaunching {
 }
 
 /// Stops Claude through ``AgentHibernationController/hibernateNow`` with the
-/// session-move trigger, and wakes it through `cmux agent wake`'s path.
+/// session-move trigger, wakes it through `cmux agent wake`'s path, and ends
+/// it through ``Workspace/endAgentHibernationAfterSessionMove(panelId:)``.
 @MainActor
 final class AgentHibernationSessionMoveStopper: SessionMoveAgentStopping {
     func stopAgent(workspaceId: UUID, panelId: UUID) async -> AgentHibernationManualRefusal? {
@@ -297,5 +337,10 @@ final class AgentHibernationSessionMoveStopper: SessionMoveAgentStopping {
         _ = AgentHibernationController.shared.wakeNow(workspaceId: workspaceId, panelId: panelId)
     }
 
-    func endMovedAgent(workspaceId: UUID, panelId: UUID) {}
+    func endMovedAgent(workspaceId: UUID, panelId: UUID) {
+        AppDelegate.shared?
+            .workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: workspaceId)?
+            .workspace
+            .endAgentHibernationAfterSessionMove(panelId: panelId)
+    }
 }

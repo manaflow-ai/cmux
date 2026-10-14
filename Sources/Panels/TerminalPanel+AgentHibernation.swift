@@ -139,6 +139,20 @@ extension TerminalPanel {
         return true
     }
 
+    /// Ends hibernation without starting the agent again: the next runtime is
+    /// the plain shell. For an agent whose session now lives elsewhere.
+    @discardableResult
+    func endAgentHibernationWithoutResume() -> Bool {
+        guard case .hibernated = agentHibernationPhase,
+              surface.prepareAgentHibernationResume(initialInput: nil) else {
+            return false
+        }
+        agentHibernationPhase = .live
+        requestViewReattach()
+        surface.requestBackgroundSurfaceStartIfNeeded()
+        return true
+    }
+
     /// Recreates the terminal runtime while retaining the old-generation intent until a new process is recorded.
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
