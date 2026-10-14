@@ -533,10 +533,10 @@ impl Daemon {
 
     /// Polls this machine's acpmux status until `done` holds (bounded).
     fn acpmux_status_until(&self, done: impl Fn(&Value) -> bool) -> Value {
-        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(30);
         loop {
             let status = self.acpmux_status();
-            if done(&status) || std::time::Instant::now() > deadline {
+            if done(&status) || Instant::now() > deadline {
                 return status;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -564,7 +564,13 @@ fn needs_keyed_start(reply: &Value, safe: bool, live: u64, remote: u64) {
 /// safe. A start without `require_person_key` runs as before.
 #[test]
 fn a_start_that_needs_the_person_key_says_whether_a_restart_is_safe() {
-    let daemon = Daemon::start("keyed", None);
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("keyed", None, Some(config));
     let surface = daemon.own_agent_tab();
     let identity = daemon.rpc(json!({"id": 20, "cmd": "identify"}));
     let capabilities = identity["data"]["capabilities"].to_string();
@@ -605,16 +611,21 @@ fn a_peer_session_makes_the_keyed_restart_unsafe() {
     fs::create_dir_all(&peer_home).unwrap();
     fs::set_permissions(&peer_home, fs::Permissions::from_mode(0o700)).unwrap();
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
-    let token = "p".repeat(32);
+    let configured = "p".repeat(32);
     let config = json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
         "defaultHarness": "fake",
-        "websocket": {"listen": format!("127.0.0.1:{port}"), "token": token},
+        "websocket": {"listen": format!("127.0.0.1:{port}"), "token": configured},
     });
     fs::write(peer_home.join("config.json"), config.to_string()).unwrap();
     let peer = PeerAcpmux { home: daemon.dir.join("home"), acpmux: peer_home.clone() };
     let up = peer.command(&["acp", "--json", "daemon", "start"]).output().unwrap();
     assert!(up.status.success(), "{}", String::from_utf8_lossy(&up.stderr));
+    // The peer's dashboard token as the daemon reports it (its web URL).
+    let peer_status = peer.call("_acpmux/status", json!({}));
+    let web_url = peer_status["result"]["webUrl"].as_str().expect("the peer's web URL").to_owned();
+    let token = web_url.split("token=").nth(1).expect("a token in the web URL").to_owned();
+    let listen = peer_status["result"]["listen"].as_str().expect("the peer's listen").to_owned();
     let work = daemon.dir.join("work");
     let created = peer.call("session/new", json!({"cwd": work, "mcpServers": []}));
     assert!(created["result"]["sessionId"].is_string(), "{created}");
@@ -624,7 +635,7 @@ fn a_peer_session_makes_the_keyed_restart_unsafe() {
     let peer_token = fs::read_to_string(peer_home.join("run/peer.token")).unwrap();
     let added = daemon.acpmux_call(
         "_acpmux/peer_add",
-        json!({"name": "other", "url": format!("ws://127.0.0.1:{port}"), "token": token,
+        json!({"name": "other", "url": format!("ws://{listen}"), "token": token,
                "peerToken": peer_token.trim(), "wait": true}),
     );
     assert!(added.get("error").is_none(), "{added}");
