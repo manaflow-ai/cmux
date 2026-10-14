@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { sessionEntry, sessionMark } from "../sessionList";
+import { sessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -299,6 +299,9 @@ export type ChatCard = {
   message?: string;
   /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
   state: "idle" | "input" | "running" | "failed" | "error" | "unread";
+  /// The chats its agent started (acpmux `spawnedBy`, a device chat's `parent`), newest first:
+  /// listed under it, never on their own.
+  children?: ChatCard[];
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
@@ -336,16 +339,51 @@ export function recentChatCards(
       age: ageLabel(chat.updatedAt, now, t),
       state: "idle",
     }));
-  return [...live, ...fill];
+  return [...live, ...fill].map((card) => withChildren(card, sessions, device, now, t));
 }
 
 function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Translate, count: number): ChatCard[] {
-  return recentSessions(sessions, count).map((session) => ({
+  return recentSessions(sessions, count).map((session) => sessionCard(session, now, t));
+}
+
+function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): ChatCard {
+  return {
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
-  }));
+  };
+}
+
+/// `card` with the chats its agent started: sessions naming it (`spawnedBy`) and device chats
+/// whose `parent` is its session or chat key, newest first.
+function withChildren(
+  card: ChatCard,
+  sessions: AcpmuxSnapshot["sessions"],
+  device: DeviceChat[],
+  now: number,
+  t: Translate,
+): ChatCard {
+  const parents = new Set([card.sessionId, card.chatKey].filter((id): id is string => Boolean(id)));
+  const own = sessions
+    .map((session) => sessionEntry(session as Parameters<typeof sessionEntry>[0]))
+    .filter((session) => session.spawnedBy && parents.has(session.spawnedBy) && !session.archived)
+    .map((session) => ({ at: session.updatedAt ?? 0, card: sessionCard(session, now, t) }));
+  const indexed = device
+    .filter((chat) => chat.parent && parents.has(chat.parent))
+    .map((chat) => ({
+      at: chat.updatedAt,
+      card: {
+        sessionId: chat.key,
+        chatKey: chat.key,
+        title: chat.title ?? t("sidebar.newChat"),
+        harness: chat.harness,
+        age: ageLabel(chat.updatedAt, now, t),
+        state: "idle",
+      } satisfies ChatCard,
+    }));
+  const children = [...own, ...indexed].sort((a, b) => b.at - a.at).map((child) => child.card);
+  return children.length > 0 ? { ...card, children } : card;
 }
