@@ -169,7 +169,11 @@ final class BrowserModel {
             }
             if tab.id == pendingRoute { open(tabId: tab.id) }
         case .browserClosed(let tabId):
-            removeLocally(tabId)
+            // The host's own close event (the reply to our browser.close often
+            // lands after it, or the Mac closed the tab): the grid reflows on
+            // the same spring as a confirmed close, never jumps.
+            let reflow = BrowserStyle.shared.motion
+            withAnimation(reflow.resolve(reflow.reflow)) { removeLocally(tabId) }
         default:
             break
         }

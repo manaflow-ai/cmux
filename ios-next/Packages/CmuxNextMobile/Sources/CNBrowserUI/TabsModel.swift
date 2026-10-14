@@ -262,6 +262,11 @@ final class TabsModel {
 
     func handle(_ push: HostPush) {
         browser.handle(push)
+        if case .browserClosed = push {
+            // Same transaction as the browser model's animated removal.
+            let m = BrowserStyle.shared.motion
+            withAnimation(m.resolve(m.reflow)) { syncOrder() }
+        }
         guard includesTerminals else { syncOrder(); return }
         switch push {
         case .terminalUpdated(let t):
