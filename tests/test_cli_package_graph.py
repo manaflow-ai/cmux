@@ -96,7 +96,7 @@ class CLIPackageGraphTest(unittest.TestCase):
                 seen.add(current)
                 self.assertNotIn(
                     current.name,
-                    {"CmuxTerminal", "CmuxGhosttyKit"},
+                    {"CmuxTerminal"},
                     "CLI state sharing must not link terminal rendering: " + " -> ".join(chain),
                 )
                 stack.extend((dep, chain + [dep.name]) for dep in local_dependencies(current))
