@@ -14,21 +14,55 @@ struct ChiefQuestionBar: View {
     let open: (AgentQuestion) -> Void
     /// The bar grew, shrank or went away: its UIKit host lays it out again.
     var resized: () -> Void = {}
+    /// The bar starts fading out (true) or in (false) over `duration`: the
+    /// host fades its backing band with it (R3-2).
+    var fading: (_ out: Bool, _ duration: Double) -> Void = { _, _ in }
+
+    /// The question on the bar. It outlives `openQuestion` by the fade, so
+    /// the bar leaves before the conversation moves up into its room (R3-2).
+    @State private var shown: AgentQuestion?
+    @State private var visible = false
+
+    static let fadeDuration = 0.2
 
     var body: some View {
         VStack(spacing: 0) { content }
-            .animation(.snappy, value: session.openQuestion?.id)
+            .onAppear {
+                shown = session.openQuestion
+                visible = shown != nil
+                if visible { fading(false, 0) }
+            }
+            .onChange(of: session.openQuestion) { _, question in
+                if let question {
+                    let appearing = shown == nil
+                    shown = question
+                    guard appearing else { return }
+                    // Room first, then the bar fades in.
+                    resized()
+                    fading(false, Self.fadeDuration)
+                    withAnimation(.easeOut(duration: Self.fadeDuration)) { visible = true }
+                } else if shown != nil {
+                    // The bar fades out first; then the room closes.
+                    fading(true, Self.fadeDuration)
+                    withAnimation(.easeIn(duration: Self.fadeDuration)) {
+                        visible = false
+                    } completion: {
+                        shown = nil
+                        resized()
+                    }
+                }
+            }
             .onChange(of: layoutKey) { resized() }
     }
 
     /// What changes the bar's height: the question, and its status line.
     private var layoutKey: String {
-        guard let question = session.openQuestion else { return "" }
+        guard let question = shown else { return "" }
         return question.id + (session.answers[question.id]?.statusText ?? "")
     }
 
     @ViewBuilder private var content: some View {
-        if let question = session.openQuestion {
+        if let question = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
                 label(question, flow: flow)
@@ -47,7 +81,8 @@ struct ChiefQuestionBar: View {
             .padding(.horizontal, 16)
             .accessibilityIdentifier("chief.question.bar")
             .accessibilityHint("Opens Chief's question")
-            .transition(.opacity.combined(with: .offset(y: -8)))
+            .opacity(visible ? 1 : 0)
+            .allowsHitTesting(visible)
         }
     }
 
@@ -109,6 +144,8 @@ struct ChiefQuestionSheet: View {
     @State private var chosen: [String: Set<String>] = [:]
     @State private var other: [String: String] = [:]
 
+    static let sentHold: Duration = .milliseconds(600)
+
     private var question: AgentQuestion? { session.questions.first { $0.id == questionID } }
     private var flow: ChiefAnswerFlow { session.answers[questionID] ?? ChiefAnswerFlow() }
 
@@ -133,7 +170,8 @@ struct ChiefQuestionSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    header
+                    // The title already says whose question it is.
+                    if !typeSize.isAccessibilitySize { header }
                     if let question {
                         if case .answered(let given) = question.state {
                             answered(question, given)
@@ -146,7 +184,12 @@ struct ChiefQuestionSheet: View {
                     }
                 }
                 .padding(16)
+                // At accessibility sizes every choice still fits near the
+                // fold (R3-4); the indicator flashes to show the rest scrolls.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             }
+            .scrollIndicators(.visible)
+            .scrollIndicatorsFlash(onAppear: true)
             .safeAreaInset(edge: .bottom, spacing: 0) { footer }
             .navigationTitle("Chief's Question")
             .navigationBarTitleDisplayMode(.inline)
@@ -157,8 +200,12 @@ struct ChiefQuestionSheet: View {
                 }
             }
         }
-        .onChange(of: flow.state) { _, state in
-            if state == .sent { dismiss() }
+        // "Sent" with its check stays a beat before the sheet closes (R3-3):
+        // an intentional, bounded hold, cancelled if the sheet goes first.
+        .task(id: flow.state == .sent) {
+            guard flow.state == .sent else { return }
+            try? await Task.sleep(for: Self.sentHold)
+            if !Task.isCancelled { dismiss() }
         }
         .accessibilityIdentifier("chief.question.sheet")
     }

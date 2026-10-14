@@ -257,3 +257,8 @@ public func setHeaderAccessory(_ view: UIView?, animated: Bool)
 
 - **Default:** no accessory, so the layout is unchanged.
 - **Chief passes:** the question bar.
+- **When it lands, cnx removes:** the `additionalSafeAreaInsets.top` room and
+  the solid top band behind the status bar and the bar
+  (`ChiefConversationContainer.topBand`, round 3 review R3-1). The band exists
+  only because the bar sits above the header; under the header, the
+  package's own header wash covers it.
