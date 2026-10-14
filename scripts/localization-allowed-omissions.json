@@ -767,6 +767,13 @@
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
     }
   },
+  "sidebar.cloud.button": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
+    }
+  },
   "command.cloudVM.subtitle": {
     "source": "Cloud",
     "identityLocales": {
