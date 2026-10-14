@@ -238,27 +238,44 @@ two keys reachable at a time, and the rig's `term_keys` step could not find
 
 ## Live runs (E2E rig)
 
-The rig is `verify/e2e` from `feat-cnx-ios-e2erig`, plus termfix steps. It ran
-in one headless simulator, `cnx-termfix`. The Mac was a real tagged cmux-next
-app, running hidden and isolated with its own settings file and the dev
-sign-in. The evidence is in `verify/evidence/2026-10-14/termfix/e2e/`, which is
+The rig is `verify/e2e`, plus termfix steps (`journey-termfix.py` in the
+evidence folder). It ran in one headless simulator, `cnx-termfix`. The Mac was
+a real tagged cmux-next app, running hidden and isolated with its own settings
+file and the dev sign-in.
+
+The final run used the current rig Mac, `cnx-e2e-604fc689`, after the merge
+of `origin/feat-cnx-ios` (`0d51855c`). Its evidence is in
+`verify/evidence/2026-10-14/termfix/e2e/cnx-termfix-e2e-604/`, which is
 git-ignored.
 
-| Step | Result |
+| Step | Result on `cnx-e2e-604fc689` |
 | --- | --- |
 | `tf_type_reveals` (#10) | Pass. For both cases below, the "Scroll to bottom" button was shown before typing; the typed marker showed and the button was gone after. Cases: `seq 1 400`, then scrolled up and typed; `seq 1 400; clear`, then scrolled up and typed. |
-| `tf_type_after_files` (#10, the coordinator's sequence) | Pass. After the Files and Links step the page was scrolled up and the jump button was shown. Typing brought the prompt back and the button was gone. |
-| `tf_files` (#7) | Pass. The sheet is in the accessibility tree. A file in a folder the Mac shares (a chat root set in the rig Mac's own settings) previews "hello from inside". A file in `/tmp` shows "… is outside the folders … shares with this phone". |
-| `files_links` (the rig's own step) | Still fails its check. The sample is in `/tmp`, which the Mac does not share, so the preview now explains the refusal instead of showing the file's text. The fix for that is on the Mac side (above). |
-| `tf_flood` (#5) | Pass. 20 s of 10 Mbit/s output (`perl`, 999 columns, the input-lane flood). Accessibility reads took 0.3 to 0.4 s. The tap that brings up the keyboard took 1.9 s. Typing 6 keys through axe took 6.6 s. The app was idle, under 15% CPU, 1.2 s after the Mac had the typed text. The earlier run on the rig's build had touches time out after 120 s. |
+| `tf_type_after_files` (#10, the coordinator's sequence) | Pass. After the rig's Files and Links step the page was scrolled up and the jump button was shown. Typing brought the prompt back and the button was gone. |
+| `tf_files` (#7) | Pass. The sheet and its rows are in the accessibility tree. This Mac shares no folder (no chat roots), so each preview shows "… isn't sharing any folders with this phone yet …" and a Try Again button, not a blank page. |
+| `tf_flood` (#5) | Pass. 20 s of 10 Mbit/s output (`perl`, 999 columns, the input-lane flood). The app's CPU was 57 to 64%. Accessibility reads took 0.32 to 0.34 s. The tap that brings up the keyboard took 1.95 s. Typing 6 keys through axe took 7.1 s. The app was idle, under 15% CPU, 0.6 s after the Mac had the typed text. The matrix's earlier run had touches time out after 120 s. |
 | `keystroke_echo_flood` (the rig's latency step, top row 100 times a second) | Median 15 ms, p95 17 ms, max 38 ms, 12 of 12. Earlier, no number could be taken. |
-| `keystroke_echo_idle` | Median 0 to 17 ms, p95 18 to 20 ms. |
+| `keystroke_echo_idle` | Median 0 ms, p95 15 ms, max 18 ms. |
 | `tf_keybar` (#12) | Pass. At 3 scroll positions, no key had its activation point under esc / ctrl / alt. |
-| `term_keys` (the rig's step) | Fails in the rig. The rig's `reveal_h` finds a key by its frame, even when the key is off screen. Keys whose center is off screen are no longer in the tree. The rig must scroll the row when a key is missing; a helper for that, `_keybar_seek`, is in `journey-termfix.py`. With it, `Control C` was found and used. The step later lost the page while seeking with the keyboard hidden. |
+| `term_direct`, `term_composer`, `term_scrollback` | Pass. |
 
+An earlier run used the older rig Mac `cnx-e2e-210e55d9`, with a chat root
+set in its own settings file. That run showed the positive case:
+
+- a file in the shared folder previewed its text ("hello from inside");
+- a file in `/tmp` showed "… is outside the folders … shares with this
+  phone".
+
+**The rig's `term_keys` step needs a change.** The rig's `reveal_h` finds a
+key by its frame, even when the key is off screen. Keys whose center is off
+screen are no longer in the accessibility tree, so the step fails. The rig
+must scroll the row when a key is missing. `_keybar_seek` in
+`journey-termfix.py` is a start: with it, `Control C` was found and used.
+
+## Tests
 
 - `swift build --build-tests` and `swift test` on `mini-cmuxs-mac-mini-2`
-  (Xcode 26.3): 252 tests in 80 suites pass. New tests:
+  (Xcode 26.3): 280 tests in 88 suites pass after the merge. New tests:
   - `TerminalOutputQueueTests`
   - `TerminalFollowPolicyTests`
   - `KeyBarClippingTests`
