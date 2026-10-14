@@ -50,6 +50,8 @@ export function installDesktopLayer(doc: Document = document): void {
   if (!view) return;
   // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
   updateHairline(doc);
+  // A page-zoom or uiScale change resizes the CSS viewport; it may not fire the resolution query.
+  view.addEventListener("resize", () => updateHairline(doc));
   // SEE-THROUGH: follows the host's theme payload (window.cmuxTheme.apply fires `cmux-theme`).
   updateSeeThrough(doc);
   view.addEventListener("cmux-theme", () => updateSeeThrough(doc));
@@ -65,6 +67,9 @@ export function installDesktopLayer(doc: Document = document): void {
   });
 }
 
+/** Per document: the ratio its hairline tokens were set for and the query watching for a change. */
+const hairlineWatches = new WeakMap<Document, { ratio: number; query?: MediaQueryList; listener: () => void }>();
+
 /** Sets `--cmux-hairline` (one device pixel) and `--cmux-hairline-ring` (the whole device pixels
  * nearest one CSS pixel) on the root from devicePixelRatio, and again whenever it changes: a display
  * move, the host's page zoom or uiScale. A rim thinner than a device pixel breaks at its rounded
@@ -73,11 +78,16 @@ export function updateHairline(doc: Document = document): void {
   const view = doc.defaultView;
   if (!view) return;
   const ratio = view.devicePixelRatio > 0 ? view.devicePixelRatio : 1;
+  const watch = hairlineWatches.get(doc);
+  if (watch?.ratio === ratio) return;
+  watch?.query?.removeEventListener("change", watch.listener);
   const root = doc.documentElement.style;
   root.setProperty("--cmux-hairline", `${1 / ratio}px`);
   root.setProperty("--cmux-hairline-ring", `${Math.max(1, Math.round(ratio)) / ratio}px`);
-  if (typeof view.matchMedia !== "function") return;
-  view.matchMedia(`(resolution: ${ratio}dppx)`).addEventListener("change", () => updateHairline(doc), { once: true });
+  const listener = () => updateHairline(doc);
+  const query = typeof view.matchMedia === "function" ? view.matchMedia(`(resolution: ${ratio}dppx)`) : undefined;
+  query?.addEventListener("change", listener);
+  hairlineWatches.set(doc, { ratio, query, listener });
 }
 
 /** Sets or clears ``SEE_THROUGH_ATTRIBUTE`` from the resolved page background. Without a host theme

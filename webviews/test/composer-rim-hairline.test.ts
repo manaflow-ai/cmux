@@ -95,7 +95,10 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         expect(rest.length, `${id} draws a rim`).toBeGreaterThan(0);
         for (const { spread } of rest) expect(devicePixels(spread, scale), `${id} rim at ${scale}x`).toBe(1);
       }
+      // The rims keep their colors: only the width changed.
+      expect((await insets(page, "composer"))[0]?.alpha, "composer rim alpha").toBeCloseTo(0.16, 2);
       const shell = await insets(page, "shell");
+      expect(shell.length, "shell draws a rim").toBeGreaterThan(0);
       for (const { spread } of shell)
         expect(Number.isInteger(devicePixels(spread, scale)), `shell rim at ${scale}x`).toBe(true);
       for (const [id, field] of [
@@ -106,6 +109,7 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
         await page.focus(`#${field}`);
         const ring = await insets(page, id);
         expect(ring.length, `${id} draws a focus ring`).toBeGreaterThan(0);
+        if (id === "composer") expect(ring[0]?.alpha, "composer focus ring alpha").toBeCloseTo(0.38, 2);
         for (const { spread } of ring) {
           const pixels = devicePixels(spread, scale);
           expect(Number.isInteger(pixels) && pixels >= 1, `${id} focus ring at ${scale}x is ${pixels} device px`).toBe(
