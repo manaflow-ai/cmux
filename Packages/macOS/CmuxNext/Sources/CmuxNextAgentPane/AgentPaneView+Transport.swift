@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 import WebKit
 
@@ -72,7 +72,7 @@ extension AgentPaneView {
 
     /// A key press with the page focused, or a click on the page, by the person (``AgentPanePersonInput``):
     /// the user's gesture. `eventWindow` is the event's window (tests pass it: a synthesized event cannot resolve it).
-    func judge(_ event: NSEvent, eventWindow: NSWindow?) {
+    public func judge(_ event: NSEvent, eventWindow: NSWindow?) {
         guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
         switch event.type {
         case .keyDown:

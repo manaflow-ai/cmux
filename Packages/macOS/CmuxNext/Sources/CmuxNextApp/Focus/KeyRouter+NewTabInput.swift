@@ -136,10 +136,7 @@ final class NewTabInputCoordinator {
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
-            let event = Self.retarget(event, to: to)
-            router.dispatchingSynthetic(event) {
-                if !router.interceptKeyDown(event, in: to) { to.sendEvent(event) }
-            }
+            Self.replay(Self.retarget(event, to: to), held: event, in: to, router: router)
         })
         let entry = Entry(buffer: buffer, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
         install(entry, in: window)
@@ -197,9 +194,21 @@ final class NewTabInputCoordinator {
     private func deliver(in window: NSWindow) -> (NSEvent) -> Void {
         { [weak router, weak window] event in
             guard let router, let window else { return }
-            router.dispatchingSynthetic(event) {
-                if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
-            }
+            Self.replay(event, held: event, in: window, router: router)
+        }
+    }
+
+    /// Sends a held key on to `window` as `CmuxApplication.sendEvent` would. The pane gesture monitor
+    /// never saw it (the router took it before AppKit's dispatch; `NSWindow.sendEvent` runs no
+    /// monitor), so the agent pane that gets it judges the person's original key (`held`) here: a
+    /// Return typed before the New Tab field was ready still runs its terminal line (cx-hnpxh).
+    static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter) {
+        router.dispatchingSynthetic(event) {
+            guard !router.interceptKeyDown(event, in: window) else { return }
+            var view = window.firstResponder as? NSView
+            while let current = view, !(current is AgentPaneView) { view = current.superview }
+            (view as? AgentPaneView)?.judge(held, eventWindow: window)
+            window.sendEvent(event)
         }
     }
 

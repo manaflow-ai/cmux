@@ -19,6 +19,7 @@ struct AgentPaneOpenTabKeepTests {
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         var opened: [AgentPaneOpenTab] = []
         model.onOpenTab = { opened.append($0) }
+        model.transport.gestures.record()  // a run needs the person's click (cx-hnpxh)
         _ = await Self.ask(model, ["kind": "terminal", "text": "codex login", "cwd": "/tmp/project", "run": true, "keep": true])
         _ = await Self.ask(model, ["kind": "browser", "text": "https://opencode.ai/docs", "keep": true])
         _ = await Self.ask(model, ["kind": "browser", "text": "example.com"])

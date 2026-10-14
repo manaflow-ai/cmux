@@ -1,4 +1,7 @@
 @testable import CmuxNextAgentPane
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
 import Foundation
 import Testing
 
@@ -7,6 +10,7 @@ import Testing
 /// the person's click. Like `shell.run`, it now needs the person's fresh gesture in the pane (a key or
 /// click, ``AgentPaneUserGestures``), which page script cannot make, and uses it once. A terminal
 /// opened only to type (`run: false`), an empty terminal and a browser tab run nothing and stay ungated.
+@Suite(.serialized)
 @MainActor
 struct AgentPaneTabOpenGestureTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -73,5 +77,42 @@ struct AgentPaneTabOpenGestureTests {
         #expect(await rig.open(["kind": "browser", "text": "example.com"])["ok"] as? Bool == true)
         #expect(rig.opened.count == 3, "\(rig.opened)")
         #expect(rig.model.transport.gestures.isAvailable, "an open that runs nothing used the person's gesture")
+    }
+
+    /// A Return key as process `source` sent it (the HID system's events carry source pid 0).
+    private static func returnKey(source: Int64) throws -> NSEvent {
+        let cgEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: source)
+        return try #require(NSEvent(cgEvent: cgEvent))
+    }
+
+    /// Keys typed before the New Tab field was ready wait in the router's hold, and the hold
+    /// replays them past the pane's gesture monitor. The replay judges the person's held Return in
+    /// the pane, so the line it submits still runs; a key another process posted grants nothing.
+    @Test func aHeldReturnReplayedIntoThePageIsThePersonsGesture() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "held-return-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body><input></body></html>".utf8).write(to: file)
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        model.becomeNewTab(AgentPaneNewTab(kind: .terminal))
+        let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        window.contentView = view
+        try #require(window.makeFirstResponder(view.webView), "the page's field could not take the keyboard")
+        let router = KeyRouter(registry: ActionRegistry.standard())
+
+        let posted = try Self.returnKey(source: Int64(getpid()) + 1)
+        NewTabInputCoordinator.replay(posted, held: posted, in: window, router: router)
+        #expect(!model.transport.gestures.isAvailable, "a held key another process posted counted as the person's")
+
+        let person = try Self.returnKey(source: 0)
+        NewTabInputCoordinator.replay(person, held: person, in: window, router: router)
+        #expect(model.transport.gestures.isAvailable, "the person's held Return left no gesture in the page")
     }
 }
