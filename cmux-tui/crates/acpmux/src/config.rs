@@ -939,8 +939,7 @@ pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
 mod discover;
 pub use codex_adapter::{
-    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
-    resolve_adapter_package_bin,
+    CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin,
 };
 pub use discover::{
     CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
