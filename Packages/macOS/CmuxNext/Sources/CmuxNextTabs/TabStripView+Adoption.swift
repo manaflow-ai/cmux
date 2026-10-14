@@ -28,6 +28,10 @@ extension TabStripView {
         inserting = (anchor, CACurrentMediaTime())
     }
 
+    /// The tabs in the order the strip shows them: a tab shown in its slot ahead of the model
+    /// (`expectInsertion`) is there, not where the model still lists it.
+    public var displayedOrder: [TabID] { displayed.map(\.id) }
+
     /// How long a newcomer is shown in its slot before the model must put it there (the
     /// pane lists it and NewTabSlot moves it); after that the model's order rules again.
     static let insertionWindow: CFTimeInterval = 10
