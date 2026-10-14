@@ -8,7 +8,7 @@ relay analysis is `cnx-ios/SECURITY.md`; the pairing and approval design is
 
 ---
 
-**Trust call: cmux on iPhone connecting to a cmux-next Mac (#20414, #20491, #20531, `feat-cnx-ios-fileroots`)**
+**Trust call: cmux on iPhone connecting to a cmux-next Mac (#20414, #20491, #20531, `feat-cnx-ios-fileroots`, `feat-cnx-ios-agentcwd`)**
 
 With Settings > Mobile > Allow iPhone Connections on, the cmux app on the same
 account's iPhone opens the Mac's workspaces, terminals, browser tabs, agent
@@ -197,6 +197,21 @@ Evidence: unit tests for each refusal
 `without_a_daemon_no_tab_folder_is_shared`) and the `file` cases in
 `tests/host.rs`, per `SECURITY.md` on that branch. No live run on a Mac yet.
 
+**The same rule for agent chats (`feat-cnx-ios-agentcwd` at e0f1c3bf).** A
+phone's New Claude Chat in a workspace fails today: "cwd is refused: a remote
+WebSocket connection may use only a known project or a configured webRoots
+folder". acpmux treats the phone's splice as a remote (`Web`) connection, and
+its guard (`remote_guard.rs`, `web_roots`) admits only `webRoots` from
+config.json and known projects (folders of sessions acpmux already has). The
+branch has the Mac app hand acpmux the same tab folders on its person
+connection (`_acpmux/workspace_roots_set`, memory only, person-only), while
+iPhone connections are on. acpmux applies its existing guards: no `/`, home or
+above, canonical paths. The agent still runs under the Web rules (asking
+policy, no MCP servers from the phone, every tool approval answered by the
+person). Evidence: acpmux `tests/workspace_roots.rs` (before refused, only the
+person sets it, `/` and home dropped, symlink and `..` out refused, cleared
+refuses again). Recommendation: approve it together with (a).
+
 ### Decisions
 
 - **iPhone host (#20414):** may the Mac app host iPhone links behind the
@@ -214,8 +229,12 @@ Evidence: unit tests for each refusal
   edit counting as the person's? Reply `approve Chief over the link` (Chief
   question answers already need the phone's Face ID signature, bae2a073)
   or `Chief without engine and avatar edits` or `keep Chief off the link`.
-- **File previews (`feat-cnx-ios-fileroots`):** what may `file` read? Reply
-  `approve fileroots (a)` (read-only below the folder of a live tab, no
-  hidden names, not `/` or `~`) or `share workspace folders (b)` (every
-  workspace folder, until hostd restarts) or `keep files blocked` (chat roots
-  only, none by default).
+- **Workspace folders for the phone (`feat-cnx-ios-fileroots`,
+  `feat-cnx-ios-agentcwd`):** may the phone read files below, and start agent
+  chats in, the folder of a tab the Mac has open? Reply `approve tab folders
+  for files and agent chats` (both branches: read-only file previews with no
+  hidden names, and agent chats under the Web rules; never `/` or `~`) or
+  `approve tab folders for files only` (fileroots (a); agent chats stay in
+  known projects and webRoots) or `share workspace folders (b)` (every
+  workspace folder for files, until hostd restarts) or `keep files and new
+  agent chats blocked` (chat roots only, none by default).
