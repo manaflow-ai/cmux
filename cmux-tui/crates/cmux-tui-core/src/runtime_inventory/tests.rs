@@ -35,8 +35,8 @@ fn scan(processes: Vec<InventoryProcess>) -> ProcessInventory {
     ProcessInventory { processes, truncated: false, unreadable: 0 }
 }
 
-fn terminal(surface: SurfaceId, pid: u32) -> CmuxTerminal {
-    CmuxTerminal { surface, workspace: Some(format!("w{surface}")), pid }
+fn terminal(n: u32, pid: u32) -> CmuxTerminal {
+    CmuxTerminal { terminal_id: format!("terminal:{n}"), pid }
 }
 
 fn runtime(inventory: &RuntimeInventory, pid: u32) -> &Runtime {
@@ -57,8 +57,7 @@ fn an_agent_under_a_cmux_terminal_is_verified_through_its_parent_chain() {
     assert_eq!((codex.vendor, codex.role), (Vendor::Codex, Role::Cli));
     assert_eq!(codex.attribution.status, AttributionStatus::Verified);
     assert_eq!(codex.attribution.source, AttributionSource::TerminalProcessTree);
-    assert_eq!(codex.attribution.surface, Some(7));
-    assert_eq!(codex.attribution.workspace.as_deref(), Some("w7"));
+    assert_eq!(codex.attribution.terminal_id.as_deref(), Some("terminal:7"));
     assert_eq!(codex.runtime_id, "local:102:12000");
     assert_eq!(codex.executable_path.as_deref(), Some("~/.codex/packages/codex"));
     assert_eq!(inventory.runtimes.len(), 1, "the shell and env are not runtimes");
@@ -78,7 +77,7 @@ fn a_shared_server_lists_its_known_cmux_clients_and_never_a_total() {
     let server = runtime(&inventory, 300);
     assert_eq!(server.role, Role::SharedServer);
     assert_eq!(server.attribution.status, AttributionStatus::Unattributed);
-    assert_eq!(server.known_cmux_clients, vec![7, 8]);
+    assert_eq!(server.known_cmux_clients, ["terminal:7", "terminal:8"]);
     assert_eq!(server.total_clients, None);
 }
 
@@ -100,7 +99,7 @@ fn a_reparented_agent_still_in_the_terminal_session_is_only_probable() {
     let claude = runtime(&inventory, 150);
     assert_eq!(claude.attribution.status, AttributionStatus::Probable);
     assert_eq!(claude.attribution.source, AttributionSource::TerminalSession);
-    assert_eq!(claude.attribution.surface, Some(7));
+    assert_eq!(claude.attribution.terminal_id.as_deref(), Some("terminal:7"));
 }
 
 #[test]

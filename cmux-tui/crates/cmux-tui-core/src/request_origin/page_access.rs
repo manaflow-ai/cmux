@@ -26,7 +26,8 @@ enum Denied {
     /// Bytes, keys, mouse or focus into a terminal, a sidebar view or a
     /// browser, and commands run in a new terminal.
     Input,
-    /// A terminal's screen, history, output, state or process.
+    /// A terminal's screen, history, output, state or process, and this
+    /// user's agent processes.
     ScreenRead,
     /// Attaching to, or detaching, a view or a client.
     Attach,
@@ -81,7 +82,8 @@ const fn access(operation: Op) -> Access {
         | Op::TerminalCopy
         | Op::TerminalWait
         | Op::TerminalWaitExit
-        | Op::TerminalProcessGet => Access::Denied(Denied::ScreenRead),
+        | Op::TerminalProcessGet
+        | Op::AgentRuntimeList => Access::Denied(Denied::ScreenRead),
         Op::TerminalAttach
         | Op::TerminalViewerResize
         | Op::TerminalViewerRelease

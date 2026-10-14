@@ -28,7 +28,6 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::SurfaceId;
 use crate::process_inventory::{InventoryProcess, ProcessInventory};
 
 pub use redact::{redact_args, redact_path};
@@ -37,11 +36,11 @@ pub use vendor::{Role, Vendor, recognize};
 /// Clock granularity allowed between a parent's and a child's start times.
 const START_SLACK_MS: u64 = 1_000;
 
-/// A live cmux terminal: the PTY child cmux started for a surface.
+/// A live cmux terminal: the PTY child cmux started for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CmuxTerminal {
-    pub surface: SurfaceId,
-    pub workspace: Option<String>,
+    /// The terminal's public resource id.
+    pub terminal_id: String,
     /// The terminal's PTY child (the shell or command), the session leader.
     pub pid: u32,
 }
@@ -68,26 +67,24 @@ pub enum AttributionSource {
 }
 
 /// Who launched a runtime, as far as cmux can tell.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribution {
     pub status: AttributionStatus,
     pub source: AttributionSource,
     /// The cmux terminal named by the evidence.
-    pub surface: Option<SurfaceId>,
-    pub workspace: Option<String>,
+    pub terminal_id: Option<String>,
 }
 
 impl Attribution {
     const NONE: Self = Self {
         status: AttributionStatus::Unattributed,
         source: AttributionSource::None,
-        surface: None,
-        workspace: None,
+        terminal_id: None,
     };
 }
 
 /// One recognized agent process.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Runtime {
     /// `local:<pid>:<start ms>`: one process generation. A reused pid gets
     /// a different id.
@@ -109,7 +106,7 @@ pub struct Runtime {
     /// cmux terminals that run a client of the same vendor. Only filled for
     /// servers, as a probable relationship: cmux sees processes, not
     /// connections.
-    pub known_cmux_clients: Vec<SurfaceId>,
+    pub known_cmux_clients: Vec<String>,
     /// Every client of a server, cmux's or not. cmux cannot count them, so
     /// this is `None`: zero known cmux clients never means zero clients.
     pub total_clients: Option<u32>,
@@ -118,7 +115,7 @@ pub struct Runtime {
 }
 
 /// The runtimes of one scan.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeInventory {
     pub runtimes: Vec<Runtime>,
     /// The scan saw every process of this user. When false, a runtime may be
@@ -147,8 +144,7 @@ pub fn classify(
                 .map(|terminal| Attribution {
                     status: AttributionStatus::Verified,
                     source: AttributionSource::TerminalProcessTree,
-                    surface: Some(terminal.surface),
-                    workspace: terminal.workspace.clone(),
+                    terminal_id: Some(terminal.terminal_id.clone()),
                 })
                 .or_else(|| session_owner(process, terminals, &by_pid))
                 .unwrap_or(Attribution::NONE);
@@ -232,17 +228,16 @@ fn session_owner(
     Some(Attribution {
         status: AttributionStatus::Probable,
         source: AttributionSource::TerminalSession,
-        surface: Some(terminal.surface),
-        workspace: terminal.workspace.clone(),
+        terminal_id: Some(terminal.terminal_id.clone()),
     })
 }
 
 /// For each server, the cmux terminals that run a same-vendor client.
 fn link_clients(runtimes: &mut [Runtime]) {
-    let mut clients: HashMap<Vendor, Vec<SurfaceId>> = HashMap::new();
+    let mut clients: HashMap<Vendor, Vec<String>> = HashMap::new();
     for runtime in runtimes.iter().filter(|runtime| runtime.role.is_client()) {
-        if let Some(surface) = runtime.attribution.surface {
-            clients.entry(runtime.vendor).or_default().push(surface);
+        if let Some(terminal) = &runtime.attribution.terminal_id {
+            clients.entry(runtime.vendor).or_default().push(terminal.clone());
         }
     }
     for list in clients.values_mut() {
