@@ -21,7 +21,10 @@ const clockReady = async (id: string) => {
   for (let i = 0; i < 150; i++) {
     const c = await stripe("GET", `/v1/test_helpers/test_clocks/${id}`)
     if (c.status === "ready") return c
-    await new Promise((r) => setTimeout(r, 2000)) // bounded wait on Stripe's own clock state (no product sync)
+    // Bounded wait (why, cx-y79zh S5 review): a test clock advance is asynchronous, and its only push signal is the
+    // test_helpers.test_clock.ready webhook, which this script (no public endpoint) cannot receive. It reads the
+    // clock's own status instead, every 2 s, at most 5 min.
+    await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error("clock not ready")
 }
@@ -50,7 +53,11 @@ const phase = process.env.PHASE ?? "a"
 const st: any = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {}
 const save = () => writeFileSync(STATE, JSON.stringify(st))
 const { token, stackUser } = await signIn()
-/** Stripe aggregates meter events asynchronously: wait (bounded) until its summary shows the level the sync sent. */
+/**
+ * Stripe aggregates meter events asynchronously (45-50 s in the 2026-10-13 runs) and has no event or expand that
+ * says an aggregation is done: wait (bounded, 5 s steps, at most 7.5 min) until its own summary shows the level the
+ * sync sent. Without it, a finalization right after a push misses the newest level (run 1).
+ */
 const settledSummary = async (cus: string, start: number, end: number, usd: number) => {
   for (let i = 0; i < 90; i++) {
     const s = await stripe("GET", `/v1/billing/meters/${METER}/event_summaries?customer=${cus}&start_time=${start}&end_time=${end}`)
