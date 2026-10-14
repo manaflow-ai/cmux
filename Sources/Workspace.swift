@@ -3195,6 +3195,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var agentStatusEntriesByPanelId: [UUID: [String: SidebarStatusEntry]] = [:]
     var programStatusStoresByPanelId: [UUID: ProgramStatusRecordStore] = [:]
     var programStatusUrgencyByPanelId: [UUID: Int] = [:]
+    /// One pending agent turn settlement per panel and status key; see
+    /// `scheduleAgentTurnSettlement` in Workspace+ProgramStatus.swift.
+    var agentTurnSettlementTasks: [String: Task<Void, Never>] = [:]
     var metadataBlocks: [String: SidebarMetadataBlock] {
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
