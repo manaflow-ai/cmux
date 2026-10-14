@@ -3716,6 +3716,8 @@ mod left_dock_undock;
 mod lone_width;
 #[path = "cli/new_terminal_cwd.rs"]
 mod new_terminal_cwd;
+#[path = "cli/notification_levels.rs"]
+mod notification_levels;
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
 #[path = "cli/state_helpers.rs"]
