@@ -33,7 +33,38 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   const chunk = (text: string) => update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });
   type Step = [dir: string, kind: string, msg: Record<string, unknown>];
   const steps: Step[] = [];
+  // Every 25th turn only ran a command, so its "Worked for" shows the turn's own time (4s, from the
+  // prompt to its result), whatever page it came in on.
+  const TOOL_ONLY = 25;
+  const tool = (n: number): Step[] => [
+    [
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: `call-${n}`,
+        title: "swift build",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: "swift build" },
+      }),
+    ],
+    [
+      "in",
+      "tool_call_update",
+      update({ sessionUpdate: "tool_call_update", toolCallId: `call-${n}`, status: "completed" }),
+    ],
+  ];
   for (let n = 1; n <= TURNS; n++) {
+    if (n % TOOL_ONLY === 0) {
+      steps.push(
+        ["mux", "user_message", { text: `Question ${n}` }],
+        ["mux", "turn_started", {}],
+        ...tool(n),
+        ["mux", "turn_result", { status: "completed" }],
+      );
+      continue;
+    }
     steps.push(
       ["mux", "user_message", { text: `Question ${n}` }],
       ["mux", "turn_started", {}],
@@ -175,6 +206,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     // Every turn passes through the view once, newest first: pages that fold on their own lose,
     // repeat or reorder none.
     const seen: string[] = [];
+    const workedLabels = new Set<string>();
     for (let step = 0; step < 800 && !reachedFirst; step++) {
       const before = await page.evaluate(() => {
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -184,9 +216,13 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           .filter((bubble) => bubble.y >= 0 && bubble.y < view.height);
         // The mark sits in the upper part of the view, so a 300px step keeps it in view.
         const mark = inView.find((bubble) => bubble.y < view.height - 360);
-        return { top: node.scrollTop, mark, shown: inView.map((bubble) => bubble.text) };
+        const worked = [...document.querySelectorAll<HTMLElement>(".cv-worked__label")].map(
+          (label) => label.textContent ?? "",
+        );
+        return { top: node.scrollTop, mark, shown: inView.map((bubble) => bubble.text), worked };
       });
       for (const text of [...before.shown].reverse()) if (seen.at(-1) !== text && !seen.includes(text)) seen.push(text);
+      for (const label of before.worked) workedLabels.add(label);
       await page.mouse.wheel(0, -300);
       await settle();
       const after = await page.evaluate((text) => {
@@ -227,6 +263,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     );
     for (const text of [...shownFirst].reverse()) if (!seen.includes(text)) seen.push(text);
     expect(seen).toEqual(Array.from({ length: TURNS }, (_, index) => `Question ${TURNS - index}`));
+    // A paged-in turn is timed from its own prompt, not the newest one.
+    expect([...workedLabels]).toEqual(["Worked for 4s"]);
     // Older turns came in pages, each before the oldest record the pane held, and stopped at the start.
     expect(older.length).toBeGreaterThan(5);
     expect(older.every((request) => Number(request.params.limit) <= 400)).toBe(true);
