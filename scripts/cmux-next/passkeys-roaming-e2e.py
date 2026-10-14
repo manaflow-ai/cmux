@@ -7,8 +7,10 @@ yubikey". In a running cmux-next DEV app's CEF tab, on https://webauthn.io:
 1. For each roaming transport (USB CTAP2, USB U2F, NFC, BLE, hybrid "cable"): a DevTools virtual
    authenticator of that transport (`debug.cef.devtools`, Debug builds), Register with attachment
    Cross-Platform, then Authenticate with the username filled (an allow list). PASS when webauthn.io
-   says "Success!" after Register, opens /profile after Authenticate, and the authenticator holds
-   one credential whose sign count went up.
+   shows its success alert after Register and opens /profile after Authenticate (both verified by
+   its server), and, when CEF returns the authenticator id, the authenticator holds one credential
+   whose sign count went up. CEF usually loses that reply: then the row says so, and the pass
+   proves the request path through a virtual authenticator (UI off), not the transport itself.
 2. Chromium's own WebAuthn dialog in the pane (record + screenshot, not judged): the
    "touch your security key" sheet (virtual USB key, UI on, no automatic touch), and the sheet a
    real cross-platform request shows with no virtual authenticator (hybrid QR / Bluetooth / USB).
@@ -23,7 +25,7 @@ authenticator; `say` tells the person when to touch the key or type the PIN; a p
 
 Usage: passkeys-roaming-e2e.py --socket SOCK [--pid PID --capture HELPER] [--out DIR]
        [--transports usb,usb-u2f,nfc,ble,cable] [--site https://webauthn.io] [--no-dialogs]
-       [--real [--real-seconds 120]]
+       [--real [--real-seconds 120] [--discoverable discouraged]]
 Writes roaming.json to --out. Exit 0 when every judged transport passes.
 """
 import argparse, json, os, socket, subprocess, sys, time, uuid
@@ -38,6 +40,8 @@ parser.add_argument("--site", default="https://webauthn.io")
 parser.add_argument("--no-dialogs", action="store_true")
 parser.add_argument("--real", action="store_true", help="a real key or phone and a person; no virtual authenticator")
 parser.add_argument("--real-seconds", type=int, default=120, help="--real: how long each step waits for the person")
+parser.add_argument("--discoverable", default="", choices=["", "discouraged", "preferred", "required"],
+                    help="webauthn.io Discoverable Credential; `discouraged` needs only a touch on a key with no PIN")
 opts = parser.parse_args()
 
 AUTHENTICATORS = {
@@ -68,6 +72,8 @@ def rpc(method, params=None, timeout=40):
             buf += chunk
         conn.close()
         reply = json.loads(buf)
+        if not isinstance(reply, dict):
+            return {"error": f"not an object: {str(reply)[:80]}"}
         return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
     except (OSError, ValueError) as error:
         return {"error": str(error)}
@@ -91,12 +97,16 @@ def run(action, args=None):
 
 
 def js(tab, script):
-    reply = rpc("browser.page.eval", {"tab": tab, "script": script}) or {}
+    reply = rpc("browser.page.eval", {"tab": tab, "script": script})
+    if not isinstance(reply, dict):
+        return {"__error": f"reply {reply!r}"}
     return reply.get("value") if "error" not in reply else {"__error": reply.get("error")}
 
 
 def devtools(method, params=None):
-    reply = rpc("debug.cef.devtools", {"method": method, "params": params or {}}) or {}
+    reply = rpc("debug.cef.devtools", {"method": method, "params": params or {}})
+    if not isinstance(reply, dict):
+        return {"__error": f"reply {reply!r}"}
     if reply.get("error"):
         return {"__error": reply["error"]}
     try:
@@ -111,14 +121,17 @@ def shot(name):
     if not (opts.capture and opts.pid):
         return None
     base = os.path.join(opts.out, name)
-    listed = subprocess.run(["bash", opts.capture, "windows", "--all-layers", "--pid", str(opts.pid)],
-                            capture_output=True, text=True, timeout=60)
+    def helper(*args):
+        try:
+            return subprocess.run(["bash", opts.capture, *args], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return subprocess.CompletedProcess(args, 1, "", str(error))
+    listed = helper("windows", "--all-layers", "--pid", str(opts.pid))
     with open(base + ".windows.json", "w") as handle:
         handle.write(listed.stdout)
     notes = []
     for suffix, extra in (("", ["--with-popups"]), (".front", [])):
-        done = subprocess.run(["bash", opts.capture, "shot", "--pid", str(opts.pid), *extra, "--out", f"{base}{suffix}.png"],
-                              capture_output=True, text=True, timeout=60)
+        done = helper("shot", "--pid", str(opts.pid), *extra, "--out", f"{base}{suffix}.png")
         notes.append(f"{base}{suffix}.png" if done.returncode == 0 else f"capture failed: {done.stderr.strip()[:160]}")
     return {"pictures": notes, "windows": window_summary(listed.stdout)}
 
@@ -132,8 +145,10 @@ def window_summary(text):
     windows = data.get("windows", data) if isinstance(data, dict) else data
     rows = []
     for w in windows if isinstance(windows, list) else []:
-        b = w.get("bounds") or {}
-        rows.append([w.get("layer", w.get("z_index")), w.get("title", ""), int(b.get("width", 0)), int(b.get("height", 0))])
+        if not isinstance(w, dict):
+            continue
+        b = w.get("bounds") if isinstance(w.get("bounds"), dict) else {}
+        rows.append([w.get("layer", w.get("z_index")), w.get("title", ""), int(b.get("width") or 0), int(b.get("height") or 0)])
     return rows
 
 
@@ -152,10 +167,14 @@ def load_site(tab):
     return wait(lambda: page_ready(tab), 45)
 
 
-def fill(tab, username, attachment):
-    """Alpine's x-model reads input/change events; the buttons' @click handlers run on click()."""
+def fill(tab, username, attachment, discoverable=""):
+    """Alpine's x-model reads input/change events; the buttons' @click handlers run on click().
+    Returns the attachment the page now has, or "" when the discoverable choice did not take."""
     return js(tab, "(() => { const u = document.getElementById('input-email');"
                    f" u.value = {json.dumps(username)}; u.dispatchEvent(new Event('input', {{bubbles: true}}));"
+                   f" const d = {json.dumps(discoverable)};"
+                   " if (d) { const s = document.getElementById('discoverableCredential');"
+                   " s.value = d; s.dispatchEvent(new Event('change', {bubbles: true})); if (s.value !== d) return ''; }"
                    " const a = document.getElementById('attachment');"
                    f" a.value = {json.dumps(attachment)}; a.dispatchEvent(new Event('change', {{bubbles: true}}));"
                    " return a.value; })()")
@@ -164,6 +183,17 @@ def fill(tab, username, attachment):
 def alert_text(tab):
     value = js(tab, "(() => { const a = document.querySelector('.alert'); return a ? a.textContent.trim() : ''; })()")
     return value if isinstance(value, str) else ""
+
+
+def alert_kind(tab):
+    """'success' or 'error' from webauthn.io's alert class (showSuccessAlert / showErrorAlert), else ''."""
+    value = js(tab, "(() => { const a = document.querySelector('.alert'); return a ? a.className : ''; })()")
+    value = value if isinstance(value, str) else ""
+    return "success" if "alert-success" in value else "error" if "alert-danger" in value else ""
+
+
+def on_profile(tab):
+    return js(tab, "location.pathname") == "/profile"
 
 
 def click(tab, element_id):
@@ -178,30 +208,36 @@ def credentials(authenticator):
 def ceremony(tab, transport):
     if not load_site(tab):
         return "FAIL", f"{opts.site} did not load: {js(tab, 'location.href')}"
-    devtools("WebAuthn.enable", {"enableUI": False})
+    enabled = devtools("WebAuthn.enable", {"enableUI": False})
+    if "__error" in enabled and "timedOut" not in str(enabled):
+        return "FAIL", f"WebAuthn.enable: {enabled}"
     added = devtools("WebAuthn.addVirtualAuthenticator",
                      {"options": {"automaticPresenceSimulation": True, **AUTHENTICATORS[transport]}})
     # CEF's in-process DevTools loses this reply (timedOut after 5 s) while the call itself
-    # runs (passkeys.md 10, harness note), so a missing id is not a failure; the ceremony below
-    # can only pass through the virtual authenticator (UI off, no other authenticator).
+    # runs (passkeys.md 10 and 11). Only that error counts as "added"; any other error fails.
     authenticator = added.get("authenticatorId")
-    note = "" if authenticator else f"(add reply lost: {str(added)[:80]}) "
+    if not authenticator and not ("timedOut" in str(added) and "addVirtualAuthenticator" in str(added)):
+        devtools("WebAuthn.disable")
+        return "FAIL", f"no virtual authenticator: {added}"
+    note = "" if authenticator else "id lost, transport and sign count not read; "
     try:
         username = f"cmux-{transport}-{uuid.uuid4().hex[:8]}"
-        fill(tab, username, "cross_platform")
+        chosen = fill(tab, username, "cross_platform")
+        if chosen != "cross_platform":
+            return "FAIL", f"attachment not set: {chosen!r}"
         click(tab, "register-button")
-        registered = wait(lambda: (lambda t: t if ("Success" in t or "failed" in t.lower() or "error" in t.lower()) else None)(alert_text(tab)), 30)
-        made = credentials(authenticator) if authenticator else None
-        if not registered or "Success" not in registered or (made is not None and len(made) != 1):
-            return "FAIL", note + f"register: alert {registered!r}, credentials {made if made is None else len(made)}"
+        kind = wait(lambda: alert_kind(tab), 30)
+        made = credentials(authenticator) if authenticator else []
+        if kind != "success" or (authenticator and (made is None or len(made) != 1)):
+            return "FAIL", note + f"register: {kind or 'no result'} {alert_text(tab)!r}, credentials {made}"
         count = made[0].get("signCount", 0) if made else None
         click(tab, "login-button")
-        signed = wait(lambda: js(tab, "location.pathname") == "/profile" or (lambda t: t if "failed" in t.lower() else None)(alert_text(tab)), 30)
-        path = js(tab, "location.pathname")
-        after = credentials(authenticator) if authenticator else None
-        counted = after is None or (len(after) == 1 and after[0].get("signCount", 0) > (count or 0))
-        if path != "/profile" or not counted:
-            return "FAIL", note + f"sign in: path {path!r}, alert {alert_text(tab)!r}, sign count {count} -> {after}"
+        signed = wait(lambda: on_profile(tab) or alert_kind(tab) == "error", 30)
+        arrived = signed is True or on_profile(tab)
+        after = credentials(authenticator) if authenticator else []
+        counted = not authenticator or (after is not None and len(after) == 1 and after[0].get("signCount", 0) > (count or 0))
+        if not arrived or not counted:
+            return "FAIL", note + f"sign in: profile {arrived}, alert {alert_text(tab)!r}, sign count {count} -> {after}"
         picture = shot(f"signed-in-{transport}")
         counts = f"sign count {count} -> {after[0].get('signCount')}" if after else "sign count not read"
         return "PASS", note + f"{username}: registered and signed in (/profile), {counts}; {picture}"
@@ -238,7 +274,10 @@ def dialogs(tab):
 def say(text):
     """`--real` only: the person at the Mac hears what to do (macOS `say`)."""
     print(f"SAY {text}", flush=True)
-    subprocess.run(["say", text], timeout=30)
+    try:
+        subprocess.run(["say", text], timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def real_key(tab):
@@ -250,13 +289,13 @@ def real_key(tab):
     username = f"cmux-real-{uuid.uuid4().hex[:8]}"
     steps = []
     for step, button, done, prompt in (
-        ("register", "register-button", lambda: "Success" in alert_text(tab) or "failed" in alert_text(tab).lower(),
+        ("register", "register-button", lambda: alert_kind(tab) != "",
          "Passkey test. Touch the security key now. If cmux asks for a PIN, type the PIN and press return."),
-        ("sign-in", "login-button", lambda: js(tab, "location.pathname") == "/profile" or "failed" in alert_text(tab).lower(),
+        ("sign-in", "login-button", lambda: on_profile(tab) or alert_kind(tab) == "error",
          "Touch the security key again to sign in. Type the PIN if cmux asks."),
     ):
-        if step == "register":
-            fill(tab, username, "cross_platform")
+        if step == "register" and fill(tab, username, "cross_platform", opts.discoverable) != "cross_platform":
+            return "FAIL", "attachment not set to Cross-Platform"
         click(tab, button)
         say(prompt)
         began, index = time.time(), 0
@@ -265,10 +304,10 @@ def real_key(tab):
                 shot(f"real-{step}-{index:03d}")
             index += 1
             time.sleep(1)  # test harness: a person acts at their own pace
-        result = alert_text(tab) or js(tab, "location.pathname")
-        steps.append(f"{step}: {result!r} after {time.time() - began:.0f} s")
+        passed = alert_kind(tab) == "success" if step == "register" else on_profile(tab)
+        steps.append(f"{step}: {'pass' if passed else 'fail'} {alert_text(tab) or js(tab, 'location.pathname')!r} after {time.time() - began:.0f} s")
         shot(f"real-{step}-done")
-        if not done() or "failed" in str(result).lower():
+        if not passed:
             say("The passkey test failed. Thank you.")
             return "FAIL", f"{username}: " + "; ".join(steps)
     say("The passkey test passed. Thank you.")

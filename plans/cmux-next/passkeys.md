@@ -250,7 +250,7 @@ Signed-build findings:
 Still UNVERIFIED (needs cx-urd.62 and real hardware): section 8 checks 1-7 (Touch ID, QR/hybrid
 cx-d0d.46, YubiKey, conditional UI on github.com, Google re-auth, agent refusal cx-d0d.48, background
 K10), K16 visibility (cx-d0d.47), and every WebKit row that needs an authenticator.
-Harness note: `debug.cef.devtools` replies arrive after the socket's 2 s deadline; the calls still
+Harness note (2026-10-14: the socket deadline is now 6 s, see section 11): `debug.cef.devtools` replies arrive after the socket's 2 s deadline; the calls still
 run (`not_run: false`), and the script clears authenticators with `WebAuthn.disable`.
 
 ## 11. Roaming keys and hybrid on a real RP, 2026-10-14 (cx-d0d.97)
@@ -268,7 +268,11 @@ GUI proof: `nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA` on cm
 | Virtual NFC key | pass (Chromium runs it; desktop Chromium has no real NFC transport on macOS) |
 | Virtual BLE key | pass |
 | Virtual hybrid (`cable`, the phone after the QR scan) | pass |
-| No virtual authenticator, Cross-Platform register | Chromium's sheet opens as its own window (448x356 pt) centered over the pane, top edge on the pane; it went to the real YubiKey on the host, which has no PIN, so the sheet asked "PIN required: Set up a new PIN for your security key" with the caret in the PIN field. No Chrome or Google promo. |
+| No virtual authenticator, Cross-Platform register (the only real-hardware row) | Chromium's sheet opens as its own window (448x356 pt) centered over the pane, top edge on the pane; it went to the real YubiKey on the host, which has no PIN, so the sheet asked "PIN required: Set up a new PIN for your security key" with the caret in the PIN field. No Chrome or Google promo. |
+
+The five virtual rows run with Chromium's UI off, and CEF lost the authenticator id (below), so
+they prove the request path through each kind of virtual authenticator and webauthn.io's server
+checks, not real USB, BLE or hybrid I/O.
 
 Findings:
 - No fork or app change is needed for USB/NFC/BLE keys or hybrid: Chromium's stack runs in the
@@ -284,7 +288,7 @@ Findings:
   com.cmuxterm.app.next: missing").
 - Harness: CEF's in-process DevTools loses the reply of `WebAuthn.addVirtualAuthenticator` (timedOut
   after 5 s) while the call runs, so the script does not need the id. `debug.cef.devtools` now has a
-  15 s control deadline. The capture helper's `--with-popups` composite came back blank white on this
+  6 s control deadline (was 2 s); CEF's own 5 s wait still applies. The capture helper's `--with-popups` composite came back blank white on this
   host; the single-window pictures (`*.front.png`) and the window lists are the evidence.
 - UNVERIFIED (needs a person): PIN typed into the sheet and a real touch (YubiKey run on
   cmux-lawrence-2, `--real`), a phone over BLE, Touch ID in the signed NIGHTLY identity. Steps:
