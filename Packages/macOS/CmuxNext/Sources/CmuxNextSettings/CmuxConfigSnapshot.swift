@@ -170,7 +170,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var updates = UpdatesSettings()
     /// `computerUse.*`: whether cmux starts the signed Computer Use helper.
     public var computerUse = ComputerUseSettings()
-    /// `mobile.*`: whether the app runs its cmux cnx iPhone host.
+    /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()

@@ -11,6 +11,9 @@ extension IPhoneHostService {
     /// Worker for development sign-in. `CMUX_NEXT_CNX_API_URL` (a launch variable; CMUX_NEXT_*
     /// survive the launch) points a Debug build at another one.
     static let productionAPI = URL(string: "https://cnx-ios-api.cmux.dev")
+    /// The renamed production service (cnx-ios/verify/naming-migration.md). Not used yet: it
+    /// replaces ``productionAPI`` once its TURN and push secrets are installed.
+    static let renamedProductionAPI = URL(string: "https://cmux-next-ios-api.cmux.dev")
     static let developmentAPI = URL(string: "https://cnx-ios-api-dev.debussy.workers.dev")
 
     /// Hands the host what it needs from the app: the bundled hostd, the account's tokens,

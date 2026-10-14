@@ -21,7 +21,7 @@ const state: IPhoneHostState = {
   space_title: "Space",
   space: "Personal",
   how_title: "How to Connect",
-  how: "Install cmux cnx",
+  how: "Install cmux on your iPhone",
   phones_title: "Connected Phones",
   phones_empty: "No phones are connected.",
   phones: [

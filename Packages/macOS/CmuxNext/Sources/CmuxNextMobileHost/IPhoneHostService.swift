@@ -4,7 +4,7 @@ public import Foundation
 public import Observation
 import os
 
-/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux cnx phone host,
+/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux iPhone host,
 /// cnx-ios/PROTOCOL.md) while `mobile.allowIPhoneConnections` (cmux.json) is on
 /// and an account is signed in, so the phone app reaches this Mac's own
 /// daemon and acpmux with no separate host to start. ``CnxHostSupervisor``

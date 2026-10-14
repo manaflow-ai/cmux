@@ -3566,7 +3566,7 @@
       },
       "help" : {
         "key" : "settings.mobile.allowIPhoneConnections.help",
-        "text" : "Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
       },
       "kept_on_reset_all" : false,
       "key" : "mobile.allowIPhoneConnections",
@@ -3574,7 +3574,6 @@
         "iphone",
         "phone",
         "mobile",
-        "cnx",
         "remote",
         "connect"
       ],
@@ -19349,6 +19348,7 @@
     },
     {
       "accepts" : [
+        "transparent",
         "regular",
         "clear",
         "off"
@@ -19356,6 +19356,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.transparent",
+            "text" : "Transparent"
+          },
+          "value" : "transparent"
+        },
         {
           "title" : {
             "key" : "settings.choice.glass",
@@ -19381,7 +19388,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "regular",
+      "default" : "transparent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.addressBar",
@@ -19389,7 +19396,7 @@
       },
       "help" : {
         "key" : "settings.browser.omnibar.glass.help",
-        "text" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
+        "text" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.omnibar.glass",
@@ -23379,7 +23386,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "84a26a659539692aa5e5484e8309b706fde595d8977e67faa7d539634901b254",
+  "schema_hash" : "0749fa32215f4fe14b76e1bbd83f13fd141d49854724d2d21f3fcc7a931fa8e4",
   "sections" : [
     {
       "id" : "general",
