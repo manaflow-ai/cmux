@@ -60,6 +60,7 @@ BUNDLE_B = "com.cmuxterm.app.debug"
 B_KEY_HASH = "650e93e3"
 B_SOCKET = f"/tmp/cmux-debug--{B_KEY_HASH}.sock"
 B_SESSION = f"cmux-app--{B_KEY_HASH}"
+B_STATE = os.path.expanduser("~/Library/Application Support/cmux/builds/com.cmuxterm.app.debug")
 NEXT_NIGHTLY = "com.cmuxterm.app.nightly.cmux-next"
 B_HOME = os.path.join(ROOT, NEXT_NIGHTLY)
 ACPMUX_ROOT = os.path.join(SCRATCH, "acpmux")
@@ -267,6 +268,8 @@ for name in (f"cmux-app-{TAG}", B_SESSION, f"/tmp/cmux-debug-{TAG}.sock", B_SOCK
         sys.exit(f"refusing to run: {name} is a real build's name")
 a = App("A", opts.app, TAG)
 b = None
+b_owned = False
+b_state_new = False
 failed = 0
 m0 = f"per-build check {TAG}: M0 on the shared home, reply with only the word ok."
 m1 = f"per-build check {TAG}: M1 after B quit, reply with only the word ok."
@@ -311,6 +314,15 @@ try:
     # 2. B at the same time: its own empty home and brain
     b = App("B", copy_as_b(opts.app), TAG_B)
     b.socket = B_SOCKET
+    # B's key session must not exist yet: else B would adopt another untagged
+    # DEV build's daemon (and its terminals), and the cleanup would stop it.
+    if b.owner():
+        say(f"step 2: an owner daemon already serves {B_SESSION}; B cannot run here")
+        b_owned = False
+        failed = failed or 2
+        raise SystemExit
+    b_owned = True
+    b_state_new = not os.path.exists(B_STATE)
     b.launch({"CMUX_NEXT_CHIEF_ROOT": ROOT, "CMUX_NEXT_CHIEF_BUILD_ID": NEXT_NIGHTLY,
               "CMUX_NEXT_ACPMUX_ROOT": ACPMUX_ROOT})
     b_brain = wait(lambda: brain_pid(B_HOME), 180)
@@ -324,7 +336,7 @@ try:
         f" M0 in B: {any(t == m0 for _, t in b_shown)}; tools sockets {sockets}; memory M0 in B {memory_count(B_HOME, m0)}")
     b_owner = wait(b.owner, 60)
     a_owner_2 = a.owner()
-    b_state = os.path.expanduser("~/Library/Application Support/cmux/builds/com.cmuxterm.app.debug/tui")
+    b_state = os.path.join(B_STATE, "tui")
     say(f"step 2: B owner {b_owner} (want session {B_SESSION}); B control socket {B_SOCKET} answers:"
         f" {b.answers()}; B state dir {b_state} exists {os.path.isdir(b_state)};"
         f" A owner now {a_owner_2} (was {a_owner})")
@@ -358,10 +370,14 @@ finally:
     acpmux_shutdown(a, A_ACPMUX)
     if b:
         acpmux_shutdown(b, B_ACPMUX)
-        # B's own owner daemon (its per-key session), if quitEndSessions left it.
+    if b and b_owned:
+        # B's own owner daemon (its per-key session, absent before B started), if
+        # quitEndSessions left it, and the state it wrote under its key.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
         subprocess.run([b.cli, "server", "stop", "--session", B_SESSION, "--end-terminals"], env=env,
                        capture_output=True, timeout=60)
+        if b_state_new:
+            shutil.rmtree(B_STATE, ignore_errors=True)
     # Nothing of the run stays: the B copy and the temp homes with their memory.
     shutil.rmtree(SCRATCH, ignore_errors=True)
     say("result", "PASS" if failed == 0 else f"FAIL {failed}")
