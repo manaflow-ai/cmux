@@ -27,9 +27,9 @@ grep -q 'stub ensure-cef args=\[--optional\]$' <<<"$out" || { printf 'optional m
 # 7 MiB of them. Exported symbols stay, since the Vulkan loader dlsyms them.
 # Builds a real library with the host compiler (a Mach-O dylib on macOS, an
 # ELF object on Linux CI, where `ditto` is stood in by cp) and reads it back.
-if ! { command -v cc && command -v nm && [[ -x /usr/bin/strip ]]; } >/dev/null; then
-  [[ -n "${CI:-}" ]] && { echo 'embed-cef strip test needs cc, nm and /usr/bin/strip on CI' >&2; exit 1; }
-  echo 'embed-cef strip test: skipped (no cc, nm or /usr/bin/strip)'
+if ! { command -v cc && command -v nm && command -v strip; } >/dev/null; then
+  [[ -n "${CI:-}" ]] && { echo 'embed-cef strip test needs cc, nm and strip on CI' >&2; exit 1; }
+  echo 'embed-cef strip test: skipped (no cc, nm or strip)'
 else
   dist="$TMP/dist"; fw="$dist/Chromium Embedded Framework.framework"
   mkdir -p "$fw/Libraries" "$fw/Resources" "$TMP/cache" "$TMP/bin"
