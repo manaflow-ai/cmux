@@ -149,7 +149,9 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
         if (!suggestion || typeof suggestion !== "object") return [];
         const rules = (suggestion as { rules?: unknown }).rules;
         return Array.isArray(rules)
-          ? rules.filter((rule): rule is string => typeof rule === "string" && rule.trim()).map((rule) => rule.trim())
+          ? rules
+              .filter((rule): rule is string => typeof rule === "string" && rule.trim().length > 0)
+              .map((rule) => rule.trim())
           : [];
       })
     : [];
