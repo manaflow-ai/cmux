@@ -25,12 +25,30 @@ pub struct Peer {
     pub device_id: String,
 }
 
-/// Serve one incoming channel to completion.
-pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingChannel) {
+/// Serve one incoming channel to completion. With pairing on, only `auth`
+/// is served until the link's phone proved keys the Mac approved.
+pub async fn serve(
+    config: Arc<ServiceConfig>,
+    peer: Peer,
+    link: Arc<crate::pairing::LinkAuth>,
+    incoming: IncomingChannel,
+) {
     let IncomingChannel { service, args, channel } = incoming;
-    let (sender, receiver) = channel.split();
+    let (sender, mut receiver) = channel.split();
     tracing::info!(service, channel = sender.id(), peer = peer.device_id, "channel opened");
+    let paired = config.pairing.is_none() || link.is_authenticated();
     let result = match service.as_str() {
+        "auth" => crate::pairing::serve(
+            config.pairing.as_ref(),
+            &peer.device_id,
+            &link,
+            &args,
+            &sender,
+            &mut receiver,
+        )
+        .await
+        .map_err(|(code, reason)| Refusal::new(code, reason)),
+        _ if !paired => Err(Refusal::new("unpaired", "pair this iPhone with the Mac first (auth)")),
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "acpmux" => acpmux(&config, &sender, receiver).await,

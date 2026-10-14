@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextMobile
 import Foundation
@@ -40,14 +41,23 @@ final class IPhoneHostService {
         /// Folders the phone may preview files from (the chat roots).
         var fileRoots: @MainActor () -> [String]
         var computerName: @Sendable () async -> String
+        /// The app's acpmux, for the phones' approval keys; nil without agents.
+        var acpmuxEnvironment: AcpmuxEnvironment?
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
     private(set) var account: Account?
     private(set) var state = CnxHostState()
+    /// The phones the signed-in user allowed on this Mac (cnx-ios verify/phone-approvals.md).
+    /// Settings > Mobile lists them; ``revokePhone(id:)`` removes one.
+    internal(set) var paired: CnxPairedDevices?
     @ObservationIgnored var dependencies: Dependencies?
-    @ObservationIgnored private let supervisor = CnxHostSupervisor()
+    @ObservationIgnored let supervisor = CnxHostSupervisor()
+    /// Phones whose "Allow … to connect?" dialog is open.
+    @ObservationIgnored var asking: Set<String> = []
+    @ObservationIgnored var approverSync: CnxApproverSync?
+    @ObservationIgnored private var pairingWatch: Task<Void, Never>?
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
@@ -64,12 +74,21 @@ final class IPhoneHostService {
                 self?.state = next
             }
         }
+        let pairing = supervisor.pairing
+        // task-owner: lives as long as the app; answers hostd's pairing requests in order
+        pairingWatch = Task { [weak self] in
+            for await event in pairing {
+                self?.pairingEvent(event)
+            }
+        }
     }
 
     /// The account changed (sign-in, sign-out, team switch).
     func accountChanged(_ account: Account?) {
         guard account != self.account else { return }
+        let signedOut = account == nil && self.account != nil
         self.account = account
+        loadPaired(signedOut: signedOut)
         reconcile()
     }
 
@@ -96,6 +115,8 @@ final class IPhoneHostService {
         running = nil
         following?.cancel()
         applying?.cancel()
+        pairingWatch?.cancel()
+        approverSync?.stop()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }

@@ -33,6 +33,9 @@ pub struct ServiceConfig {
     /// Workspace roots the `file` service may read below. Empty denies all.
     pub file_roots: Vec<PathBuf>,
     pub acpmux: AcpmuxTarget,
+    /// Supervised: only phones the Mac approved are served (`pairing.rs`).
+    /// None (unsupervised): every admitted link is served.
+    pub pairing: Option<crate::pairing::Pairing>,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +139,11 @@ impl HostConfig {
                 env("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".acpmux")),
             ),
         };
+        let pairing = supplied.as_ref().map(|supplied| crate::pairing::Pairing {
+            mac_device_id: device_id.clone(),
+            trust: supplied.devices.clone(),
+            emit: std::sync::Arc::new(|event| crate::control::emit(&event)),
+        });
         let file_roots = env("CNX_FILE_ROOTS")
             .map(|roots| roots.split(':').filter(|r| !r.is_empty()).map(PathBuf::from).collect())
             .unwrap_or_default();
@@ -156,6 +164,7 @@ impl HostConfig {
                 default_socket: env("CNX_TUI_SOCKET").map(PathBuf::from),
                 file_roots,
                 acpmux,
+                pairing,
             },
         })
     }

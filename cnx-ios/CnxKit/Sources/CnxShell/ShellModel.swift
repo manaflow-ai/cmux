@@ -155,7 +155,13 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         if store.isOffline { return .offline }
-        return live?.banner
+        // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
+        switch live?.pairingState {
+        case .waiting(let mac)?: return .waitingForPairing(on: mac)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        default: return live?.banner
+        }
     }
 
     /// Saves a team's color and emoji (and `PUT /prefs` when live).

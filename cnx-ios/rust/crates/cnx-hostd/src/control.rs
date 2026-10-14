@@ -9,6 +9,9 @@
 //! - `{"type":"acpmux","url":"ws://127.0.0.1:<port>/","token":"<bearer>"}`:
 //!   the app's acpmux WebSocket, sent at start and on `need_acpmux` (it moves
 //!   when acpmux restarts).
+//! - `{"type":"devices","devices":[{"id","identity_key","approval_key"}],
+//!   "denied":[id]}`: the phones the user approved, and those whose request
+//!   the user refused (`pairing.rs`). Sent at start and on every change.
 //!
 //! End of stdin means the app is gone: the process exits.
 //!
@@ -38,6 +41,7 @@ pub fn enabled() -> bool {
 pub enum Inbound {
     Token { token: String },
     Acpmux { url: String, token: Option<String> },
+    Devices(crate::pairing::DeviceTrust),
 }
 
 impl Inbound {
@@ -67,6 +71,10 @@ pub enum Event {
     PhonePath { session_id: String, path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
+    /// A phone proved keys the Mac has not approved: ask the user.
+    PairRequest { phone_device_id: String, name: String, identity_key: String, approval_key: String },
+    /// A paired phone signed out and asks the Mac to forget it.
+    Unpaired { phone_device_id: String },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -85,12 +93,14 @@ pub fn emit(event: &Event) {
 pub struct Supplied {
     pub token: watch::Receiver<Option<String>>,
     pub acpmux: watch::Receiver<AcpmuxEndpoint>,
+    pub devices: watch::Receiver<Option<crate::pairing::DeviceTrust>>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
 pub fn spawn_stdin_reader() -> Supplied {
     let (token_tx, token) = watch::channel(None);
     let (acpmux_tx, acpmux) = watch::channel(None);
+    let (devices_tx, devices) = watch::channel(None);
     tokio::spawn(async move {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
@@ -101,13 +111,16 @@ pub fn spawn_stdin_reader() -> Supplied {
                 Some(Inbound::Acpmux { url, token }) => {
                     acpmux_tx.send_replace(Some((url, token)));
                 }
+                Some(Inbound::Devices(trust)) => {
+                    devices_tx.send_replace(Some(trust));
+                }
                 None => tracing::warn!("ignoring an unknown control line"),
             }
         }
         tracing::info!("control input ended; exiting");
         std::process::exit(0);
     });
-    Supplied { token, acpmux }
+    Supplied { token, acpmux, devices }
 }
 
 /// The wire name of a transport.
@@ -140,6 +153,17 @@ mod tests {
         assert_eq!(
             Inbound::parse(r#"{"type":"acpmux","url":"ws://127.0.0.1:1/","token":"t"}"#),
             Some(Inbound::Acpmux { url: "ws://127.0.0.1:1/".into(), token: Some("t".into()) })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"devices","devices":[{"id":"p","identity_key":"04","approval_key":"04"}],"denied":["q"]}"#),
+            Some(Inbound::Devices(crate::pairing::DeviceTrust {
+                devices: vec![crate::pairing::TrustedDevice {
+                    id: "p".into(),
+                    identity_key: "04".into(),
+                    approval_key: "04".into()
+                }],
+                denied: vec!["q".into()],
+            }))
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);

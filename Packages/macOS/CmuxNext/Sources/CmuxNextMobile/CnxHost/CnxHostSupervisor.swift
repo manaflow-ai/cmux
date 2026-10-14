@@ -38,6 +38,12 @@ public actor CnxHostSupervisor {
     /// Every state change, newest kept when the reader lags.
     public nonisolated let states: AsyncStream<CnxHostState>
     private let continuation: AsyncStream<CnxHostState>.Continuation
+    /// Pairing requests and sign-outs from phones (``CnxHostEvent/pairRequest(_:)``,
+    /// ``CnxHostEvent/unpaired(phoneDeviceID:)``), in order.
+    public nonisolated let pairing: AsyncStream<CnxHostEvent>
+    private let pairingContinuation: AsyncStream<CnxHostEvent>.Continuation
+    /// The last `devices` line: sent to each new hostd and on every change.
+    private var devicesLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cnx-host")
@@ -52,6 +58,7 @@ public actor CnxHostSupervisor {
 
     public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
         (states, continuation) = AsyncStream.makeStream(of: CnxHostState.self, bufferingPolicy: .bufferingNewest(1))
+        (pairing, pairingContinuation) = AsyncStream.makeStream(of: CnxHostEvent.self, bufferingPolicy: .bufferingNewest(32))
         self.clock = clock
         self.now = now
     }
@@ -78,6 +85,14 @@ public actor CnxHostSupervisor {
         process?.stop()
         await task?.value
         publish { $0.reset(to: phase) }
+    }
+
+    /// The phones this Mac approved: kept for each new hostd and sent to the
+    /// running one now (a pairing link waiting on the user passes at once).
+    public func setDevices(_ devices: CnxPairedDevices) {
+        let line = CnxHostLaunch.devicesLine(devices)
+        devicesLine = line
+        process?.send(line)
     }
 
     /// Shows a phase without running hostd (for example, not signed in).
@@ -164,6 +179,8 @@ public actor CnxHostSupervisor {
                 await sendToken(child, inputs: inputs)
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case .pairRequest, .unpaired:
+                pairingContinuation.yield(event)
             default:
                 let at = now()
                 publish { $0.apply(event, at: at) }
@@ -174,6 +191,7 @@ public actor CnxHostSupervisor {
     /// What hostd needs before its first connect: a token and the acpmux endpoint.
     private func handOver(_ child: CnxHostProcess, inputs: Inputs) async {
         lastToken = nil
+        if let devicesLine { child.send(devicesLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)
     }

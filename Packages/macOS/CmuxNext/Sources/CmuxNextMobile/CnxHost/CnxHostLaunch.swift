@@ -83,6 +83,21 @@ public struct CnxHostLaunch: Sendable, Equatable {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
     }
 
+    /// The control line that tells hostd which phones this Mac approved, and
+    /// which device ids' current requests the user refused (`pairing.rs`).
+    public static func devicesLine(_ devices: CnxPairedDevices) -> Data {
+        let object: [String: Any] = [
+            "type": "devices",
+            "devices": devices.devices.map {
+                ["id": $0.id, "identity_key": $0.identityKey, "approval_key": $0.approvalKey]
+            },
+            "denied": devices.denied.map(\.id),
+        ]
+        var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        data.append(0x0A)
+        return data
+    }
+
     static func line(_ object: [String: String]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)

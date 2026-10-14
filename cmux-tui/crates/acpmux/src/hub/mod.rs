@@ -54,6 +54,7 @@ pub use spawn::expand_env_value;
 mod peers;
 mod permission_groups;
 mod permissions;
+pub mod approvers;
 pub mod person;
 mod questions;
 mod remote_floor;

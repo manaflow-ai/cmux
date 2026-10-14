@@ -25,6 +25,17 @@ extension IPhoneHostService {
                 ["id": .string(phone.sessionID), "title": .string(IPhoneHostStrings.phone(String(phone.phoneDeviceID.prefix(4)))),
                  "subtitle": .string(Self.subtitle(phone)), "transport": .string(phone.transport), "path": .string(phone.path)]
             }),
+            // Phones the user allowed here (cnx-ios verify/phone-approvals.md); `revoke`
+            // is the label for the action that calls `revokePhone(id:)`.
+            "paired_title": .string(IPhoneHostStrings.pairedTitle),
+            "paired_empty": .string(IPhoneHostStrings.pairedEmpty),
+            "paired_revoke": .string(IPhoneHostStrings.pairedRevoke),
+            "paired": .array((paired?.devices ?? []).map { device in
+                ["id": .string(device.id), "title": .string(device.name.isEmpty ? IPhoneHostStrings.unnamedPhone : device.name),
+                 "subtitle": .string(IPhoneHostStrings.pairedSince(device.pairedAt.formatted(date: .abbreviated, time: .shortened),
+                                                                   device.fingerprint)),
+                 "fingerprint": .string(device.fingerprint)]
+            }),
         ]
     }
 

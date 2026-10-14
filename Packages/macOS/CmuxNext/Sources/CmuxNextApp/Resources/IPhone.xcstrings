@@ -656,6 +656,116 @@
         }
       }
     },
+    "iphone.pair.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        }
+      }
+    },
+    "iphone.pair.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID."
+          }
+        }
+      }
+    },
+    "iphone.pair.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Allow"
+          }
+        }
+      }
+    },
+    "iphone.pair.key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device key %@"
+          }
+        }
+      }
+    },
+    "iphone.pair.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow “%@” to connect to this Mac?"
+          }
+        }
+      }
+    },
+    "iphone.pair.unnamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "iphone.paired.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No phones are paired. A phone asks here the first time it connects."
+          }
+        }
+      }
+    },
+    "iphone.paired.revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "iphone.paired.since": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired %@ · Key %@"
+          }
+        }
+      }
+    },
+    "iphone.paired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired Phones"
+          }
+        }
+      }
+    },
     "iphone.path.direct": {
       "extractionState": "manual",
       "localizations": {

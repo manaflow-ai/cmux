@@ -26,6 +26,35 @@ public final class AcpmuxHub {
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
     /// Watch-level events for the Feed: `(sessionId, notification)`.
     @ObservationIgnored public var onWatchEvent: (@MainActor (AcpmuxHub.WatchEvent) -> Void)?
+    /// Signs an Allow or an answer with the phone's approval key after Face ID
+    /// (verify/phone-approvals.md); nil while this phone is not paired.
+    @ObservationIgnored public var approver: Approver?
+    /// The daemon run that approvals bind (`initialize` `_meta.acpmux.personInstance`).
+    @ObservationIgnored private var personInstance: String?
+
+    /// The phone's approval signer for the linked Mac.
+    public struct Approver: Sendable {
+        /// The phone's link device id, as the Mac paired it.
+        public var phoneID: String
+        /// The Mac's cnx device id.
+        public var macDevice: String
+        /// Signs `message` after Face ID; `reason` is what the system sheet says.
+        public var sign: @Sendable (_ message: Data, _ reason: String) async throws -> Data
+        public var now: @Sendable () -> Date
+
+        public init(phoneID: String, macDevice: String, now: @escaping @Sendable () -> Date = { Date() },
+                    sign: @escaping @Sendable (_ message: Data, _ reason: String) async throws -> Data) {
+            self.phoneID = phoneID
+            self.macDevice = macDevice
+            self.sign = sign
+            self.now = now
+        }
+    }
+
+    /// The user closed Face ID and the passcode: nothing was sent.
+    public struct ApprovalCancelled: Error, Equatable {
+        public init() {}
+    }
 
     public enum WatchEvent: Sendable {
         case sessionChanged(AcpmuxSession, recordKind: String, seq: Int)
@@ -57,11 +86,12 @@ public final class AcpmuxHub {
             }
         }
         do {
-            _ = try await connection.request("initialize", .object([
+            let initialized = try await connection.request("initialize", .object([
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
             ]))
+            personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
             var next: [String: AcpmuxSession] = [:]
             for value in watched["sessions"]?.arrayValue ?? [] {
@@ -127,14 +157,51 @@ public final class AcpmuxHub {
         var params: [String: JSONValue] = ["sessionId": .string(sessionID), "permissionId": .string(permissionID)]
         if let optionID { params["optionId"] = .string(optionID) }
         if let answers { params["answers"] = answers }
+        if let optionID, let meta = try await signedMeta(sessionID: sessionID, permissionID: permissionID,
+                                                         optionID: optionID, answers: answers) {
+            params["_meta"] = meta
+        }
         _ = try await request("_acpmux/permission_respond", .object(params))
     }
 
-    /// Answers a question with the harness-shaped reply.
+    /// Answers a question with the harness-shaped reply, signed like an Allow.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
         let reply = try question.reply(answer)
-        let params = try AcpmuxRecords.convert(reply.params, to: JSONValue.self)
+        var params = try AcpmuxRecords.convert(reply.params, to: JSONValue.self)
+        if case .object(var object) = params, let session = object["sessionId"]?.stringValue,
+           let permission = object["permissionId"]?.stringValue, let option = object["optionId"]?.stringValue,
+           let meta = try await signedMeta(sessionID: session, permissionID: permission, optionID: option,
+                                           answers: object["answers"]) {
+            object["_meta"] = meta
+            params = .object(object)
+        }
         _ = try await request("_acpmux/permission_respond", params)
+    }
+
+    /// `_meta` for an Allow or an answer signed with the approval key after
+    /// Face ID; nil for a reject option (never signed), an unpaired phone or a
+    /// prompt that is no longer pending (acpmux then refuses or not-founds it).
+    func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?) async throws -> JSONValue? {
+        guard let approver else { return nil }
+        let info = try await request("_acpmux/info", .object(["sessionId": .string(sessionID)]))
+        guard let pending = info["pending"]?.arrayValue?.first(where: { $0["permissionId"]?.stringValue == permissionID }),
+              let nonce = pending["decisionNonce"]?.stringValue,
+              let instance = pending["personInstance"]?.stringValue ?? personInstance else { return nil }
+        let options = pending["request"]?["options"]?.arrayValue ?? []
+        let kind = options.first { $0["optionId"]?.stringValue == optionID }?["kind"]?.stringValue ?? ""
+        if kind.hasPrefix("reject") { return nil }
+        let payload = ApprovalPayload(
+            instance: instance, macDevice: approver.macDevice, approver: approver.phoneID,
+            session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
+            expiresAt: Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime), answers: answers)
+        let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
+        let reason = answers != nil ? "Send your answer to the agent" : (title.isEmpty ? "Allow the agent's request" : "Allow “\(title.prefix(80))”")
+        do {
+            let signature = try await approver.sign(payload.message, reason)
+            return payload.meta(signature: signature)
+        } catch PhoneKeys.Failure.cancelled {
+            throw ApprovalCancelled()
+        }
     }
 
     /// Declines a question (its reject option). A phone may always decline,
@@ -361,9 +428,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Display copy for a refused call.
     static func message(_ error: any Error) -> String {
+        if error is AcpmuxHub.ApprovalCancelled { return "Not approved: Face ID was cancelled." }
         if let error = error as? AcpmuxConnection.RPCError {
             switch error.reason {
-            case "permission.person_required": return "Approve this on your Mac. A phone can only decline."
+            case "permission.person_required":
+                return "This iPhone can't approve on the Mac yet. Allow it in the Mac's Settings → Mobile, or approve on the Mac."
             case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
             default: return error.message
             }

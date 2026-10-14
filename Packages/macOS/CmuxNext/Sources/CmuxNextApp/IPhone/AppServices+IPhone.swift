@@ -56,7 +56,8 @@ extension AppServices {
                 let home = FileManager.default.homeDirectoryForCurrentUser.path
                 return (chats.roots + chats.managedRoots).map { $0.hasPrefix("~/") ? home + $0.dropFirst() : $0 }
             },
-            computerName: { await MacName.computerName() }
+            computerName: { await MacName.computerName() },
+            acpmuxEnvironment: QuitAgents.environment(self)
         )
     }
 

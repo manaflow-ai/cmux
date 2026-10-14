@@ -114,6 +114,8 @@ public struct RootView: View {
             }
         }
         .animation(theme.motion.gentle.animation, value: destination)
+        // Settings → Require Face ID (audit B11).
+        .cnxAppLock(enabled: settings.requireFaceID)
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             syncTeams()
@@ -196,7 +198,16 @@ public struct RootView: View {
     /// workspaces and stored preferences go, the device ids are replaced (the
     /// service binds them to their first user), and Welcome replays its intro.
     private func signedOut() {
-        live?.stop()
+        // The phone asks the linked Mac to forget it, then deletes its keys
+        // (verify/phone-approvals.md); live data stops after that try.
+        if let ending = live {
+            Task { @MainActor in
+                await ending.unpair()
+                ending.stop()
+            }
+        } else if !auth.isMock {
+            PhoneKeys().reset()
+        }
         live = nil
         setupPlan = nil
         store.resetForSignOut()
@@ -234,7 +245,8 @@ public struct RootView: View {
             deviceName: UIDevice.current.name,
             transport: settings.transport.link,
             relayOnly: DeveloperOptions.relayOnly,
-            dialer: FFIMacLinkDialer()
+            dialer: FFIMacLinkDialer(),
+            keys: PhoneKeys()
         )
         coordinator.onFollow = { [auth] teamID in
             guard !teamID.hasPrefix("personal-") else { return }

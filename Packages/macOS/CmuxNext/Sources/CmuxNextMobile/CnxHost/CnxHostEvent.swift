@@ -19,6 +19,10 @@ public enum CnxHostEvent: Sendable, Equatable {
     case phonePath(sessionID: String, path: String)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
+    /// A phone proved keys this Mac has not approved: ask the user (``CnxPairedDevices``).
+    case pairRequest(CnxPairRequest)
+    /// A paired phone signed out and asks this Mac to forget it.
+    case unpaired(phoneDeviceID: String)
 
     /// Parses one stdout line; nil for anything that is not a known event.
     public init?(line: some StringProtocol) {
@@ -48,6 +52,14 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "phone_down":
             guard let session = text("session_id") else { return nil }
             self = .phoneDown(sessionID: session, reason: text("reason") ?? "")
+        case "pair_request":
+            guard let phone = text("phone_device_id"), let identity = text("identity_key"),
+                  let approval = text("approval_key") else { return nil }
+            self = .pairRequest(CnxPairRequest(phoneDeviceID: phone, name: text("name") ?? "",
+                                               identityKey: identity, approvalKey: approval))
+        case "unpaired":
+            guard let phone = text("phone_device_id") else { return nil }
+            self = .unpaired(phoneDeviceID: phone)
         default:
             return nil
         }

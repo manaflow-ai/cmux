@@ -38,6 +38,29 @@ enum IPhoneHostStrings {
     static func phone(_ shortID: String) -> String {
         String(format: String(localized: "iphone.phone.title", defaultValue: "iPhone %@", table: "IPhone", bundle: .module), shortID)
     }
+    static func pairTitle(_ name: String) -> String {
+        String(format: String(localized: "iphone.pair.title", defaultValue: "Allow “%@” to connect to this Mac?", table: "IPhone", bundle: .module), name)
+    }
+    static func pairBody(_ account: String) -> String {
+        String(format: String(localized: "iphone.pair.body",
+                              defaultValue: "It is signed in as %@. Once allowed, it can open your terminals and agent chats, and approve agent actions with Face ID.",
+                              table: "IPhone", bundle: .module), account)
+    }
+    static func pairKey(_ fingerprint: String) -> String {
+        String(format: String(localized: "iphone.pair.key", defaultValue: "Device key %@", table: "IPhone", bundle: .module), fingerprint)
+    }
+    static var pairAllow: String { String(localized: "iphone.pair.allow", defaultValue: "Allow", table: "IPhone", bundle: .module) }
+    static var pairDeny: String { String(localized: "iphone.pair.deny", defaultValue: "Don't Allow", table: "IPhone", bundle: .module) }
+    static var unnamedPhone: String { String(localized: "iphone.pair.unnamed", defaultValue: "iPhone", table: "IPhone", bundle: .module) }
+    static var pairedTitle: String { String(localized: "iphone.paired.title", defaultValue: "Paired Phones", table: "IPhone", bundle: .module) }
+    static var pairedEmpty: String {
+        String(localized: "iphone.paired.empty", defaultValue: "No phones are paired. A phone asks here the first time it connects.",
+               table: "IPhone", bundle: .module)
+    }
+    static var pairedRevoke: String { String(localized: "iphone.paired.revoke", defaultValue: "Remove", table: "IPhone", bundle: .module) }
+    static func pairedSince(_ date: String, _ fingerprint: String) -> String {
+        String(format: String(localized: "iphone.paired.since", defaultValue: "Paired %@ · Key %@", table: "IPhone", bundle: .module), date, fingerprint)
+    }
     static func since(_ time: String) -> String {
         String(format: String(localized: "iphone.phone.since", defaultValue: "Since %@", table: "IPhone", bundle: .module), time)
     }

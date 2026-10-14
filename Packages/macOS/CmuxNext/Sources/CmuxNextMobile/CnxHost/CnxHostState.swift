@@ -41,7 +41,7 @@ public struct CnxHostState: Sendable, Equatable {
             teamID = team
         case .waiting(let reason, _):
             phase = .waiting(reason)
-        case .needToken, .needAcpmux:
+        case .needToken, .needAcpmux, .pairRequest, .unpaired:
             break
         case .phoneUp(var link):
             link.since = now

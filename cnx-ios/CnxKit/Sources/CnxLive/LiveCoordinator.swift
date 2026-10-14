@@ -27,6 +27,9 @@ public final class LiveCoordinator {
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
     public private(set) var chiefStatus: String?
+    /// Pairing with the linked Mac (verify/phone-approvals.md): the Mac asks the
+    /// user the first time; Allow then signs with Face ID.
+    public private(set) var pairingState: LinkPairing.State = .idle
     /// The last time the phone moved to another team because one of the
     /// account's Macs is there (the shell shows a toast).
     public private(set) var followed: Followed?
@@ -52,6 +55,8 @@ public final class LiveCoordinator {
     @ObservationIgnored let identity: DeviceIdentity
     @ObservationIgnored let userID: String
     @ObservationIgnored let deviceName: String
+    /// The phone's keys; nil (tests, mock) skips pairing.
+    @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var teamTask: Task<Void, Never>?
@@ -88,6 +93,7 @@ public final class LiveCoordinator {
         relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
+        keys: PhoneKeys? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.store = store
@@ -95,6 +101,7 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
+        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName) }
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
@@ -337,6 +344,7 @@ public final class LiveCoordinator {
     private func linkChanged(_ link: (any MacLink)?) {
         acpmux.macLink = link
         currentLink = link
+        acpmux.approver = nil
         guard let link, let macID = self.link.target?.macID else {
             Task {
                 await workspaces.bind(nil, macID: "")
@@ -351,6 +359,8 @@ public final class LiveCoordinator {
         }
         Task { [weak self] in
             guard let self else { return }
+            // Pairing first: a Mac that pairs serves nothing else until it passes.
+            guard await self.pair(link, macID: macID) else { return }
             do {
                 let daemon = try await link.openChannel(service: "daemon", args: [:])
                 await self.workspaces.bind(daemon, macID: macID)
@@ -369,6 +379,41 @@ public final class LiveCoordinator {
         // own `daemon` channel of this link; open ones reattach now.
         terminals.removeAll { $0.session == nil }
         for terminal in terminals { terminal.session?.reconnect() }
+    }
+
+    /// Proves this phone's keys on `link`; false when the Mac refused it.
+    private func pair(_ link: any MacLink, macID: String) async -> Bool {
+        guard let pairing else { return true }
+        let name = self.link.target?.name ?? "your Mac"
+        let outcome = await pairing.run(link: link, macID: macID) { [weak self] in
+            self?.pairingState = .waiting(mac: name)
+        }
+        guard currentLink === link else { return false }
+        switch outcome {
+        case .paired(let macDevice):
+            pairingState = .paired
+            let keys = pairing.keys
+            acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { message, reason in
+                try await keys.signApproval(message, reason: reason)
+            }
+            return true
+        case .legacy:
+            pairingState = .idle
+            return true
+        case .refused(let error):
+            log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
+            pairingState = error.code == "denied" ? .denied(mac: name) : .failed(error.message)
+            return false
+        }
+    }
+
+    /// Sign-out: asks the linked Mac to forget this phone, then deletes its keys.
+    public func unpair() async {
+        guard let pairing else { return }
+        if let link = currentLink, let macID = self.link.target?.macID {
+            await pairing.unpair(link: link, macID: macID)
+        }
+        pairing.keys.reset()
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
