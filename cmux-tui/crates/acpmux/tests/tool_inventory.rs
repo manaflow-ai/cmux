@@ -257,10 +257,10 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(github(&set["tools"]), row("mcp:github", "mcp", "claude", false, true), "{set}");
     let toggles: Value = serde_json::from_str(&local.ask(&claude, "toggles-probe").await).unwrap();
     assert_eq!(toggles, json!([{"serverName": "github", "enabled": false}]));
-    let note = watcher.changed(&claude, "tools").await;
-    assert_eq!(github(&note["session"]["tools"]).3, false, "{note}");
+    // The first `tools` change is Claude Code's init; then the set's.
+    while github(&watcher.changed(&claude, "tools").await["session"]["tools"]).3 {}
     let info = local.call("_acpmux/info", json!({"sessionId": claude})).await.unwrap();
-    assert_eq!(github(&info["tools"]).3, false, "{info}");
+    assert!(!github(&info["tools"]).3, "{info}");
 
     // A skill cannot be turned off mid-session, and an unknown id is not found.
     let fixed = local
@@ -276,6 +276,20 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         .await
         .expect_err("no such tool");
     assert_eq!(unknown["code"], json!(-32002), "{unknown}");
+
+    // The app's pane may set them; a remote browser may not (turning an MCP
+    // server on runs the command it names on this machine).
+    let on = json!({"sessionId": claude, "id": "mcp:github", "enabled": true});
+    let remote = client(&hub, Origin::Web)
+        .call("_acpmux/set_tools", on.clone())
+        .await
+        .expect_err("a remote browser cannot set tools");
+    assert_eq!(reason(&remote), "tools.remote", "{remote}");
+    let set = client(&hub, Origin::LocalApp)
+        .call("_acpmux/set_tools", on)
+        .await
+        .expect("the app's pane turns it back on");
+    assert!(github(&set["tools"]).3, "{set}");
 
     // The daemon's switch: a new session lists none of cmux's tools.
     // SAFETY: as above; no session is starting concurrently.
