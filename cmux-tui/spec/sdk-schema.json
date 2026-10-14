@@ -4876,6 +4876,16 @@
      "nullable": true,
      "since": 12,
      "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
+    },
+    "last_prompt": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted."
     }
    },
    "additional_properties": false
@@ -23053,6 +23063,16 @@
       "nullable": false,
       "since": 12,
       "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
+     },
+     "last_prompt": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted."
      }
     },
     "additional_properties": false
