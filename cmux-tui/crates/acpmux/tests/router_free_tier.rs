@@ -123,6 +123,8 @@ fn start_relay(dir: &Path, test_origin: &str) -> Relay {
         .args(["router", "serve"])
         .env("ACPMUX_HOME", dir)
         .env("CMUX_ROUTER_FREE_TEST_ORIGIN", test_origin)
+        // Hermetic keys: never the host's login Keychain (cx-84kfc).
+        .env("CMUX_ROUTER_TEST_EPHEMERAL_INSTALL_SECRET", "1")
         .env_remove("CMUX_ROUTER_OWNER_FIFO")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
