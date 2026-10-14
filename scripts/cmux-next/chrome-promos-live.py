@@ -192,7 +192,7 @@ try:
             print("ignored as Chromium's status bubble:", json.dumps(w), flush=True)
         if bubbles:
             print("debug.cef windows:", json.dumps((rpc("debug.cef") or {}).get("windows"))[:1500], flush=True)
-        extra = len(after) - len(before) - len(bubbles)
+        extra = len(new) - len(bubbles)  # windows that were not there before, less the status bubble
         print(f"app windows: {len(before)} before the switches, {len(after)} after; new:",
               json.dumps(new), flush=True)
     if args.expect == "bubble":
