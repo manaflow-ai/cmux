@@ -81,7 +81,12 @@ export function MessageActions({
     items.filter((item) => item.id === id).map((item) => ({ ...item, separatorBefore: false }));
   const more = one
     ? items
-    : [...byId("copy"), ...byId("copyLink"), ...byId("reply"), ...items.filter((item) => item.id === "edit" || item.id === "delete")];
+    : [
+        ...byId("copy"),
+        ...byId("copyLink"),
+        ...byId("reply"),
+        ...items.filter((item) => item.id === "edit" || item.id === "delete"),
+      ];
   const moreMenu = (
     <Menu open={menu} onOpenChange={setMenu}>
       <MenuButton
