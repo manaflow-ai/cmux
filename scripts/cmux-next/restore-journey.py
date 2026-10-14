@@ -705,6 +705,7 @@ def person_click(ws, here, there):
 
 AGENT = None
 TOP = {}  # the terminal running `top`: {"terminal": its id}
+W2 = {}  # the w2 page's zoom seed: {"steps": Cmd-+ steps that zoomed it in, from 100%}
 HIST = {}  # the history tab: {"tab": its id}
 SEEDED = {}  # values from the first before-snapshot that later variants must keep
 # Clicks the page's link once it has loaded (a click before load can replace the entry instead of adding one).
@@ -766,10 +767,18 @@ def seed_w2(base):
         cli("workspace", ws["workspace_id"], "focus")
         cli("tab", page["tab_id"], "focus")
         if wait(lambda: (REPORTS.get("w2page") or {}).get("width"), 30):
+            zoom = lambda perform: say(f"  {perform} -> {json.dumps(rpc('debug.toast', {'perform': perform, 'target_kind': 'pane', 'target_id': page.get('pane_id')}))[:120]}")
+            # The level is per host and kept on disk (SiteZoomLevels), so an earlier run on this
+            # slot leaves it zoomed, up to the 500% cap where Cmd-+ does nothing: reset it first.
+            width = REPORTS["w2page"]["width"]
+            zoom("browserZoomReset")
+            wait(lambda: (REPORTS.get("w2page") or {}).get("width", 0) > width, 5)
+            W2["steps"] = 0
             for _ in range(3):
                 width = REPORTS["w2page"]["width"]
-                say(f"  browserZoomIn -> {json.dumps(rpc('debug.toast', {'perform': 'browserZoomIn', 'target_kind': 'pane', 'target_id': page.get('pane_id')}))[:120]}")
-                wait(lambda: 0 < (REPORTS.get("w2page") or {}).get("width", 0) < width, 10)
+                zoom("browserZoomIn")
+                if wait(lambda: 0 < (REPORTS.get("w2page") or {}).get("width", 0) < width, 10):
+                    W2["steps"] += 1
     action("moveWorkspaceToNewWindow", target=f"workspace:{ws['workspace_id']}")
     window = wait(lambda: next((w for w in (topology() or {}).get("windows", []) if w.get("workspace") == ws["workspace_id"]), None), 20)
     if window:
@@ -1208,7 +1217,7 @@ def seeded(before):
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page"),
-               ("w2 page zoomed in", (before.get("page[w2page].zoom") or 0) > 1.15)],
+               ("w2 page zoomed in by three Cmd-+ steps from 100%", W2.get("steps") == 3 and (before.get("page[w2page].zoom") or 0) > 1.15)],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split]."))),
                   # The geometry rows only mean something if the app draws the uneven splits.
                   ("rj-split drawn uneven", uneven(before, "ws[rj-split].s0.pane0", "ws[rj-split].s0.pane2")
@@ -1246,8 +1255,10 @@ def compare(variant, before, after):
             ok = a is True and b is True
             detail = f"{b} -> {a}"
         elif item == "page[w2page].zoom" and isinstance(a, (int, float)) and isinstance(b, (int, float)):
-            ok = abs(a - b) <= 0.03
-            detail = f"{b} -> {a}"
+            # Against what was seeded, not the last reopen: a lost zoom must not pass the next variant.
+            seeded_zoom = SEEDED.get(item, b)
+            ok = abs(a - seeded_zoom) <= 0.03
+            detail = f"{b} -> {a} (seeded {seeded_zoom})"
         elif item == "page[tall].self_scrolled":
             # Only the seeded load scrolls itself; every reopened one must get its scroll from restore.
             ok = a == 0
@@ -1367,7 +1378,7 @@ def journey(base):
         before = snapshot(f"{variant}-before")
         if n == 0:
             seeded(before)
-            SEEDED.update({k: v for k, v in before.items() if k == "page[hist].history_length"})
+            SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom")})
         if variant == "crash":
             # A crash comes after the last change has been saved (the browser history and record
             # writers debounce 500 ms); the rows check what was saved, not what was still in flight.
