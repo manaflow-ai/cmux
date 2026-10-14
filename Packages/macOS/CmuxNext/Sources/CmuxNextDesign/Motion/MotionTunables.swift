@@ -21,6 +21,8 @@ public nonisolated enum MotionTunables {
         .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Page info toggle state change. The sidebar selection does not animate."),
         .panel: (SpringParameters(response: 0.18, dampingFraction: 0.85), "Hover card slide."),
+        .pinDrag: (SpringParameters(response: 0.3512407365520363, dampingFraction: 0.8385254915624211),
+                   "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
 
     static let springs: [MotionSpring: Tunable<SpringParameters>] = Dictionary(uniqueKeysWithValues: MotionSpring.allCases.map { token in

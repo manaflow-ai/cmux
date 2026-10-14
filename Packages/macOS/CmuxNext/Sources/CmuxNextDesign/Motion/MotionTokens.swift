@@ -26,16 +26,13 @@ public nonisolated enum MotionSpeed: String, Sendable, CaseIterable, Codable {
 /// (they never pass the target; `ui.animations.bounce` subtle opts into a
 /// SwiftUI bounce). The values are the spec's design-tokens.json `motion`
 /// (cmux-motion reads the same file; scripts/cmux-next/motion-parity.py
-/// compares this port's paths with cmux-motion's).
+/// compares this port's paths with cmux-motion's). The cases are declared
+/// in cmux-motion's `MotionSpring::ALL` order, the token index of its C ABI
+/// (`cmux_motion_spring_base`): append new tokens on both sides.
 public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// An existing item moves or resizes: tab reflow and reorder, sidebar
     /// rows, pane and divider frames, pane unzoom, toolbar height.
     case move
-    /// A pane zooming to fill its screen: it owns the motion (Leo 2026-10-13).
-    case zoom
-    /// The panes a zoom leaves fade out, faster than anything arrives
-    /// (`Motion.exit(nearness:)`: the farthest first).
-    case exit
     /// Something appears or expands: tab grow-in, group expand, row insert,
     /// sidebar show.
     case appear
@@ -58,6 +55,14 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     case selection
     /// Floating panel open: palette scale-in, hover card slide.
     case panel
+    /// Home list pin drag: tiles making room, rows below the grid, a dropped
+    /// tile landing (MessagesLab `SidebarPinDragging.spring`).
+    case pinDrag
+    /// A pane zooming to fill its screen: it owns the motion (Leo 2026-10-13).
+    case zoom
+    /// The panes a zoom leaves fade out, faster than anything arrives
+    /// (`Motion.exit(nearness:)`: the farthest first).
+    case exit
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.

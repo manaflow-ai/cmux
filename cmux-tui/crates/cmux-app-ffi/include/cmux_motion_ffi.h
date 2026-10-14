@@ -31,7 +31,8 @@ typedef struct {
 
 uint32_t cmux_motion_ffi_abi_version(void);
 /* token: 0 move, 1 appear, 2 disappear, 3 settle, 4 scroll, 5 screen,
- * 6 track, 7 selection, 8 panel, 9 pinDrag. */
+ * 6 track, 7 selection, 8 panel, 9 pinDrag, 10 zoom, 11 exit
+ * (the macOS MotionSpring declares its cases in this order). */
 bool cmux_motion_spring_base(uint8_t token, CmuxMotionSpring *out);
 bool cmux_motion_spring_is_structural(uint8_t token);
 CmuxMotionSpring cmux_motion_resolve(CmuxMotionSpring base, bool structural, CmuxMotionPolicy policy);

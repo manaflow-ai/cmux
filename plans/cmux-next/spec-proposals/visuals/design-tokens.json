@@ -2168,6 +2168,24 @@
     "source": "cmux-tui/crates/cmux-motion (MotionSpring::PinDrag): MessagesLab SidebarPinDragging.spring, CASpringAnimation mass 1, stiffness 320, damping 30",
     "unit": "s",
     "use": "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing"
+   },
+   "zoom": {
+    "value": {
+     "response": 0.32,
+     "dampingFraction": 0.9
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "A pane zooming to fill its screen: its content takes the full size once and the spring rect reveals it (Leo 2026-10-13)"
+   },
+   "exit": {
+    "value": {
+     "response": 0.12,
+     "dampingFraction": 1
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "The panes a zoom leaves fading out; Motion.exit(nearness:) lengthens it up to 25% for nearer panes, so the farthest (the 2x2 opposite corner) is gone first"
    }
   },
   "springModel": {

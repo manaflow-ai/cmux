@@ -16,7 +16,7 @@ use std::path::PathBuf;
 const TOKENS: &str = "../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json";
 
 /// `motion.springs` keys in `MotionSpring` declaration order.
-const SPRINGS: [&str; 10] = [
+const SPRINGS: [&str; 12] = [
     "move",
     "appear",
     "disappear",
@@ -27,6 +27,8 @@ const SPRINGS: [&str; 10] = [
     "selection",
     "panel",
     "pinDrag",
+    "zoom",
+    "exit",
 ];
 /// `motion.fades` keys in `MotionFade` declaration order.
 const FADES: [&str; 12] = [
@@ -91,7 +93,7 @@ fn generate(m: &json::Value) -> Result<String, String> {
     }
     writeln!(code, "pub(crate) const SPEED_NORMAL: f64 = {normal:?};").ok();
 
-    code.push_str("pub(crate) const SPRINGS: [SpringParameters; 10] = [\n");
+    writeln!(code, "pub(crate) const SPRINGS: [SpringParameters; {}] = [", SPRINGS.len()).ok();
     for key in SPRINGS {
         let response = number(m, &["springs", key, "value", "response"], 0.01..=2.0)?;
         let damping = number(m, &["springs", key, "value", "dampingFraction"], 0.05..=4.0)?;
@@ -110,7 +112,7 @@ fn generate(m: &json::Value) -> Result<String, String> {
     }
     let flags: Vec<String> =
         SPRINGS.iter().map(|k| structural.iter().any(|s| s == k).to_string()).collect();
-    writeln!(code, "pub(crate) const STRUCTURAL: [bool; 10] = [{}];", flags.join(", ")).ok();
+    writeln!(code, "pub(crate) const STRUCTURAL: [bool; {}] = [{}];", SPRINGS.len(), flags.join(", ")).ok();
 
     let subtle = number(m, &["bounce", "value", "subtle"], 0.0..=0.9)?;
     if number(m, &["bounce", "value", "none"], 0.0..=0.0).is_err() {
