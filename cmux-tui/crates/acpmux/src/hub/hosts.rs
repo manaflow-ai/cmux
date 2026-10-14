@@ -580,9 +580,11 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(
-                async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await },
-            );
+            let ask = (m == method::SESSION_REQUEST_PERMISSION)
+                .then(|| super::permission_groups::AskInFlight::new(session));
+            tokio::spawn(async move {
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
+            });
         }
     }
 

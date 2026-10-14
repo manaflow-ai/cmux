@@ -23,8 +23,12 @@ impl Hub {
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
                     let turn_id = session.turn().map(|t| t.turn_id);
+                    // Counted here, in the agent's order, before any of
+                    // these request tasks runs (`AskInFlight`).
+                    let ask = (m == method::SESSION_REQUEST_PERMISSION)
+                        .then(|| super::permission_groups::AskInFlight::new(&session));
                     tokio::spawn(async move {
-                        hub.on_agent_request(s, id, m, params, epoch, turn_id).await
+                        hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
                     });
                 }
                 Inbound::Stderr(line, host_seq) => {
@@ -148,6 +152,7 @@ impl Hub {
         params: Option<Value>,
         epoch: u64,
         turn_id: Option<String>,
+        ask: Option<super::permission_groups::AskInFlight>,
     ) {
         // Context was captured before spawning this request task, so cancel
         // or a new turn cannot make a delayed request join the new ask.
@@ -180,7 +185,7 @@ impl Hub {
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
             let result =
-                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id)).await;
+                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id), ask).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -371,7 +376,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Value {
-        self.handle_permission_for(session, request, epoch, turn_id, None).await
+        self.handle_permission_for(session, request, epoch, turn_id, None, None).await
     }
 
     /// `handle_permission` for the agent's own `session/request_permission`
@@ -384,6 +389,7 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         agent_request_id: Option<&Id>,
+        ask: Option<super::permission_groups::AskInFlight>,
     ) -> Value {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
@@ -527,6 +533,8 @@ impl Hub {
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
         };
+        // Joined its group (or none): the group's timer need not wait for it.
+        drop(ask);
         if let Some((id, true)) = grouping {
             self.start_permission_group_timer(session, id);
         }

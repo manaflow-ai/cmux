@@ -592,6 +592,8 @@ impl Hub {
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
+            asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
+            asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
             route_switch: AtomicBool::new(false),
             inbound_tx,
