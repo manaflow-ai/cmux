@@ -17,11 +17,12 @@ struct ZoomSpring: Equatable, Sendable {
     /// 0.385–0.40 / 0.98–0.99, but Safari covers 1850–2700 pt/s in the
     /// first 2–3 frames, so it starts with about 8.5 progress/s.
     static let toPage = ZoomSpring(response: 0.39, damping: 0.99, launch: 8.5)
-    /// (+) New Tab: the new tab grows faster than an existing tab opens.
-    /// Safari (its new-tab start page, real frame times) moves 50% / 85% /
-    /// 99% of the way 66 / 157 / 300 ms after its first frame of motion;
-    /// `toPage` takes 69 / 167 / 360 ms. This spring takes 67 / 156 / 301 ms.
-    static let newTab = ZoomSpring(response: 0.41, damping: 0.92, launch: 8.5)
+    /// (+) New Tab: Safari's start page tail fits 0.34 / 0.97 with about
+    /// 10 progress/s at its first sharp frame (cmux-next tabs-parity-audit 2a).
+    static let newTab = ZoomSpring(response: 0.34, damping: 0.97, launch: 10)
+    /// The fresh tab after the last one closed: Safari scales its start page
+    /// from about 0.95 to 1 in about 200 ms (tabs-parity-audit 3m).
+    static let afterLastClose = ZoomSpring(response: 0.19, damping: 1)
     /// After a reversal Safari follows the destination's spring from about
     /// rest (toward the page 0.308–0.331 / 1.03–1.04, toward the grid
     /// 0.346–0.369 / 0.84–0.875).
@@ -29,6 +30,22 @@ struct ZoomSpring: Equatable, Sendable {
     static let reversalToOverview = ZoomSpring(response: 0.36, damping: 0.86)
     /// After a pinch is released (no reference recording).
     static let release = ZoomSpring(response: 0.36, damping: 0.9)
+}
+
+/// Where a new tab's page grows from: centred on the screen at `scale`,
+/// over the blurring grid (Safari does not grow it from its grid slot).
+struct NewTabZoom: Equatable, Sendable {
+    var scale: CGFloat
+    var spring: ZoomSpring
+    /// (+): Safari's start page shows first at about 0.6–0.77 of the screen.
+    static let plus = NewTabZoom(scale: 0.7, spring: .newTab)
+    /// The last tab closed: a fresh tab from about 0.95.
+    static let lastTabClosed = NewTabZoom(scale: 0.95, spring: .afterLastClose)
+
+    func rect(in full: CGRect) -> CGRect {
+        let w = full.width * scale, h = full.height * scale
+        return CGRect(x: full.midX - w / 2, y: full.midY - h / 2, width: w, height: h)
+    }
 }
 
 /// The page <-> tab overview transition as one progress value driven by an
@@ -113,10 +130,10 @@ struct TabZoomState: Equatable, Sendable {
 
     /// A just-created tab opens from its grid slot on the `newTab` spring.
     /// Anywhere else this is an ordinary `go(toOverview: false)`.
-    mutating func openNewTab() {
+    mutating func openNewTab(spring: ZoomSpring = .newTab) {
         guard phase == .overview else { go(toOverview: false); return }
-        animate(to: 0, spring: .newTab, keepVelocity: 0)
-        velocity = -ZoomSpring.newTab.launch
+        animate(to: 0, spring: spring, keepVelocity: 0)
+        velocity = -spring.launch
     }
 
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {

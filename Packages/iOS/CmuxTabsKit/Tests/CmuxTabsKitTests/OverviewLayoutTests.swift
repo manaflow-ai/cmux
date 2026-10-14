@@ -96,4 +96,16 @@ struct OverviewLayoutTests {
         let o = g.offset(revealing: 2, from: 2000)
         #expect(abs(g.screenFrame(2, offset: o).minY - g.top) < 0.5)
     }
+
+    /// Drag to reorder: the slot under the finger, gaps counting as the
+    /// nearest card.
+    @Test func slotUnderTheFinger() {
+        let g = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 5)
+        for i in 0..<5 {
+            let c = g.card(i)
+            #expect(g.slot(at: CGPoint(x: c.midX, y: c.midY)) == i)
+        }
+        #expect(g.slot(at: CGPoint(x: g.card(0).maxX + 4, y: g.card(0).midY)) == 0)
+        #expect(g.slot(at: CGPoint(x: g.card(4).midX, y: g.card(4).maxY + 200)) == nil)
+    }
 }

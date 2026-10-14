@@ -129,6 +129,9 @@ struct TabOverview<Source: TabsDataSource>: View {
     var hiddenTabId: String?
     /// Cards take taps (the grid is settled).
     var gridInteractive: Bool
+    /// Cards take swipes (settled, or a zoom heading to the grid: Safari
+    /// closes a card swiped during the zoom-out). Taps wait for the grid.
+    var swipeInteractive = false
     /// The bottom bar takes taps (settled, or a zoom heading here: Done reverses it).
     var controlsInteractive: Bool
     /// Scroll offset and content origin, written on every scroll frame
@@ -148,6 +151,10 @@ struct TabOverview<Source: TabsDataSource>: View {
     var onScrolling: (Bool) -> Void = { _ in }
 
     @Environment(\.tabsKitTheme) private var theme
+    /// The card a long press lifted for a drag (also set by a long press
+    /// that only opens the menu), and whether that drag is over the grid.
+    @State private var dragging: String?
+    @State private var dragOver = false
 
     var body: some View {
         let tabs = source.tabs
@@ -159,6 +166,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     Color.clear.frame(width: layout.size.width, height: layout.contentHeight)
                     ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
+                        let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
                         TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
                                 radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
                                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
@@ -167,13 +175,23 @@ struct TabOverview<Source: TabsDataSource>: View {
                             source.card(for: tab)
                         }
                         .contentShape(.rect)
-                        .onTapGesture { onSelect(tab.id) }
+                        .onTapGesture { if gridInteractive { onSelect(tab.id) } }
+                        // Long press: the card menu (the card lifts); moving the
+                        // finger instead drags the card to another slot.
+                        .contentShape(.contextMenuPreview, .rect(cornerRadius: layout.cardRadius))
+                        .contextMenu { cardMenu(tab) }
+                        .onDrag {
+                            dragging = tab.id
+                            return NSItemProvider(object: tab.id as NSString)
+                        }
                         // Swipe left to close (CardSwipe).
                         .gesture(CardSwipeGesture { phase in
+                            // The card the zoom is landing on stays put.
+                            guard gridInteractive || tab.id != hiddenTabId else { return }
                             switch phase {
-                            case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: UIAccessibility.isReduceMotionEnabled)
+                            case .changed(let dx): swipes.track(tab.id, translation: dx, reduceMotion: UIAccessibility.isReduceMotionEnabled, copy: copy)
                             case .ended(_, let v):
-                                swipes.release(tab.id, velocity: v, card: r, reduceMotion: UIAccessibility.isReduceMotionEnabled) {
+                                swipes.release(tab.id, velocity: v, card: r, reduceMotion: UIAccessibility.isReduceMotionEnabled, departing: copy) {
                                     let closed = await onClose(tab.id)
                                     // Safari opens the last tab when a swipe leaves only one.
                                     if closed, source.tabs.count == 1, let last = source.tabs.first { onSelect(last.id) }
@@ -182,12 +200,30 @@ struct TabOverview<Source: TabsDataSource>: View {
                             case .cancelled: swipes.cancel(tab.id, reduceMotion: UIAccessibility.isReduceMotionEnabled)
                             }
                         })
-                        .opacity(swipes.opacity(tab.id))
+                        .opacity(dragOver && dragging == tab.id ? 0 : swipes.opacity(tab.id))
                         // Lifted about the card's centre while dragged.
                         .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
-                        .zIndex(swipes.isRaised(tab.id) ? 1 : 0)
+                        // Explicit stacking in grid order (a swiped card on top):
+                        // cards crossing in a reflow keep their order.
+                        .zIndex(swipes.isRaised(tab.id) ? 10_000 : Double(index))
                         .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
-                        .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+                        // A swiped card's departing copy carries on off screen.
+                        .transition(swipes.isDeparting(tab.id) ? .identity
+                                    : .asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
+                    }
+                    ForEach(swipes.departing) { d in
+                        TabCard(title: d.tab.title, systemImage: d.tab.systemImage, pageSize: layout.size, width: d.rect.width, height: d.rect.height,
+                                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
+                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset, onClose: {}) {
+                            source.card(for: d.tab)
+                        }
+                        .opacity(swipes.departingOpacity(d.id))
+                        .scaleEffect(swipes.scale(d.id), anchor: UnitPoint(x: 0.5, y: d.rect.height / 2 / max(1, d.rect.height + 25)))
+                        .offset(x: d.rect.minX + swipes.offset(d.id), y: d.rect.minY)
+                        .zIndex(20_000)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                        .transition(.identity)
                     }
                     if let pending {
                         let r = layout.card(tabs.count)
@@ -197,6 +233,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                             theme.colors.pageBackground
                         }
                         .offset(x: r.minX, y: r.minY)
+                        .zIndex(Double(tabs.count))
                         .allowsHitTesting(false)
                     }
                 }
@@ -204,6 +241,15 @@ struct TabOverview<Source: TabsDataSource>: View {
                 // The grid reflows when a tab leaves (the data source removes
                 // it once its close succeeded).
                 .animation(theme.motion.resolve(theme.motion.reflow), value: tabs.map(\.id))
+                .onDrop(of: [.text], delegate: CardReorderDrop(layout: layout, ids: tabs.map(\.id), dragging: $dragging, over: $dragOver,
+                                                            canMove: source.supportsReordering, move: { source.moveTab($0, to: $1) }))
+                .onChange(of: tabs.map(\.id)) { _, ids in
+                    if let d = dragging, !ids.contains(d) { dragging = nil; dragOver = false }
+                }
+                .onChange(of: gridInteractive) { _, _ in
+                    dragging = nil
+                    dragOver = false
+                }
                 .onGeometryChange(for: CGPoint.self, of: { $0.frame(in: .named(TabsScreenSpace.name)).origin }) { [scroll] origin in
                     if scroll.contentOrigin != origin { scroll.contentOrigin = origin }
                 }
@@ -217,7 +263,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             .ignoresSafeArea()
             .scaleEffect(1.06 - 0.06 * shown)
             .blur(radius: 10 * (1 - shown))
-            .allowsHitTesting(gridInteractive)
+            .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity; keep hidden controls out of
             // the hierarchy instead.
@@ -231,6 +277,27 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
         }
         .frame(width: layout.size.width, height: layout.size.height)
+    }
+
+    /// Safari's card menu: the source's groups (Copy Link, Duplicate Tab...),
+    /// then Close Tab and Close Other Tabs.
+    @ViewBuilder private func cardMenu(_ tab: TabsKitTab) -> some View {
+        ForEach(Array(source.cardMenu(for: tab).enumerated()), id: \.offset) { _, group in
+            Section {
+                ForEach(group) { item in
+                    Button(item.title, systemImage: item.systemImage, role: item.isDestructive ? .destructive : nil) { item.action() }
+                        .disabled(!item.isEnabled)
+                }
+            }
+        }
+        Section {
+            Button("Close Tab", systemImage: "xmark", role: .destructive) { Task { _ = await onClose(tab.id) } }
+            if source.tabs.count > 1 {
+                Button("Close Other Tabs", systemImage: "xmark.square", role: .destructive) {
+                    for other in source.tabs.map(\.id) where other != tab.id { Task { _ = await onClose(other) } }
+                }
+            }
+        }
     }
 
     private var topControls: some View {
@@ -313,5 +380,35 @@ struct TabOverview<Source: TabsDataSource>: View {
             .foregroundStyle(theme.colors.label)
             .frame(width: 48, height: 48).contentShape(.circle)
     }
+}
+
+/// Reorders the grid while a card is dragged: the card moves into the slot
+/// under the finger (the others reflow), as in Safari.
+struct CardReorderDrop: DropDelegate {
+    let layout: OverviewLayout
+    let ids: [String]
+    @Binding var dragging: String?
+    @Binding var over: Bool
+    let canMove: Bool
+    let move: (String, Int) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { canMove && dragging != nil }
+
+    func dropEntered(info: DropInfo) { if canMove, dragging != nil { over = true } }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        if canMove, let key = dragging, let slot = layout.slot(at: info.location), slot < ids.count, ids[slot] != key {
+            move(key, slot)
+        }
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        over = false
+        return true
+    }
+
+    func dropExited(info: DropInfo) { over = false }
 }
 #endif

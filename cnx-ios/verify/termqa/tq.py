@@ -382,3 +382,15 @@ def follow_run(tag, seconds=60, prompt=None):
     time.sleep(1); j.hide_keyboard(); time.sleep(3)
     v = rec_start(tag); time.sleep(seconds); rec_stop()
     return motion_stats(v, start=2)
+
+
+def app_mem():
+    s, m, j = ctx()
+    pid = j.app_pid()
+    if not pid:
+        return None
+    rss = int(subprocess.run(["ps", "-o", "rss=", "-p", str(pid)], capture_output=True, text=True).stdout.strip() or 0)
+    fp = subprocess.run(["footprint", "-p", str(pid)], capture_output=True, text=True).stdout
+    import re
+    m2 = re.search(r"phys_footprint:\s*([\d.]+ \w+)", fp) or re.search(r"Footprint:\s*([\d.]+ \w+)", fp)
+    return {"pid": pid, "rss_mb": round(rss / 1024, 1), "footprint": m2.group(1) if m2 else None, "t": time.strftime("%H:%M:%S")}
