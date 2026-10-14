@@ -124,7 +124,9 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
   const { root, field, type, submit } = await renderPage(onSubmit);
   try {
     expect(host.querySelector('[role="alert"]')).toBeNull();
+    await act(async () => field.focus());
     await type("echo held");
+    expect(host.querySelector('[role="listbox"]')).not.toBeNull();
     await submit();
     expect(calls).toEqual([
       { method: "tab.open", params: { kind: "terminal", text: "echo held", cwd: "/Users/you/src/app" } },
@@ -132,6 +134,8 @@ test("a terminal from the New Tab page opens before the handshake, and a refusal
     expect(waiting).toHaveLength(0);
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("The tab didn't open. Press Return to try again.");
     expect(field.value).toBe("echo held");
+    // The suggestions that float under the field close, so they never cover the note.
+    expect(host.querySelector('[role="listbox"]')).toBeNull();
     // Editing the field clears the note.
     await type("echo held again");
     expect(host.querySelector('[role="alert"]')).toBeNull();
