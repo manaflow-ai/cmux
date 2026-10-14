@@ -114,6 +114,7 @@ impl Translator {
                             return Outbound::Lines(vec![line]);
                         }
                         self.in_turn.store(true, Ordering::SeqCst);
+                        self.turn_output.store(false, Ordering::SeqCst);
                         *self.prompt_echo.lock().await = Some(uuid);
                         self.cancelled.store(false, Ordering::SeqCst);
                         self.pending.lock().await.insert(id.to_string(), Pending::Prompt);

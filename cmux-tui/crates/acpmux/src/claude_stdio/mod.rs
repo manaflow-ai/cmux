@@ -225,6 +225,9 @@ pub struct Translator {
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
     in_turn: AtomicBool,
+    /// Claude Code wrote something for the prompt (an assistant line, a
+    /// conversation reset): its result ends the turn, never startup noise.
+    turn_output: AtomicBool,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -310,6 +313,7 @@ impl Translator {
             effort: Mutex::new(effort.to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
+            turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
