@@ -3719,11 +3719,11 @@ mod tab_group_hex;
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
 #[cfg(unix)]
-#[path = "cli/ws_conversations.rs"]
-mod ws_conversations;
-#[cfg(unix)]
 #[path = "cli/workspace_open_url.rs"]
 mod workspace_open_url;
+#[cfg(unix)]
+#[path = "cli/ws_conversations.rs"]
+mod ws_conversations;
 use state_helpers::*;
 
 #[cfg(unix)]

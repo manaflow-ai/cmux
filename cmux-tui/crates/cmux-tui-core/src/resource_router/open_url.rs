@@ -2,9 +2,11 @@
 //! cx-ebm.59.3): a web link opens on the right side of a workspace, for
 //! every client (the Chief chat in Home, a page, the CLI). The one rule:
 //!
-//! 1. Only an `http` or `https` URL with a host, at most 8192 bytes, with no
-//!    control or space character; anything else is `validation.invalid`
-//!    (field `url`). An omitted workspace is the home workspace.
+//! 1. Only an `http` or `https` URL with a host and no user name or
+//!    password, at most 8192 bytes, with no control, space, or invisible
+//!    format character (bidi overrides, zero-width marks); anything else is
+//!    `validation.invalid` (field `url`). An omitted workspace is the home
+//!    workspace.
 //! 2. The target screen is the workspace's focused screen. Its right side is
 //!    every pane outside a docked column that is the agent chat dock (role
 //!    `agent_chat`) or pinned to the left edge.
@@ -16,7 +18,9 @@
 //!    those panes; a workspace with no screen gets the screen that
 //!    `tab.create_browser` makes for it.
 //! 5. Else (only the dock) a browser in a new viewport column right of the
-//!    dock (`pane-browser-kind-v1`'s `pane.split`).
+//!    dock (`pane-browser-kind-v1`'s `pane.split`), and the focus goes back
+//!    to the pane that had it. The column rules keep a scrolling column
+//!    beside every dock, so this is a fallback for a layout that breaks them.
 //!
 //! Each step runs under a key derived from the request's key, so a retry
 //! replays what the first request did. Errors of a step (`engine_unavailable`
@@ -80,19 +84,40 @@ pub(super) fn dispatch(
     }
     match (candidates.ranked.first(), candidates.dock) {
         (Some(pane), _) => call.create_browser("pane", pane.id.as_str(), &steps),
-        (None, Some(dock)) => call.new_column(&dock, &steps),
+        (None, Some(dock)) => call.new_column(&dock, candidates.focused.as_ref(), &steps),
         (None, None) => call.create_browser("workspace", workspace.as_str(), &steps),
     }
 }
 
-/// An http(s) URL with a host (the rule of the guest URL opener, url_open.rs).
+/// An http(s) URL with a host and no credentials (the guest URL opener's
+/// rule, url_open.rs, plus invisible characters and user info: a link must
+/// look like the page it opens).
 fn is_web_url(raw: &str) -> bool {
     raw.len() <= MAX_URL_BYTES
-        && !raw.chars().any(|c| c.is_control() || c.is_whitespace())
+        && !raw.chars().any(|c| c.is_control() || c.is_whitespace() || is_invisible_format(c))
         && url::Url::parse(raw).is_ok_and(|url| {
             matches!(url.scheme(), "http" | "https")
                 && url.host_str().is_some_and(|h| !h.is_empty())
+                && url.username().is_empty()
+                && url.password().is_none()
         })
+}
+
+/// Unicode format characters that change how a URL reads without showing:
+/// bidi marks and overrides, zero-width characters, the byte order mark.
+fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+    )
 }
 
 /// The selected workspace, else the home workspace (`workspace-kind-v1`).
@@ -152,11 +177,13 @@ struct RightPane {
     tabs: Vec<(crate::SurfaceId, Arc<Surface>)>,
 }
 
-/// The target screen's right side, best pane first, and its dock pane.
+/// The target screen's right side, best pane first, its dock pane, and the
+/// pane that has the screen's focus.
 struct RightSide {
     screen: Option<ScreenPublicId>,
     ranked: Vec<RightPane>,
     dock: Option<PanePublicId>,
+    focused: Option<PanePublicId>,
 }
 
 /// Read under the state lock; conversation and remote tabs are filtered
@@ -164,7 +191,7 @@ struct RightSide {
 fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<RightSide> {
     let workspace = state.workspaces.iter().find(|candidate| candidate.public_id == *workspace)?;
     let Some(screen) = workspace.active_screen_ref().or_else(|| workspace.screens.first()) else {
-        return Some(RightSide { screen: None, ranked: Vec::new(), dock: None });
+        return Some(RightSide { screen: None, ranked: Vec::new(), dock: None, focused: None });
     };
     let left_dock = |dock: &crate::ColumnDock| {
         dock.role == Some(DockRole::AgentChat) || dock.edge == DockEdge::Left
@@ -204,7 +231,12 @@ fn right_side(state: &crate::State, workspace: &WorkspacePublicId) -> Option<Rig
         .find(|pane| **pane == screen.active_pane)
         .or_else(|| docked.first())
         .and_then(|pane| public(*pane));
-    Some(RightSide { screen: Some(screen.public_id.clone()), ranked, dock })
+    Some(RightSide {
+        screen: Some(screen.public_id.clone()),
+        ranked,
+        dock,
+        focused: public(screen.active_pane),
+    })
 }
 
 /// A browser tab the link may reuse: its pane, tab and browser.
@@ -298,7 +330,12 @@ impl Call<'_> {
     }
 
     /// A browser in a new viewport column right of the lone dock pane.
-    fn new_column(&self, dock: &PanePublicId, steps: &StepKeys) -> Result<Value, ResourceError> {
+    fn new_column(
+        &self,
+        dock: &PanePublicId,
+        focused: Option<&PanePublicId>,
+        steps: &StepKeys,
+    ) -> Result<Value, ResourceError> {
         if let Some(error) = self.mux.browser_engine_unavailable(OPERATION) {
             return Err(error);
         }
@@ -329,16 +366,19 @@ impl Call<'_> {
                 &mutation,
             )
             .map_err(resource_operation_error)?;
-        // A new pane takes the focus; it goes back to the dock (the chat).
-        let focused = self.inner(
+        let mut value = commit.result.clone();
+        value["reused"] = json!(false);
+        // A new pane takes the focus; it goes back to the pane that had it.
+        let Some(focused) = focused.filter(|pane| value["pane_id"] != pane.as_str()) else {
+            return mutation_result(self.mux, value, commit.revision, commit.replayed);
+        };
+        let restored = self.inner(
             ResourceOperation::PaneFocus,
-            Map::from_iter([("pane".to_string(), json!(dock.as_str()))]),
+            Map::from_iter([("pane".to_string(), json!(focused.as_str()))]),
             json!({}),
             Some(&steps.select),
         )?;
-        let mut value = commit.result.clone();
-        value["reused"] = json!(false);
-        let revision = focused["revision"].as_str().and_then(|revision| revision.parse().ok());
+        let revision = restored["revision"].as_str().and_then(|revision| revision.parse().ok());
         mutation_result(self.mux, value, revision.unwrap_or(commit.revision), commit.replayed)
     }
 

@@ -110,6 +110,11 @@ fn open_url_refuses_non_web_urls_and_takes_the_create_path_without_an_engine() {
         "https://",
         "https://exa mple.com/",
         "cmux://workspace/1",
+        "https://user@example.com/",
+        "https://user:secret@example.com/",
+        "https://example.com/\u{202E}gnp.exe",
+        "https://exa\u{200B}mple.com/",
+        "data:text/html,hi",
         long.as_str(),
     ]
     .into_iter()
@@ -193,21 +198,25 @@ fn browser_provider(server: &HeadlessServer) -> impl Sized {
     (writer, reader)
 }
 
-#[test]
-fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
-    let server = HeadlessServer::start("open-url-dock");
-    let _provider = browser_provider(&server);
+/// A workspace whose screen has a docked column `dock` on the left, holding
+/// one terminal, and two right-side panes in layout order: its public id,
+/// the dock pane and the right-side panes (raw tree values).
+fn docked_workspace(
+    server: &HeadlessServer,
+    name: &str,
+    dock: Value,
+) -> (String, Value, Vec<Value>) {
     let created = v2(
-        &server,
+        server,
         "workspace.create",
-        json!({"initial_content": "terminal", "name": "home-like"}),
-        Some("open-url-dock-ws"),
+        json!({"initial_content": "terminal", "name": name}),
+        Some(&format!("{name}-ws")),
     );
     let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
-    let first = screen(&server, &workspace);
+    let first = screen(server, &workspace);
     let left = first["panes"][0]["id"].clone();
-    raw(&server, json!({"cmd": "new-pane-right", "pane": left, "width": 0.5}));
-    let strip = screen(&server, &workspace);
+    raw(server, json!({"cmd": "new-pane-right", "pane": left, "width": 0.5}));
+    let strip = screen(server, &workspace);
     let right = strip["panes"]
         .as_array()
         .unwrap()
@@ -215,8 +224,8 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
         .map(|pane| pane["id"].clone())
         .find(|id| *id != left)
         .unwrap();
-    raw(&server, json!({"cmd": "new-tab", "pane": right}));
-    let tabs = screen(&server, &workspace)["panes"]
+    raw(server, json!({"cmd": "new-tab", "pane": right}));
+    let tabs = screen(server, &workspace)["panes"]
         .as_array()
         .unwrap()
         .iter()
@@ -224,15 +233,9 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
         .unwrap()["tabs"]
         .clone();
     let chat = tabs.as_array().unwrap().last().unwrap()["surface"].clone();
-    raw(
-        &server,
-        json!({
-            "cmd": "move-tab-to-column", "surface": chat, "pane": right,
-            "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
-        }),
-    );
-    let docked = screen(&server, &workspace);
-    assert_eq!(docked["columns"][0]["dock"]["role"], "agent_chat", "{docked}");
+    raw(server, json!({"cmd": "move-tab-to-column", "surface": chat, "pane": right, "dock": dock}));
+    let docked = screen(server, &workspace);
+    assert_eq!(docked["columns"][0]["dock"], dock, "{docked}");
     let dock = docked["panes"]
         .as_array()
         .unwrap()
@@ -240,22 +243,36 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
         .find(|pane| pane["tabs"].as_array().unwrap().iter().any(|tab| tab["surface"] == chat))
         .unwrap()
         .clone();
-    // The person types in the chat: the dock pane has the keyboard focus.
-    let focus = v2(
-        &server,
-        "pane.focus",
-        json!({"pane": dock["resource_id"]}),
-        Some("open-url-dock-focus"),
-    );
-    value(&focus);
     let right_side = docked["panes"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|pane| pane["id"] != dock["id"])
-        .map(|pane| pane["resource_id"].clone())
+        .cloned()
         .collect::<Vec<_>>();
     assert_eq!(right_side.len(), 2, "{docked}");
+    (workspace, dock, right_side)
+}
+
+fn focus(server: &HeadlessServer, pane: &Value, key: &str) {
+    value(&v2(server, "pane.focus", json!({"pane": pane["resource_id"]}), Some(key)));
+}
+
+#[test]
+fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
+    let server = HeadlessServer::start("open-url-dock");
+    let _provider = browser_provider(&server);
+    let (workspace, dock, right_panes) = docked_workspace(
+        &server,
+        "open-url-dock",
+        json!({"edge": "left", "mode": "docked", "role": "agent_chat"}),
+    );
+    // The person last used the second right-side pane (not the first in the
+    // layout), then went back to type in the chat: the dock has the focus.
+    let recent = right_panes[1].clone();
+    focus(&server, &recent, "open-url-dock-focus-recent");
+    focus(&server, &dock, "open-url-dock-focus-chat");
+    let right_side = right_panes.iter().map(|pane| pane["resource_id"].clone()).collect::<Vec<_>>();
     let before = screen(&server, &workspace);
     assert_eq!(before["active_pane"], dock["id"], "{before}");
 
@@ -270,6 +287,10 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(first_open["reused"], false, "{opened}");
     assert_eq!(first_open["workspace_id"], workspace, "{opened}");
     assert!(right_side.contains(&first_open["pane_id"]), "not a right-side pane: {opened}");
+    assert_eq!(
+        first_open["pane_id"], recent["resource_id"],
+        "the link must open in the right-side pane used last: {opened}"
+    );
     let after = screen(&server, &workspace);
     assert_eq!(after["active_pane"], dock["id"], "the keyboard focus left the chat: {after}");
     assert_eq!(
@@ -313,6 +334,30 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
 }
 
+/// A left-edge dock without the agent chat role is not the right side either.
+#[test]
+fn open_url_never_opens_in_a_left_edge_dock() {
+    let server = HeadlessServer::start("open-url-left-dock");
+    let _provider = browser_provider(&server);
+    let (workspace, dock, right_panes) =
+        docked_workspace(&server, "open-url-left", json!({"edge": "left", "mode": "docked"}));
+    focus(&server, &dock, "open-url-left-focus");
+    let opened = v2(
+        &server,
+        "workspace.open_url",
+        json!({"workspace": workspace, "url": "https://example.com/left"}),
+        Some("open-url-left-1"),
+    );
+    let pane = value(&opened)["pane_id"].clone();
+    assert_ne!(pane, dock["resource_id"], "a link opened in the left dock: {opened}");
+    assert!(
+        right_panes.iter().any(|candidate| candidate["resource_id"] == pane),
+        "not a right-side pane: {opened}"
+    );
+    let after = screen(&server, &workspace);
+    assert_eq!(after["active_pane"], dock["id"], "the keyboard focus moved: {after}");
+}
+
 /// One line connection that stays open (a page relay keeps its page id).
 struct Line {
     writer: Box<dyn Write>,
@@ -339,15 +384,11 @@ impl Line {
     }
 }
 
-/// The Channels page (Home) opens a clicked link with `workspace.open_url`
-/// through its page connection; the page may call nothing else.
+/// The Channels page (Home) may call `workspace.open_url` only on the
+/// person's gesture, and nothing else of the catalog.
 #[test]
-fn the_home_channels_page_may_open_a_link_and_nothing_else() {
+fn the_home_channels_page_opens_a_link_only_on_a_gesture() {
     let server = HeadlessServer::start("open-url-page");
-    let home = v2(&server, "workspace.ensure_home", json!({}), Some("open-url-page-home"));
-    let home = value(&home)["workspace_id"].as_str().unwrap().to_string();
-    value(&v2(&server, "tab.create_terminal", json!({"workspace": home}), Some("open-url-page-t")));
-
     let mut page = Line::open(&server);
     let hello = page.send(
         &json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "home-channels"}),
@@ -368,21 +409,14 @@ fn the_home_channels_page_may_open_a_link_and_nothing_else() {
     assert_eq!(error(&listed)["code"], "origin.forbidden", "{listed}");
     assert_eq!(error(&listed)["details"]["reason"], "page_not_allowed", "{listed}");
 
-    let bad = page.send(&request(
-        "bad",
-        "workspace.open_url",
-        json!({"url": "javascript:alert(1)"}),
-        Some("open-url-page-bad"),
-    ));
-    assert_eq!(error(&bad)["code"], "validation.invalid", "{bad}");
-    assert_eq!(error(&bad)["details"]["field"], "url", "{bad}");
+    // A link needs the person's click: the host proves it with a confirmation
+    // for the request (origin.confirmation.issue, the verified app only).
     let opened = page.send(&request(
         "open",
         "workspace.open_url",
         json!({"url": "https://example.com/from-chat"}),
         Some("open-url-page-open"),
     ));
-    let refusal = error(&opened);
-    assert_eq!(refusal["code"], "operation.failed", "{opened}");
-    assert_eq!(refusal["details"]["extra"]["code"], "engine_unavailable", "{opened}");
+    assert_eq!(error(&opened)["code"], "origin.forbidden", "{opened}");
+    assert_eq!(error(&opened)["details"]["reason"], "gesture_required", "{opened}");
 }

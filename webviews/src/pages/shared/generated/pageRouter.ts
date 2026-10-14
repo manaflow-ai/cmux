@@ -43,10 +43,10 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     "confirm": []
   },
   "home-channels": {
-    "read": [
+    "read": [],
+    "gesture": [
       "workspace.open_url"
     ],
-    "gesture": [],
     "confirm": []
   }
 };

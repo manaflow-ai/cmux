@@ -27607,7 +27607,7 @@
               "name": "string",
               "min_length": 1
             },
-            "description": "The link: an http or https URL with a host, at most 8192 bytes, with no control or space character. Anything else is validation.invalid (field url)."
+            "description": "The link: an http or https URL with a host and no user name or password, at most 8192 bytes, with no control, space or invisible format character (bidi marks and overrides, zero-width characters). Anything else is validation.invalid (field url)."
           }
         },
         "extra": false,

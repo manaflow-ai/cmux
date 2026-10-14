@@ -284,8 +284,9 @@ the folder themselves.
 `workspace.open_url {workspace?, url}` (capability `workspace-open-url-v1`,
 cx-ebm.59.3) opens a web link on the right side of a workspace, for every
 client (the Chief chat in Home, a page, the CLI). It is one rule in the daemon:
-`url` is an `http` or `https` URL with a host, at most 8192 bytes, with no
-control or space character (anything else is `validation.invalid`, field
+`url` is an `http` or `https` URL with a host and no user name or password,
+at most 8192 bytes, with no control, space or invisible format character
+(bidi marks and overrides, zero-width characters; anything else is `validation.invalid`, field
 `url`; a `cmux://` link stays the app's own action). An omitted `workspace` is the home
 workspace (`selector.not_found`, scope `workspace`, without one). On the
 workspace's focused screen, the right side is every pane outside a docked
@@ -296,7 +297,7 @@ and becomes its pane's selected tab; the keyboard focus does not move, so the
 person keeps typing in the chat. Else a new browser tab (as `tab.create_browser`)
 opens in the first of those panes, or in the screen `tab.create_browser` makes
 for a workspace with none; with only the dock, it opens in a new viewport
-column right of the dock. The result is `{kind: "browser", workspace_id,
+column right of the dock, and the focus goes back to the pane that had it. The result is `{kind: "browser", workspace_id,
 screen_id, pane_id, tab_id, browser_id, reused}`. Errors of the navigation or
 the creation are returned as they are (with no browser provider:
 `operation.failed`, `extra.code` `engine_unavailable`). Each step runs under a
