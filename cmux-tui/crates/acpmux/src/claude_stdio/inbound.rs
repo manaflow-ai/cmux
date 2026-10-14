@@ -20,6 +20,11 @@ impl Translator {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
         let mut out = Vec::new();
+        // A local slash command answers with a synthetic assistant line, or
+        // `/clear` with its reset, before its result (Claude Code 2.1.299).
+        if kind == "assistant" || (kind == "system" && sub == "conversation_reset") {
+            self.turn_output.store(true, Ordering::SeqCst);
+        }
         match kind {
             "system" if sub == "init" => {
                 if let Some(s) = line.get("session_id").and_then(Value::as_str) {
@@ -418,9 +423,11 @@ impl Translator {
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
-                // failed result is never noise.
+                // failed result is never noise. A local slash command's result
+                // looks the same but follows its output, and ends the prompt.
                 let startup_noise = sub == "success"
                     && !is_error
+                    && !self.turn_output.load(Ordering::SeqCst)
                     && line.get("num_turns").and_then(Value::as_u64) == Some(0)
                     && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0)
                     && !self.cancelled.load(Ordering::SeqCst);
@@ -437,6 +444,17 @@ impl Translator {
                             json!({"sessionUpdate": "usage_update", "used": used, "size": window}),
                         ));
                     }
+                }
+                // The result of a turn acpmux already ended, before Claude Code
+                // read the next prompt: it ends only the abandoned prompts.
+                let abandoned = std::mem::take(&mut *self.abandoned.lock().await);
+                if !abandoned.is_empty() && self.prompt_echo.lock().await.is_some() {
+                    for k in abandoned {
+                        self.pending.lock().await.remove(&k);
+                        let id: Id = serde_json::from_str(&k).unwrap_or(Value::String(k));
+                        out.push(Message::ok(id, json!({"stopReason": "cancelled"})));
+                    }
+                    return out;
                 }
                 // A steered line Claude Code has not read yet: it runs it as
                 // one more turn of this prompt, whose result ends it (when
