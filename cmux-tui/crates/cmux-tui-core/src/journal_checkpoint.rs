@@ -855,6 +855,17 @@ mod tests {
             std::cell::RefCell::new(None);
     }
 
+    #[test]
+    fn checkpoint_recovery_retries_contextualized_ingress_races() {
+        let error = anyhow::anyhow!("terminal journal ingress is unsettled during replay capture")
+            .context("terminal term_test replay recovery");
+        assert!(capture_error_is_retryable(&error));
+
+        let permanent = anyhow::anyhow!("cannot discard unreplayable replay on a hosted terminal")
+            .context("terminal term_test replay recovery");
+        assert!(!capture_error_is_retryable(&permanent));
+    }
+
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
             checkpoint_id: "checkpoint_terminal_replay".into(),
