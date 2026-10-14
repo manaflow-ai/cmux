@@ -28,6 +28,8 @@ public struct MotionTrace {
     /// Main-thread work per frame of each animation `measure` times, in ms.
     public private(set) static var work: [String: [Double]] = [:]
     public private(set) static var samples: [Sample] = []
+    /// What an animator decided at a time (`note`), for a bench that must tell why something moved.
+    public private(set) static var notes: [(time: CFTimeInterval, text: String)] = []
     /// When recording started (sample times are reported from here).
     public private(set) static var startedAt: CFTimeInterval = 0
     static let capacity = 1024
@@ -39,6 +41,7 @@ public struct MotionTrace {
         spans.removeAll()
         work.removeAll()
         samples.removeAll()
+        notes.removeAll()
         startedAt = CACurrentMediaTime()
     }
 
@@ -71,6 +74,12 @@ public struct MotionTrace {
     public static func sample(_ name: String, _ value: Double) {
         guard isEnabled, samples.count < sampleCapacity else { return }
         samples.append(Sample(name: name, time: CACurrentMediaTime(), value: value))
+    }
+
+    /// One decision of an animator (only while recording; the text is built only then).
+    public static func note(_ text: @autoclosure () -> String) {
+        guard isEnabled, notes.count < capacity else { return }
+        notes.append((CACurrentMediaTime(), text()))
     }
 
     private static func key(_ name: String, _ id: ObjectIdentifier?) -> String {

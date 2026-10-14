@@ -46,7 +46,7 @@ enum DebugMotion {
                 }
             }
         case "trajectory":
-            return MotionParityCorpus.document
+            return MotionParityCorpus().document
         case "stop":
             let report = self.report
             MotionTrace.stop()
@@ -64,7 +64,8 @@ enum DebugMotion {
             "speed": .string(policy.speed.rawValue),
             "reduce_motion": .bool(policy.reduceMotion),
             "bounce": .string(policy.bounce.rawValue),
-            "disabled_kinds": .array(policy.disabledKinds.map(\.rawValue).sorted().map(JSONValue.string)),
+            "enabled_kinds": .array(policy.enabledKinds.map(\.rawValue).sorted().map(JSONValue.string)),
+            "pane_animations": .bool(DesignSettings.shared.paneAnimations),
             "display_links": .number(Double(FrameScheduler.all.filter(\.hasLink).count)),
             "active_clients": .array(FrameScheduler.all.flatMap(\.activeClients).map(JSONValue.string)),
             "spans": .array(MotionTrace.spans.map { span in
@@ -75,6 +76,10 @@ enum DebugMotion {
             "samples": .array(MotionTrace.samples.map { sample in
                 ["name": .string(sample.name), "t_ms": .number(((sample.time - MotionTrace.startedAt) * 10000).rounded() / 10),
                  "v": .number((sample.value * 100).rounded() / 100)]
+            }),
+            // What an animator decided, ms from `start` (the tab strip's syncs: added, removed, animated).
+            "notes": .array(MotionTrace.notes.map { note in
+                ["t_ms": .number(((note.time - MotionTrace.startedAt) * 10000).rounded() / 10), "text": .string(note.text)]
             }),
             "work": .object(MotionTrace.work.mapValues { frames in
                 let sorted = frames.sorted()
