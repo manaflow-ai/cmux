@@ -209,13 +209,14 @@ final class SidebarListView: NSView {
         let settled = settleDrop()
         // A drag's look hands over to the model on the same spring (DESIGN "Drag feel" 6).
         // Also a non-animated reload (provisional rows, a space switch) under a held drag or a settle: rows never snap then.
-        springsRows = (animated && adopt) || settled != nil || drag != nil || settling != nil
+        // A settled drop's card still flying is part of the drop: a later reload (the blocks after the rows) adopts too.
+        springsRows = (animated && adopt) || settled != nil || drag != nil || settling != nil || landing?.landsOnModel == true
         defer { springsRows = false }
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         SidebarPerfCounters.timed { applyKeepingViewport(displayLayout(), animated: animated) }
-        if let settled { landSettled(settled) }
+        if let settled { landSettled(settled) } else { followLanding() }
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }

@@ -74,6 +74,11 @@ final class SidebarListDrag {
     var heldViews: [NSView] = []
     /// The list rows among `heldViews`, suppressed until the card is gone (a reload under the flight does not fade them in).
     var heldKeys: Set<SidebarRowKey> = []
+    /// The model shows the drop (`landSettled`): until the card is gone, a later reload (the blocks reach the
+    /// list after the rows) retargets it to the dropped item's frame then and holds the item's new views.
+    var landsOnModel = false
+    /// The landing's completion, kept for a retarget (only the last landing call's completion runs).
+    var landingThen: (@MainActor () -> Void)?
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload

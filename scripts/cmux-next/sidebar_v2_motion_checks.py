@@ -58,6 +58,12 @@ def analyse(frames, dragged, dropped_key=None, refused=False, hz=120):
         after = [f for f in frames if f["t"] > last["t"] and dropped_key in f["views"] and drawn(f["views"][dropped_key])]
         if after:
             card, item = last["lift"], rect(after[0]["views"][dropped_key])
+            # The dropped item's whole block: views hidden under the card that show with it (a group's members).
+            for key, view in after[0]["views"].items():
+                before = last["views"].get(key)
+                if key != dropped_key and drawn(view) and before is not None and not drawn(before) and not key.startswith(("block(", "item:")):
+                    x0, y0 = min(item[0], view[0]), min(item[1], view[1])
+                    item = [x0, y0, max(item[0] + item[2], view[0] + view[2]) - x0, max(item[1] + item[3], view[1] + view[3]) - y0]
             meet = max(abs(card[i] - item[i]) for i in range(4))
             drift = max((max(abs(b["views"][dropped_key][i] - a["views"][dropped_key][i]) for i in range(4))
                          for a, b in zip(after, after[1:]) if dropped_key in a["views"] and dropped_key in b["views"]), default=0)

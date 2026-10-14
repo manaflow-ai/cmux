@@ -239,6 +239,7 @@ extension SidebarListView {
         let destination = slot ?? tile ?? settledFrame(drag.hiddenKeys.compactMap { rowViews[$0] })
             ?? SidebarListLift.blockFrame(self, SidebarListLift.rows(self, for: drag.grabbedKey, hidden: drag.hiddenKeys)) ?? drag.lift.frame
         landing = drag
+        drag.landingThen = then
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else {
                 drag.lift.removeFromSuperview()
@@ -259,6 +260,8 @@ extension SidebarListView {
     func finishLand(_ drag: Drag, then: (@MainActor () -> Void)?) {
         defer { then?() }
         if landing === drag { landing = nil }
+        drag.landsOnModel = false
+        drag.landingThen = nil
         Motion.withoutAnimation {
             drag.lift.removeFromSuperview()
             // The dropped item, held invisible under the flying card (landSettled), shows in the same transaction.
@@ -288,41 +291,64 @@ extension SidebarListView {
     func landSettled(_ settled: SidebarSettlingDrop) {
         let drag = settled.drag
         guard drag.lift.superview != nil else { return }
-        // The model's item is under the card: it stays invisible until the card is gone (no double, no fade-in pop).
-        drag.heldViews = droppedViews(drag)
-        drag.heldKeys = Set(rowViews.compactMap { key, view in drag.heldViews.contains { $0 === view } ? key : nil })
-        suppressed.formUnion(drag.heldKeys)
+        drag.landsOnModel = true
+        if let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) { return land(drag, at: real, then: settled.then) }
+        if settled.landed { finishLand(drag, then: settled.then) }
+    }
+
+    /// A reload while a settled drop's card still flies: the model can reach the list in more than one reload
+    /// (the rows, then the blocks a layout pass later; ptr8: the card aimed 24 pt off at the first one). The card
+    /// retargets, on its spring, to where the model shows the item now, and the item's new views stay hidden under it.
+    func followLanding() {
+        guard let drag = landing, drag.landsOnModel, drag.lift.superview != nil, settling?.drag !== drag,
+              let real = holdDropped(drag), !sameFrame(real, drag.lift.frame) else { return }
+        land(drag, at: real, then: drag.landingThen)
+    }
+
+    /// The model's item is under the card: the views that draw it now stay invisible until the card is gone (no
+    /// double, no fade-in pop); a view held before that no longer draws it shows again. Returns the item's frame.
+    func holdDropped(_ drag: Drag) -> NSRect? {
+        let (views, keys, frame) = dropped(drag)
+        let released = drag.heldKeys.subtracting(keys).subtracting(drag.hiddenKeys)
+        suppressed.subtract(released)
+        suppressed.formUnion(keys)
         Motion.withoutAnimation {
-            for view in drag.heldViews {
+            for view in drag.heldViews where view.isDescendant(of: self) && !views.contains(where: { $0 === view }) {
+                view.layer?.removeAnimation(forKey: "opacity")
+                view.alphaValue = 1
+            }
+            for view in views {
                 view.layer?.removeAnimation(forKey: "opacity")
                 view.alphaValue = 0
             }
         }
-        if let real = settledFrame(drag.heldViews) ?? droppedFrame(drag), abs(real.minX - drag.lift.frame.minX) > 0.5 || abs(real.minY - drag.lift.frame.minY) > 0.5
-            || abs(real.width - drag.lift.frame.width) > 0.5 || abs(real.height - drag.lift.frame.height) > 0.5 {
-            return land(drag, at: real, then: settled.then)
-        }
-        if settled.landed { finishLand(drag, then: settled.then) }
+        drag.heldViews = views
+        drag.heldKeys = keys
+        return frame
     }
 
-    /// The views that show a document drop's item now: its list row, its tile in a block.
-    func droppedViews(_ drag: Drag) -> [NSView] {
-        // The list rows that draw the dropped items as the layout just applied (a workspace or group row, a group's
-        // members, a listed item): the card lands on them, in any shape (a tile dropped into the list lands as a row).
+    /// What draws a document drop's item as the layout just applied: its list rows (a workspace or group row, a
+    /// group's header and members, a listed item; a tile dropped into the list lands as a row), else its tiles in a
+    /// block. The frame is the rows' layout frames unioned (a group's whole block, realized or not: the row
+    /// views' springs may still move), else the tiles' model frames.
+    func dropped(_ drag: Drag) -> (views: [NSView], keys: Set<SidebarRowKey>, frame: NSRect?) {
         let items = Set(drag.docItems ?? [])
-        let rows = rowViews.filter { key, view in
-            !(view is SidebarBlockRowView) && (drag.hiddenKeys.contains(key) || model.docDrag?.item(key).map(items.contains) == true)
+        let rows = displayed.rows.filter { row in
+            if case .block = row.key { return false }
+            return drag.hiddenKeys.contains(row.key) || model.docDrag?.item(row.key).map(items.contains) == true
         }
-        if !rows.isEmpty { return rows.sorted { $0.value.frame.minY < $1.value.frame.minY }.map(\.value) }
-        // Else the tiles that draw them in a block (a drop into Pinned or another flowed section).
+        if !rows.isEmpty {
+            let frames = rows.map { frame(for: $0) }
+            let views = rows.compactMap { rowViews[$0.key] }.filter { !($0 is SidebarBlockRowView) }
+            return (views, Set(rows.map(\.key).filter { rowViews[$0] != nil }), frames.dropFirst().reduce(frames[0]) { $0.union($1) })
+        }
         var views: [NSView] = []
         for id in drag.docItems ?? [] {
-            if let view = rowViews[.item(id)] { views.append(view) }
             for case let block as SidebarBlockRowView in rowViews.values {
                 if let view = block.region.itemView(LayoutItemID(id)) { views.append(view) }
             }
         }
-        return views
+        return (views, [], settledFrame(views))
     }
 
     /// The frame `views` cover in the list once their springs end: their model frames (additive springs leave
@@ -331,17 +357,6 @@ extension SidebarListView {
         let frames = views.filter { $0.isDescendant(of: self) }.map { convert($0.bounds, from: $0) }
         guard let first = frames.first else { return nil }
         return frames.dropFirst().reduce(first) { $0.union($1) }
-    }
-
-    /// Where the model shows a document drop's item now: its list row, else its tile in a block.
-    func droppedFrame(_ drag: Drag) -> NSRect? {
-        for id in drag.docItems ?? [] {
-            if let row = displayed.row(for: .item(id)) { return frame(for: row) }
-            for case let block as SidebarBlockRowView in rowViews.values {
-                if let view = block.region.itemView(LayoutItemID(id)) { return convert(view.bounds, from: view) }
-            }
-        }
-        return nil
     }
 
     // MARK: - The drag's look (DESIGN "Drag feel" 3)
@@ -427,4 +442,9 @@ extension SidebarListView {
             }
         })
     }
+}
+
+/// Two frames within half a point on every edge (a landing that needs no retarget).
+private func sameFrame(_ a: NSRect, _ b: NSRect) -> Bool {
+    abs(a.minX - b.minX) <= 0.5 && abs(a.minY - b.minY) <= 0.5 && abs(a.width - b.width) <= 0.5 && abs(a.height - b.height) <= 0.5
 }

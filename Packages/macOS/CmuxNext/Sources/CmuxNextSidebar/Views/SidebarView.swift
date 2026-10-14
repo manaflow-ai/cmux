@@ -389,6 +389,10 @@ public final class SidebarView: NSView {
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)
         }
+        // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
+        // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
+        // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
+        if listChanged, profilesChanged, !profileChanged, model.docDrag != nil, list.settling != nil || list.landing != nil { updateBands() }
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])

@@ -36,7 +36,10 @@ final class SidebarMotionProbe {
     private var client: FrameClient?
     init(list: SidebarListView) {
         self.list = list
-        client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] tick in self?.sample(tick.timestamp) ?? false }
+        // Stamped when the presentation is read (`presented` evaluates the springs now), not at the display
+        // link's last vsync: the main thread runs the tick late by a varying delay, and a vsync stamp turned a
+        // spring's steady motion into false 8-11 pt "jumps" between late and early samples (ptr8 scenario 3).
+        client = FrameClient(owner: "Sidebar.motionProbe", view: list) { [weak self] _ in self?.sample(CACurrentMediaTime()) ?? false }
     }
 
     func start() {

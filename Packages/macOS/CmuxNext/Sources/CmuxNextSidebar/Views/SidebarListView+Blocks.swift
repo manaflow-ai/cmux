@@ -263,7 +263,13 @@ extension SidebarListView {
     /// Where a dropped card settles: the block's gap, the list's gap (a tile
     /// dropped among rows), else its own rows at the slot (nil: `land` finds them).
     func settleFrame(_ drag: SidebarListDrag) -> NSRect? {
-        if let gap = drag.blockTarget { return blockSlotFrame(gap) ?? blockGapFrame(gap) }
+        if let gap = drag.blockTarget {
+            // A card that keeps its own shape over a block (a group, a workspace with tab rows) is not a tile: the
+            // model draws it as rows, not in the slot. It holds where it is until the model shows it (no flight
+            // toward a tile's shape and back; ptr8 group-into-pinned).
+            guard drag.morphs || drag.tileSource != nil else { return drag.lift.frame }
+            return blockSlotFrame(gap) ?? blockGapFrame(gap)
+        }
         if drag.tileSource != nil, let y = displayed.gapY, displayed.gapHeight > 0 {
             return NSRect(x: inset, y: y, width: max(0, bounds.width - inset * 2), height: displayed.gapHeight)
         }
