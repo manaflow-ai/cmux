@@ -226,4 +226,7 @@ async fn session_list_pages_neither_repeat_nor_skip_while_sessions_move() {
     // A bad cursor is an error, not a silent first page.
     let bad = c.request(method::MUX_SESSIONS, json!({"limit": PAGE, "cursor": "nope"})).await;
     assert!(bad.is_err(), "{bad:?}");
+    // So is a zero limit, rather than a page of one.
+    let zero = c.request(method::MUX_SESSIONS, json!({"limit": 0})).await;
+    assert!(zero.is_err(), "{zero:?}");
 }
