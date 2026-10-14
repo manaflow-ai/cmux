@@ -15,7 +15,7 @@ public nonisolated enum AttentionStyle: String, Hashable, Sendable, CaseIterable
 /// `notifications.attention.*` in cmux.json: the pane attention ring and
 /// whether the tab and the sidebar row show the unread mark too.
 public nonisolated struct AttentionSettings: Hashable, Sendable {
-    public var style: AttentionStyle = .blink
+    public var style: AttentionStyle = .steady
     /// nil takes the theme's attention color (`Palette.attention`).
     public var color: ThemeRGB?
     public var width: CGFloat = 2
