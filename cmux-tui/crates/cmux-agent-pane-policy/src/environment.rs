@@ -3,7 +3,9 @@
 //! `build_home`): `ACPMUX_HOME` wins, else the build's own home
 //! ([`BuildIdentity::acpmux_home`]: `~/.acpmux` for NIGHTLY and outside any
 //! build, `~/.acpmux/builds/<key>` for every other build). A daemon in a
-//! home other than `~/.acpmux` listens on an ephemeral port.
+//! home other than `~/.acpmux` listens on an ephemeral port. `ACPMUX_SOCKET`
+//! counts only with an explicit `ACPMUX_HOME`: inherited alone (an app
+//! launched from another cmux's terminal), it is another daemon's socket.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -40,15 +42,16 @@ pub fn resolve(
         .find(|p| is_executable(p))?;
     let own_home = build.map(|build| build.acpmux_home(user_home));
     let shared = own_home.as_ref().is_none_or(|home| *home == user_home.join(".acpmux"));
-    let home = match environment.get("ACPMUX_HOME").filter(|h| !h.is_empty()) {
+    let custom_home = environment.get("ACPMUX_HOME").filter(|h| !h.is_empty());
+    let home = match custom_home {
         Some(custom) => PathBuf::from(custom),
         None => own_home.unwrap_or_else(|| user_home.join(".acpmux")),
     };
-    let socket = socket_path(
-        environment.get("ACPMUX_SOCKET").map(String::as_str).filter(|s| !s.is_empty()),
-        &home,
-        uid,
-    );
+    let configured = custom_home
+        .and(environment.get("ACPMUX_SOCKET"))
+        .map(String::as_str)
+        .filter(|s| !s.is_empty());
+    let socket = socket_path(configured, &home, uid);
     let home_text = home.to_string_lossy().into_owned();
     Some(Environment {
         executable,

@@ -954,6 +954,16 @@ legacy_expect "continue 3850073942601 38566549515" "a pending cmux NIGHTLY-ident
 pending_meta 3850073942601 $((now - 7 * 3600))
 legacy_expect "new 3851000000001 " "a pending submission older than 6 h must give way to the newest cmux NEXT build" \
   --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+# Apple can hold a submission for many hours: with no newer cmux NEXT build,
+# the pending submission is continued up to 48 hours, never resubmitted.
+legacy_feed "$legacy_dir/next.xml" 3850073942601
+pending_meta 3850073942601 $((now - 7 * 3600))
+legacy_expect "continue 3850073942601 38566549515" "a pending submission of the newest cmux NEXT build at 7 h must be continued, not resubmitted" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+pending_meta 3850073942601 $((now - 49 * 3600))
+legacy_expect "new 3850073942601 " "a pending submission older than 48 h must give way to a new submission" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38566549515 --now "$now"
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
 # Once the old feed has the pending build, the pending record is stale.
 legacy_feed "$legacy_dir/old.xml" 3850073942601
 pending_meta 3850073942601 $((now - 3600))
@@ -1067,7 +1077,7 @@ for expected in \
 done
 for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
-  "--max-pending-hours 6" \
+  "--max-pending-hours 6 --max-same-build-hours 48" \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   'grep -c "^Build $build failed:"' \
   "for candidate in"; do

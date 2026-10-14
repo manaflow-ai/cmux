@@ -168,6 +168,9 @@ enum DebugAgentPane {
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
         }
+        if action == "hover" {
+            return await DebugAgentPaneClick.hover(params, pane: pane, view: view)
+        }
         if action == "inspector" {
             return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
         }
@@ -276,7 +279,7 @@ enum DebugAgentPane {
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
             var options: [String: Any] = [:]
-            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms"] {
+            for key in ["rows", "seconds", "chunk_chars", "chunk_ms", "nominal_ms", "trace"] {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]

@@ -3819,8 +3819,8 @@ jobs:
           # publish-nightly-identity-legacy as the artifacts
           # cmux-nightly-identity-pending-meta/-bundle of its run: the newest
           # unexpired one from a nightly-next run of this repository (never a
-          # fork's) is continued first (never resubmitted) while it is under 6
-          # hours old.
+          # fork's) is continued (never resubmitted): under 6 hours always, up to
+          # 48 hours while the cmux NEXT feed has no newer build.
           pending_args=()
           # Newest first; the first candidate whose run is this repository's
           # nightly.yml run on nightly-next wins, so a foreign or unreadable
@@ -3841,7 +3841,7 @@ jobs:
             fi
             echo "::warning::could not read pending artifact $meta_id of run $meta_run; trying an older one"
           done
-          decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 ${pending_args[@]+"${pending_args[@]}"})"
+          decision="$(python3 scripts/ci/nightly-next-legacy-target.py next.xml old.xml "$DMG_PREFIX" --max-pending-hours 6 --max-same-build-hours 48 ${pending_args[@]+"${pending_args[@]}"})"
           action="$(sed -n 's/^action=//p' <<<"$decision")"
           build="$(sed -n 's/^build=//p' <<<"$decision")"
           pending_run="$(sed -n 's/^pending_run=//p' <<<"$decision")"
@@ -3907,7 +3907,8 @@ jobs:
     # Apple's wait is 20 min, as for cmux NEXT (#20518). A submission still in
     # Apple's queue is kept (artifacts cmux-nightly-identity-pending-meta and
     # -bundle) and a later run continues that exact submission
-    # (legacy-identity-target: action continue); it is never resubmitted and
+    # (legacy-identity-target: action continue, up to 48 h while no newer
+    # cmux NEXT build exists; artifacts kept 3 days); it is never resubmitted and
     # never counted as a failure.
     timeout-minutes: 75
     env:
@@ -4113,7 +4114,7 @@ jobs:
           name: cmux-nightly-identity-pending-bundle
           path: pending/
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 3
 
       - name: Upload the pending submission metadata
         if: steps.notarize.outputs.submission_pending == 'true' && env.LEGACY_ACTION == 'new'
@@ -4122,7 +4123,7 @@ jobs:
           name: cmux-nightly-identity-pending-meta
           path: pending-meta/pending.json
           if-no-files-found: error
-          retention-days: 2
+          retention-days: 3
 
       - name: Generate the old feed's appcast
         id: appcast
@@ -4676,6 +4677,65 @@ jobs:
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
           done
+
+  # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
+  # build's signed notes with its tour's "after" clip and a title card, joined
+  # into one video, and a page listing them, on the pr-media branch at
+  # nightly-next/<build>/. Evidence only: no job needs this one, and it never
+  # reports the nightly as failed.
+  publish-nightly-reel:
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-release-notes]
+    if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Install ffmpeg
+        timeout-minutes: 6
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v fc-match >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg fontconfig fonts-dejavu-core >/dev/null
+          fi
+      - name: Build and publish the reel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+        run: |
+          set -euo pipefail
+          # The notes this run signed and published, checked against the content key.
+          python3 scripts/cmux-next/media/reel.py --build "$NIGHTLY_BUILD" --notes "notes/$NIGHTLY_BUILD.json" \
+            --out "$RUNNER_TEMP/reel" --publish | tee "$RUNNER_TEMP/reel.log"
+          # The page the reel lists its clips on: raw.githubusercontent.com shows
+          # index.html as text, so the summary carries the list itself.
+          python3 - "$RUNNER_TEMP/reel/reel.json" "$RUNNER_TEMP/reel.log" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          urls = [line.strip() for line in open(sys.argv[2]) if line.startswith("https://")]
+          reel = next((url for url in urls if url.endswith("/reel.mp4")), None)
+          print(f"### cmux NEXT nightly reel, build {report['build']}\n")
+          print(f"[Reel (mp4)]({reel})\n" if reel else "No pull request in this build has a tour clip.\n")
+          print("| PR | Title | Clip |\n| --- | --- | --- |")
+          for pr in report["prs"]:
+              title = str(pr.get("title", "")).replace("|", "\\|").replace("\n", " ")
+              clip = pr.get("clip", "")
+              cell = f"[{pr.get('tour') or 'clip'}]({clip})" if clip.startswith("https://") else "no clip"
+              print(f"| #{pr['pr']} | {title} | {cell} |")
+          PY
 
   # A cancelled job (a timeout reports as cancelled) counts as a failure. On
   # nightly-next the signed release notes are part of the publication: a
