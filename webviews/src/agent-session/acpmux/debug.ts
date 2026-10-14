@@ -300,12 +300,12 @@ export function createAcpmuxDebug(
   };
 }
 
-/// The summary card's rows as drawn: each subagent's name and status, or null with no card.
+/// The summary as drawn: docked or a popover, and each subagent's name and status; null when hidden.
 function summaryCardState() {
   const card = document.querySelector(".acpmux-summary-card");
   if (!card) return null;
   return {
-    collapsed: card.hasAttribute("data-collapsed"),
+    placement: card.getAttribute("data-placement"),
     agents: [...card.querySelectorAll<HTMLElement>(".acpmux-summary-agent")].map((row) => ({
       name: row.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
       status: row.dataset.status ?? "",
