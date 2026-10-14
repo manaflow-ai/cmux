@@ -27,11 +27,26 @@ final class DemoTabs: TabsDataSource {
         TabsKitNewTabOption(id: "note", title: "New Note", systemImage: "note.text", kind: DemoTabs.note),
     ]
 
+    /// Verification hooks (launch arguments): `-tabCount N` starts with N web
+    /// pages (0 and 50 included) instead of the default set; `-failCreate`
+    /// refuses every new tab; `-failClose` refuses every close.
+    private let failCreate = ProcessInfo.processInfo.arguments.contains("-failCreate")
+    private let failClose = ProcessInfo.processInfo.arguments.contains("-failClose")
+    private(set) var notice: String?
+
     init() {
-        for name in ["springs", "glass", "pinch", "night"] { addWebPage(URL(string: "tabskit://pages/\(name)")!) }
-        addNote("Notes are plain SwiftUI tabs.\n\nThey get the same grid, zoom, swipe and toolbar as web pages, with their own card, page menu and an accessory row above the toolbar.")
+        let args = ProcessInfo.processInfo.arguments
+        let names = ["springs", "glass", "pinch", "night"]
+        if let i = args.firstIndex(of: "-tabCount"), i + 1 < args.count, let n = Int(args[i + 1]) {
+            for k in 0..<max(0, n) { addWebPage(URL(string: "tabskit://pages/\(names[k % names.count])")!) }
+        } else {
+            for name in names { addWebPage(URL(string: "tabskit://pages/\(name)")!) }
+            addNote("Notes are plain SwiftUI tabs.\n\nThey get the same grid, zoom, swipe and toolbar as web pages, with their own card, page menu and an accessory row above the toolbar.")
+        }
         activeTabID = order.first
     }
+
+    func clearNotice() { notice = nil }
 
     // MARK: TabsDataSource
 
@@ -43,16 +58,25 @@ final class DemoTabs: TabsDataSource {
         activeTabID = id
     }
 
-    func close(_ id: String) {
-        guard let index = order.firstIndex(of: id) else { return }
+    func close(_ id: String) async -> Bool {
+        guard let index = order.firstIndex(of: id) else { return true }
+        if failClose {
+            notice = "Couldn't close \(tab(for: id)?.title ?? "the tab"): the demo refuses closes (-failClose)."
+            return false
+        }
         order.remove(at: index)
         webPages[id] = nil
         notes[id] = nil
         thumbnails[id] = nil
         if activeTabID == id { activeTabID = order.isEmpty ? nil : order[min(index, order.count - 1)] }
+        return true
     }
 
     func createTab(_ option: TabsKitNewTabOption) async -> String? {
+        if failCreate {
+            notice = "Couldn't open a new tab: the demo refuses new tabs (-failCreate)."
+            return nil
+        }
         let id = option.kind == Self.note ? addNote("") : addWebPage(DemoSite.start)
         activate(id)
         return id
@@ -108,7 +132,7 @@ final class DemoTabs: TabsDataSource {
         if notes[tab.id] != nil {
             return [[
                 TabsKitMenuItem(title: "Clear Note", systemImage: "eraser") { [weak self] in self?.notes[tab.id] = "" },
-                TabsKitMenuItem(title: "Close Note", systemImage: "xmark.square", isDestructive: true) { [weak self] in self?.close(tab.id) },
+                TabsKitMenuItem(title: "Close Note", systemImage: "xmark.square", isDestructive: true) { [weak self] in Task { _ = await self?.close(tab.id) } },
             ]]
         }
         let web = webPages[tab.id]?.webView
@@ -121,7 +145,7 @@ final class DemoTabs: TabsDataSource {
                 },
             ],
             [
-                TabsKitMenuItem(title: "Close Tab", systemImage: "xmark.square") { [weak self] in self?.close(tab.id) },
+                TabsKitMenuItem(title: "Close Tab", systemImage: "xmark.square") { [weak self] in Task { _ = await self?.close(tab.id) } },
             ],
         ]
     }

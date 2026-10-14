@@ -35,13 +35,12 @@ import SwiftUI
         return (store, WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", creator: creator))
     }
 
-    @Test func closeTheMacRefusesPutsTheTabBack() async {
+    @Test func aCloseTheMacRefusesKeepsTheTab() async {
         let refusing = MockWorkspaceCreationBackend(latency: .zero)
         let (_, source) = make(backend: refusing)
         refusing.failNext = "tab is busy"
-        source.close("t-zsh")
-        #expect(!source.tabs.contains { $0.id == "t-zsh" })
-        for _ in 0..<200 where !source.tabs.contains(where: { $0.id == "t-zsh" }) { await Task.yield() }
+        let closed = await source.close("t-zsh")
+        #expect(!closed)
         #expect(source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
         #expect(source.notice?.contains("tab is busy") == true)
     }
@@ -62,7 +61,8 @@ import SwiftUI
         let id = await source.createTab(TabsKitNewTabOption(id: "terminal", title: "New Terminal", systemImage: "apple.terminal", kind: .terminal))
         #expect(id == nil)
         #expect(source.tabs.count == 3)
-        source.close("t-zsh")
+        let closed = await source.close("t-zsh")
+        #expect(!closed)
         #expect(source.tabs.count == 3)
     }
 
@@ -81,10 +81,11 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-zsh")
     }
 
-    @Test func closingTheActiveTabActivatesItsNeighbor() {
+    @Test func closingTheActiveTabActivatesItsNeighbor() async {
         let (store, source) = make()
         source.activate("t-zsh")
-        source.close("t-zsh")
+        let closed = await source.close("t-zsh")
+        #expect(closed)
         #expect(source.activeTabID == "t-docs")
         #expect(store.lastTabByWorkspace["ws-cmux"] == "t-docs")
         #expect(source.tabs.map(\.id) == ["t-claude", "t-docs"])

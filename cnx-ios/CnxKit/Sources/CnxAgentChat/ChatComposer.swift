@@ -142,7 +142,7 @@ struct ChatComposer: View {
                     Text(placeholder)
                         .lineLimit(1)
                         .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(.rect)
                         .onTapGesture { expand() }
                         .accessibilityAddTraits(.isButton)
@@ -242,8 +242,12 @@ struct ChatComposer: View {
                 .foregroundStyle(.primary)
                 .frame(width: 36, height: 36)
                 .background(collapsed ? Color.clear : Color.cnxFill, in: .circle)
-                .contentShape(.circle)
+                // A 44 pt target around the 36 pt circle; the padding outside the menu
+                // keeps the row's layout.
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
         }
+        .padding(-4)
         .accessibilityLabel("Add")
     }
 
@@ -289,7 +293,11 @@ struct ChatComposer: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 34)
             .background(Color.cnxFill, in: .capsule)
+            // 44 pt high target around the 34 pt pill.
+            .frame(minHeight: 44)
+            .contentShape(.rect)
         }
+        .padding(.vertical, -5)
         // Source order (Model, Mode, Effort; modes in the agent's order), the same as the
         // title menu, not the reversed order of a menu opened near the bottom of the screen.
         .menuOrder(.fixed)

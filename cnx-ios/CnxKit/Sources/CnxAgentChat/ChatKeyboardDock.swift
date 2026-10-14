@@ -600,6 +600,15 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         view.layoutIfNeeded()
         let target = toTop ? CGPoint(x: 0, y: -scrollView.contentInset.top) : bottomOffset
         if animated {
+            // A long jump animated the offset across pages SwiftUI had not drawn yet (a
+            // blank band and stale fragments for ~300 ms). Cut to one screen short of the
+            // target, then animate only that last screen.
+            let screen = scrollView.bounds.height
+            let distance = target.y - scrollView.contentOffset.y
+            if abs(distance) > screen * 1.5 {
+                scrollView.contentOffset = CGPoint(x: 0, y: target.y - (distance > 0 ? screen : -screen))
+                scrollView.layoutIfNeeded()
+            }
             UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
         } else {
             scrollView.contentOffset = target
