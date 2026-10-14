@@ -1731,7 +1731,8 @@ reason = "Focused OpenCode V2 Node bridge harness; it uses a TUI/socket fixture 
 
 [[test]]
 path = "tests/test_opencode_server_entry.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Focused OpenCode server-entry Node harness; no workflow names it yet, so it is run by the OpenCode regression verification command."
 
 [[test]]
 path = "tests/test_nightly_resume_tracks.py"
