@@ -252,7 +252,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const harnessText = t("picker.harness");
   const noMatchesText = t("picker.noMatches");
   const starredText = t("picker.starred");
-  const addAgentText = t("picker.addAgent");
+  const addHarnessText = t("modelPicker.addHarness");
   const fastText = t("picker.fastOn");
   const unavailableText = t("picker.unavailable");
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
@@ -315,6 +315,10 @@ export function ModelPicker(props: ModelPickerProps) {
     return owner;
   }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
+  // Add harness… is the list's last row, after the models: arrows reach it like a model row.
+  const addRow = onAddAgent ? visible.length : -1;
+  const rowCount = visible.length + (onAddAgent ? 1 : 0);
+  const addRowId = `${menuId}-add-harness`;
   const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
@@ -419,7 +423,7 @@ export function ModelPicker(props: ModelPickerProps) {
   // The highlighted row stays in view (Lawrence 2026-10-09 recording: ArrowDown moved the highlight below the
   // visible rows and the list did not follow). The nearest scroll only moves when the row is outside the list's
   // viewport, so a pointer hover (always over a visible row) never scrolls.
-  const activeRowId = visible[active] ? modelRowId(visible[active].id) : undefined;
+  const activeRowId = visible[active] ? modelRowId(visible[active].id) : active === addRow ? addRowId : undefined;
   useLayoutEffect(() => {
     if (!open || !activeRowId) return;
     menu.current?.ownerDocument.getElementById(activeRowId)?.scrollIntoView?.({ block: "nearest" });
@@ -453,8 +457,8 @@ export function ModelPicker(props: ModelPickerProps) {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
   useEffect(() => {
-    if (active >= visible.length) setActive(Math.max(visible.length - 1, 0));
-  }, [active, visible.length]);
+    if (active >= rowCount) setActive(Math.max(rowCount - 1, 0));
+  }, [active, rowCount]);
 
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
@@ -475,6 +479,10 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     onLand(model.id);
     close();
+  };
+  const addHarness = () => {
+    close();
+    onAddAgent?.();
   };
   const refreshCatalog = () => {
     if (!catalogRefresh || refreshStatus === "fetching") return;
@@ -546,12 +554,12 @@ export function ModelPicker(props: ModelPickerProps) {
   };
   const move = (step: number) => {
     // Moving down past the last row opens the More models fold, so keys reach every model.
-    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1) {
+    if (step > 0 && !olderOpen && olderCount > 0 && active >= visible.length - 1 && active !== addRow) {
       setOlderOpen(true);
       setActive(visible.length);
       return;
     }
-    setActive((index) => (visible.length ? (index + step + visible.length) % visible.length : 0));
+    setActive((index) => (rowCount ? (index + step + rowCount) % rowCount : 0));
   };
   const keyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     // Candidate acceptance belongs to the IME. WebKit can report only keyCode 229 on commit.
@@ -574,6 +582,7 @@ export function ModelPicker(props: ModelPickerProps) {
       event.preventDefault();
       const model = visible[active];
       if (model) selectModel(model);
+      else if (active === addRow) addHarness();
     } else if (
       /^[1-9]$/.test(event.key) &&
       !event.ctrlKey &&
@@ -756,23 +765,6 @@ export function ModelPicker(props: ModelPickerProps) {
                   <span className="sr-only">{entry.name}</span>
                 </PickerOption>,
               ])}
-              {onAddAgent && (
-                // Add agent… (BRING-YOUR-OWN-HARNESS): Settings > Agents > Add. Not a tab: a click runs it.
-                <button
-                  type="button"
-                  className={`acpmux-mp-add-agent mt-auto ${railTab}`}
-                  aria-label={addAgentText}
-                  title={addAgentText}
-                  onClick={() => {
-                    close();
-                    onAddAgent();
-                  }}
-                >
-                  <span aria-hidden="true" className="text-heading leading-none">
-                    +
-                  </span>
-                </button>
-              )}
             </PickerOptionList>
           </ScrollArea>
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
@@ -787,7 +779,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 aria-label={searchText}
                 aria-autocomplete="list"
                 aria-controls={`${menuId}-models`}
-                aria-activedescendant={visible[active] ? modelRowId(visible[active].id) : undefined}
+                aria-activedescendant={activeRowId}
                 aria-expanded="true"
                 value={query}
                 placeholder={searchText}
@@ -915,6 +907,22 @@ export function ModelPicker(props: ModelPickerProps) {
                       <ChevronIcon />
                     </span>
                   </button>
+                )}
+                {onAddAgent && (
+                  // Add harness… (Leo 2026-10-14): the list's last row; it opens the Harnesses page.
+                  <>
+                    <hr className="mx-2 my-1 h-0 border-0 border-t-[0.5px] border-edge" />
+                    <PickerOption
+                      type="button"
+                      id={addRowId}
+                      className={`acpmux-mp-add-harness acpmux-mp-row ${modelRow} ${rowFill(active === addRow)}${active === addRow ? " acpmux-mp-active" : ""}`}
+                      onPointerEnter={() => setActive(addRow)}
+                      onClick={addHarness}
+                      active={active === addRow}
+                    >
+                      <span className="acpmux-menu-label min-w-0 flex-1 truncate">{addHarnessText}</span>
+                    </PickerOption>
+                  </>
                 )}
               </PickerOptionList>
             </ScrollArea>

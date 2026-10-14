@@ -91,7 +91,6 @@ async function mount(id: "a" | "b", sessions: AcpmuxSessionEntry[]) {
       <NewTabScreen
         snapshot={noChat(sessions)}
         lastAgent="claude"
-        onAddHarness={noop}
         loadChatsPage={async () => ({ ready: true, chats: [] })}
         onOpenChat={noop}
         onAsk={noop}
