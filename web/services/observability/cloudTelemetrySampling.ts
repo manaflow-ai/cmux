@@ -25,7 +25,8 @@ export type SampledCloudTelemetryBatch = {
 };
 
 /**
- * Keep every non-success span, every non-poll span, and every span of a trace
+ * Keep every non-success span, every non-poll span, every span that reports
+ * client queue drops, and every span of a trace
  * that has a non-success span in this batch. Successful poll spans of other
  * traces are kept with weight `CLOUD_POLL_SAMPLE_WEIGHT` when their trace is
  * sampled, and otherwise dropped. Development builds keep everything.
@@ -42,9 +43,12 @@ export function sampleCloudTelemetryBatch(batch: CloudTelemetryBatch): SampledCl
   const eventfulTraces = new Set(batch.spans.filter((span) => span.outcome !== "success").map((span) => span.traceId));
   const spans = batch.spans.filter((span) => {
     if (span.outcome !== "success" || !POLLED_OPERATIONS.has(span.operation) || eventfulTraces.has(span.traceId)) return true;
-    if (!isSampledCloudPollTrace(span.traceId)) return false;
-    sampleWeights.set(span.eventId, CLOUD_POLL_SAMPLE_WEIGHT);
-    return true;
+    if (isSampledCloudPollTrace(span.traceId)) {
+      sampleWeights.set(span.eventId, CLOUD_POLL_SAMPLE_WEIGHT);
+      return true;
+    }
+    // The only record of a client-side queue drop rides on the next span; keep it, unweighted.
+    return (span.droppedCount ?? 0) > 0;
   });
   return { spans, sampleWeights };
 }

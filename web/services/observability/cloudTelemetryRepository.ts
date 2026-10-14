@@ -16,6 +16,19 @@ export type StoredCloudDiagnostic = {
   readonly attempts: number;
 };
 
+/** An account's routine diagnostics budget per minute: storage bytes of newly accepted spans. */
+export const CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE = 262_144;
+/**
+ * A batch that carries a failure, timeout, cancellation or sign-in record may
+ * use a reserve above the routine budget, so routine success detail that fills
+ * the minute cannot refuse the evidence the budget exists to protect.
+ */
+export const CLOUD_DIAGNOSTICS_PRIORITY_BYTES_PER_MINUTE = CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE + 131_072;
+
+function isPriorityCloudDiagnostic(span: CloudTelemetrySpan): boolean {
+  return span.outcome !== "success" || span.auth !== undefined;
+}
+
 /** Account quota and deduplication are transactional across all server instances. */
 export async function acceptCloudTelemetry(
   userId: string, batch: CloudTelemetryBatch,
@@ -36,7 +49,10 @@ export async function acceptCloudTelemetry(
     // The sample weight is ingest policy, not submitted evidence, so it stays outside the hash.
     const sampleWeight = sampleWeights?.get(span.eventId);
     const stored = { ...payload, backend, ...(sampleWeight && sampleWeight !== 1 ? { sampleWeight } : {}) };
-    return { id: span.eventId, payload: canonicalJSON(stored), hash: createHash("sha256").update(encoded).digest("hex") };
+    return {
+      id: span.eventId, payload: canonicalJSON(stored), hash: createHash("sha256").update(encoded).digest("hex"),
+      priority: isPriorityCloudDiagnostic(span),
+    };
   });
   return cloudDb().transaction(async (tx) => {
     await tx.execute(sql`set local statement_timeout = '3000ms'`);
@@ -55,10 +71,11 @@ export async function acceptCloudTelemetry(
     if (pending.length === 0) return rows.length;
     const bytes = pending.reduce((sum, row) => sum + Buffer.byteLength(row.payload), 0);
     const minute = Math.floor(Date.now() / 60_000);
+    const limit = pending.some((row) => row.priority) ? CLOUD_DIAGNOSTICS_PRIORITY_BYTES_PER_MINUTE : CLOUD_DIAGNOSTICS_BYTES_PER_MINUTE;
     const quota = await tx.execute(sql`
       insert into cloud_diagnostic_budgets (user_id, minute, bytes) values (${userId}, ${minute}, ${bytes})
       on conflict (user_id, minute) do update set bytes = cloud_diagnostic_budgets.bytes + excluded.bytes
-      where cloud_diagnostic_budgets.bytes + excluded.bytes <= 262144 returning bytes
+      where cloud_diagnostic_budgets.bytes + excluded.bytes <= ${limit} returning bytes
     `);
     if (!quota[0]) throw new CloudTelemetryLimitError();
     await tx.execute(sql`

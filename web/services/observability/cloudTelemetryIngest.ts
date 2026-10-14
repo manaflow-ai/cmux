@@ -2,10 +2,12 @@ import { trace } from "@opentelemetry/api";
 import { Effect } from "effect";
 import { readBoundedJsonObject } from "../apns/routePolicy";
 import { CLOUD_TELEMETRY_MAX_BYTES, parseCloudTelemetryUpload, type CloudTelemetryBatch, type CloudTelemetryUpload } from "./cloudTelemetryContract";
+import { cloudTelemetryAccountKey } from "./cloudTelemetryExport";
 import { sampleCloudTelemetryBatch } from "./cloudTelemetrySampling";
 
 export type CloudTelemetryIngestDependencies = {
   readonly authenticate: (request: Request) => Promise<{ readonly id: string } | null>;
+  /** The pre-authentication gate. `false` answers 429 with refusal `ingress_rate_limited`. */
   readonly checkIngress: (request: Request) => Promise<boolean>;
   /** Stores the sampled spans. `sampleWeights` lists spans that stand for more than one submitted span. */
   readonly accept: (userId: string, batch: CloudTelemetryBatch, sampleWeights: ReadonlyMap<string, number>) => Promise<number>;
@@ -26,12 +28,17 @@ export function makeCloudTelemetryHandler(dependencies: CloudTelemetryIngestDepe
 function ingest(request: Request, dependencies: CloudTelemetryIngestDependencies) {
   return Effect.gen(function* () {
     const allowed = yield* Effect.tryPromise(() => dependencies.checkIngress(request));
-    if (!allowed) return response(429, "rate_limited");
+    if (!allowed) {
+      // Before authentication and parsing, so only the cause is known. The route adds the rule ID.
+      recordUploadOutcome({ submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: "ingress_rate_limited" });
+      return response(429, "rate_limited");
+    }
     const encoding = request.headers.get("content-encoding");
     if (encoding && encoding !== "identity") return response(415, "unsupported_encoding");
     if (request.headers.get("content-type")?.split(";")[0]?.trim() !== "application/json") return response(415, "unsupported_content_type");
     const user = yield* Effect.tryPromise(() => dependencies.authenticate(request));
     if (!user) return response(401, "unauthorized");
+    recordAccount(user.id);
     const body = yield* Effect.tryPromise(() => readBoundedJsonObject(request, CLOUD_TELEMETRY_MAX_BYTES));
     if (!body.ok) {
       recordUploadOutcome({ submitted: 0, accepted: 0, rejected: 0, coerced: 0, refusal: body.error });
@@ -43,7 +50,10 @@ function ingest(request: Request, dependencies: CloudTelemetryIngestDependencies
       return response(400, "invalid_diagnostics");
     }
     const { upload } = parsed;
-    yield* store(user.id, upload.batch, dependencies);
+    recordInstance(upload.batch.client.instanceId);
+    yield* store(user.id, upload.batch, dependencies).pipe(
+      Effect.tapError((error) => Effect.sync(() => recordUploadOutcome({ ...uploadCounts(upload), accepted: 0, refusal: storeRefusal(error) }))),
+    );
     recordUploadOutcome(uploadCounts(upload));
     // Sampled-out and rejected spans are acknowledged too: the client must not retry or re-queue them.
     return new Response(JSON.stringify({
@@ -93,6 +103,28 @@ function recordUploadOutcome(outcome: UploadOutcome): void {
     ...(outcome.refusal ? { "cmux.telemetry.refusal": outcome.refusal } : {}),
     ...(outcome.rejectedReasons ? { "cmux.telemetry.rejected_reasons": outcome.rejectedReasons } : {}),
   });
+}
+
+/** The refusal code of a storage error, matching the status `errorResponse` answers. */
+function storeRefusal(error: unknown): string {
+  if (error instanceof CloudTelemetryLimitError) return "account_byte_budget";
+  if (error instanceof CloudTelemetryConflictError) return "event_conflict";
+  return "storage_unavailable";
+}
+
+/**
+ * The route span carries the same keyed account hash and install ID as the
+ * exported client spans, so Axiom can join upload outcomes to the accounts and
+ * installs that sent them. Without the key the account is left out, never sent raw.
+ */
+function recordAccount(userId: string): void {
+  const key = process.env.CMUX_CLOUD_TELEMETRY_ID_KEY?.trim();
+  if (!key || key.length < 32) return;
+  trace.getActiveSpan()?.setAttribute("cmux.account_key", cloudTelemetryAccountKey(key, userId));
+}
+
+function recordInstance(instanceId: string | undefined): void {
+  if (instanceId) trace.getActiveSpan()?.setAttribute("service.instance.id", instanceId);
 }
 
 function errorResponse(error: unknown): Response {
