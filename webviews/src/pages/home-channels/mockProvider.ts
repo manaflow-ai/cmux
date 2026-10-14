@@ -346,6 +346,8 @@ export class MockHomeProvider implements PageClient {
     private readonly draft?: MockDraft,
     longThread = false,
     private readonly runMode: MockRuns = "none",
+    /** The owner refuses pins and marks (the page puts the row back and says why). */
+    private readonly refuseInbox = false,
     media = false,
   ) {
     if (longThread) addLongThread(this.data);
@@ -455,7 +457,7 @@ export class MockHomeProvider implements PageClient {
     const id = String(params.conversation ?? "");
     switch (op) {
       case HomeOps.inbox:
-        return { me, conversations: this.data.conversations, rev: 1 } as R;
+        return { me, conversations: this.data.conversations, rev: 1, inboxState: true } as R;
       case HomeOps.page: {
         const found = this.data.conversations.find((c) => c.id === id);
         if (!found) throw pageError("cmux.home.not_found", id);
@@ -483,6 +485,25 @@ export class MockHomeProvider implements PageClient {
           hasMore: replies.length > limit,
           thread: thread ?? { root: root.id, replyCount: 0, authors: [] },
         } as R;
+      }
+      case HomeOps.pin:
+      case HomeOps.markUnread: {
+        if (this.refuseInbox) throw pageError("cmux.page.unavailable", "this cmux instance keeps no pins");
+        const index = this.data.conversations.findIndex((c) => c.id === id);
+        if (index < 0) throw pageError("cmux.home.not_found", id);
+        const current = this.data.conversations[index]!;
+        const pinned = op === HomeOps.pin ? params.pinned === true : current.pinned;
+        const markedUnread = op === HomeOps.markUnread ? params.unread === true : current.markedUnread === true;
+        const change = {
+          conversation: id,
+          pinned,
+          markedUnread,
+          ...(pinned ? { pinPosition: op === HomeOps.pin && !current.pinned ? Date.now() : current.pinPosition } : {}),
+        };
+        const updated = { ...current, pinned, markedUnread, pinPosition: change.pinPosition };
+        this.data.conversations[index] = updated;
+        this.emit({ inbox: [change] });
+        return { conversation: id } as R;
       }
       case HomeOps.read: {
         const index = this.data.conversations.findIndex((c) => c.id === id);

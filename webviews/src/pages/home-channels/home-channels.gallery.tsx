@@ -24,6 +24,8 @@ type Props = {
   longThread?: boolean;
   /** Sample agent runs in the Chief DM. */
   runs?: MockRuns;
+  /** The owner refuses pins and marks. */
+  refuseInbox?: boolean;
   /** Adds #media: images, a video with its poster and a PDF. */
   media?: boolean;
 };
@@ -35,10 +37,13 @@ function HomeChannelsGallery({
   draft,
   longThread = false,
   runs = "none",
+  refuseInbox = false,
   media = false,
 }: Props) {
   const [store] = useState(() => {
-    const created = new HomeChannelsStore(offline ? null : new MockHomeProvider(draft, longThread, runs, media));
+    const created = new HomeChannelsStore(
+      offline ? null : new MockHomeProvider(draft, longThread, runs, refuseInbox, media),
+    );
     if (select)
       void created.select(select).then(() => {
         if (thread) void created.openThread(thread);
@@ -221,6 +226,66 @@ export default componentEntry<Props>({
           .querySelector(field)
           ?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
+      },
+    },
+    "row-menu": {
+      note: "Right-click a list row: Pin, Mark as Read (it has unread messages) and Copy Link, on the popup layer.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-list-row="c-release"]'));
+        await ctx.contextMenu({ selector: '[data-list-row="c-release"]' });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Mark as Read" }));
+      },
+    },
+    pin: {
+      note: "Shift-F10 on a row and Pin: the row moves under a quiet Pinned label; a later pin goes after it. Mark as Unread shows the dot; opening the conversation clears it.",
+      props: { select: "c-chief" },
+      checks: {
+        layoutShiftMax: {
+          value: 0.2,
+          reason: "Pinning moves the row to the top of the list and adds the Pinned label; the other rows move down.",
+        },
+      },
+      play: async (ctx) => {
+        const row = (id: string) => ctx.document.querySelector<HTMLElement>(`[data-list-row="${id}"]`);
+        const order = () =>
+          [...ctx.document.querySelectorAll("[data-list-row]")].map((node) => node.getAttribute("data-list-row"));
+        await ctx.waitFor(() => row("c-design"));
+        await ctx.focus({ selector: '[data-list-row="c-design"]' });
+        await ctx.press("Shift+F10");
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Pin" }));
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-list-section") && order()[0] === "c-design");
+        await ctx.contextMenu({ selector: '[data-list-row="c-reviewer"]' });
+        await ctx.click({ role: "menuitem", name: "Pin" });
+        await ctx.waitFor(() => order().slice(0, 2).join() === "c-design,c-reviewer");
+        // Mark as Unread on a read conversation, then open it: the mark goes.
+        await ctx.contextMenu({ selector: '[data-list-row="c-design"]' });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => row("c-design")?.classList.contains("unread"));
+        await ctx.click({ selector: '[data-list-row="c-design"]' });
+        await ctx.waitFor(() => row("c-design") && !row("c-design")!.classList.contains("unread"));
+      },
+    },
+    "pin-refused": {
+      note: "The owner refuses the pin: the row goes back to its place and the page says why.",
+      props: { select: "c-chief", refuseInbox: true },
+      checks: {
+        layoutShiftMax: {
+          value: 0.05,
+          reason: "The refusal shows the error line above the timeline; the timeline moves down by its height.",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-list-row="c-design"]'));
+        await ctx.contextMenu({ selector: '[data-list-row="c-design"]' });
+        await ctx.click({ role: "menuitem", name: "Pin" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".hc-error") !== null &&
+            ctx.document.querySelector(".lg-list-section") === null &&
+            !ctx.document.querySelector('[data-list-row="c-design"]')?.hasAttribute("data-pinned"),
+        );
       },
     },
     hover: {
