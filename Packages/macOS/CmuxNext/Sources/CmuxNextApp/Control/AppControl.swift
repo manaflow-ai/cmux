@@ -280,7 +280,9 @@ final class AppControl {
                 let attachments = call.params["attachments"]?.boolValue ?? false
                 // `new`: one more fixture tab, also when the window lists one already.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
+                // `showcase`: false leaves out the Chief's Markdown and link card (A/B timing of the plain history).
+                let showcase = call.params["showcase"]?.boolValue ?? true
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, showcase: showcase, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as

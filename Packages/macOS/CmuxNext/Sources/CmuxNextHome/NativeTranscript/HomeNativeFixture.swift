@@ -1,6 +1,7 @@
 #if DEBUG
 public import AppKit
 import CmuxHomeCore
+import os
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
 /// `HomeNativeTranscriptView` (MessagesLab's code) over a
@@ -14,13 +15,16 @@ public final class HomeNativeFixture {
     /// No latency; the Chief types for 1.5 s before it answers (the typing
     /// indicator shows, as in MessagesLab's script). The Chief's history holds
     /// one thread (`chiefThread`), so the thread views can be opened, and ends with the Chief's
-    /// Markdown and a link card (`chiefShowcase`); `startStream` streams a Chief reply in.
-    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500),
-                                                       chiefThread: true, chiefShowcase: true))
+    /// Markdown and a link card (`chiefShowcase`, unless `showcase` is false); `startStream` streams a
+    /// Chief reply in.
+    private let source: MockHomeSource
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     /// The conversation shown (the Chief's), once loaded.
     private var conversation: ConversationID?
+    /// The URLs a link or attachment click would have opened in another app (never opened).
+    public private(set) var blockedOpens: [String] = []
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "home-fixture")
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
@@ -28,8 +32,10 @@ public final class HomeNativeFixture {
     /// PDF from me (prepared and sent through the store like a drop).
     private let attachments: Bool
 
-    public init(attachments: Bool = false) {
+    public init(attachments: Bool = false, showcase: Bool = true) {
         self.attachments = attachments
+        source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500),
+                                               chiefThread: true, chiefShowcase: showcase))
         store = HomeStore(source: source)
         store.start()
         loading = Task { [weak self] in await self?.load() }
@@ -54,6 +60,12 @@ public final class HomeNativeFixture {
         container.addSubview(view)
         self.view = view
         conversation = id
+        // A driven click on the fixture's links or files never opens another app on the capture Mac
+        // (round 4: a Markdown link opened Safari); the URL is logged and kept for the socket.
+        view.debugReplaceExternalOpens { [weak self] url in
+            HomeNativeFixture.log.notice("fixture: would open \(url.absoluteString, privacy: .public)")
+            self?.blockedOpens.append(url.absoluteString)
+        }
         await view.binding.opened()
         if attachments { await addAttachments(in: id) }
     }

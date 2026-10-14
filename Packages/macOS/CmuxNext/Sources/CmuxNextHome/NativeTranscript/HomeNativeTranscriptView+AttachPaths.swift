@@ -120,6 +120,8 @@ extension HomeNativeTranscriptView {
     public func debugReplyNewest(mine: Bool) -> String? { transcript.debugReplyNewest(mine: mine) }
     /// A real Esc key press through the app's event queue (`outside`: the key focus leaves the pane first).
     public func debugPostEscape(outside: Bool) { transcript.debugPostEscape(outside: outside) }
+    /// Links and attachments call `handler` instead of opening another app (DEBUG fixtures; nil restores).
+    public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) { transcript.debugReplaceExternalOpens(handler) }
     /// Esc as a key window would dispatch it (the focused field's own Esc, else the app's local monitors).
     public func debugKeyEscape() { transcript.debugKeyEscape() }
     /// A left click at a window point (bottom-left origin) through the real mouse path; `count` 2: a double click.

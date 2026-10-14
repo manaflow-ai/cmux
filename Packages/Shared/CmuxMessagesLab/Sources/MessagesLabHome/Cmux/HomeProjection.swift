@@ -547,7 +547,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }).first else { return }
         let media = self.media
         // task-owner: one fetch; ends when the file opens
-        Task { if let url = try? await media.original(ref) { NSWorkspace.shared.open(url) } }
+        Task { [weak self] in if let url = try? await media.original(ref) { self?.controller.openExternally(url) } }
     }
 
     /// Test seams for the alias table.

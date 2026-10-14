@@ -17,9 +17,14 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
     /// The next page shows the attachment fixture (`{"attachments": true}`).
     var nextAttachments = false
+    /// The next page ends the Chief's history with its Markdown and a link card (`{"showcase": false}`: not).
+    var nextShowcase = true
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
+
+    /// The URLs the open fixtures' clicks would have opened in another app (blocked, never opened).
+    var blockedOpens: [String] { fixtures.values.flatMap(\.blockedOpens) }
 
     /// Streams a Chief reply into every open fixture (`HomeNativeFixture.startStream`).
     func startStream() -> Bool {
@@ -28,7 +33,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments)
+        let fixture = HomeNativeFixture(attachments: nextAttachments, showcase: nextShowcase)
         nextAttachments = false
         fixtures[key] = fixture
         return fixture.container
@@ -176,20 +181,25 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             guard let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else { return .object(["error": .string("click needs x and y")]) }
             let clicked = view.debugClick(atWindow: CGPoint(x: x, y: y), count: params["count"]?.intValue ?? 1)
             return .object(["ok": .bool(clicked), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "blocked_opens":
+            // What the fixture's link and attachment clicks would have opened (the fixture never opens apps).
+            let urls = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.blockedOpens ?? []
+            return .object(["ok": .bool(true), "urls": .array(urls.map { .string($0) })])
         case "stream":
             // The fixture's Chief streams a reply in, a word every 120 ms (the mock owner's updates).
             ok = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.startStream() ?? false
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream or thread_state")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, key_escape, click, click_replies, stream, blocked_opens or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, showcase: Bool = true, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextShowcase = showcase
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])

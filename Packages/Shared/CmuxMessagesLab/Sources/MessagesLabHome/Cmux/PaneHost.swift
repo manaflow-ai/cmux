@@ -335,6 +335,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     weak var intents: ChatIntents?
     /// cmux: a click on an app link (`URL.isChiefSubagentLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: opens a link or an attachment's file in its app (the system's). The DEBUG Home fixture
+    /// replaces it so a driven click never opens an app on the capture Mac (it logs the URL).
+    var openExternally: (URL) -> Void = { NSWorkspace.shared.open($0) }
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity

@@ -509,6 +509,12 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// Automation (DEBUG fixtures): links and attachments call `handler` with the URL they would open
+    /// instead of opening it in another app (nil restores the system's open).
+    public func debugReplaceExternalOpens(_ handler: ((URL) -> Void)?) {
+        controller.openExternally = handler ?? { NSWorkspace.shared.open($0) }
+    }
+
     /// Automation (DEBUG socket): scrolls the transcript by `dy` points
     /// through AppKit's scroll view.
     public func debugScroll(by dy: CGFloat) {
