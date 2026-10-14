@@ -64,9 +64,10 @@ extension SidebarAvatar {
         let image = NSImage(size: size)
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(diameter * 2), pixelsHigh: Int(diameter * 2),
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return image }
+        // The rep's point size first: the context takes its scale from it.
         rep.size = size
+        guard let context = NSGraphicsContext(bitmapImageRep: rep) else { return image }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         SidebarAvatarView.draw(self, in: NSRect(origin: .zero, size: size), strong: true)
