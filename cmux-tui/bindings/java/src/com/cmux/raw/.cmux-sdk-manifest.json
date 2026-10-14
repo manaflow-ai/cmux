@@ -236,9 +236,14 @@
       "size": 965
     },
     {
+      "path": "BrowserProviderHosting.java",
+      "sha256": "81254a25916d575dbc99bae6cbe93cfe57a85b0cf51a66a97384f8b619409f2d",
+      "size": 934
+    },
+    {
       "path": "BrowserProviderSnapshot.java",
-      "sha256": "41370fb4c153461cf06148bb280bb7a1b1fc9ee406cfa7b2c9abc3eb490a1f55",
-      "size": 6364
+      "sha256": "5fe55ba0b96a2177df44af7b999e452be74eef87b0fb30977c4a51e5b96ea7d8",
+      "size": 7032
     },
     {
       "path": "BrowserProviderTarget.java",
@@ -557,8 +562,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6941012919091e38c4f25a1305e3dcb60fa25b1bdda355c8fada6f70e005317c",
-      "size": 69547
+      "sha256": "57170ffdbd75e4212516390720172040c7a6a5e2ae55474a9d375928e87b2686",
+      "size": 69894
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -681,6 +686,16 @@
       "size": 3695
     },
     {
+      "path": "ConversationLinkResolveRequest.java",
+      "sha256": "1837e49d51b5d54a10f4d6d85683287552dd58a6b0911b3926a71a8f66f7b8bb",
+      "size": 2070
+    },
+    {
+      "path": "ConversationLinkResolveResult.java",
+      "sha256": "92546904dce55e9b48bbdf8e922c0bacaee16d782b188ac046306646503af5ee",
+      "size": 5565
+    },
+    {
       "path": "ConversationListRequest.java",
       "sha256": "7ae8f14adab2508a51585df281da3361d6653298df97cf4082e7f3922d80fe2b",
       "size": 1399
@@ -692,8 +707,8 @@
     },
     {
       "path": "ConversationMessage.java",
-      "sha256": "4fb0efda86e9c54fb286d0ed02ccd93b6c75c05229223236809e9adbe1290af9",
-      "size": 11424
+      "sha256": "69e98a5e2a6d87a88d492a4c44f35b608a605d38e75d48c503b3419971222716",
+      "size": 12079
     },
     {
       "path": "ConversationOpRequest.java",
@@ -776,14 +791,29 @@
       "size": 4113
     },
     {
+      "path": "ConversationThreadResolution.java",
+      "sha256": "06e9654af5a4111c2a8a0c2771bbfb0070dc422636ef5cdfce78a607bae4967b",
+      "size": 3146
+    },
+    {
       "path": "ConversationThreadResult.java",
       "sha256": "9b9d7a1bf082d797d56a9bcd48def5825f253bb10c11045c9777224cedca0bf7",
       "size": 4248
     },
     {
+      "path": "ConversationThreadState.java",
+      "sha256": "1d579ed3ec69ebe05b7eb7c4be9212f5ed1fb1128b521187e80b8719ae903cb2",
+      "size": 3185
+    },
+    {
+      "path": "ConversationThreadStatus.java",
+      "sha256": "6683248a7ea255a037f2824828e11b4606a9594f294be3a7b5da6cd7b7b2047b",
+      "size": 944
+    },
+    {
       "path": "ConversationThreadSummary.java",
-      "sha256": "11ab73ee622cb40c3e0bfb0dba31e943070f0571d96d91604a1b8d7e01a2c736",
-      "size": 5182
+      "sha256": "9cd5e3b38121c72326b0d0096be5505d30bfc2bf0cc89e6f243e1591ce7e3c4c",
+      "size": 8370
     },
     {
       "path": "ConversationTypingEvent.java",
@@ -1097,8 +1127,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "03bb8fa9273d1a0e4443a32daed943620fb5f8f2316155993695a7638c273cd8",
-      "size": 60458
+      "sha256": "b0850ff8a31220d3447da2bd386057b66afbadee2f53cc63c752c7075967c48c",
+      "size": 60749
     },
     {
       "path": "GetBlobRequest.java",
@@ -1777,7 +1807,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6557c202b3c7ea7f71dc8bd6ce0ec0876cbdb4f5a2aa52a31ca3f600aa39e811",
+      "sha256": "3a0574e32459d14998e90cf77e1866a9a6ee3c235e5974b308c95ad2316b6de0",
       "size": 6485
     },
     {
@@ -1842,8 +1872,8 @@
     },
     {
       "path": "RegisterBrowserProviderRequest.java",
-      "sha256": "acdfe2e16a16349f153a428278887b28b40c62fe52c5094ed366ff76963a80b1",
-      "size": 5504
+      "sha256": "ad238733ef694138af3e65dfd5d4b04611362819bc38961f07bc898068b0c7cd",
+      "size": 6208
     },
     {
       "path": "ReleaseAttachedViewSizeRequest.java",
@@ -3037,7 +3067,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609",
+  "ir_sha256": "a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

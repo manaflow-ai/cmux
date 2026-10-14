@@ -5,7 +5,14 @@
 // not retracted) plus the loaded replies the stats did not count yet; without stats, from the
 // loaded window. A retracted reply never counts (it shows as deleted in the thread).
 import type { HomeDraft } from "./drafts";
-import type { HomeConversation, HomeMessage, HomePart, HomeThreadStats } from "./types";
+import type {
+  HomeConversation,
+  HomeMessage,
+  HomePart,
+  HomeThreadObject,
+  HomeThreadStats,
+  HomeThreadStatus,
+} from "./types";
 
 /** Messages closer than this from the same author share one head. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -57,6 +64,33 @@ export function conversationName(conversation: HomeConversation, me: string | un
   return names.join(", ");
 }
 
+/** A thread's status from its root's object and the newest live reply's seq (the owner's rule):
+ * resolved only while no reply came after the resolution. */
+export function threadStatus(thread: HomeThreadObject | undefined, lastReplySeq: number | undefined): HomeThreadStatus {
+  const resolved = thread?.resolved;
+  return resolved && (lastReplySeq === undefined || lastReplySeq <= resolved.seq) ? "resolved" : "open";
+}
+
+/** The longest derived title (the row truncates by width before this). */
+const TITLE_MAX = 120;
+
+/** A thread's title: its own, else the root's first non-empty line without Markdown marks or a
+ * trailing colon. */
+export function threadTitle(root: HomeMessage): string {
+  if (root.thread?.title) return root.thread.title;
+  const line =
+    messageText(root)
+      .split("\n")
+      .map((part) => part.trim())
+      .find((part) => part.length > 0) ?? "";
+  const plain = line
+    .replace(/^#+\s+|^[-*>]\s+|^\d+\.\s+/, "")
+    // Paired emphasis and code marks only: `fix_sidebar_bug` and `~/path` keep their characters.
+    .replace(/(\*\*|__|~~|\*|_|`)(\S(?:.*?\S)?)\1/g, "$2")
+    .replace(/[:;,]\s*$/, "");
+  return plain.length > TITLE_MAX ? `${plain.slice(0, TITLE_MAX - 1)}…` : plain;
+}
+
 /** The thread a message belongs to (its root's id), or undefined for a top-level message. */
 export function threadOf(message: HomeMessage): string | undefined {
   const root = message.threadRoot ?? message.replyTo?.message;
@@ -95,7 +129,17 @@ export interface ThreadSummary {
 export type TimelineRow =
   | { kind: "day"; key: string; at: number }
   | { kind: "new"; key: string }
-  | { kind: "message"; key: string; message: HomeMessage; head: boolean; thread?: ThreadSummary }
+  | {
+      kind: "message";
+      key: string;
+      message: HomeMessage;
+      head: boolean;
+      thread?: ThreadSummary;
+      /** Indent level in the thread panel (0 = none). */
+      depth?: number;
+      /** The reply this one answers, shown above it when the indent is capped. */
+      parent?: HomeMessage;
+    }
   | { kind: "draft"; key: string; draft: HomeDraft; head: boolean }
   | { kind: "replies"; key: string; count: number };
 
@@ -202,6 +246,59 @@ export function threadMessages(
   };
 }
 
+/** Most indent levels the thread panel draws; a deeper reply keeps this indent and names its parent. */
+export const MAX_THREAD_INDENT = 4;
+
+/** One reply in the thread tree: its depth (1 = a reply to the root) and its parent when that is
+ * another reply. */
+export interface ThreadNode {
+  message: HomeMessage;
+  depth: number;
+  parent?: HomeMessage;
+}
+
+/** The thread's replies in tree order (each reply after its parent, siblings by seq). The parent is
+ * `replyTo` (threads nest without a limit, conversation-tree-v1); a reply whose parent is the root,
+ * is not loaded, or is outside the thread is a first-level reply. */
+export function threadTree(replies: readonly HomeMessage[], root: string): ThreadNode[] {
+  const byId = new Map(replies.map((message) => [message.id, message]));
+  const children = new Map<string, HomeMessage[]>();
+  for (const message of replies) {
+    const parent = message.replyTo?.message;
+    const key = parent && parent !== root && parent !== message.id && byId.has(parent) ? parent : root;
+    const list = children.get(key);
+    if (list) list.push(message);
+    else children.set(key, [message]);
+  }
+  const nodes: ThreadNode[] = [];
+  const seen = new Set<string>();
+  const walk = (id: string, depth: number) => {
+    for (const message of (children.get(id) ?? []).sort((a, b) => a.seq - b.seq)) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      const parent = id === root ? undefined : byId.get(id);
+      nodes.push(parent ? { message, depth, parent } : { message, depth });
+      walk(message.id, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return nodes;
+}
+
+/** The link of a conversation or one of its messages (cmux-conversation `format_link`): the same
+ * text in every UI, opened by the daemon's `conversation-link-resolve`. */
+export function messageLink(conversation: string, message?: string, scheme = "cmux"): string {
+  return message
+    ? `${scheme}://conversation/${conversation}/message/${message}`
+    : `${scheme}://conversation/${conversation}`;
+}
+
+/** The link a page URL's hash carries (`#/conversation/<id>[/message/<id>]`), as a cmux link. */
+export function hashLink(hash: string): string | undefined {
+  const match = /^#\/(conversation\/[A-Za-z0-9_]+(?:\/message\/[A-Za-z0-9_]+)?)\/?$/.exec(hash);
+  return match ? `cmux://${match[1]}` : undefined;
+}
+
 /** Merges a page or event messages into an ascending window by seq; a newer copy replaces the old one. */
 export function mergeMessages(
   window: readonly HomeMessage[],
@@ -226,10 +323,15 @@ export function withDraft(rows: TimelineRow[], draft: HomeDraft | undefined): Ti
 }
 
 /** My newest top-level text message in the window that I can still edit (Up in the composer). */
-export function lastEditable(messages: readonly HomeMessage[], me: string | undefined): HomeMessage | undefined {
+export function lastEditable(
+  messages: readonly HomeMessage[],
+  me: string | undefined,
+  /** Thread roots: the timeline shows them as thread rows, so they are edited in the sheet. */
+  roots: ReadonlySet<string> = new Set(),
+): HomeMessage | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
-    if (message.author !== me || message.retracted || threadOf(message)) continue;
+    if (message.author !== me || message.retracted || threadOf(message) || roots.has(message.id)) continue;
     if (message.parts.length > 0 && message.parts.every((part) => part.type === "text")) return message;
   }
   return undefined;
@@ -275,4 +377,66 @@ export function disambiguators(
     });
   }
   return out;
+}
+
+/** The id prefix of a message I sent that the owner has not shown yet. */
+export const PENDING_PREFIX = "pending:";
+
+/** My pending sends of one conversation as messages after the window (seq after `afterSeq`), so
+ * the timeline and the thread tree place them like owner messages. */
+export function pendingMessages(
+  pending: readonly { key: string; conversation: string; text: string; threadRoot?: string; replyTo?: string; createdAt: number }[],
+  conversation: string | undefined,
+  me: string | undefined,
+  afterSeq: number,
+): HomeMessage[] {
+  if (!conversation || !me) return [];
+  return pending
+    .filter((entry) => entry.conversation === conversation)
+    .map((entry, index) => {
+      const message: HomeMessage = {
+        id: `${PENDING_PREFIX}${entry.key}`,
+        conversation,
+        seq: afterSeq + 1 + index,
+        author: me,
+        createdAt: entry.createdAt,
+        retracted: false,
+        parts: [{ type: "text", text: entry.text, mentions: [] }],
+        reactions: [],
+        clientMessageId: entry.key,
+      };
+      if (entry.threadRoot) message.threadRoot = entry.threadRoot;
+      if (entry.replyTo) message.replyTo = { message: entry.replyTo, partIndex: 0 };
+      return message;
+    });
+}
+
+/** Every conversation, newest activity first (the one chronological list: rooms and people). */
+export function chronological(conversations: Iterable<HomeConversation>): HomeConversation[] {
+  return [...conversations].sort((a, b) => activityAt(b) - activityAt(a) || (a.id < b.id ? -1 : 1));
+}
+
+/** A conversation's last activity: its last message, else its last change (a new, empty room). */
+export function activityAt(conversation: HomeConversation): number {
+  return conversation.lastAt ?? conversation.updatedAt;
+}
+
+/** A Chief's live state as its row and header show it. */
+export type ChiefState = "working" | "waiting" | "idle";
+
+/** The state of the Chief a direct message is with (undefined: not a Chief's direct message).
+ * Working: it types or writes a reply now, or its last message carries running work. Waiting:
+ * its last message carries work that waits for me. Else idle. */
+export function chiefState(
+  conversation: HomeConversation,
+  me: string | undefined,
+  active: ReadonlySet<string> | undefined,
+): ChiefState | undefined {
+  const others = conversation.participants.filter((p) => p.id !== me);
+  const chief = others.length === 1 && others[0]!.chief ? others[0]! : undefined;
+  if (!chief) return undefined;
+  if (active?.has(chief.id)) return "working";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "waiting") return "waiting";
+  if (conversation.lastAuthor === chief.id && conversation.lastWork === "running") return "working";
+  return "idle";
 }

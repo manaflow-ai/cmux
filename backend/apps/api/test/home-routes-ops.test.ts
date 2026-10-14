@@ -125,7 +125,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect(state.read_cursors[alice.user]).toBe(2)
   })
 
-  it("threads: thread_root over HTTP, one level, the sender's cursor, and no root below the since_join floor (cx-59n8.4)", async () => {
+  it("threads: thread_root over HTTP, nested replies, the sender's cursor, and no root below the since_join floor (cx-59n8.4)", async () => {
     const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
       op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
     const { alice, bob, id } = await twoPersonGroup("threads")
@@ -136,6 +136,10 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const replyId = reply.json.value.message_id as string
     expect((await history(alice.token, id)).find((m) => m.id === replyId)?.thread_root).toBe(root)
     expect(refused(await send(bob.token, id, "nested", { thread_root: replyId }))).toBe("invalid_thread_root")
+    // Nested threads (conversation-tree-v1): a reply to a thread reply with no thread_root joins the root's thread.
+    const deep = await send(alice.token, id, "deep", { reply_to: { message_id: replyId, part_index: 0 } })
+    expect(deep.json.ok).toBe(true)
+    expect((await history(alice.token, id)).find((m) => m.id === deep.json.value.message_id)?.thread_root).toBe(root)
     expect(refused(await send(bob.token, id, "nowhere", { thread_root: `msg_${"0".repeat(26)}` }))).toBe("invalid_thread_root")
     // Alice is behind (Bob's reply is unread to her): her send keeps her cursor; Bob was caught up: his moves.
     await send(alice.token, id, "behind")
@@ -153,6 +157,9 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
     expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
     expect(refused(await send(carol.token, id, "late", { thread_root: root }))).toBe("invalid_thread_root")
+    // A reply Carol can see whose root she cannot: replying to it does not derive the hidden root.
+    const later = (await send(alice.token, id, "later", { thread_root: root })).json.value.message_id as string
+    expect(refused(await send(carol.token, id, "late-deep", { reply_to: { message_id: later, part_index: 0 } }))).toBe("invalid_thread_root")
     const fresh = (await send(alice.token, id, "fresh")).json.value.message_id as string
     expect((await send(carol.token, id, "in-fresh", { thread_root: fresh })).json.ok).toBe(true)
   })
@@ -178,7 +185,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect(v.replies.every((m) => m.thread_root === root)).toBe(true)
     expect(v.has_more).toBe(false)
     const last = v.replies[2]!
-    const summary = { root, reply_count: 3, last_reply_seq: last.seq, last_reply_at: last.created_at, authors: [bob.user, alice.user] }
+    const summary = { root, reply_count: 3, last_reply_seq: last.seq, last_reply_at: last.created_at, authors: [bob.user, alice.user], status: "open" }
     expect(v.thread).toEqual(summary)
 
     // Paging: after_seq is exclusive; has_more is exact (a page that ends at the last reply says false).
@@ -192,7 +199,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect(page2.thread).toEqual(summary)
 
     // A root with no replies answers with an empty thread.
-    expect((await thread(bob.token, id, lonely)).json.value).toMatchObject({ replies: [], has_more: false, thread: { root: lonely, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [] } })
+    expect((await thread(bob.token, id, lonely)).json.value).toMatchObject({ replies: [], has_more: false, thread: { root: lonely, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [], status: "open" } })
 
     // history and snapshot carry the stats of the roots in their page only (exact, not over the loaded window).
     expect((await read(bob.token, "conversation.history", { conversation: id, limit: 50 })).json.value.threads).toEqual([summary])
@@ -214,6 +221,8 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     const secret = await runInDurableObject(stash, async (_i, st) => String(st.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
     expect((await op(carol.token, "invite.accept", { code: invites.linkCode(id), secret })).json.ok).toBe(true)
     expect(readRefused(await thread(carol.token, id, root))).toEqual([400, "unknown_message"])
+    // The same root is hidden from thread.update: no probe, no change.
+    expect(refused(await op(carol.token, "thread.update", { conversation: id, root, title: "x" }))).toBe("unknown_message")
     const fresh = (await send(alice.token, id, "tr-fresh")).json.value.message_id as string
     const freshReply = (await send(carol.token, id, "tr-fresh-1", { thread_root: fresh })).json.value.message_id as string
     expect((await thread(carol.token, id, fresh)).json.value.replies.map((m: Message) => m.id)).toEqual([freshReply])
@@ -239,7 +248,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
 
     // A middle reply retracted: its author leaves the authors, the count drops, the last reply stays.
     await retract(alice.token, id, r2)
-    const middle = { root, reply_count: 2, last_reply_seq: before.replies[2]!.seq, last_reply_at: before.replies[2]!.created_at, authors: [bob.user] }
+    const middle = { root, reply_count: 2, last_reply_seq: before.replies[2]!.seq, last_reply_at: before.replies[2]!.created_at, authors: [bob.user], status: "open" }
     const afterMiddle = await thread(bob.token, id, root)
     expect(afterMiddle.replies.map((m) => m.id)).toEqual([r1, r2, r3])
     expect(afterMiddle.replies[1]!.retracted_at).toBeDefined()
@@ -248,7 +257,7 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
 
     // The last reply retracted: the last reply is the newest one that is not retracted.
     await retract(bob.token, id, r3)
-    const last = { root, reply_count: 1, last_reply_seq: m1!.seq, last_reply_at: m1!.created_at, authors: [bob.user] }
+    const last = { root, reply_count: 1, last_reply_seq: m1!.seq, last_reply_at: m1!.created_at, authors: [bob.user], status: "open" }
     expect((await thread(alice.token, id, root)).thread).toEqual(last)
     expect(await stats(alice.token, id)).toEqual([[last], [last]])
 
@@ -256,8 +265,47 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     await retract(bob.token, id, r1)
     const none = await thread(alice.token, id, root)
     expect(none.replies.map((m) => m.id)).toEqual([r1, r2, r3])
-    expect(none.thread).toEqual({ root, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [] })
+    expect(none.thread).toEqual({ root, reply_count: 0, last_reply_seq: null, last_reply_at: null, authors: [], status: "open" })
     expect(await stats(alice.token, id)).toEqual([[], []])
+  })
+
+  it("thread.update: a title, an owner and a status on a thread root; a new reply reopens a resolved thread", async () => {
+    const send = (token: string, conversation: string, key: string, extra: Record<string, unknown> = {}) =>
+      op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text: key }], ...extra }, key)
+    const update = (token: string, conversation: string, fields: Record<string, unknown>, key?: string) => op(token, "thread.update", { conversation, ...fields }, key)
+    const thread = async (token: string, conversation: string, root: string) =>
+      (await read(token, "conversation.thread", { conversation, root })).json.value as { root: Message & { thread?: unknown }; thread: Record<string, unknown> }
+    const { alice, bob, id } = await twoPersonGroup("thread-objects")
+    const root = (await send(alice.token, id, "to-root")).json.value.message_id as string
+    const r1 = (await send(bob.token, id, "to-1", { thread_root: root })).json.value.message_id as string
+    expect((await thread(alice.token, id, root)).thread.status).toBe("open")
+
+    // Alice titles it and gives it to Bob: the change is message-updated with the root.
+    const titled = await update(alice.token, id, { root, title: "Ship 1.0", owner: bob.user }, "to-t1")
+    expect(titled.json.ok).toBe(true)
+    expect(titled.json.value.change.kind).toBe("message-updated")
+    expect(titled.json.value.change.message.thread).toEqual({ title: "Ship 1.0", owner: bob.user })
+    // Bob resolves it; every read carries the object and the derived status.
+    expect((await update(bob.token, id, { root, status: "resolved" })).json.ok).toBe(true)
+    const resolved = await thread(alice.token, id, root)
+    expect(resolved.thread).toMatchObject({ root, reply_count: 1, status: "resolved", title: "Ship 1.0", owner: bob.user, resolved_by: bob.user })
+    expect((await read(bob.token, "conversation.snapshot", { conversation: id, tail: 50 })).json.value.threads).toEqual([resolved.thread])
+    // A new reply reopens it; the stored resolution stays on the root.
+    await send(alice.token, id, "to-2", { thread_root: root })
+    const reopened = await thread(bob.token, id, root)
+    expect(reopened.thread.status).toBe("open")
+    expect(reopened.thread.resolved_by).toBeUndefined()
+    expect((reopened.root.thread as { resolved?: unknown }).resolved).toBeDefined()
+
+    // Refusals: a reply as root, nothing to set, an owner outside the conversation, a stranger.
+    expect(refused(await update(alice.token, id, { root: r1, title: "x" }))).toBe("invalid_thread_root")
+    expect(refused(await update(alice.token, id, { root }))).toBe("invalid_thread_update")
+    expect(refused(await update(alice.token, id, { root, owner: "user_nobody" }))).toBe("invalid_thread_owner")
+    const dana = await signIn("home-ops-thread-objects-dana", "dana-thread-objects@example.com", "Dana Example")
+    expect((await update(dana.token, id, { root, title: "x" })).json.ok).toBe(false)
+    // Empty title and owner clear the object.
+    expect((await update(bob.token, id, { root, title: "", owner: "", status: "open" })).json.ok).toBe(true)
+    expect((await thread(alice.token, id, root)).root.thread).toBeUndefined()
   })
 
   it("title.set: any member of a group; refused in a DM", async () => {

@@ -29,14 +29,16 @@ pub fn base_prompt() -> String {
 
 /// The spec's "Turns" paragraph (optchat-core TAELIN_PROMPT), replaced for
 /// the Chief by `CHIEF_TURNS`.
-const SPEC_TURNS: &str = "Do the user's tasks yourself, with your tools, following the user's instructions
+const SPEC_TURNS: &str =
+    "Do the user's tasks yourself, with your tools, following the user's instructions
 at the end of this prompt: who they are, how their files are organized and how
 they want work done. Use subagents only when the user asks for them.";
 
 /// The Chief's "Turns" paragraph (Chief review cause 3, 2026-10-14): a turn's
 /// tool steps are sent uncached (session_dir.rs), so tool-heavy work goes to
 /// subagents. Constant text, in the same place in every turn.
-pub const CHIEF_TURNS: &str = "Follow the user's instructions at the end of this prompt: who they are, how
+pub const CHIEF_TURNS: &str =
+    "Follow the user's instructions at the end of this prompt: who they are, how
 their files are organized and how they want work done.
 
 Keep your own turns short. Do quick work yourself: an answer from the view, a
@@ -517,7 +519,10 @@ pub fn person_profile(path: &std::path::Path) -> Option<String> {
             Some(DEFAULT_PERSON.to_owned())
         }
         Err(e) => {
-            crate::log::log(format!("reading {}: {e}; no person profile this start", path.display()));
+            crate::log::log(format!(
+                "reading {}: {e}; no person profile this start",
+                path.display()
+            ));
             None
         }
     }

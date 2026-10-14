@@ -293,6 +293,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationImportResult.fromWire(result);
     }
 
+    public final ConversationLinkResolveResult conversationLinkResolve(ConversationLinkResolveRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_LINK_RESOLVE, request.toWire());
+        return ConversationLinkResolveResult.fromWire(result);
+    }
+
     public final ConversationListResult conversationList() throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LIST, Map.of());
         return ConversationListResult.fromWire(result);

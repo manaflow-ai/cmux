@@ -156,7 +156,15 @@ def dismiss():
 working = new_workspace("hc-working")
 check(working is not None, "made the working workspace")
 if working:
-    write(working, "printf '\\033]7501;state=working:app=hcdemo:title=Refactoring the parser\\033\\\\'; sleep 600")
+    # The program reads a line between its reports, so each step is one newline into its stdin.
+    # OSC 7501 carries `title` and `msg` as base64: "Refactoring the parser", "Which branch should I use?".
+    demo = f"/tmp/hovercard-demo-{opts.tag}.sh"
+    with open(demo, "w") as script:
+        script.write("printf '\\033]7501;state=working:app=hcdemo:title=UmVmYWN0b3JpbmcgdGhlIHBhcnNlcg==\\033\\\\'\n"
+                     "read step\n"
+                     "printf '\\033]7501;state=blocked:kind=question:app=hcdemo:msg=V2hpY2ggYnJhbmNoIHNob3VsZCBJIHVzZT8=\\033\\\\'\n"
+                     "sleep 600\n")
+    write(working, f"sh {demo}")
     first = pin_card(lambda t: elapsed_seconds(status_line(t)) is not None)
     print("card:\n" + first, flush=True)
     check(elapsed_seconds(status_line(first)) is not None, f"the status line carries an elapsed time ({status_line(first)!r})")
@@ -169,7 +177,7 @@ if working:
     check(report.get("card_showing") == "true", "the card still shows")
     shot("working-2.png")
 
-    write(working, "printf '\\033]7501;state=blocked:kind=question:app=hcdemo:msg=Which branch should I use?\\033\\\\'")
+    write(working, "")  # the program's `read step`: it reports blocked next
     waiting = pin_card(lambda t: "Which branch" in t)
     print("waiting card:\n" + waiting, flush=True)
     check("Which branch should I use?" in waiting, "the card says why it waits (the program's words)")
