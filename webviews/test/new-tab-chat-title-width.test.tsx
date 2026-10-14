@@ -31,8 +31,7 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
     await browser?.close();
   });
 
-  const long =
-    "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest";
+  const long = "well we have cosmic-gray which is probably the best box to reproduce this one on, then the rest";
   const cards: ChatCard[] = [
     { sessionId: "a", title: long, harness: "claude", age: "6m", state: "idle" },
     {
@@ -46,13 +45,8 @@ await requireBrowserLane("new-tab-chat-title-width.test.tsx", async () => {
   ];
 
   test("a title-only row's title fills the row up to the time column", async () => {
-    const css = readFileSync(
-      path.join(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"),
-      "utf8",
-    );
-    const list = renderToStaticMarkup(
-      createElement(ChatCards, { cards, variant: "list", onOpen: () => {} }),
-    );
+    const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/newtab/screen.css"), "utf8");
+    const list = renderToStaticMarkup(createElement(ChatCards, { cards, variant: "list", onOpen: () => {} }));
     const page = await browser!.newPage({ viewport: { width: 900, height: 400 } });
     await page.setContent(
       `<style>${css}</style><div style="width:720px;margin:40px;font:13px system-ui">${list}</div>`,
