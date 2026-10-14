@@ -41,7 +41,7 @@ enum SidebarDocWiring {
         // task-owner: the app's services; one view call per document or live-set change
         Task {
             for await live in ObservationStream({ () -> [SidebarDocWorkspaceRef] in _ = (store.version, store.isActive); return liveRefs(machines) }) {
-                store.show(live: live)
+                store.show(live: live, connectedRemotes: Set(machines.daemons.filter { $0 !== local && $0.connection != nil }.compactMap(\.store.registryID)))
                 if layout.docLayout != store.shown?.layout { layout.docLayout = store.shown?.layout }
             }
         }

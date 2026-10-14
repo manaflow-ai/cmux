@@ -34,6 +34,9 @@ public final class SidebarDocStore {
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
     /// The last projection (`projection(live:)`), by version and live set.
+    /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
+    @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
+    @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?

@@ -124,9 +124,11 @@ nonisolated enum SidebarDocWire {
         var showsLabel: Bool?
         var span: Int?
         var label: String?
+        /// Forward-compatible keys (the doc lane's explicit `extra`): `icon_url` until the url body carries it.
+        var extra: AnyJSON?
 
         enum CodingKeys: String, CodingKey {
-            case id, section, parent, body, span, label
+            case id, section, parent, body, span, label, extra
             case showsLabel = "shows_label"
         }
 
@@ -147,7 +149,7 @@ nonisolated enum SidebarDocWire {
             default: .other(self.body.tag)
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
-                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url"))
+                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String)
         }
     }
 
