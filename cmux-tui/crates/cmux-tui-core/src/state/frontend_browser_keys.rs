@@ -203,6 +203,23 @@ impl Mux {
     }
 }
 
+impl Mux {
+    /// The placed tab a keyed `new-frontend-browser-tab` made under `key`.
+    pub(crate) fn keyed_frontend_browser_tab(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<Arc<Surface>>> {
+        let Some((browser_id, _)) = self.read_registry_state(|c| browser_for_key(c, key))? else {
+            return Ok(None);
+        };
+        let content = ContentPublicId::Browser(BrowserPublicId::parse(browser_id)?);
+        Ok(self.with_state(|state| {
+            let surface = state.single_placement_of_content(&content)?;
+            state.surfaces.get(&surface).cloned()
+        }))
+    }
+}
+
 /// Records the browser id and request fingerprint of `key` (in the frontend
 /// browser record's commit).
 pub(crate) fn insert_key(
