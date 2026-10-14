@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import type { SignIn } from "./signIn";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -122,6 +123,8 @@ type Props = {
   onHarnessEnable?(folder: string, id: string): void;
   /// The model picker's + (see ModelPickerProps.onAddAgent).
   onAddAgent?(): void;
+  /// The harnesses this Mac's acpmux found signed out, and their Log In (see ModelPickerProps.signedOut).
+  signIn?: SignIn;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
   /// The Plan/Build toggle lives in the composer's + menu in the default pane.
@@ -149,6 +152,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  signIn,
   folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
@@ -469,6 +473,7 @@ export function ComposerPickers({
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
+          {...(signIn ? { signedOut: signIn.signedOut, onLogIn: signIn.logIn } : {})}
           fastMode={fastMode}
           catalogRefresh={catalogRefresh}
           harnessNotes={
