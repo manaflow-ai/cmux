@@ -5,7 +5,10 @@
 // whose server answers `GET /auth/session` with `{"authorized": true}` (a relay that identified the
 // person, for example by a private-network identity, and attaches the credential upstream itself)
 // connects with no credential and no form. In the app the host
-// hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb).
+// hands the endpoint and the daemon's own credential (`cmux.host.credential.load`, a host verb), and
+// `owner` when this build's Chief conversations live on the Chief home's owner: the page opens a
+// second socket there for the local conversations (a credential bound to this page, single use, so
+// every reconnect loads again).
 // Then the page runs on the daemon's real conversations. A dropped connection reconnects with capped backoff and the same
 // credential; each connection gets a fresh store (spec transports.md "Reconnect").
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
@@ -44,6 +47,8 @@ export interface HostCredential {
   token: string;
   /** The page bundle URL a browser opens (`http://127.0.0.1:<port>/pages/`). */
   pages?: string;
+  /** The local conversation owner when it is not this daemon (this build's Chief home's owner). */
+  owner?: { url: string; token: string };
 }
 
 /** Where the page's daemon comes from: a URL the person authenticates, or the hosting app. */
@@ -55,7 +60,7 @@ type Phase =
   | { kind: "pairing"; code: string }
   /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry loop. */
   | { kind: "blocked"; error: string }
-  | { kind: "ready"; daemon: DaemonSocket; generation: number; pages?: string };
+  | { kind: "ready"; daemon: DaemonSocket; owner?: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 10_000;
@@ -67,7 +72,7 @@ export function DaemonGate({
 }: {
   source: DaemonSource;
   strings: Strings;
-  children: (daemon: DaemonSocket, pages?: string) => ReactNode;
+  children: (daemon: DaemonSocket, pages?: string, owner?: DaemonSocket) => ReactNode;
 }) {
   const { t, format } = strings;
   const url = source.kind === "url" ? source.url : "";
@@ -83,35 +88,77 @@ export function DaemonGate({
     generation: 0,
     timer: 0 as ReturnType<typeof setTimeout> | 0,
     daemon: null as DaemonSocket | null,
+    owner: null as DaemonSocket | null,
   });
 
+  /** A socket that serves the conversations to a page: authenticated and new enough. `closed`
+   *  says whether it closed before the page took it (a close listener added later never fires). */
+  const open = (endpoint: string, auth: DaemonAuth) =>
+    DaemonSocket.connect(endpoint, auth).then(async (daemon) => {
+      let closed = false;
+      daemon.onClose(() => (closed = true));
+      try {
+        const identity = await daemon.request<{ capabilities?: string[] }>("identify");
+        // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
+        if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
+      } catch (error) {
+        daemon.close();
+        throw error;
+      }
+      return { daemon, closed: () => closed };
+    });
+
   /** One connect: authenticate, check the capability, then keep the socket until it drops. */
-  const connect = (endpoint: string, auth: DaemonAuth, remember?: string, pages?: string) => {
-    DaemonSocket.connect(endpoint, auth)
-      .then(async (daemon) => {
-        try {
-          const identity = await daemon.request<{ capabilities?: string[] }>("identify");
-          // An older daemon refuses the conversations on a WebSocket: say so instead of failing later.
-          if (!identity.capabilities?.includes("ws-conversations-v1")) throw new Error(t("connect.tooOld"));
-        } catch (error) {
-          daemon.close();
-          throw error;
+  const connect = (
+    endpoint: string,
+    auth: DaemonAuth,
+    remember?: string,
+    pages?: string,
+    ownerCredential?: HostCredential["owner"],
+  ) => {
+    const opening = [
+      open(endpoint, auth),
+      ownerCredential ? open(ownerCredential.url, { token: ownerCredential.token }) : Promise.resolve(undefined),
+    ] as const;
+    Promise.allSettled(opening)
+      .then(([main, second]) => {
+        const opened = [main, second].flatMap((result) =>
+          result.status === "fulfilled" && result.value ? [result.value] : [],
+        );
+        // Either socket failing (or closing already) fails the connect: the page never shows half of
+        // its owners, and the socket that did open is closed, not leaked.
+        const failed = main.status === "rejected" ? main : second.status === "rejected" ? second : null;
+        if (failed || opened.some((socket) => socket.closed())) {
+          for (const socket of opened) socket.daemon.close();
+          throw failed ? failed.reason : Object.assign(new Error(t("connect.connecting")), { code: "unreachable" });
         }
+        const daemon = (main as PromiseFulfilledResult<{ daemon: DaemonSocket }>).value.daemon;
+        const owner = second.status === "fulfilled" ? second.value?.daemon : undefined;
         // Unmounted, or a newer connection already won: this one is not used.
-        if (!live.current.mounted || live.current.daemon) return daemon.close();
+        if (!live.current.mounted || live.current.daemon) {
+          owner?.close();
+          return daemon.close();
+        }
         if (remember) sessionStorage.setItem(storageKey(endpoint), remember);
         live.current.attempt = 0;
         live.current.daemon = daemon;
+        live.current.owner = owner ?? null;
         const generation = ++live.current.generation;
-        daemon.onClose((reason) => {
-          if (!live.current.mounted || live.current.generation !== generation) return;
+        const lost = (reason: string) => {
+          if (!live.current.mounted || live.current.generation !== generation || live.current.daemon !== daemon) return;
+          // One lost socket drops both: the reconnect loads fresh credentials for each.
           live.current.daemon = null;
+          live.current.owner = null;
+          daemon.close();
+          owner?.close();
           if (reason === "authentication failed" && source.kind === "url") {
             sessionStorage.removeItem(storageKey(url));
             setPhase({ kind: "form", error: reason });
           } else retry();
-        });
-        setPhase({ kind: "ready", daemon, generation, pages });
+        };
+        daemon.onClose(lost);
+        owner?.onClose(lost);
+        setPhase({ kind: "ready", daemon, owner, generation, pages });
       })
       .catch((error: Error & { code?: string }) => {
         if (!live.current.mounted) return;
@@ -130,7 +177,7 @@ export function DaemonGate({
     if (source.kind === "host") {
       source
         .load()
-        .then((value) => connect(value.url, { token: value.token }, undefined, value.pages))
+        .then((value) => connect(value.url, { token: value.token }, undefined, value.pages, value.owner))
         // The host says why it has no endpoint. A final answer (an external daemon too old for the
         // listener) stops here with the reason; anything else (a restart in progress) retries.
         .catch((error: Error & { retryable?: boolean }) => {
@@ -170,14 +217,17 @@ export function DaemonGate({
       state.mounted = false;
       clearTimeout(state.timer);
       state.daemon?.close();
+      state.owner?.close();
       state.daemon = null;
+      state.owner = null;
     };
     // Runs once per endpoint.
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- resume is rebuilt each render; the effect runs once per endpoint.
   }, [url, source.kind]);
 
   // A new store per connection: the key remounts the page on every reconnect.
-  if (phase.kind === "ready") return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages)}</Fragment>;
+  if (phase.kind === "ready")
+    return <Fragment key={phase.generation}>{children(phase.daemon, phase.pages, phase.owner)}</Fragment>;
   return (
     <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>
