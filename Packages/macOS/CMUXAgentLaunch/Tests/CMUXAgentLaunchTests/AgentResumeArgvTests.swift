@@ -706,6 +706,13 @@ struct AgentResumeArgvTests {
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
+        // Captured absolute executables stay explicit so custom Codex installs are preserved.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == "'/opt/team/codex' 'resume' 'SID'"
+        )
     }
 
     @Test("Only the executable position takes the wrapper token, after a bare or absolute env prefix")
@@ -725,6 +732,24 @@ struct AgentResumeArgvTests {
                 parts: ["sr", "codex", "resume", "SID"],
                 quote: quote
             ) == ["'sr'", "'codex'", "'resume'", "'SID'"]
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == ["'/opt/team/codex'", "'resume'", "'SID'"]
+        )
+    }
+
+    @Test("Managed rendering preserves absolute Hermes executables")
+    func managedRenderingPreservesAbsoluteHermesExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        #expect(
+            AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: ["/opt/team/hermes", "--resume", "SID"],
+                kind: "hermes-agent",
+                quote: quote
+            ) == "'/opt/team/hermes' '--resume' 'SID'"
         )
     }
 }

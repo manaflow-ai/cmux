@@ -314,7 +314,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
         )
         let joined = rendered.joined(separator: " ")
         let executableIndex = Self.managedExecutableIndex(in: parts)
-        let fallbackExecutable = executableIndex < parts.count ? parts[executableIndex] : nil
+        let fallbackExecutable = descriptor.supportsCapturedExecutableFallback && executableIndex < parts.count
+            ? parts[executableIndex]
+            : nil
         let wrapperToken = descriptor.wrapperShellExecutableToken(
             fallbackExecutable: fallbackExecutable == descriptor.executableName ? nil : fallbackExecutable
         )
@@ -354,9 +356,14 @@ public struct AgentResumeArgv: Sendable, Equatable {
         // `sr codex resume` is not the managed executable and stays quoted.
         let executableIndex = Self.managedExecutableIndex(in: parts)
         return parts.enumerated().map { index, part in
-            index == executableIndex && (part as NSString).lastPathComponent == descriptor.executableName
+            let matchesExecutable = part == descriptor.executableName
+                || (descriptor.supportsCapturedExecutableFallback
+                    && (part as NSString).lastPathComponent == descriptor.executableName)
+            return index == executableIndex && matchesExecutable
                 ? descriptor.wrapperShellExecutableToken(
-                    fallbackExecutable: part == descriptor.executableName ? nil : part
+                    fallbackExecutable: descriptor.supportsCapturedExecutableFallback && part != descriptor.executableName
+                        ? part
+                        : nil
                 )
                 : quote(part)
         }

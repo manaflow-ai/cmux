@@ -6,6 +6,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
     let executableName: String
     let wrapperShimEnvironmentKey: String
     let customExecutablePathEnvironmentKey: String
+    let supportsCapturedExecutableFallback: Bool
     private let sessionIDKind: SessionIDKind
 
     private enum SessionIDKind: Equatable, Sendable {
@@ -20,6 +21,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         executableName: "claude",
         wrapperShimEnvironmentKey: "CMUX_CLAUDE_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_CLAUDE_PATH",
+        supportsCapturedExecutableFallback: false,
         sessionIDKind: .uuid
     )
 
@@ -28,6 +30,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         executableName: "codex",
         wrapperShimEnvironmentKey: "CMUX_CODEX_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_CODEX_PATH",
+        supportsCapturedExecutableFallback: false,
         sessionIDKind: .uuid
     )
 
@@ -36,6 +39,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         executableName: "amp",
         wrapperShimEnvironmentKey: "CMUX_AMP_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_AMP_PATH",
+        supportsCapturedExecutableFallback: false,
         sessionIDKind: .ampThread
     )
 
@@ -44,6 +48,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         executableName: "hermes",
         wrapperShimEnvironmentKey: "CMUX_HERMES_AGENT_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_HERMES_AGENT_PATH",
+        supportsCapturedExecutableFallback: false,
         sessionIDKind: .hermesSession
     )
 
@@ -52,6 +57,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         executableName: "agy",
         wrapperShimEnvironmentKey: "CMUX_AGY_WRAPPER_SHIM",
         customExecutablePathEnvironmentKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH",
+        supportsCapturedExecutableFallback: true,
         sessionIDKind: .opaque
     )
 
