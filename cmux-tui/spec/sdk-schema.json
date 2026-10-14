@@ -4856,6 +4856,26 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "since_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
+    },
+    "agent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports."
     }
    },
    "additional_properties": false
@@ -22828,6 +22848,16 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "since_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "description": "When the agent entered `state` (Unix ms). A report that keeps the state keeps it; after a daemon restart it is the last report's time. Absent from older senders: use `updated_at_ms`."
      }
     },
     "additional_properties": false

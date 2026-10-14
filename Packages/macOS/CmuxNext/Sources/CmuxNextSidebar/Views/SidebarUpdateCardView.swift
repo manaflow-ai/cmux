@@ -10,13 +10,17 @@ import QuartzCore
 /// Restart to Update button (one click installs and relaunches; disabled,
 /// Installing…, once taken). Hovering the card shows what it leaves out (Leo
 /// 2026-10-13): the full build, the highlights and "See all changes", in the
-/// themed popup beside it (the React surface, cx-urd.61.2). Hidden without a
-/// staged update.
+/// themed popup beside it (the React surface, cx-urd.61.2). Its x, as the
+/// notice card's (UPDATE-CARD-CLOSE), opens Hide Until a Newer Version and
+/// Remind Me in 1 Day / 3 Days / 1 Week; the right-click menu has the same
+/// items. Hidden without a staged update.
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
     var onAutomaticUpdates: ((Bool) -> Void)?
     /// "See all changes" (the button's accessibility action): the What's New page.
     var onOpenChanges: (() -> Void)?
+    /// An x menu item: the card's id and the item's id.
+    var onCloseAction: ((String, String) -> Void)?
     private(set) var card: SidebarUpdateCard?
     /// The composer's surface, under everything else.
     let surface = CardSurfaceView()
@@ -25,6 +29,8 @@ final class SidebarUpdateCardView: NSView {
     let detailLabel = NSTextField(labelWithString: "")
     let checkbox = SidebarUpdateCheckbox()
     let button = SidebarUpdateButton()
+    /// The x (the notice card's glyph and place); it opens ``closeMenu``.
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
     /// The staged update's highlights (the React ready surface; set by the sidebar).
     var highlights: (any SidebarSurfaceIsland)? {
         didSet {
@@ -82,8 +88,10 @@ final class SidebarUpdateCardView: NSView {
         titleLabel.maximumNumberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
         detailLabel.maximumNumberOfLines = 1
-        [titleLabel, detailLabel, checkbox, button].forEach(addSubview)
+        [titleLabel, detailLabel, checkbox, button, closeButton].forEach(addSubview)
         button.onPress = { [weak self] in self?.onInstall?() }
+        closeButton.takesKeyFocus = true
+        closeButton.onPress = { [weak self] in self?.closePressed() }
         checkbox.onToggle = { [weak self] on in self?.onAutomaticUpdates?(on) }
         setAccessibilityElement(false)
         isHidden = true
@@ -116,6 +124,8 @@ final class SidebarUpdateCardView: NSView {
         titleLabel.stringValue = card.title
         detailLabel.stringValue = card.detail ?? ""
         detailLabel.isHidden = card.detail == nil
+        closeButton.isHidden = card.closeLabel == nil || card.closeMenu.isEmpty
+        closeButton.label = card.closeLabel ?? ""
         checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
@@ -134,6 +144,8 @@ final class SidebarUpdateCardView: NSView {
 
     private static var padding: CGFloat { Metrics.space3 }
     private static var titleFont: NSFont { Typography.bodyEmphasized }
+
+    private static let closeSide: CGFloat = 16
 
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
 
@@ -154,7 +166,9 @@ final class SidebarUpdateCardView: NSView {
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
         let th = ceil(Self.titleFont.boundingRectForFont.height)
-        titleLabel.frame = NSRect(x: pad, y: pad, width: width, height: th)
+        let close = Self.closeSide, closeRoom = closeButton.isHidden ? 0 : close
+        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
+        titleLabel.frame = NSRect(x: pad, y: pad, width: max(0, width - closeRoom), height: th)
         var y = titleLabel.frame.maxY
         let caption = Self.captionHeight
         if !detailLabel.isHidden {
@@ -182,6 +196,31 @@ final class SidebarUpdateCardView: NSView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if newWindow == nil { hideNotes() }
+    }
+
+    // MARK: Close
+
+    /// The x's menu, also the card's right-click menu; nil without an x.
+    var closeMenu: NSMenu? {
+        guard let card, card.closeLabel != nil, !card.closeMenu.isEmpty else { return nil }
+        let menu = NSMenu()
+        for action in card.closeMenu {
+            let item = menu.addItem(withTitle: action.title, action: #selector(closeItem(_:)), keyEquivalent: "")
+            (item.target, item.representedObject) = (self, action.id)
+        }
+        return menu
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
+
+    /// The x: its menu under the x (Escape closes it with no change).
+    private func closePressed() {
+        hideNotes()
+        closeMenu?.popUp(positioning: nil, at: NSPoint(x: closeButton.frame.minX, y: closeButton.frame.maxY + 2), in: self)
+    }
+
+    @objc private func closeItem(_ item: NSMenuItem) {
+        if let id = card?.id, let action = item.representedObject as? String { onCloseAction?(id, action) }
     }
 
     // MARK: Hover

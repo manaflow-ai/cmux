@@ -880,6 +880,18 @@ export type TeamAiLimitMember = {
   readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN"
 }
 
+export type TeamAiUsageLine = {
+  readonly billed: boolean
+  readonly included_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly per_seat: boolean
+  readonly seats: number
+  readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly period_start: number | null
+  readonly period_end: number
+  readonly stop_applies: boolean
+  readonly stopped: boolean
+}
+
 export type TeamAuditEntry = {
   readonly n: number
   readonly op: string
@@ -2928,7 +2940,7 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
-  /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend. */
+  /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount. */
   readonly "team.ai_limit.get": {
     readonly params: {
       readonly cursor?: string
@@ -2940,6 +2952,7 @@ export interface CloudOps {
       readonly resets_at: number
       readonly me: TeamAiLimitMember
       readonly members?: ReadonlyArray<TeamAiLimitMember>
+      readonly team_usage?: TeamAiUsageLine
       readonly next_cursor?: string | null
     }
   }
