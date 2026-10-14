@@ -159,7 +159,9 @@ extension SidebarView {
         let width = Metrics.dividerThickness
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        aboveLine.frame = NSRect(x: 0, y: aboveY - width, width: bounds.width, height: width)
+        // Inset like the rows' pills (one gutter, Leo 2026-10-13), so its ends line up with theirs.
+        let inset = list.inset
+        aboveLine.frame = NSRect(x: inset, y: aboveY - width, width: max(0, bounds.width - inset * 2), height: width)
         aboveLine.isHidden = !(look.drawsBandLines && showsAbove)
         performWithTheme { aboveLine.backgroundColor = Palette.separator.cgColor }
         CATransaction.commit()

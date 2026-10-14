@@ -354,6 +354,27 @@ pub fn path() -> Option<OsString> {
     std::env::var_os("PATH")
 }
 
+/// The PATH an agent sees: [`path`] with the directory of the app's bundled
+/// CLI (`CMUX_BUNDLED_CLI_PATH`, set by the app that started this daemon)
+/// first, so `cmux` in an agent chat is that app's CLI and not one the login
+/// PATH lists earlier (cx-c6xdh). Plain [`path`] without that variable.
+pub fn agent_path() -> Option<OsString> {
+    let path = path();
+    let Some(bin) = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(std::path::PathBuf::from)
+        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))
+        .filter(|bin| bin.is_absolute())
+    else {
+        return path;
+    };
+    let rest = path.iter().flat_map(std::env::split_paths).filter(|entry| *entry != bin);
+    let joined = std::env::join_paths(std::iter::once(bin.clone()).chain(rest)).ok();
+    joined.or(path)
+}
+
+/// The app's bundled `cmux` (BundledCLIEnvironment.swift).
+pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
+
 /// A variable the import added, by name.
 pub fn var(key: &str) -> Option<String> {
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
@@ -588,14 +609,18 @@ pub fn apply_tokio(cmd: &mut tokio::process::Command) {
     cmd.envs(pairs_for(None, None));
 }
 
-/// The allow-listed login environment for a harness of `family`.
-/// `profile` is the harness profile's own env (its Bedrock/Vertex switch).
+/// The allow-listed login environment for a harness of `family`, with
+/// [`agent_path`] as its PATH. `profile` is the harness profile's own env
+/// (its Bedrock/Vertex switch).
 pub fn apply_tokio_for(
     cmd: &mut tokio::process::Command,
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) {
     cmd.envs(pairs_for(family, profile));
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
 }
 
 /// Same, for std's process builder.
@@ -605,6 +630,9 @@ pub fn apply_std_for(
     profile: Option<&BTreeMap<String, String>>,
 ) {
     cmd.envs(pairs_for(family, profile));
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).

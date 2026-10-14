@@ -90,7 +90,11 @@ export function ChatCards({
                 </span>
                 <span className="nt-card-title">{card.title}</span>
                 <span className="nt-card-message">
-                  {card.state === "idle" ? (card.message ?? "") : nt(`card.${card.state}`)}
+                  {card.state === "idle"
+                    ? (card.message ?? "")
+                    : card.state === "failed"
+                      ? t("header.failed")
+                      : nt(`card.${card.state}`)}
                 </span>
               </button>
             </ContextMenu>

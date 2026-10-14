@@ -56,6 +56,8 @@ mod storage;
 #[cfg(unix)]
 mod store;
 #[cfg(unix)]
+mod store_panels;
+#[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;

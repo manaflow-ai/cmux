@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815.
+// cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2278,6 +2278,14 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PageCredentialRequest {
+}
+
+#[rustfmt::skip]
+pub type PageCredentialResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingResponseRequest {
     pub approve: bool,
@@ -3569,6 +3577,18 @@ pub struct WaitForRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct WsListenRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origins: Optional<Vec<String>>,
+}
+
+#[rustfmt::skip]
+pub type WsListenResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ZoomPaneRequestMode {
     #[serde(rename = "toggle")]
@@ -4451,6 +4471,10 @@ impl CmuxClient {
         self.execute(&NOTIFY_METADATA, &request)
     }
 
+    pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
+        self.execute(&PAGE_CREDENTIAL_METADATA, &request)
+    }
+
     pub fn pairing_response(&mut self, request: PairingResponseRequest) -> Result<PairingResponseResult> {
         self.execute(&PAIRING_RESPONSE_METADATA, &request)
     }
@@ -5019,6 +5043,10 @@ impl CmuxClient {
 
     pub fn wait_for(&mut self, request: WaitForRequest) -> Result<T::WaitForResult> {
         self.execute(&WAIT_FOR_METADATA, &request)
+    }
+
+    pub fn ws_listen(&mut self, request: WsListenRequest) -> Result<WsListenResult> {
+        self.execute(&WS_LISTEN_METADATA, &request)
     }
 
     pub fn zoom_pane(&mut self, request: ZoomPaneRequest) -> Result<T::ZoomPaneResult> {

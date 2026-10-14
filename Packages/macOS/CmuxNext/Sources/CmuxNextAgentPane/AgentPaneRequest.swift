@@ -43,6 +43,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
+    /// The new tab page's style switch (`newTab.setTemplate`): the template to
+    /// save as `tabs.newTabTemplate` (the App checks the value).
+    case setNewTabTemplate(String)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -98,6 +101,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabState(refresh: Bool)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
+    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
+    case chatTab(String)
+    /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
+    case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
