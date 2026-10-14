@@ -38,23 +38,38 @@ def tabs_trace(widths: list[float], *, spare: bool, looping: list[str] | None = 
     return {"refresh_ms": REFRESH, "samples": samples, "opening": {"spare": spare}, "looping": looping or []}
 
 
-def sidebar_trace(widths: list[float]) -> dict:
-    return {"refresh_ms": REFRESH, "samples": [{"t": i * REFRESH, "sidebar": [w, w]} for i, w in enumerate(widths)]}
+def sidebar_trace(widths: list[float], looping: list[str] | None = None) -> dict:
+    samples = [{"t": i * REFRESH, "sidebar": [w, w]} for i, w in enumerate(widths)]
+    return {"refresh_ms": REFRESH, "samples": samples, "looping": looping or []}
 
 
-def write_run(out: Path, *, cold_frames: int, reduce_frames: int = 0, looping: list[str] | None = None) -> None:
+def reduced(trace: dict, on: bool) -> dict:
+    """What `golden.py drive` saves for a Reduce Motion scenario: the app's answer when it was set."""
+    return {**trace, "reduce_motion": on}
+
+
+def write_run(
+    out: Path,
+    *,
+    cold_frames: int,
+    reduce_frames: int = 0,
+    looping: list[str] | None = None,
+    reduce_on: bool = True,
+    warm_spare: bool | None = True,
+) -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     def save(name: str, data: dict) -> None:
         (out / f"{name}.json").write_text(json.dumps(data))
 
     save("new_tab_cold", tabs_trace(eased(0, 200, cold_frames), spare=False))
-    save("new_tab_warm", tabs_trace(eased(0, 200, 30), spare=True))
+    save("new_tab_warm", {**tabs_trace(eased(0, 200, 30), spare=bool(warm_spare)), "spare_ready": warm_spare})
     save("sidebar_collapse", sidebar_trace(eased(260, 0, 28)))
     save("sidebar_expand", sidebar_trace(eased(0, 260, 28)))
-    save("reduce_new_tab", tabs_trace(eased(0, 200, reduce_frames), spare=False, looping=looping))
-    save("reduce_sidebar_collapse", sidebar_trace(eased(260, 0, reduce_frames)))
-    save("reduce_sidebar_expand", sidebar_trace(eased(0, 260, reduce_frames)))
+    # A Reduce Motion trace still runs ~0.9 s: frames at rest on both sides of the one step.
+    save("reduce_new_tab", reduced(tabs_trace(eased(0, 200, reduce_frames, rest=14), spare=False, looping=looping), reduce_on))
+    save("reduce_sidebar_collapse", reduced(sidebar_trace(eased(260, 0, reduce_frames, rest=14), looping), reduce_on))
+    save("reduce_sidebar_expand", reduced(sidebar_trace(eased(0, 260, reduce_frames, rest=14)), reduce_on))
     tops = [1000 + 2.5 * i for i in range(360)]
     save("transcript_follow", {"scroll_top": tops, "scroll_height": [top + 600 + (40 if i % 7 else 0) for i, top in enumerate(tops)],
                                "frame_ms": [i * REFRESH for i in range(360)], "detached_frames": 300})
@@ -111,6 +126,60 @@ def test_reduce_motion_expects_one_step_and_no_loops() -> None:
         for name in ("reduce_new_tab", "reduce_sidebar_collapse", "reduce_sidebar_expand"):
             assert not found[name]["ok"], name
         assert any("repeating" in problem for problem in found["reduce_new_tab"]["problems"])
+
+
+def test_reduce_motion_passes_when_the_app_reports_it_on_and_nothing_moves_between_the_ends() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30)
+        judge(out)
+        found = verdicts(out)
+        for name in ("reduce_new_tab", "reduce_sidebar_collapse", "reduce_sidebar_expand"):
+            assert found[name]["ok"], (name, found[name]["problems"])
+
+
+def test_a_reduce_scenario_the_app_did_not_run_under_reduce_motion_is_not_measured() -> None:
+    """A Reduce Motion override that silently failed must not pass as a Reduce Motion run."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30, reduce_on=False)
+        result = judge(out)
+        assert result.returncode == 1
+        found = verdicts(out)
+        for name in ("reduce_new_tab", "reduce_sidebar_collapse", "reduce_sidebar_expand"):
+            assert "not measured: Reduce Motion was not on" in found[name]["problems"], name
+
+
+def test_a_reduce_trace_of_two_frames_fails() -> None:
+    """Two frames have no room for an intermediate one: a throttled trace must not pass."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30)
+        (out / "reduce_sidebar_collapse.json").write_text(json.dumps(reduced(sidebar_trace([260, 0]), True)))
+        judge(out)
+        problems = verdicts(out)["reduce_sidebar_collapse"]["problems"]
+        assert any(problem.startswith("only 2 frames traced") for problem in problems), problems
+
+
+def test_a_repeating_animation_fails_every_reduce_scenario_it_shows_in() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30, looping=["CALayer/spinner/rotation"])
+        judge(out)
+        found = verdicts(out)
+        for name in ("reduce_new_tab", "reduce_sidebar_collapse"):
+            assert any("repeating" in problem for problem in found[name]["problems"]), name
+        assert found["reduce_sidebar_expand"]["ok"]
+
+
+def test_a_warm_opening_without_a_ready_spare_is_not_measured() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out, cold_frames=30, warm_spare=False)
+        result = judge(out)
+        assert result.returncode == 1
+        problems = verdicts(out)["new_tab_warm"]["problems"]
+        assert "not measured: no ready spare, so the opening was cold" in problems, problems
 
 
 def test_a_missing_scenario_fails_as_not_measured() -> None:
