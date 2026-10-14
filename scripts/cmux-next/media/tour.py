@@ -22,14 +22,13 @@ optionally:
     optional  why the step may fail (a feature not ported yet); its failure is
               reported as unavailable and does not fail the tour
 
-Screenshots cover the main window's rectangle on screen, so child windows
-(browser pages, overlays) are in them; with no window frame they cover the
-main display. Capture runs in the console user's session, as the E2E
+Screenshots are the DEV app's own drawing of its main window
+(`debug.window_snapshot`, which needs no grant), child windows it owns
+included, so nothing covering the window (permission prompts, other jobs'
+windows) is in them. A build that cannot snapshot falls back to the window's
+rectangle on screen, captured in the console user's session as the E2E
 recorder on main does (scripts/ci/preflight-e2e-screen-capture.py), so it
-works when the runner user is not the console user. With no screen capture
-route (no Screen Recording grant), the DEV app draws its own main window
-(`debug.window_snapshot`, which needs no grant); child windows the app owns
-are in that image too.
+works when the runner user is not the console user.
 
 Exit status: 0 when every required step passed, 1 otherwise. The media is
 written either way.
@@ -139,6 +138,9 @@ class Session:
     """Runs commands in the console user's GUI session.
 
     `prefix` reaches that session from another user (app launch, kill).
+    The app's own window (debug.window_snapshot) needs no grant and shows
+    nothing that covers it, such as permission prompts or another job's
+    windows, so the screen is only the fallback for an app without it.
     Capture needs Screen Recording, which a job's process may not have, so
     three routes are probed once and the first that writes an image wins:
     screencapture from this process, screencapture through `launchctl
@@ -170,6 +172,17 @@ class Session:
 
     def capture(self, argv: list[str], timeout: float = 15) -> subprocess.CompletedProcess[str]:
         return subprocess.run(self.capture_prefix + argv, capture_output=True, text=True, timeout=timeout)
+
+    def probe_once(self) -> None:
+        """probe_capture on first use, in a scratch folder that never leaves the runner."""
+        if self.capture_mode != "unprobed":
+            return
+        probe = Path(tempfile.mkdtemp(prefix="cmux-tour-probe.", dir="/tmp"))
+        try:
+            self.probe_capture(self.shareable(probe))
+        finally:
+            # The probe captured the whole display.
+            shutil.rmtree(probe, ignore_errors=True)
 
     def probe_capture(self, scratch: Path) -> None:
         """Pick the capture route that writes a display image; notes every attempt."""
@@ -223,8 +236,8 @@ class Session:
 
 
 class Screen:
-    """Screenshots of a rectangle in global top-left coordinates (screencapture -R),
-    or of the app's main window through `app` (debug.window_snapshot)."""
+    """Screenshots of the app's main window through `app` (debug.window_snapshot),
+    or, after use_display(), of a rectangle in global top-left coordinates."""
 
     def __init__(self, session: Session, scratch: Path | None = None, app: App | None = None) -> None:
         self.session = session
@@ -233,13 +246,20 @@ class Screen:
         self.rect: tuple[int, int, int, int] | None = None
         self.primary_height: float | None = None
         self.primary_width: float | None = None
-        if app:
-            return
+
+    @property
+    def mode(self) -> str:
+        return APP_WINDOW_MODE if self.app else self.session.capture_mode
+
+    def use_display(self) -> None:
+        """Capture the window's rect on the display from now on; follow() again after."""
+        self.app = None
+        self.rect = None
         script = ('ObjC.import("AppKit");'
                   'var f = $.NSScreen.screens.objectAtIndex(0).frame;'
                   'JSON.stringify([f.size.width, f.size.height])')
         try:
-            done = session.capture(["osascript", "-l", "JavaScript", "-e", script])
+            done = self.session.capture(["osascript", "-l", "JavaScript", "-e", script])
             self.primary_width, self.primary_height = (float(value) for value in json.loads(done.stdout)[:2])
         except (subprocess.SubprocessError, ValueError, IndexError, TypeError):
             self.primary_width = self.primary_height = None
@@ -343,9 +363,9 @@ class Screen:
         return (done.stderr or done.stdout).strip() or "sips wrote no image"
 
 
-def frame_interval(session: Session) -> float:
+def frame_interval(mode: str) -> float:
     """Seconds between video frames for the session's capture route."""
-    return APP_WINDOW_FRAME_INTERVAL if session.capture_mode == APP_WINDOW_MODE else FRAME_INTERVAL
+    return APP_WINDOW_FRAME_INTERVAL if mode == APP_WINDOW_MODE else FRAME_INTERVAL
 
 
 class Recorder(threading.Thread):
@@ -360,7 +380,7 @@ class Recorder(threading.Thread):
         self.error: str | None = None
         self.stopping = threading.Event()
         self.lock = threading.Lock()
-        self.interval = frame_interval(screen.session)
+        self.interval = frame_interval(screen.mode)
 
     def run(self) -> None:
         while not self.stopping.is_set():
@@ -591,13 +611,13 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
         shutil.rmtree(directory)
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
-    manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
-                                "frame_interval": frame_interval(session), "console_user": session.user,
-                                "capture_mode": session.capture_mode}
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
     app = App(app_path, session, workdir, fresh_state=fresh_state)
-    screen = Screen(session, session.shareable(workdir / "raw"), app if session.app_window else None)
+    screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
+    manifest: dict[str, Any] = {"name": tour["name"], "title": tour["title"], "steps": [], "frames": [],
+                                "frame_interval": recorder.interval, "console_user": session.user,
+                                "capture_mode": screen.mode}
     try:
         try:
             app.launch()
@@ -612,8 +632,20 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             screen.follow(app.main_window_frame())
             if screen.rect is None:
                 time.sleep(0.5)
+        probe = screen.scratch / "probe-window.png"
+        if screen.rect is not None and screen.capture(probe):
+            # No window snapshot from this build: the display, if a route works.
+            session.probe_once()
+            if not session.app_window:
+                screen.use_display()
+                screen.follow(app.main_window_frame())
+        probe.unlink(missing_ok=True)
+        recorder.interval = frame_interval(screen.mode)
+        manifest["capture_mode"], manifest["frame_interval"] = screen.mode, recorder.interval
+        print(f"[{tour['name']}] screen capture: {screen.mode}", flush=True)
         if screen.rect is None:
-            manifest["frames_error"] = f"no app window on screen within {WINDOW_TIMEOUT:.0f}s"
+            manifest["frames_error"] = (f"no app window on screen within {WINDOW_TIMEOUT:.0f}s" if screen.app
+                                        else "the app window is not on the primary display, or its size is unknown")
         else:
             recorder.start()
         for index, step in enumerate(tour["steps"], 1):
@@ -685,13 +717,6 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, terminated)
     session = Session()
     args.out.mkdir(parents=True, exist_ok=True)
-    probe = Path(tempfile.mkdtemp(prefix="cmux-tour-probe.", dir="/tmp"))
-    try:
-        session.probe_capture(session.shareable(probe))
-    finally:
-        # The probe captured the whole display; it never leaves the runner.
-        shutil.rmtree(probe, ignore_errors=True)
-    print(f"screen capture: {session.capture_mode}", flush=True)
     ok = True
     for tour in tours:
         signal.signal(signal.SIGINT, signal.default_int_handler)
