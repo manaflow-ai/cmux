@@ -92,4 +92,10 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
     public func keepPreviousLog() -> Bool {
         rename(logFile.path, previousLogFile.path) == 0
     }
+
+    /// Right before Chromium starts: the root exists and the last run's log is kept.
+    public func prepareForLaunch() {
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        keepPreviousLog()
+    }
 }
