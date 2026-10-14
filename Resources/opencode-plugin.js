@@ -1075,7 +1075,7 @@ const createCMUXFeed = async (ctx, options = {}) => {
 
 export const CMUXFeed = createCMUXFeed;
 
-const CMUX_FEED_SERVER_INSTALLED_KEY = Symbol.for("cmux.feed.server.installed");
+const CMUX_FEED_SERVER_OWNER_KEY = Symbol.for("cmux.feed.server.owner");
 
 // Released OpenCode calls `server(ctx)` inside each TUI process with the
 // project server context. Old V2 snapshots called it from a shared service
@@ -1087,10 +1087,22 @@ export default {
   id: "cmux.server",
   async server(ctx) {
     if (!isTUIProcessServerContext(ctx)) return {};
-    // cmux-feed.js and plugins/cmux/index.js both load this source.
-    if (globalThis[CMUX_FEED_SERVER_INSTALLED_KEY]) return {};
-    globalThis[CMUX_FEED_SERVER_INSTALLED_KEY] = true;
-    return createCMUXFeed(ctx);
+    // cmux-feed.js and plugins/cmux/index.js both load this source. Every
+    // loader in one plugin scope receives the same ctx; a reinitialized scope
+    // receives a new one, which replaces the previous feed.
+    const owner = globalThis[CMUX_FEED_SERVER_OWNER_KEY] ||= { ctx: null, feed: null };
+    if (owner.ctx === ctx) return {};
+    const previous = owner.feed;
+    owner.ctx = ctx;
+    owner.feed = null;
+    previous?.dispose?.();
+    const feed = await createCMUXFeed(ctx);
+    if (owner.ctx !== ctx) {
+      feed.dispose();
+      return {};
+    }
+    owner.feed = feed;
+    return feed;
   },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },

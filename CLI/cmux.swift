@@ -36801,9 +36801,20 @@ function isTUIProcessServerContext(ctx) {
   return Boolean(ctx && typeof ctx === "object" && ctx.client && ctx.serverUrl && ctx.directory);
 }
 
+const CMUX_SESSION_SERVER_OWNER_KEY = Symbol.for("cmux.session.server.owner");
+
 export default {
   id: "cmux.server",
-  server(ctx) { return isTUIProcessServerContext(ctx) ? CMUXSessionRestore(ctx) : {}; },
+  server(ctx) {
+    if (!isTUIProcessServerContext(ctx)) return {};
+    // Every loader in one plugin scope receives the same ctx; a reinitialized
+    // scope receives a new one and must subscribe again.
+    const owner = globalThis[CMUX_SESSION_SERVER_OWNER_KEY] ||= { ctx: null };
+    if (owner.ctx === ctx) return {};
+    owner.ctx = ctx;
+    globalThis[CMUX_PLUGIN_INSTALLED_KEY] = true;
+    return createCMUXSessionRestore(ctx);
+  },
   // Compatibility alias for older V2 snapshots that called setup().
   setup() { return () => {}; },
 };

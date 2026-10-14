@@ -29,7 +29,7 @@ def session_plugin_source() -> str:
 
 
 HARNESS = r'''
-const { pluginDir, logPath, socketPath } = JSON.parse(process.env.CMUX_OPENCODE_SERVER_HARNESS);
+const { pluginDir, logPath, socketPath, fakeCmux } = JSON.parse(process.env.CMUX_OPENCODE_SERVER_HARNESS);
 const fs = await import("node:fs");
 const net = await import("node:net");
 const path = await import("node:path");
@@ -74,38 +74,69 @@ const v2Cleanup = await v2.default.setup({});
 if (typeof v2Cleanup !== "function") throw new Error("V2 setup did not return cleanup");
 v2Cleanup();
 
-const hooks = [];
-for (const file of ["cmux-feed.js", "cmux-session.js", path.join("cmux", "index.js")]) {
-  const mod = await import(path.join(pluginDir, file));
-  if (typeof mod.default?.server !== "function") throw new Error(`${file} lacks a server entry`);
-  hooks.push(await mod.default.server(ctx, {}));
-}
-const active = hooks.filter((hook) => hook && typeof hook.event === "function");
-if (active.length === 0) throw new Error("no OpenCode server entry subscribed to events");
-
-const emit = async (event) => {
-  for (const hook of active) await hook.event({ event });
-};
-const sid = "ses_server_entry";
-await emit({ type: "session.created", properties: { info: { id: sid, directory: "/tmp" } } });
-await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "busy" } } });
-await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "idle" } } });
-await emit({ type: "session.idle", properties: { sessionID: sid } });
-
-const deadline = Date.now() + 5000;
-const stopFrames = () => frames.filter((frame) => frame.params?.event?.hook_event_name === "Stop");
+const { execFileSync } = await import("node:child_process");
 const hookLog = () => (fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8") : "");
-while (Date.now() < deadline && (stopFrames().length === 0 || !hookLog().includes("hooks enqueue opencode stop"))) {
-  await new Promise((resolve) => setTimeout(resolve, 20));
-}
-// Give duplicate deliveries a chance to arrive before counting.
-await new Promise((resolve) => setTimeout(resolve, 200));
-const stops = stopFrames();
-if (stops.length !== 1) throw new Error(`expected one feed Stop, got ${stops.length}: ${JSON.stringify(frames)}`);
-if (stops[0].params.event.surface_id !== "surface-server-entry") throw new Error("feed Stop lost the surface id");
+const fakeCmuxRunning = () => {
+  try {
+    execFileSync("pgrep", ["-f", fakeCmux], { stdio: "ignore" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+const waitFor = async (predicate, message) => {
+  const deadline = Date.now() + 5000;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+};
+
+// Load the three cmux entries for one plugin scope and drive one turn. The
+// session.deleted sentinel follows the duplicate-prone idle events: socket
+// frames are ordered, and every hook process is spawned before the sentinel's.
+const runScope = async (scopeCtx, sid) => {
+  const hooks = [];
+  for (const file of ["cmux-feed.js", "cmux-session.js", path.join("cmux", "index.js")]) {
+    const mod = await import(path.join(pluginDir, file));
+    if (typeof mod.default?.server !== "function") throw new Error(`${file} lacks a server entry`);
+    hooks.push(await mod.default.server(scopeCtx, {}));
+  }
+  const active = hooks.filter((hook) => hook && typeof hook.event === "function");
+  if (active.length === 0) throw new Error("no OpenCode server entry subscribed to events");
+  const emit = async (event) => {
+    for (const hook of active) await hook.event({ event });
+  };
+  await emit({ type: "session.created", properties: { info: { id: sid, directory: "/tmp" } } });
+  await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "busy" } } });
+  await emit({ type: "session.status", properties: { sessionID: sid, status: { type: "idle" } } });
+  await emit({ type: "session.idle", properties: { sessionID: sid } });
+  await emit({ type: "session.deleted", properties: { info: { id: sid } } });
+
+  const forSession = (frame) => frame.params?.event?.session_id === `opencode-${sid}`;
+  await waitFor(
+    () => frames.some((frame) => forSession(frame) && frame.params.event.hook_event_name === "SessionEnd"),
+    `feed sentinel never arrived for ${sid}: ${JSON.stringify(frames)}`,
+  );
+  const sessionEnds = () => hookLog().split("\n").filter((line) => line.includes("opencode session-end")).length;
+  await waitFor(() => sessionEnds() >= runs + 1, `session-end hook never ran for ${sid}`);
+  await waitFor(() => !fakeCmuxRunning(), "hook processes did not exit");
+  const stops = frames.filter((frame) => forSession(frame) && frame.params.event.hook_event_name === "Stop");
+  if (stops.length !== 1) throw new Error(`expected one feed Stop for ${sid}, got ${stops.length}: ${JSON.stringify(frames)}`);
+  if (stops[0].params.event.surface_id !== "surface-server-entry") throw new Error("feed Stop lost the surface id");
+  return active;
+};
+
+let runs = 0;
+const first = await runScope(ctx, "ses_server_entry");
+runs++;
+// OpenCode can reinitialize a plugin scope in the same process; the new scope
+// gets a new ctx and must subscribe again.
+await runScope({ ...ctx }, "ses_server_entry_reinit");
+runs++;
 const hookStops = hookLog().split("\n").filter((line) => line.includes("hooks enqueue opencode stop"));
-if (hookStops.length !== 1) throw new Error(`expected one stop hook, got ${hookStops.length}: ${hookLog()}`);
-for (const hook of active) hook.dispose?.();
+if (hookStops.length !== 2) throw new Error(`expected one stop hook per turn, got ${hookStops.length}: ${hookLog()}`);
+for (const hook of first) hook.dispose?.();
 server.close();
 console.log("PASS: OpenCode server entry delivers one completion");
 process.exit(0);
@@ -134,7 +165,7 @@ def main() -> int:
         fake_cmux = root / "cmux"
         fake_cmux.write_text(f'#!/bin/sh\necho "$*" >> "{log_path}"\ncat >/dev/null\n', encoding="utf-8")
         fake_cmux.chmod(0o755)
-        socket_path = f"/tmp/cmux-oc-server-{os.getpid()}.sock"
+        socket_path = str(root / "cmux.sock")
         env = os.environ.copy()
         env.update(
             CMUX_SURFACE_ID="surface-server-entry",
@@ -143,7 +174,7 @@ def main() -> int:
             CMUX_OPENCODE_CMUX_BIN=str(fake_cmux),
             CMUX_OPENCODE_HOOKS_DISABLED="",
             CMUX_OPENCODE_SERVER_HARNESS=json.dumps(
-                {"pluginDir": str(plugin_dir), "logPath": str(log_path), "socketPath": socket_path}
+                {"pluginDir": str(plugin_dir), "logPath": str(log_path), "socketPath": socket_path, "fakeCmux": str(fake_cmux)}
             ),
         )
         harness = root / "harness.mjs"
