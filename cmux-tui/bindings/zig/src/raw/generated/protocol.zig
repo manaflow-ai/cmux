@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "8c51a99d7a7e807b48de1259939956644007738123f0593f55b551dcad3e3609";
+pub const ir_sha256 = "a7c2333b3e697db29aec05d498eaef13b9c41d138991ba08fef02691f77ad20c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -262,11 +262,30 @@ pub const BrowserProviderAuthentication = enum {
     }
 };
 
+pub const BrowserProviderHosting = enum {
+    daemon,
+    native,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        if (std.mem.eql(u8, value, "native")) return .native;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .daemon => "daemon",
+            .native => "native",
+        };
+    }
+};
+
 pub const BrowserProviderSnapshot = struct {
     authentication: ?BrowserProviderAuthentication = null,
     available: bool,
     clients: ?u64 = null,
     endpoint: ?[]const u8 = null,
+    hosting: ?BrowserProviderHosting = null,
     provider_id: ?[]const u8 = null,
     revision: u64,
     targets: []const BrowserProviderTarget,
@@ -275,6 +294,7 @@ pub const BrowserProviderSnapshot = struct {
         "authentication",
         "clients",
         "endpoint",
+        "hosting",
         "provider_id",
     };
 };
@@ -421,6 +441,7 @@ pub const ConversationMessage = struct {
     reply_to: ?ConversationPartRef = null,
     retracted_at: ?[]const u8 = null,
     seq: u64,
+    thread: ?ConversationThreadState = null,
     thread_root: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -429,6 +450,7 @@ pub const ConversationMessage = struct {
         "edited_at",
         "reply_to",
         "retracted_at",
+        "thread",
         "thread_root",
     };
 };
@@ -557,12 +579,61 @@ pub const ConversationTextRun = struct {
     };
 };
 
+pub const ConversationThreadResolution = struct {
+    at: []const u8,
+    by: []const u8,
+    seq: u64,
+};
+
+pub const ConversationThreadState = struct {
+    owner: ?[]const u8 = null,
+    resolved: ?ConversationThreadResolution = null,
+    title: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "owner",
+        "resolved",
+        "title",
+    };
+};
+
+pub const ConversationThreadStatus = enum {
+    open,
+    resolved,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "open")) return .open;
+        if (std.mem.eql(u8, value, "resolved")) return .resolved;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .open => "open",
+            .resolved => "resolved",
+        };
+    }
+};
+
 pub const ConversationThreadSummary = struct {
     authors: []const []const u8,
     last_reply_at: wire.Nullable([]const u8),
     last_reply_seq: wire.Nullable(u64),
+    owner: ?[]const u8 = null,
     reply_count: u64,
+    resolved_at: ?[]const u8 = null,
+    resolved_by: ?[]const u8 = null,
     root: []const u8,
+    status: ?ConversationThreadStatus = null,
+    title: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "owner",
+        "resolved_at",
+        "resolved_by",
+        "status",
+        "title",
+    };
 };
 
 pub const CopyResultMode = enum {
@@ -4261,6 +4332,38 @@ pub fn conversationImport(client: anytype, request: ConversationImportRequest) !
     );
 }
 
+pub const ConversationLinkResolveRequest = struct {
+    url: []const u8,
+};
+
+pub const ConversationLinkResolveResult = struct {
+    conversation: ConversationSummary,
+    message: ?ConversationMessage = null,
+    path: []const []const u8,
+    thread_root: ?[]const u8 = null,
+    truncated: ?bool = null,
+    url: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "message",
+        "thread_root",
+        "truncated",
+    };
+};
+
+pub fn conversationLinkResolve(client: anytype, request: ConversationLinkResolveRequest) !wire.Decoded(ConversationLinkResolveResult) {
+    return client.callTyped(
+        ConversationLinkResolveResult,
+        .{
+            .name = "conversation-link-resolve",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "conversation-tree-v1",
+        },
+        request,
+    );
+}
+
 pub const ConversationListRequest = struct {};
 
 pub const ConversationListResult = struct {
@@ -6841,6 +6944,7 @@ pub const RegisterBrowserProviderRequest = struct {
     authentication: BrowserProviderAuthentication,
     bearer_token: wire.Field([]const u8) = .absent,
     endpoint: []const u8,
+    hosting: wire.Field(BrowserProviderHosting) = .absent,
     provider_id: []const u8,
     targets: []const BrowserProviderTarget,
 };
@@ -6855,6 +6959,9 @@ pub fn registerBrowserProvider(client: anytype, request: RegisterBrowserProvider
             .authority = "local-admin",
             .since = 10,
             .capability = "browser-provider-v1",
+            .fields = &.{
+                .{ .name = "hosting", .since = null, .capability = "browser-provider-native-hosting-v1" },
+            },
         },
         request,
     );
@@ -10297,7 +10404,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 256;
+pub const command_count: usize = 257;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10355,6 +10462,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "conversation-draft", .authority = "local-admin", .since = 12, .capability = "conversation-draft-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-import", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-link-resolve", .authority = "local-admin", .since = 12, .capability = "conversation-tree-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-op", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-search", .authority = "local-admin", .since = 12, .capability = "conversation-search-v1", .stream = null },

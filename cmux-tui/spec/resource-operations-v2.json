@@ -7439,7 +7439,11 @@
         "screen_group",
         "closed",
         "workspace_status",
-        "window_record"
+        "window_record",
+        "sidebar_layout",
+        "sidebar_item",
+        "sidebar_section",
+        "sidebar_doc"
       ]
     },
     "StateEntitySnapshot": {
@@ -7480,6 +7484,22 @@
         {
           "kind": "ref",
           "name": "WindowRecordSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarItemSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarSectionSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarDocChange"
         }
       ],
       "constraints": [
@@ -9772,6 +9792,274 @@
       },
       "extra": false
     },
+    "SidebarSectionSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: machine {session_id}, pinned, custom, app {contribution}, builtin."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "shows_title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "top, middle or bottom (a newer value is kept)."
+        },
+        "look": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "arrangement": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline or grid."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among the region's sections."
+        },
+        "keeps_closed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Pinned and custom sections keep a closed workspace (drawn dimmed) and an empty group."
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The group item it is in."
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among its siblings."
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "span": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocChange": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision after the change."
+        },
+        "previous_revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision before it; a client at another revision refetches with sidebar.get."
+        },
+        "idempotency_key": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key of the sidebar.* request, null for a change the daemon made (an old write followed, a close)."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocMutation": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "inverse": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The ops that undo this mutation (item.put, item.delete, section.put, section.delete), for sidebar.apply."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 as migrated."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SidebarSectionSnapshot"
+            }
+          },
+          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, columns?, max_rows?, room?, order, keeps_closed}; unknown keys are kept."
+        },
+        "items": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SidebarItemSnapshot"
+            }
+          },
+          "description": "Items in display order: {id, section, parent?, order, body, shows_label, span?}; unknown keys are kept."
+        }
+      },
+      "extra": false
+    },
     "SidebarLayoutSnapshot": {
       "kind": "object",
       "fields": {
@@ -10290,6 +10578,36 @@
         "agent"
       ]
     },
+    "ProjectSourceSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The source id."
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the user has the source on."
+        },
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many projects the source reports."
+        }
+      },
+      "extra": false
+    },
     "ProjectSourceSeen": {
       "kind": "object",
       "fields": {
@@ -10423,6 +10741,17 @@
             }
           },
           "description": "Pinned first (by order), then the most recently used."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSourceSummary"
+            }
+          },
+          "description": "Every source seen or turned off, with its project count (Settings)."
         }
       },
       "extra": false
@@ -20233,6 +20562,63 @@
         "validation.invalid"
       ]
     },
+    "project.source.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (claude-code, codex, codex-app, vscode, cursor, zed, t3code, conductor, ...); not user."
+          },
+          "enabled": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "On: its reports count again (an editor or app source is read at once). Off: it leaves every project and its reports are ignored."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The user source is validation.invalid; an edited project keeps its edits when its last source goes off."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "project.sync": {
       "class": "mutation",
       "idempotency": "required",
@@ -23487,6 +23873,929 @@
         "name": "JsonValue"
       },
       "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.adopt": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "refs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "Workspace refs {session_id, workspace_id, workspace_ref?} of live workspaces; a ref already placed is skipped, and a workspace_ref (the workspace_placement reference) that matches an item placed before its id was known resolves that item in place."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Where the adopted workspaces land (Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends.); default: the end of each one's machine section."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.apply": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ops": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "At most 500 ops and 256 KiB."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarDocSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The group item id; minted when absent."
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The room of the group."
+          },
+          "items": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Items that move into the group, in order."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Where the group lands (Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends.); default: the place of its first item."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.ungroup": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "The group's items take its place, in order; the group goes."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{name?, color?, icon?, collapsed?, profile?}; null clears color, icon and profile."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "item": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{id?, body, shows_label?, span?}; body is tagged by type (workspace {ref}, group {name, color?, icon?, collapsed?, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}); unknown keys are kept."
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Removing a group removes its items."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{shows_label?, span?, label?, title?}; title is a url item's."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "A workspace or group of machine A never lands in machine B's section or in a group of machine B's workspaces (cross_machine)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "The items move to the end of Pinned (sec_pinned, made first in the top region when missing); an item already there stays."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "section": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; unknown keys are kept."
+          },
+          "place": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{region?, before?|after?|index?} among the region's sections; default: last."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "place": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{region?, before?|after?|index?}"
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "A machine section cannot be removed (machine_required). Workspaces and groups go back to the end of their machine section; other items are removed."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{title?, shows_title?, look?, arrangement?, columns?, max_rows?, room?, keeps_closed?}; null clears title, columns, max_rows and room."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Each item moves to the end of its own machine section; an item with no machine is refused (no_machine)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",
         "resource.not_found",

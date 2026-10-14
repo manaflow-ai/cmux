@@ -54,6 +54,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
+    /// `ui.paneAnimations`; off when unset or invalid.
+    public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
     /// `layout.stripScrollbar`; "auto" when unset or invalid.
@@ -82,8 +84,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var defaultColumnWidth: Double = DefaultColumnWidthSetting.fallback
     /// `focusRing.*`.
     public var focusRing = FocusRingSettings()
-    /// `sidebar.border` and `sidebar.borderWidth`.
+    /// `sidebar.border` and `sidebar.borderWidth`; an unset border follows
+    /// `chromeStyle`.
     public var sidebarBorder = SidebarBorder()
+    /// `appearance.chromeStyle`: the defaults of the finer chrome keys.
+    public var chromeStyle: ChromeStyle = ChromeStyleSetting.fallback
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
@@ -222,6 +227,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
+        snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
@@ -233,7 +239,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
+                                                            diagnostics: &snapshot.diagnostics)
         ColumnLayoutSettings.parse(root, into: &snapshot)
         CmuxConfigSnapshot.parsePanePlacement(root, into: &snapshot)
         CmuxConfigSnapshot.parseWorkspaceList(root, into: &snapshot)
