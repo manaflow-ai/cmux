@@ -35,6 +35,7 @@ pub async fn serve(config: Arc<ServiceConfig>, peer: Peer, incoming: IncomingCha
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "acpmux" => acpmux(&config, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
+        "browser" => crate::browser::serve(&config.browser, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -58,7 +59,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(code: &'static str, reason: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, reason: impl Into<String>) -> Self {
         Self { code, reason: reason.into() }
     }
 }

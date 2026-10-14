@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxArtifacts
+import CnxBrowserStream
 import CnxChief
 import CnxDesign
 import CnxFeed
@@ -428,6 +429,13 @@ public final class LiveCoordinator {
         // own `daemon` channel of this link; open ones reattach now.
         terminals.removeAll { $0.session == nil }
         for terminal in terminals { terminal.session?.reconnect() }
+        // Streamed browser tabs that dropped open again on this link.
+        StreamedBrowserDirectory.shared.linkChanged()
+    }
+
+    /// The current link, for streamed browser tabs (`browser` service).
+    public func browserLink() async -> (any BrowserStreamOpening)? {
+        currentLink as? any BrowserStreamOpening
     }
 
     /// A live session for a terminal tab of the Mac (`s<surface>`), or nil

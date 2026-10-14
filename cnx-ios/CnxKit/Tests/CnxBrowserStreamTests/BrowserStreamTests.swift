@@ -1,0 +1,118 @@
+import CnxTransport
+import Foundation
+import Testing
+@testable import CnxBrowserStream
+
+@Suite struct AnnexBTests {
+    @Test func splitsStartCodesAndBuildsAVCC() {
+        let sps: [UInt8] = [0x67, 1, 2]
+        let pps: [UInt8] = [0x68, 3]
+        let idr: [UInt8] = [0x65, 9, 9, 9]
+        let bytes = Data([0, 0, 0, 1, 0x09, 0xF0] + [0, 0, 0, 1] + sps + [0, 0, 1] + pps + [0, 0, 0, 1] + idr)
+        let unit = AnnexBAccessUnit(bytes)
+        #expect(unit.sps == Data(sps))
+        #expect(unit.pps == Data(pps))
+        #expect(unit.isIDR)
+        #expect(unit.units == [Data(idr)])
+        #expect(unit.avcc == Data([0, 0, 0, 4] + idr))
+        let p = AnnexBAccessUnit(Data([0, 0, 1, 0x41, 7, 7]))
+        #expect(!p.isIDR && p.sps == nil && p.units == [Data([0x41, 7, 7])])
+    }
+}
+
+@Suite struct WireTests {
+    func object(_ data: Data) -> [String: Any] { (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:] }
+
+    @Test func screenCapsTheScaleAtTwo() {
+        let screen = RemoteBrowserWire.Screen(points: CGSize(width: 402, height: 700.4), screenScale: 3)
+        #expect(screen == .init(cssWidth: 402, cssHeight: 700, scale: 2))
+        let open = object(RemoteBrowserWire().open(tab: "s4", viewer: "phone", screen: screen))
+        #expect(open["t"] as? String == "rb.open")
+        #expect((open["screen"] as? [String: Any])?["css_width"] as? Int == 402)
+    }
+
+    @Test func inputEventsMatchTheRbSchema() {
+        let wire = RemoteBrowserWire()
+        let down = object(wire.pointer("down", x: 10, y: 20, buttons: 1))
+        #expect(down["e"] as? String == "pointer" && down["kind"] as? String == "down" && down["click_count"] as? Int == 1)
+        let wheel = object(wire.wheel(x: 1, y: 2, dx: 0, dy: -30, phase: "changed", momentum: "none"))
+        #expect(wheel["precise"] as? Bool == true && wheel["dy"] as? Double == -30)
+        let commit = object(wire.commit("héllo"))
+        #expect(commit["e"] as? String == "ime_commit" && commit["text"] as? String == "héllo" && commit["replacement"] is NSNull)
+        let key = object(wire.key("Backspace", key: "Backspace", down: true))
+        #expect(key["code"] as? String == "Backspace" && (key["edit_commands"] as? [Any])?.isEmpty == true)
+    }
+}
+
+final class FakeStream: BrowserStreamConnection, @unchecked Sendable {
+    let lock = NSLock()
+    var messages: [[String: Any]] = []
+    var inputs: [[String: Any]] = []
+    var closed = false
+
+    func send(message: Data) throws {
+        lock.withLock { messages.append((try? JSONSerialization.jsonObject(with: message) as? [String: Any]) ?? [:]) }
+    }
+    func send(input: Data, mustDeliver: Bool) throws {
+        lock.withLock { inputs.append((try? JSONSerialization.jsonObject(with: input) as? [String: Any]) ?? [:]) }
+    }
+    func requestKeyframe() {}
+    func noteDecode(micros: UInt32) {}
+    func stats() -> BrowserStreamStats { BrowserStreamStats() }
+    func nowMicros() -> UInt64 { 0 }
+    func close() { lock.withLock { closed = true } }
+    var sent: [String] { lock.withLock { messages.compactMap { $0["t"] as? String } } }
+}
+
+final class SinkBox: @unchecked Sendable {
+    let lock = NSLock()
+    var sinks: [any BrowserStreamSink] = []
+    var last: (any BrowserStreamSink)? { lock.withLock { sinks.last } }
+}
+
+@MainActor @Suite struct ModelTests {
+    func settle() async { for _ in 0..<20 { await Task.yield() } }
+
+    @Test func opensAtThePhonesSizeAndFollowsThePage() async throws {
+        let stream = FakeStream()
+        let box = SinkBox()
+        let model = StreamedBrowserModel(tab: "s4", url: URL(string: "https://example.com")) { sink in
+            box.lock.withLock { box.sinks.append(sink) }
+            return stream
+        }
+        model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
+        for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
+        let sink = try #require(box.last)
+        #expect(model.phase == .connecting)
+        sink.browserMessage(Data(#"{"t":"welcome","caps":["input.service"]}"#.utf8))
+        await settle()
+        #expect(stream.sent == ["rb.open"])
+        sink.browserMessage(Data(#"{"t":"rb.page","url":"https://example.org/a","title":"A","loading":true,"can_go_back":true,"can_go_forward":false}"#.utf8))
+        await settle()
+        #expect(model.url?.absoluteString == "https://example.org/a" && model.title == "A" && model.isLoading && model.canGoBack)
+        #expect(model.host == "example.org")
+        model.layout(points: CGSize(width: 402, height: 500), screenScale: 3)
+        model.goBack()
+        model.reloadOrStop()
+        model.navigate(to: "swift.org")
+        #expect(stream.sent == ["rb.open", "rb.screen", "rb.history", "rb.history", "rb.navigate"])
+        #expect(stream.lock.withLock { stream.messages[3]["op"] as? String } == "stop")
+        #expect(stream.lock.withLock { stream.messages[4]["url"] as? String } == "https://swift.org")
+        let (x, y) = model.css(CGPoint(x: 201, y: 250), in: CGSize(width: 402, height: 500))
+        #expect(x == 201 && y == 250)
+        // A dropped stream waits, then opens again on the next link.
+        sink.browserClosed(code: "link_closed", reason: "")
+        await settle()
+        if case .waiting = model.phase {} else { Issue.record("expected waiting") }
+        model.reconnect()
+        await settle()
+        #expect(box.lock.withLock { box.sinks.count } == 2)
+    }
+
+    @Test func aRefusedOpenSaysWhy() async {
+        let model = StreamedBrowserModel(tab: "s4", url: nil) { _ in throw LinkError(code: "unavailable", message: "no browser host on this Mac") }
+        model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
+        for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(model.phase == .waiting("no browser host on this Mac"))
+    }
+}

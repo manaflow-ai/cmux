@@ -83,6 +83,28 @@ public struct CnxHostLaunch: Sendable, Equatable {
         line(["type": "acpmux", "url": url.absoluteString, "token": token])
     }
 
+    /// The answer to `need_browser` `request`: the browser host listens on
+    /// `127.0.0.1:port` and admits the hello that carries `secret` (never logged).
+    public static func browserLine(request: UInt64, port: UInt16, secret: String) -> Data {
+        anyLine(["type": "browser", "request": request, "addr": "127.0.0.1:\(port)", "secret": secret])
+    }
+
+    /// No browser host for `request`.
+    public static func browserFailedLine(request: UInt64, reason: String) -> Data {
+        anyLine(["type": "browser_failed", "request": request, "reason": reason])
+    }
+
+    /// The browser host of `tab` exited.
+    public static func browserGoneLine(tab: String) -> Data {
+        line(["type": "browser_gone", "tab": tab])
+    }
+
+    static func anyLine(_ object: [String: Any]) -> Data {
+        var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
+        data.append(0x0A)
+        return data
+    }
+
     static func line(_ object: [String: String]) -> Data {
         var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data()
         data.append(0x0A)

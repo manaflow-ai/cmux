@@ -116,6 +116,64 @@ import Testing
         #expect(await supervisor.current.phones.isEmpty)
     }
 
+    @Test func parsesBrowserRequestsAndWritesTheAnswers() throws {
+        #expect(CnxHostEvent(line: #"{"type":"need_browser","request":7,"tab":"s4","url":"https://example.com"}"#)
+            == .needBrowser(request: 7, tab: "s4", url: "https://example.com"))
+        #expect(CnxHostEvent(line: #"{"type":"browser_stop","tab":"s4"}"#) == .browserStop(tab: "s4"))
+        #expect(CnxHostEvent(line: #"{"type":"need_browser","tab":"s4"}"#) == nil)
+        let answer = try #require(String(data: CnxHostLaunch.browserLine(request: 7, port: 4567, secret: "ab"), encoding: .utf8))
+        #expect(answer == #"{"addr":"127.0.0.1:4567","request":7,"secret":"ab","type":"browser"}"# + "\n")
+        let gone = try #require(String(data: CnxHostLaunch.browserGoneLine(tab: "s4"), encoding: .utf8))
+        #expect(gone == #"{"tab":"s4","type":"browser_gone"}"# + "\n")
+    }
+
+    /// Records what the supervisor asks of the app's browser hosts.
+    final class FakeBrowserHosts: CnxBrowserHosting, @unchecked Sendable {
+        let lock = NSLock()
+        var calls: [String] = []
+
+        func record(_ call: String) { lock.withLock { calls.append(call) } }
+        func snapshot() -> [String] { lock.withLock { calls } }
+
+        func start(tab: String, url: String, onExit: @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String) {
+            record("start \(tab) \(url)")
+            return (4567, "s3cr3t")
+        }
+        func stop(tab: String) async { record("stop \(tab)") }
+        func stopAll() async { record("stopAll") }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func supervisorStartsBrowserHostsForHostd() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cnx-br-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = directory.appendingPathComponent("cnx-hostd")
+        let answer = directory.appendingPathComponent("answer")
+        try """
+        #!/bin/sh
+        read token
+        echo '{"type":"need_browser","request":7,"tab":"s4","url":"https://example.com/"}'
+        while read line; do
+          case "$line" in *'"type":"browser"'*) echo "$line" > '\(answer.path)'; break ;; esac
+        done
+        echo '{"type":"browser_stop","tab":"s4"}'
+        echo '{"type":"online","device_id":"d","team_id":"personal-u"}'
+        while read line; do :; done
+        """.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let hosts = FakeBrowserHosts()
+        let supervisor = CnxHostSupervisor()
+        let states = supervisor.states
+        await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "h.e.s" },
+                                     acpmux: { nil }, log: nil, browserHosts: hosts))
+        for await state in states where state.phase == .online { break }
+        let line = try String(contentsOf: answer, encoding: .utf8)
+        #expect(line.contains(#""addr":"127.0.0.1:4567""#) && line.contains(#""request":7"#) && line.contains("s3cr3t"))
+        #expect(hosts.snapshot().first == "start s4 https://example.com/")
+        await supervisor.stop()
+        #expect(hosts.snapshot().contains("stopAll"))
+    }
+
     @Test func missingHostdIsUnavailable() async {
         let supervisor = CnxHostSupervisor()
         await supervisor.start(.init(launch: Self.launch(executable: URL(fileURLWithPath: "/nonexistent/cnx-hostd")),

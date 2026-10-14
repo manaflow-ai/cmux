@@ -15,6 +15,9 @@ use cnx_link::{
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[path = "support/fake_rb_host.rs"]
+mod fake_rb_host;
+
 struct Fixture {
     _server: FakeSignaling,
     _dirs: Vec<tempfile::TempDir>,
@@ -22,6 +25,7 @@ struct Fixture {
     mac_id: String,
     root: std::path::PathBuf,
     outside: std::path::PathBuf,
+    browser_launches: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 fn options() -> DialOptions {
@@ -86,12 +90,17 @@ async fn fixture(fake: FakeOptions) -> Fixture {
     std::fs::write(root.path().join("notes.md"), "# hello\n").unwrap();
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
     fake_daemon(sockets.path());
+    let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let services = ServiceConfig {
         tui_socket_dir: sockets.path().to_path_buf(),
         default_session: "main".into(),
         default_socket: None,
         file_roots: vec![root.path().to_path_buf()],
         acpmux: AcpmuxTarget::Fixed { url: fake_acpmux().await, token: Some("acp-token".into()) },
+        browser: cnx_hostd::browser::BrowserConfig::new(
+            Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
+            4,
+        ),
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -115,6 +124,7 @@ async fn fixture(fake: FakeOptions) -> Fixture {
         mac_id,
         root: root.path().to_path_buf(),
         outside: outside.path().to_path_buf(),
+        browser_launches,
         _dirs: vec![sockets, root, outside],
     }
 }
@@ -144,6 +154,43 @@ async fn next_line(channel: &mut Channel, buffer: &mut Vec<u8>) -> serde_json::V
         match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
             Some(ChannelEvent::Data(data)) => buffer.extend_from_slice(&data),
             other => panic!("unexpected {other:?}"),
+        }
+    }
+}
+
+/// Reads rd stream-carrier frames off a channel.
+#[derive(Default)]
+struct RdReader(cmux_rd_proto::StreamDeframer);
+
+impl RdReader {
+    async fn next(&mut self, channel: &mut Channel) -> (u8, Vec<u8>) {
+        loop {
+            if let Some(frame) = self.0.next_frame().unwrap() {
+                return frame;
+            }
+            match tokio::time::timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
+                Some(ChannelEvent::Data(data)) => self.0.extend(&data),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    }
+
+    /// The next control message, skipping datagrams.
+    async fn control(&mut self, channel: &mut Channel) -> serde_json::Value {
+        loop {
+            let (kind, payload) = self.next(channel).await;
+            if kind == cmux_rd_proto::STREAM_CONTROL {
+                return serde_json::from_slice(&payload).unwrap();
+            }
+        }
+    }
+
+    async fn datagram(&mut self, channel: &mut Channel) -> Vec<u8> {
+        loop {
+            let (kind, payload) = self.next(channel).await;
+            if kind == cmux_rd_proto::STREAM_DATAGRAM {
+                return payload;
+            }
         }
     }
 }
@@ -202,6 +249,46 @@ async fn exercise_services(fixture: &Fixture, kind: TransportKind) {
         }
         other => panic!("unexpected {other:?}"),
     }
+
+    // browser: hostd sends the hello, the phone reads the host's carrier.
+    let tab = format!("s{}", kind as u8);
+    let mut first =
+        link.open("browser", serde_json::json!({"tab": tab, "url": "https://example.com/"})).await.unwrap();
+    let mut rd = RdReader::default();
+    assert_eq!(rd.control(&mut first).await["t"], "welcome");
+    assert_eq!(rd.control(&mut first).await["t"], "started");
+    assert_eq!(rd.control(&mut first).await["body"]["t"], "rb.opened");
+    assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.com/");
+    // Video shards flow.
+    rd.datagram(&mut first).await;
+    // A file: address never reaches the host; a web one does.
+    let mut out = Vec::new();
+    for url in ["file:///etc/passwd", "https://example.org/"] {
+        let body =
+            serde_json::json!({"t": "service", "service": "rb/1", "body": {"t": "rb.navigate", "url": url}});
+        cmux_rd_proto::encode_stream_frame(
+            cmux_rd_proto::STREAM_CONTROL,
+            &serde_json::to_vec(&body).unwrap(),
+            &mut out,
+        )
+        .unwrap();
+    }
+    first.send(Bytes::from(out)).await.unwrap();
+    assert_eq!(rd.control(&mut first).await["body"]["url"], "https://example.org/");
+    // A second viewer of the same tab takes the host over, and the page stays.
+    let mut second = link.open("browser", serde_json::json!({"tab": tab})).await.unwrap();
+    let mut rd2 = RdReader::default();
+    assert_eq!(rd2.control(&mut second).await["t"], "welcome");
+    rd2.control(&mut second).await;
+    rd2.control(&mut second).await;
+    assert_eq!(rd2.control(&mut second).await["body"]["url"], "https://example.org/");
+    assert_eq!(drain(&mut first).await.1, "replaced");
+    assert_eq!(fixture.browser_launches.load(std::sync::atomic::Ordering::SeqCst), 1);
+    second.close("eof", "").await;
+    let mut refused = link.open("browser", serde_json::json!({"tab": "x", "url": "file:///"})).await.unwrap();
+    assert_eq!(drain(&mut refused).await.1, "forbidden");
+    let mut bad_tab = link.open("browser", serde_json::json!({"tab": "../x"})).await.unwrap();
+    assert_eq!(drain(&mut bad_tab).await.1, "bad_request");
 
     // default deny
     let mut shell = link.open("shell", serde_json::json!({})).await.unwrap();

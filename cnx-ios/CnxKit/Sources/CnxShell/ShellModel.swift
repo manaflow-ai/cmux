@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxAgentChat
 import CnxAuth
+import CnxBrowserStream
 import CnxDesign
 import CnxLive
 import CnxModel
@@ -106,7 +107,9 @@ final class ShellModel {
             terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
             terminalTabs.artifactSourceProvider = { [weak live] tab in live?.terminalArtifactSource(tabID: tab.id) }
             creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
+            StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
         } else {
+            StreamedBrowserDirectory.shared.opener = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.artifactSourceProvider = nil
             creator.backend = offlineCreation
