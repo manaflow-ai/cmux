@@ -86,10 +86,12 @@ public final class WorkspaceSync {
         }
     }
 
-    /// Marks acpmux sessions with open permissions (workspace "Needs you").
-    public func setPending(_ pending: [String: Bool]) {
-        guard agents.pending != pending else { return }
+    /// Marks acpmux sessions with open permissions (workspace "Needs you"), and
+    /// what each open ask is when the phone has seen it (`waitingFor`).
+    public func setPending(_ pending: [String: Bool], waitingFor: [String: WorkspaceTab.WaitingFor] = [:]) {
+        guard agents.pending != pending || agents.waitingFor != waitingFor else { return }
         agents.pending = pending
+        agents.waitingFor = waitingFor
         Task { await refresh() }
     }
 
@@ -106,9 +108,10 @@ public final class WorkspaceSync {
                 _ = try? await client.request("subscribe", params: ["tree_events": "deltas"])
                 await refresh()
             }
-        case .agentChanged(let surface, let state, let agent):
-            if agents.bySurface[surface]?.state != state { activity[surface] = Date() }
-            agents.bySurface[surface] = AgentState(state: state, agent: agent)
+        case .agentChanged(let surface, let state, let agent, let updatedAt):
+            // A Mac that reports `updated_at_ms` gives the time; an older one gets the phone's.
+            if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
+            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt)
             Task { await refresh() }
         case .other:
             break
@@ -119,7 +122,7 @@ public final class WorkspaceSync {
         guard let list = (reply["data"] as? [String: Any])?["agents"] as? [[String: Any]] else { return }
         for agent in list {
             guard let surface = agent["surface"] as? Int else { continue }
-            agents.bySurface[surface] = AgentState(state: agent["state"] as? String ?? "unknown", agent: agent["agent"] as? String)
+            agents.bySurface[surface] = AgentState(json: agent)
         }
     }
 

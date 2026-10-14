@@ -40,6 +40,9 @@ public struct WelcomeView: View {
     @State private var animating = true
     @State private var idleStart: Date?
     @State private var lockupMark: CGRect = .zero
+    /// The sign-in icons grow with their labels (18 pt at the default size,
+    /// capped at 28 pt so a two-line label still fits beside it).
+    @ScaledMetric(relativeTo: .headline) private var scaledIcon: CGFloat = 18
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.scenePhase) private var scenePhase
@@ -267,20 +270,21 @@ public struct WelcomeView: View {
     /// (TestFlight) put Apple first. The first row is the solid one.
     private var buttons: some View {
         let apple = BuildCapabilities.current.appleSignIn
+        let icon = min(scaledIcon, 28)
         return VStack(spacing: theme.metrics.ctaWelcomeGap) {
             if apple {
                 ProviderButton(title: "Continue with Apple", isPrimary: true, isBusy: auth.busyProvider == .apple) {
-                    Image(systemName: "apple.logo").font(.system(size: 19, weight: .medium))
+                    Image(systemName: "apple.logo").font(.system(size: icon + 1, weight: .medium))
                 } action: { signIn(.apple) }
             }
             ProviderButton(title: "Continue with Google", isPrimary: !apple, isBusy: auth.busyProvider == .google) {
-                Image("GoogleLogo", bundle: .module).resizable().frame(width: 18, height: 18)
+                Image("GoogleLogo", bundle: .module).resizable().frame(width: icon, height: icon)
             } action: { signIn(.google) }
             ProviderButton(title: "Continue with GitHub", isPrimary: false, isBusy: auth.busyProvider == .github) {
-                Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: 18, height: 18)
+                Image("GitHubLogo", bundle: .module).renderingMode(.template).resizable().frame(width: icon, height: icon)
             } action: { signIn(.github) }
             ProviderButton(title: "Continue with email", isPrimary: false, isBusy: false) {
-                Image(systemName: "envelope").font(.system(size: 17, weight: .medium))
+                Image(systemName: "envelope").font(.system(size: icon - 1, weight: .medium))
             } action: {
                 auth.errorMessage = nil
                 showsEmail = true
@@ -450,6 +454,8 @@ private struct ProviderButton<Icon: View>: View {
     @Environment(\.isEnabled) private var isEnabled
     /// Half the `cta` cap height: centers the icon on the first line.
     @ScaledMetric(relativeTo: .headline) private var iconLift: CGFloat = 6
+    /// The icon's slot: 22 pt, growing with the label like the icon (capped).
+    @ScaledMetric(relativeTo: .headline) private var iconSlot: CGFloat = 22
 
     var body: some View {
         let lift = iconLift
@@ -459,7 +465,7 @@ private struct ProviderButton<Icon: View>: View {
                     icon().opacity(isBusy ? 0 : 1)
                     if isBusy { ProgressView().tint(isPrimary ? theme.colors.onAccent.color : theme.colors.label.color) }
                 }
-                .frame(width: 22, height: 22)
+                .frame(width: min(iconSlot, 30), height: min(iconSlot, 30))
                 .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + lift }
                 Text(title)
                     .multilineTextAlignment(.center)
@@ -474,6 +480,7 @@ private struct ProviderButton<Icon: View>: View {
 private struct ProviderStyle: ButtonStyle {
     let isPrimary: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
@@ -481,7 +488,8 @@ private struct ProviderStyle: ButtonStyle {
         configuration.label
             .font(theme.type.cta)
             .foregroundStyle(isPrimary ? theme.colors.onAccent : theme.colors.label)
-            .padding(.horizontal, 20)
+            // Accessibility sizes: a little less side padding, room for the larger icon.
+            .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
             .background(isPrimary ? AnyShapeStyle(theme.colors.accent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)), in: shape)

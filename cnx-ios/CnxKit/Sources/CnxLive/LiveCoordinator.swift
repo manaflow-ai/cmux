@@ -175,7 +175,7 @@ public final class LiveCoordinator {
         acpmux.onWatchEvent = { [weak self] event in
             guard let self else { return }
             self.feed.handle(event, sessions: self.acpmux.sessions)
-            self.workspaces.setPending(self.acpmux.sessions.mapValues { $0.pendingPermissions > 0 })
+            self.workspaces.setPending(self.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: self.feed.waitingFor)
         }
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
             let session = self?.tree?.agentTabs[summary.id]?.session
@@ -783,6 +783,8 @@ public final class LiveCoordinator {
         if reply == nil, let closed = channel.closedBy, closed.code != "unknown_service" { return }
         let object = reply.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let protocolVersion = object?["link"] as? Int ?? 1
+        let capabilities = Set(object?["capabilities"] as? [String] ?? [])
+        if store.macCapabilities[macID] != capabilities { store.macCapabilities[macID] = capabilities }
         log.info("Mac host: \(object?["hostd"] as? String ?? "before 0.2", privacy: .public), link protocol \(protocolVersion, privacy: .public)")
         let outdated = protocolVersion < 2
         guard outdated != outdatedMacs.contains(macID) else { return }

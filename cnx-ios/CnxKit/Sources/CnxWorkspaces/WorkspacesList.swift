@@ -859,7 +859,8 @@ struct WorkspaceRow: View {
     }
 }
 
-/// Line 2 of a row: "**Claude is waiting** · Refactor transport layer",
+/// Line 2 of a row: "**Claude is asking permission** · Refactor transport layer"
+/// (or "has a question"; "is waiting" for a terminal agent),
 /// "Codex is working · Fix pricing page" (shimmering), "**Done** · Claude:
 /// Audit runner labels", else the branch or directory.
 struct StatusLine: View {
@@ -891,7 +892,7 @@ struct StatusLine: View {
     private var tab: WorkspaceTab? { workspace.agentTab(for: status) }
     private var agentName: String? { tab?.agentName }
     private var task: String? { tab?.task }
-    private var waiting: String { agentName.map { "\($0) is waiting" } ?? "Needs you" }
+    private var waiting: String { tab?.waitingPhrase ?? "Needs you" }
     private var working: String { agentName.map { "\($0) is working" } ?? "Working" }
 
     private func emphasis(_ word: String) -> Text {
@@ -912,7 +913,7 @@ struct StatusLine: View {
     static func words(_ workspace: Workspace, status: WorkspaceStatus, macName: String?) -> [String] {
         let tab = workspace.agentTab(for: status)
         switch status {
-        case .needsYou: return [tab.map { "\($0.agentName) is waiting" } ?? "Needs you", tab?.task].compactMap(\.self)
+        case .needsYou: return [tab?.waitingPhrase ?? "Needs you", tab?.task].compactMap(\.self)
         case .working: return [tab.map { "\($0.agentName) is working" } ?? "Working", tab?.task].compactMap(\.self)
         case .done: return ["Done", tab.map { "\($0.agentName)" }, tab?.task].compactMap(\.self)
         case .creating: return ["Creating"]
