@@ -47,6 +47,10 @@ transport or models.
 - **Notices.** Set `notice` on your data source (for example when
   `createTab` returns nil) and the kit shows it as a glass toast at the top;
   a refused New Tab never opens another tab instead.
+- **Swipe to close.** Swipe a card left to close it, as in Safari: horizontal
+  drags only, 1:1 to the left (rubber band to the right), closes past 72% of
+  the card's width or on a left fling faster than 225 pt/s, else springs back;
+  the close goes through your `close(_:)` and the grid reflows.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
@@ -239,6 +243,7 @@ cover:
 - The grid layout and the scroll-into-view rule.
 - The back | forward state.
 - The close-button and title timing against the measured Safari values.
+- The swipe-to-close commit rule against Safari trials.
 
 For the UI on a simulator, run
 `xcodebuild test -scheme CmuxTabsKit -destination 'platform=iOS Simulator,…'`.
