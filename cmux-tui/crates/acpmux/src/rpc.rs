@@ -181,6 +181,9 @@ pub mod method {
     pub const SESSION_SET_MODE: &str = "session/set_mode";
     pub const SESSION_SET_MODEL: &str = "session/set_model";
     pub const SESSION_SET_CONFIG_OPTION: &str = "session/set_config_option";
+    /// Turn one of a chat's tools on or off (`hub/tools.rs`): `{sessionId,
+    /// id, enabled}`.
+    pub const MUX_SET_TOOLS: &str = "_acpmux/set_tools";
     pub const SESSION_UPDATE: &str = "session/update";
     pub const SESSION_REQUEST_PERMISSION: &str = "session/request_permission";
     pub const CANCEL_REQUEST: &str = "$/cancel_request";

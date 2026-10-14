@@ -31,6 +31,9 @@
 //! - Web only: no `acp.trust.set` (`trust.remote`); the folder-trust
 //!   question is the user's, and the trust gate (`trust_gate.rs`) holds Web
 //!   prompts until the user answers it in the app or the CLI.
+//! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
+//!   server on makes the harness start the stdio command the user's config
+//!   names on this machine; unlike a mode, no asking table makes that safe.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -221,6 +224,14 @@ pub(super) async fn check(
             "trust.remote: the folder's trust is answered only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "trust.remote"})));
+    }
+    // An MCP server turned on runs its configured command here: the app and
+    // the unix socket only (a peer forwarding for its own Web client too).
+    if m == method::MUX_SET_TOOLS && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
     // After the folder checks: what the request starts from, and its mode.
     if web {
