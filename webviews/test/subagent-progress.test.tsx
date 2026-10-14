@@ -57,7 +57,9 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentFold } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-const { SubagentStopContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+const { SubagentPaneContext, SubagentStopContext } = await import(
+  "../src/agent-session/acpmux/subagents/SubagentGroup"
+);
 const { withSubagentRows } = await import("../src/agent-session/acpmux/subagents/subagentRows");
 
 afterAll(() => {
@@ -161,7 +163,7 @@ test("a running subagent has a stop button; an ended one has none", async () => 
   try {
     await act(async () =>
       root.render(
-        <SubagentStopContext.Provider value={(id) => stopped.push(id)}>
+        <SubagentStopContext.Provider value={async (id) => void stopped.push(id)}>
           <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
         </SubagentStopContext.Provider>,
       ),
@@ -170,6 +172,46 @@ test("a running subagent has a stop button; an ended one has none", async () => 
     expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop probe"]);
     await act(async () => stops[0]!.click());
     expect(stopped).toEqual(["w"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("stopping a subagent leaves its row closed; a refused stop says so and can be tried again", async () => {
+  setPaneLanguage("en");
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, [
+    { id: "w", parent: null, name: "probe", kind: "workflow", state: "running" },
+  ]);
+  const groups = fold.takeRows();
+  const rows = withSubagentRows(groups, new Set(groups.map((row) => row.id)));
+  const opened: string[] = [];
+  const answers: Array<{ resolve: () => void; reject: (error: Error) => void }> = [];
+  const stop = (_id: string) => new Promise<void>((resolve, reject) => answers.push({ resolve, reject }));
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const button = () => dom.window.document.querySelector<HTMLButtonElement>(".cv-subagent__stop")!;
+  try {
+    await act(async () =>
+      root.render(
+        <SubagentPaneContext.Provider value={(id) => void opened.push(id)}>
+          <SubagentStopContext.Provider value={stop}>
+            <VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />
+          </SubagentStopContext.Provider>
+        </SubagentPaneContext.Provider>,
+      ),
+    );
+    await act(async () => button().click());
+    expect(opened).toEqual([]);
+    expect(answers.length).toBe(1);
+    // While Claude has not answered, another click sends nothing.
+    expect(button().disabled).toBe(true);
+    await act(async () => button().click());
+    expect(answers.length).toBe(1);
+    await act(async () => answers[0]!.reject(new Error("no running subagent w")));
+    expect([button().disabled, button().getAttribute("aria-label")]).toEqual([false, "Couldn't stop probe"]);
+    await act(async () => button().click());
+    expect(answers.length).toBe(2);
+    expect(opened).toEqual([]);
   } finally {
     await act(async () => root.unmount());
   }
