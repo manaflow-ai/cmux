@@ -24,10 +24,16 @@ enum SidebarDocWiring {
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
-        store.onUndoable = { [weak services] (title: String, undo: @escaping @MainActor () -> Void) in
+        store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
             guard let services else { return }
-            PinCommands(context: AppActionContext(services: services)).registerUndo(title: title) { _ in undo() }
+            // The inverse runs with its undo step as the origin, so the change it sends fills that step (the redo).
+            PinCommands(context: AppActionContext(services: services)).registerUndo(title: title, filling: origin as? PinUndoStep) { _ in
+                SidebarDocStore.undoOrigin = PinUndoStep.filling
+                defer { SidebarDocStore.undoOrigin = nil }
+                undo()
+            }
         }
+        store.onUndoRefused = { origin in (origin as? PinUndoStep)?.abandon() }
         DaemonSidebarDocRemote.follow(local.store.session, into: store)
         // Link rows draw the favicon at their item's icon address; an open tab's favicon address is stored on the item.
         SidebarModel.itemFavicon = { [weak services] in services?.favicons.image(for: $0, profile: .default).map { SidebarFavicon($0.cgImage) } }

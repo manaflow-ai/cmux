@@ -46,19 +46,17 @@ struct PinCommands {
     /// Cmd-Z (TOAST-UNDO-KEY, or the undo stack when it holds the step) run
     /// `inverse` once; the other path then does nothing. `inverse` shows the
     /// next toast (registered during an undo, its step becomes the redo).
-    func registerUndo(title: String, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
+    func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: @escaping @MainActor (PinCommands) -> Void) {
         let windows = context.services.windows
         guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
         let run: @MainActor () -> Void = { inverse(self) }
-        // An inverse that ran from the undo stack comes back here (often later, after the daemon's reply): it fills the
-        // step the undo put at once, so it is the redo (or, from a redo, the next undo), not a new undo that clears redo.
+        // An inverse run from the undo stack fills the step the undo put at once on the other side (`filling`: its own
+        // step, passed through the daemon reply; or the step whose inverse is running now), so it is the redo (or, from
+        // a redo, the next undo), not a new undo that clears the redo. Any other change registers a new step.
         let step: PinUndoStep
-        defer { PinUndoStep.pending = nil }
-        if let pending = PinUndoStep.pending, pending.undoManager === window.undoManager,
-           ContinuousClock.now - pending.created < .seconds(10) { // a refused inverse never comes: a later change is new
-            PinUndoStep.pending = nil
-            step = pending
+        if let target = filling ?? PinUndoStep.filling, target.isEmpty, target.undoManager === window.undoManager {
+            step = target
             step.fill(title: title, run)
         } else {
             step = PinUndoStep(title: title, run)
@@ -78,11 +76,10 @@ struct PinCommands {
 final class PinUndoStep {
     /// The step registered last (a newer one is the top of its stack, not this).
     static weak var newest: PinUndoStep?
-    /// The step an undo or redo of the stack put for its inverse, until that inverse registers.
-    static var pending: PinUndoStep?
+    /// The step an undo or redo of the stack put for the inverse running now (set only while it runs).
+    static var filling: PinUndoStep?
     private var inverse: (() -> Void)?
     private var title: String
-    let created = ContinuousClock.now
     weak var handle: CmuxToastHandle?
     weak var undoManager: UndoManager?
 
@@ -100,9 +97,20 @@ final class PinUndoStep {
         undoManager?.setActionName(title)
     }
 
+    /// A step put for an inverse that has not come yet.
+    var isEmpty: Bool { inverse == nil && !abandoned }
+    private var abandoned = false
+
     func fill(title: String, _ inverse: @escaping @MainActor () -> Void) {
         self.title = title
         self.inverse = inverse
+    }
+
+    /// Its inverse never comes (refused, or a no-op): the stack loses the empty step.
+    func abandon() {
+        guard isEmpty else { return }
+        abandoned = true
+        undoManager?.removeAllActions(withTarget: self)
     }
 
     /// Still to run, registered last, and the top of `manager` (its action name).
@@ -133,7 +141,10 @@ final class PinUndoStep {
             let next = PinUndoStep(title: title, nil)
             next.undoManager = undoManager
             next.register()
-            Self.pending = next
+            Self.filling = next
+            defer { Self.filling = nil }
+            inverse()
+            return
         }
         inverse()
     }

@@ -42,7 +42,13 @@ public final class SidebarDocStore {
     }
     /// A user's move that can be undone: the title and the undo. The App
     /// puts it on its undo surface (the toast and Cmd-Z).
-    @ObservationIgnored public var onUndoable: @MainActor (String, @escaping @MainActor () -> Void) -> Void = { _, _ in }
+    /// `origin`: `undoOrigin` when the change was sent (the undo step an undo
+    /// or redo put for this inverse), so the App fills that step.
+    @ObservationIgnored public var onUndoable: @MainActor (String, AnyObject?, @escaping @MainActor () -> Void) -> Void = { _, _, _ in }
+    /// The change sent for `origin` gave no undoable inverse (refused, or a no-op): its step stays empty.
+    @ObservationIgnored public var onUndoRefused: @MainActor (AnyObject) -> Void = { _ in }
+    /// Set by the App around running an undo step's inverse; each change sent meanwhile carries it to `onUndoable`.
+    @MainActor public static var undoOrigin: AnyObject?
     @ObservationIgnored private var loading = false
     /// A refetch asked for while one was in flight runs after it.
     @ObservationIgnored private var refetchAgain = false
@@ -200,6 +206,7 @@ public final class SidebarDocStore {
         do {
             try submit(intent, title: title, undoable: undoable, body)
         } catch {
+            if let origin = Self.undoOrigin { onUndoRefused(origin) }
             onRefused(error.message)
         }
     }
@@ -223,6 +230,7 @@ public final class SidebarDocStore {
         }
         bump()
         let key = intent.idempotencyKey
+        let origin = Self.undoOrigin
         // task-owner: one sidebar mutation; settles its pending intent
         Task { [weak self] in
             do {
@@ -235,10 +243,13 @@ public final class SidebarDocStore {
                 }
                 if undoable, reply.hasInverse {
                     let inverse = reply.inverse
-                    self.onUndoable(title) { [weak self] in self?.apply(inverse, title: title) }
+                    self.onUndoable(title, origin) { [weak self] in self?.apply(inverse, title: title) }
+                } else if let origin {
+                    self.onUndoRefused(origin)
                 }
             } catch {
                 guard let self else { return }
+                if let origin { self.onUndoRefused(origin) }
                 // The daemon refused it: no batch will echo the key.
                 self.drop(key)
                 self.refuse(SidebarDocStrings.describe(error), key: key)
