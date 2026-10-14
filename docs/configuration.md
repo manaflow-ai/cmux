@@ -760,7 +760,7 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
-      "glass": "regular",
+      "glass": "transparent",
       "glassTint": "background",
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
@@ -788,11 +788,12 @@ shows the same keys.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
-- `omnibar.glass`: the address bar's material. `regular` (default) is Liquid Glass on
-  macOS 26 and later and a blur before it; `clear` shows more of what is behind the bar;
-  `off` draws the flat theme color. Reduce Transparency always draws the flat color.
-  Browser tabs and the New Tab page use the same bar.
-- `omnibar.glassTint`: the color over the glass, from the terminal theme. `background`
+- `omnibar.glass`: the address bar's material. `transparent` (default) draws no fill: the toolbar
+  shows through, and only the hover lift, the focus ring and the suggestion card draw. `regular`
+  is Liquid Glass on macOS 26 and later and a blur before it; `clear` is glass that shows more of
+  what is behind the bar; `off` draws the flat theme color. With Reduce Transparency the glass
+  looks draw the flat color. Browser tabs and the New Tab page use the same bar.
+- `omnibar.glassTint`: the color over the glass (`regular` and `clear` only), from the terminal theme. `background`
   (default) is the theme's background; `accent` is the theme's own accent color, or its
   focus gray when the theme names none; `none` leaves the glass untinted.
 - `omnibar.glassTintStrength`: the tint's opacity, `0` to `1`. Default: `0.35`.

@@ -51,7 +51,6 @@
   text-overflow: ellipsis;
   font-weight: 600;
 }
-.cv-subagents__status,
 .cv-subagent__state {
   overflow: hidden;
   white-space: nowrap;
@@ -65,9 +64,6 @@
   font-weight: 400;
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
-}
-.cv-subagents__status[data-live] {
-  color: var(--agent-accent);
 }
 .cv-subagents__time,
 .cv-subagent__time {
