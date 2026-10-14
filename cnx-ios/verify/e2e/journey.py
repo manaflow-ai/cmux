@@ -238,6 +238,10 @@ class Journey:
         check(hits, f"key bar has no pinned {label!r} (expected left of the More keys scroller at x {lo:.0f})")
         return hits[0]
 
+    # The key bar scroller's keys in order (CnxTerminal KeyBarKey.middle).
+    SCROLLER_KEYS = ["Tab", "Shift Tab", "Up Arrow", "Down Arrow", "Left Arrow", "Right Arrow", "Control D", "Control Z",
+                     "Control L", "Alt", "|", "~", "/", "-", "Paste", "`", "{", "}", "[", "]", "Control R", "Control B"]
+
     def keybar_reveal(self, label):
         if label in self.PINNED_KEYS:
             return self.keybar_pinned(label)
@@ -248,16 +252,21 @@ class Journey:
         sc = [e for e in self.sim.find(label="More keys") if e.frame[2] > 40]
         y = sc[0].center[1] if sc else None
         # One key width (40 pt key + 6 pt gap) per drag, so the snapping row
-        # never overshoots past the key (R1-6).
+        # never overshoots past the key, toward the key by the row's order (R1-6).
         step = 46
-        for direction in (1, -1):
-            for _ in range(12):
-                if self.sim.find(label=label, kind="Button") or y is None:
-                    break
-                lo, hi = lane
-                start = (lo + hi) / 2 + direction * step / 2
-                self.sim.drag(start, y, start - direction * step, y, duration=0.5, hold=0.3)
-                time.sleep(0.4)
+        for _ in range(len(self.SCROLLER_KEYS) + 2):
+            if y is None or self.sim.find(label=label, kind="Button"):
+                break
+            shown = [e.label for e in self.sim.tree() if (e.ident or "").startswith("terminal.key.")
+                     and e.label in self.SCROLLER_KEYS]
+            if label in self.SCROLLER_KEYS and shown:
+                direction = 1 if self.SCROLLER_KEYS.index(label) > self.SCROLLER_KEYS.index(shown[0]) else -1
+            else:
+                direction = 1
+            lo, hi = lane
+            start = (lo + hi) / 2 + direction * step / 2
+            self.sim.drag(start, y, start - direction * step, y, duration=0.5, hold=0.3)
+            time.sleep(0.4)
         e = self.sim.reveal_h(dict(label=label, kind="Button"), lane=lane, tries=30)
         check(e, f"key bar has no {label!r}")
         return e
