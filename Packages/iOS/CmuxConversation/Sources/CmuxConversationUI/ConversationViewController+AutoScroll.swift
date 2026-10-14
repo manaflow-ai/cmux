@@ -110,7 +110,7 @@ final class ConversationAutoScrollDriver {
         case .hold:
             break
         }
-        let label = "\(index): \(String(describing: step))"
+        let label = "\(index): \(step.scriptText)"
         interval = signposter.beginInterval("step", id: signposter.makeSignpostID(), "\(label)")
     }
 

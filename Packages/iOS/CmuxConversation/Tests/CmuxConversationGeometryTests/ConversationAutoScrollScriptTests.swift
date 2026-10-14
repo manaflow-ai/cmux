@@ -61,6 +61,17 @@ import Testing
         #expect(step.progress(at: 0.2).distance > early.distance)
     }
 
+    /// A step names itself in script syntax (its signpost label), which
+    /// parses back to the same step.
+    @Test func stepsNameThemselvesInScriptSyntax() throws {
+        let steps: [ConversationAutoScrollScript.Step] = [.hold(seconds: 2), .drag(points: -200, seconds: 0.5), .flick(velocity: 4500)]
+        #expect(steps.map(\.scriptText) == ["hold:2.0", "drag:-200.0:0.5", "flick:4500.0"])
+        for step in steps {
+            let parsed = try #require(ConversationAutoScrollScript(parsing: step.scriptText))
+            #expect(parsed.steps == [step])
+        }
+    }
+
     @Test func holdsDoNotMove() {
         let step = ConversationAutoScrollScript.Step.hold(seconds: 2)
         #expect(step.progress(at: 1) == .init(distance: 0, finished: false))

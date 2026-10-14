@@ -30,6 +30,11 @@ public struct ConversationAutoScrollScript: Equatable, Sendable {
             }
         }
 
+        /// The step in script syntax, for its signpost interval.
+        public var scriptText: String {
+            String(describing: self)
+        }
+
         /// UIScrollView's normal deceleration, per millisecond.
         public static let decelerationRate: Double = 0.998
         /// A flick ends once it is slower than this (points per second).
