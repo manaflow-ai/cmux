@@ -25,7 +25,7 @@
      lighter than the page (near white, as Aside's and ChatGPT's are); in a dark theme one small step
      toward the text, as the theme's elevated surface. Solid, so it sits as chrome over a wallpaper. */
   --acpmux-composer-surface: light-dark(
-    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, white), /* theme-fixed: the lift toward white is the light composer surface (Leo 10-14) */
+    color-mix(in srgb, var(--cmux-surface-solid, var(--acpmux-base)) 35%, var(--cmux-tone-light)),
     color-mix(in srgb, var(--agent-text) 7%, var(--cmux-surface-solid, var(--acpmux-base)))
   );
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
