@@ -58,9 +58,11 @@ extension TabStripView {
         }
         for (newcomer, entry) in placed {
             // Ends when the model put it there, after insertionWindow, when its anchor left, or when
-            // another mover changed the model's order (a person's drag, another client).
+            // another mover changed the order of the model's other tabs (a person's drag, another
+            // client). Tabs that came or went (a second quick New Tab to the Right) are no mover.
             guard now - entry.since <= Self.insertionWindow, let index = ordered.firstIndex(where: { $0.id == newcomer }),
-                  ordered.contains(where: { $0.id == entry.anchor }), modelOthers(than: newcomer) == entry.others else {
+                  ordered.contains(where: { $0.id == entry.anchor }),
+                  Self.sameRelativeOrder(modelOthers(than: newcomer), entry.others) else {
                 placed[newcomer] = nil
                 continue
             }
@@ -74,6 +76,12 @@ extension TabStripView {
             // The model put it there: nothing left to show differently.
             if target == index { placed[newcomer] = nil }
         }
+    }
+
+    /// `a` and `b` list the tabs they share in the same order (tabs only one of them has do not count).
+    static func sameRelativeOrder(_ a: [TabID], _ b: [TabID]) -> Bool {
+        let shared = Set(a).intersection(b)
+        return a.filter(shared.contains) == b.filter(shared.contains)
     }
 
     /// The model's tabs other than `id`, provisional ones left out (they come and go by design).
