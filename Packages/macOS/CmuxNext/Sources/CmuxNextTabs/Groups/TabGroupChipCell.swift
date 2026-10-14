@@ -19,9 +19,10 @@ final class TabGroupChipCell {
         didSet {
             guard oldValue != isLifted else { return }
             themeScope.perform { pill.shadowColor = Palette.shadow.cgColor }
-            pill.shadowRadius = PopupStyle.standard.shadowBlur
-            pill.shadowOffset = CGSize(width: 0, height: PopupStyle.standard.shadowOffset)
-            pill.shadowOpacity = isLifted ? Float(PopupStyle.standard.shadowAlpha) : 0
+            let elevation = PopupStyle.elevation2
+            pill.shadowRadius = elevation.layerRadius
+            pill.shadowOffset = elevation.layerOffset(flipped: true)
+            pill.shadowOpacity = isLifted ? Float(elevation.alpha) : 0
             layer.zPosition = isLifted ? 11 : 1
         }
     }
