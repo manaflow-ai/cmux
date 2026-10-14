@@ -57,7 +57,8 @@ extension DaemonLauncher {
             ensureOutcome.note(nil)
             return ensured
         } catch {
-            ensureOutcome.note(error)
+            // A cancelled ensure (its connection torn down, or shutdown) says nothing about the owner.
+            if !Task.isCancelled, !(error is CancellationError) { ensureOutcome.note(error) }
             throw error
         }
     }

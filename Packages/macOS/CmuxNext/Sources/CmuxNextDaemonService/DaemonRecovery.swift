@@ -34,7 +34,12 @@ public final class DaemonRecovery {
         self.launcher = launcher
         self.wake = wake
         let outcome = launcher.ensureOutcome
-        outcome.observe { [weak self] in self?.offersRestart = outcome.ownerLooksStuck }
+        outcome.observe { [weak self] in
+            guard let self else { return }
+            offersRestart = outcome.ownerLooksStuck
+            // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.
+            if !offersRestart { restartFailure = nil }
+        }
         offersRestart = outcome.ownerLooksStuck
     }
 
