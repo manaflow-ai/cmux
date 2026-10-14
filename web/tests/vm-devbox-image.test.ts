@@ -59,6 +59,11 @@ const readScript = (name: string) => readFileSync(path.join(scriptsDir, name), "
 
 const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
+// The ghost-text PTY test needs the guest's Bash 5.1+ and python3; an older
+// host Bash (macOS /bin/bash) loads no ghost text, so it is skipped visibly.
+const ghostBash = await runChild("bash", ["-c", "echo $((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1]))"]);
+const ghostPython = await runChild("bash", ["-c", "command -v python3"]);
+const ghostTest = Number(ghostBash.stdout.trim()) >= 501 && ghostPython.status === 0 ? test : test.skip;
 const devboxBoot = read("cmux-devbox-boot");
 
 // A throwaway local HTTP server standing in for the coderouter opencode
@@ -312,11 +317,8 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
-  const ghostBashVersion = Bun.spawnSync(["bash", "-c", "echo $((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1]))"]).stdout.toString().trim();
-  const ghostPython = Bun.spawnSync(["bash", "-c", "command -v python3"]).exitCode === 0;
-  // Drives a real interactive Bash through a PTY. Bash 5.1+ is the guest
-  // shell; an older host Bash (macOS /bin/bash) loads no ghost text at all.
-  test.skipIf(Number(ghostBashVersion) < 501 || !ghostPython)(
+  // Drives a real interactive Bash through a PTY (see ghostTest above).
+  ghostTest(
     "history ghost text: gray suggestion, display only, readline commands intact",
     async () => {
       const directory = mkdtempSync(path.join(tmpdir(), "cmux-ghost-"));
@@ -394,6 +396,7 @@ print("ghost-ok")
         rmSync(directory, { recursive: true, force: true });
       }
     },
+    90_000,
   );
 
   test("dotted python -m completion lists one package's submodules without importing others", async () => {

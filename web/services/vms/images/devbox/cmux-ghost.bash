@@ -31,17 +31,20 @@ __cmux_ghost_prompt_key= # prompt identity __cmux_ghost_prompt_width belongs to
 __cmux_ghost_prompt_width=0
 __cmux_ghost_column=0    # screen column where the painted suggestion starts
 __cmux_ghost_echoctl=2   # width of readline's ^C echo, 0 when it is off
-__cmux_ghost_file=       # private file `fc` writes its answer to
+__cmux_ghost_file=       # private per-shell file `fc` writes its answer to
 
-# `fc` prints its answer. A file in a private directory carries it back
-# without a command substitution's fork, and unlike a pipe it cannot fill up
-# on a long history entry.
+# `fc` prints its answer. A per-shell file in the user's private directory
+# carries it back without a command substitution's fork, and unlike a pipe it
+# cannot fill up on a long history entry. The file is emptied after every
+# read, so no history text outlives the lookup, and a later shell with the
+# same pid reuses it instead of leaving another file behind.
 __cmux_ghost_answer_file() {
-  [[ $__cmux_ghost_file && -f $__cmux_ghost_file && -O $__cmux_ghost_file ]] && return 0
-  local directory
-  directory=$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghost.XXXXXX" 2>/dev/null) || return 1
-  __cmux_ghost_file=$directory/answer
-  : > "$__cmux_ghost_file" 2>/dev/null
+  local directory=${TMPDIR:-/tmp}/cmux-ghost-$UID
+  [[ $__cmux_ghost_file && -d $directory ]] && return 0
+  if [[ ! -d $directory ]]; then mkdir -m 700 "$directory" 2>/dev/null || return 1; fi
+  [[ -d $directory && ! -L $directory && -O $directory ]] || return 1
+  chmod 700 "$directory" 2>/dev/null || return 1
+  __cmux_ghost_file=$directory/answer.$$
 }
 
 # The most recent history entry that starts with $1, or empty. `fc` reads an
@@ -51,12 +54,13 @@ __cmux_ghost_lookup() {
   __cmux_ghost_match=
   [[ $1 == [0-9]* || $1 == -[0-9]* ]] && return 0
   __cmux_ghost_answer_file || return 0
-  fc -ln -- "$1" "$1" > "$__cmux_ghost_file" 2>/dev/null || return 0
+  fc -ln -- "$1" "$1" >| "$__cmux_ghost_file" 2>/dev/null || return 0
   local line count=0
   while IFS= read -r line; do
     count=$((count + 1))
     if ((count == 1)); then __cmux_ghost_match=$line; fi
   done < "$__cmux_ghost_file"
+  : >| "$__cmux_ghost_file"
   if ((count != 1)); then
     __cmux_ghost_match=
     return 0
