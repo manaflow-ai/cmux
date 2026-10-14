@@ -8,6 +8,10 @@ import Foundation
 /// (`merge-bookmarks`, once per store). The daemon owns the merge and its
 /// record; this side only reads the file and waits for the reply.
 extension BookmarkService {
+    /// Largest Chromium `Bookmarks` file sent to `merge-bookmarks`: half the
+    /// daemon's request line limit, so the escaped request always fits.
+    static let chromiumMergeLimit = 8 * 1024 * 1024
+
     /// Merges `store`'s Chromium bookmarks into `profile`'s tree and reloads
     /// the tree. False when the store must not sync: the daemon cannot merge
     /// (no `bookmarks-merge-v1`), the file cannot be read, or the merge failed.
@@ -28,6 +32,13 @@ extension BookmarkService {
             }.value
         } catch {
             logger.error("chrome.bookmarks: cannot read a store's Bookmarks file: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        // The request line holds the file JSON-escaped (quotes and newlines
+        // double), and a line over the daemon's 16 MiB limit drops the
+        // connection: a larger store is not merged, so it is not synced.
+        if let text, text.utf8.count > Self.chromiumMergeLimit {
+            logger.error("chrome.bookmarks: a store's Bookmarks file is over \(Self.chromiumMergeLimit) bytes; \(profile, privacy: .public) is not synced")
             return false
         }
         let request = MergeBookmarksRequest(browserProfileID: profile, mergeKey: "chromium-store:" + directory.lastPathComponent,

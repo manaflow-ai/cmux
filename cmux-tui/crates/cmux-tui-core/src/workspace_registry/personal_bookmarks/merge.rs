@@ -41,6 +41,9 @@ struct Merge<'a> {
     total: usize,
     created: usize,
     skipped: usize,
+    /// Target folders a visit is in: a node that maps back into one of
+    /// them is skipped, so no visit works from a stale folder read.
+    visiting: HashSet<String>,
 }
 
 /// The children of one target folder, read once per visit: URL keys,
@@ -96,7 +99,7 @@ impl Merge<'_> {
     fn folder(&self, parent: &str) -> anyhow::Result<Folder> {
         let mut statement = self.tx.prepare(
             "SELECT bookmark_id, kind, title, url FROM bookmarks
-             WHERE browser_profile_id = ?1 AND parent_id = ?2",
+             WHERE browser_profile_id = ?1 AND parent_id = ?2 ORDER BY position ASC, bookmark_id ASC",
         )?;
         let mut folder = Folder { urls: HashSet::new(), folders: HashMap::new(), next: 0 };
         let mut rows = statement.query(params![self.profile, parent])?;
@@ -126,6 +129,10 @@ impl Merge<'_> {
     /// at depth `depth`.
     fn children(&mut self, parent: &str, depth: usize, nodes: &[Value]) -> anyhow::Result<()> {
         if nodes.is_empty() {
+            return Ok(());
+        }
+        if !self.visiting.insert(parent.to_string()) {
+            self.skipped += nodes.len();
             return Ok(());
         }
         let mut folder = self.folder(parent)?;
@@ -208,6 +215,7 @@ impl Merge<'_> {
                 folder.urls.insert(url_key(url));
             }
         }
+        self.visiting.remove(parent);
         Ok(())
     }
 }
@@ -246,6 +254,7 @@ pub(super) fn merge_in(
         total: profile_count(tx, profile)?,
         created: 0,
         skipped: 0,
+        visiting: HashSet::new(),
     };
     for (chromium, cmux) in [("bookmark_bar", BOOKMARKS_BAR), ("other", OTHER_BOOKMARKS)] {
         let nodes = roots

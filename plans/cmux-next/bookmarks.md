@@ -156,7 +156,9 @@ All are editable in the palette's shortcut recorder and in cmux.json.
   loaded, so a placeholder never empties Chromium's model. Without the
   daemon capability, or when the merge fails, the store does not sync at all
   (the bridge stays off for it and Chromium keeps its own tree): the bridge
-  never replaces Chromium's bookmarks. An extension change that arrives
+  never replaces Chromium's bookmarks. The app sends a file of at most 8 MiB
+  (the daemon accepts 16 MiB, but the JSON-escaped request line must fit the
+  16 MiB line limit); a larger store is not synced. An extension change that arrives
   before cmux's tree is loaded is not applied; the merge keeps it only when
   Chromium already wrote it to the file (Chromium writes the file a few
   seconds after a change).
