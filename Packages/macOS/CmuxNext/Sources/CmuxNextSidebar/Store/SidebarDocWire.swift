@@ -65,7 +65,7 @@ nonisolated enum SidebarDocWire {
         var showsTitle: Bool?
         var region: SidebarRegion?
         var look: SectionLook?
-        var arrangement: SectionArrangement?
+        var arrangement: Arrangement?
         var columns: Int?
         var room: String?
         var maxRows: Int?
@@ -87,7 +87,7 @@ nonisolated enum SidebarDocWire {
             case "builtin", "built_in": .builtin
             default: .other(self.kind.tag)
             }
-            var arrangement = self.arrangement ?? .list
+            var arrangement = self.arrangement?.value ?? .list
             if let columns { arrangement.columns = columns }
             let pinned = kind == .pinned
             return SidebarDocSection(id: id, kind: kind, title: title, showsTitle: showsTitle ?? !pinned,
@@ -99,6 +99,20 @@ nonisolated enum SidebarDocWire {
         /// `sec_m_<session>` -> `<session>`.
         static func session(fromID id: String) -> String {
             id.hasPrefix("sec_m_") ? String(id.dropFirst("sec_m_".count)) : id
+        }
+    }
+
+    /// An arrangement: the doc's layout name (`"grid"`), or the layout's object form.
+    struct Arrangement: Decodable {
+        var value: SectionArrangement
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let name = try? c.decode(String.self) {
+                value = SectionArrangement(layout: SectionArrangement.Layout(rawValue: name) ?? .list)
+            } else {
+                value = try c.decode(SectionArrangement.self)
+            }
         }
     }
 
@@ -129,6 +143,7 @@ nonisolated enum SidebarDocWire {
             case "tab": .tab(self.body.string("ref") ?? self.body.string("id") ?? "")
             case "room": .room(self.body.string("id") ?? "")
             case "saved_group": .savedGroup(self.body.string("id") ?? "")
+            case "ref": .ref(kind: self.body.string("kind") ?? "", value: self.body.string("value") ?? "")
             default: .other(self.body.tag)
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,

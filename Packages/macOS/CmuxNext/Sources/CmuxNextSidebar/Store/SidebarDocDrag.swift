@@ -53,9 +53,8 @@ public struct SidebarDocDrag {
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
-                let key = "section:" + section
-                slots.append(.init(key: key, item: nil, section: section, frame: frame, kind: .section))
-                rows[key] = row
+                slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
+                rows[section] = row
             case .tab, .folder:
                 continue
             }

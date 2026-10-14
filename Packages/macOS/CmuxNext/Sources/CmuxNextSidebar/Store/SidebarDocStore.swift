@@ -71,15 +71,17 @@ public final class SidebarDocStore {
 
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
-    public func receive(batch data: Data, revision: UInt64?) {
+    public func receive(batch data: Data) {
         guard isActive, let mirror else { return }
-        if let revision {
-            if revision <= records.revision { return }
-            if revision > records.revision + 1 { return refresh() }
+        // The reducer judges the revision chain: a skipped one refetches.
+        switch mirror.apply(batch: data) {
+        case .stale: return
+        case .refetch: return refresh()
+        case .applied(let revision):
+            records.apply(batch: data)
+            if let revision { records.revision = revision }
+            bump()
         }
-        guard mirror.apply(batch: data) else { return refresh() }
-        records.apply(batch: data)
-        bump()
     }
 
     /// Asks the daemon to place live workspaces the document lacks (each once).
@@ -103,17 +105,6 @@ public final class SidebarDocStore {
         isActive ? mirror?.acceptance(dragging: items) ?? [:] : [:]
     }
 
-    /// The machine section of `session`, or nil.
-    public func machineSection(_ session: String) -> String? {
-        records.sections.values.first { $0.session == session }?.id
-    }
-
-    /// The machine an item belongs to: its workspace's, or a group's members'.
-    public func session(of item: String) -> String? {
-        if let ref = records.items[item]?.body.workspace { return ref.sessionID }
-        return records.items.values.first { $0.parent == item && $0.body.workspace != nil }?.body.workspace?.sessionID
-    }
-
     public static let pinnedSection = "sec_pinned"
 
     // MARK: Intents
@@ -127,15 +118,14 @@ public final class SidebarDocStore {
 
     /// Pin: the items move to the end of Pinned.
     public func pin(_ items: [String], title: String) {
-        send(.move(items, to: SidebarDocTarget(section: Self.pinnedSection), key: Self.newKey()), title: title) { remote, key in
+        send(.pin(items, key: Self.newKey()), title: title) { remote, key in
             try await remote.pin(items, key: key)
         }
     }
 
     /// Unpin: each item moves to the end of its own machine section.
     public func unpin(_ items: [String], title: String) {
-        guard let first = items.first, let section = session(of: first).flatMap(machineSection) else { return }
-        send(.move(items, to: SidebarDocTarget(section: section), key: Self.newKey()), title: title) { remote, key in
+        send(.unpin(items, key: Self.newKey()), title: title) { remote, key in
             try await remote.unpin(items, key: key)
         }
     }
@@ -170,8 +160,7 @@ public final class SidebarDocStore {
                 }
             } catch {
                 guard let self else { return }
-                // The daemon refused it: no batch will echo the key, so an
-                // empty batch with it drops the pending intent.
+                // The daemon refused it: no batch will echo the key.
                 self.drop(key)
                 self.onRefused(SidebarDocStrings.describe(error))
             }
@@ -179,9 +168,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String) {
-        guard let mirror else { return }
-        let empty = #"{"changes":[],"idempotency_key":"\#(key)"}"#
-        mirror.apply(batch: Data(empty.utf8))
+        mirror?.reject(key)
         bump()
     }
 

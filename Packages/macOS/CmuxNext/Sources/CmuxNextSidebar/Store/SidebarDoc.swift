@@ -78,6 +78,8 @@ public nonisolated enum SidebarDocBody: Hashable, Sendable {
     case tab(String)
     case room(String)
     case savedGroup(String)
+    /// Any other layout ref, by kind and value.
+    case ref(kind: String, value: String)
     case other(String)
 
     /// The workspace an item names, or nil.

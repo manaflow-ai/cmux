@@ -56,7 +56,7 @@ public final class DaemonSidebarDocRemote: SidebarDocRemote {
     public static func follow(_ session: SessionStateStore, into store: SidebarDocStore) {
         session.onSidebarBatch = { [weak store] batch in
             guard let data = try? JSONEncoder().encode(batch.json) else { return }
-            store?.receive(batch: data, revision: batch.revision)
+            store?.receive(batch: data)
         }
         session.onSidebarResync = { [weak store] in store?.refresh() }
     }

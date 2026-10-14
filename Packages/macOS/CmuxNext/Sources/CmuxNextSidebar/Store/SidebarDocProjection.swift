@@ -122,6 +122,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         case .tab(let value): .tab(value)
         case .room(let value): .room(value)
         case .savedGroup(let value): .savedGroup(value)
+        case .ref(let kind, let value): LayoutItemRef(kind: kind, value: value)
         case .other(let kind): LayoutItemRef(kind: kind, value: id)
         }
     }

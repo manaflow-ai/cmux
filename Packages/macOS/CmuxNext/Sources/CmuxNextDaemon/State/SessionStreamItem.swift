@@ -43,7 +43,8 @@ public struct SidebarDocBatch: Sendable, Hashable {
         return .object(object)
     }
 
-    static let resources: Set<String> = ["sidebar_item", "sidebar_section"]
+    /// `sidebar_doc` is the batch's marker (its revision, previous revision and key).
+    static let resources: Set<String> = ["sidebar_item", "sidebar_section", "sidebar_doc"]
 }
 
 /// A `session.events` stream line, decoded for the state the app mirrors.

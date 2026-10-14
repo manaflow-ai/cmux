@@ -39,42 +39,27 @@ public final class SidebarMirror {
         cmux_sidebar_mirror_free(handle)
     }
 
-    private typealias Entry = (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt8>?, Int, UnsafeMutablePointer<Int>?) -> Int32
+    private typealias Entry = (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?
 
-    /// One call: `request` in, the reply's bytes out (grown once when the
-    /// first buffer is too small, as `RustSidebarClient` does).
+    /// One call: JSON in, the reply's JSON out (a string the FFI allocates and this frees).
     private func call(_ entry: Entry, _ request: Data) -> Data? {
         Self.calls += 1
-        var capacity = 16 * 1024
-        for _ in 0..<2 {
-            var output = [UInt8](repeating: 0, count: capacity)
-            var length = 0
-            let code = request.withUnsafeBytes { input in
-                output.withUnsafeMutableBytes { out in
-                    entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count,
-                          out.bindMemory(to: UInt8.self).baseAddress, out.count, &length)
-                }
-            }
-            if code == CMUX_LAYOUT_REDUCER_ERR_BUFFER, length > capacity {
-                capacity = length
-                continue
-            }
-            guard code == CMUX_LAYOUT_REDUCER_OK, length <= capacity else { return nil }
-            return Data(output.prefix(length))
-        }
-        return nil
+        let reply = request.withUnsafeBytes { input in entry(handle, input.bindMemory(to: UInt8.self).baseAddress, request.count) }
+        guard let reply else { return nil }
+        defer { cmux_sidebar_mirror_string_free(reply) }
+        return Data(String(cString: reply).utf8)
     }
 
-    private func load(raw: Data) -> Bool { call(cmux_sidebar_mirror_load, raw) != nil }
-    private func applyBatch(raw: Data) -> Bool { call(cmux_sidebar_mirror_apply_batch, raw) != nil }
+    private func load(raw: Data) -> Data? { call(cmux_sidebar_mirror_load, raw) }
+    private func applyBatch(raw: Data) -> Data? { call(cmux_sidebar_mirror_apply_batch, raw) }
     private func applyIntent(raw: Data) -> Data? { call(cmux_sidebar_mirror_apply_intent, raw) }
     private func view(raw: Data) -> Data? { call(cmux_sidebar_mirror_view, raw) }
     private func dragBegin(raw: Data) -> Data? { call(cmux_sidebar_mirror_drag_begin, raw) }
     #else
     public static func make() -> SidebarMirror? { nil }
 
-    private func load(raw: Data) -> Bool { false }
-    private func applyBatch(raw: Data) -> Bool { false }
+    private func load(raw: Data) -> Data? { nil }
+    private func applyBatch(raw: Data) -> Data? { nil }
     private func applyIntent(raw: Data) -> Data? { nil }
     private func view(raw: Data) -> Data? { nil }
     private func dragBegin(raw: Data) -> Data? { nil }
@@ -83,14 +68,31 @@ public final class SidebarMirror {
     // MARK: Calls
 
     /// Replaces the confirmed document with a `sidebar.get` reply; pending
-    /// intents stay applied over it.
+    /// intents the new document refuses are dropped.
     @discardableResult
-    public func load(_ document: Data) -> Bool { load(raw: document) }
+    public func load(_ document: Data) -> Bool { load(raw: document).map(Reply.init).map(\.ok) ?? false }
 
-    /// Applies one echoed batch; an intent with the batch's idempotency key
-    /// is no longer pending.
-    @discardableResult
-    public func apply(batch: Data) -> Bool { applyBatch(raw: batch) }
+    /// What a batch did to the mirror.
+    public enum BatchOutcome: Hashable, Sendable {
+        /// Applied: the confirmed revision now (an intent with the batch's key is no longer pending).
+        case applied(revision: UInt64?)
+        /// Older than the confirmed document: nothing changed.
+        case stale
+        /// A revision was skipped, or the batch could not be read: fetch the document again.
+        case refetch
+    }
+
+    /// Applies one echoed batch (`{revision, previous_revision?, idempotency_key?, changes}`).
+    public func apply(batch: Data) -> BatchOutcome {
+        guard let reply = applyBatch(raw: batch).map(Reply.init), reply.ok else { return .refetch }
+        return reply.stale ? .stale : .applied(revision: reply.revision)
+    }
+
+    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it).
+    public func reject(_ key: String) {
+        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return }
+        _ = applyBatch(raw: body)
+    }
 
     /// Applies an intent optimistically (the daemon's reply or batch
     /// settles it). Throws the reducer's refusal.
@@ -98,73 +100,97 @@ public final class SidebarMirror {
         guard let request = try? JSONEncoder().encode(intent), let reply = applyIntent(raw: request) else {
             throw Refusal(code: "unavailable")
         }
-        if let refusal = (try? JSONDecoder().decode(RefusalReply.self, from: reply))?.refusal { throw Refusal(code: refusal) }
+        let decoded = Reply(reply)
+        guard decoded.ok else { throw Refusal(code: decoded.refusal ?? "unavailable") }
     }
 
     /// The flat rows the sidebar draws, in order.
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
         guard let body = try? JSONEncoder().encode(request), let reply = view(raw: body) else { return nil }
-        if let rows = try? JSONDecoder().decode([SidebarDocRow].self, from: reply) { return rows }
         return (try? JSONDecoder().decode(RowsReply.self, from: reply))?.rows
     }
 
     /// What a drop of `items` may do next to each row, by row key (one call per drag).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
         guard let body = try? JSONEncoder().encode(["items": items]), let reply = dragBegin(raw: body) else { return [:] }
-        if let table = try? JSONDecoder().decode([String: SidebarDocAcceptance].self, from: reply) { return table }
-        return (try? JSONDecoder().decode(AcceptanceReply.self, from: reply))?.rows ?? [:]
+        return (try? JSONDecoder().decode(AcceptanceReply.self, from: reply))?.table ?? [:]
     }
 
-    private struct RefusalReply: Decodable { var refusal: String? }
+    /// A reply's common fields: `ok`, `stale`, `refetch`, `refusal`, `revision`, `error`.
+    private struct Reply {
+        var ok = false, stale = false
+        var refusal: String?
+        var revision: UInt64?
+
+        init(_ data: Data) {
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            ok = object["ok"] as? Bool == true && object["refetch"] as? Bool != true
+            stale = object["stale"] as? Bool == true
+            refusal = object["refusal"] as? String ?? (object["error"] != nil ? "error" : nil)
+            revision = (object["revision"] as? String).flatMap { UInt64($0, radix: 10) }
+        }
+    }
+
+    private struct Rejected: Encodable {
+        var idempotencyKey: String
+        var rejected = true
+        enum CodingKeys: String, CodingKey { case rejected; case idempotencyKey = "idempotency_key" }
+    }
+
     private struct RowsReply: Decodable { var rows: [SidebarDocRow] }
-    private struct AcceptanceReply: Decodable { var rows: [String: SidebarDocAcceptance] }
+    private struct AcceptanceReply: Decodable { var table: [String: SidebarDocAcceptance] }
 }
 
-/// An optimistic intent for the mirror: a move (pin and unpin are moves to
-/// a section's end) or a list of inverse ops (undo, redo).
+/// An optimistic intent for the mirror, `{idempotency_key, ops:[op]}`: a
+/// move, a pin or unpin (the reducer's `move`, `pin`, `unpin` ops), or the
+/// inverse ops the daemon returned (undo, redo).
 public nonisolated struct SidebarMirrorIntent: Hashable, Sendable, Encodable {
-    public var op: String
-    public var items: [String]?
-    public var to: SidebarDocTarget?
-    /// `sidebar.apply`'s ops, as the daemon returned them (JSON).
-    public var ops: Data?
+    /// The ops as JSON (an array).
+    public var ops: Data
     public var idempotencyKey: String
 
     public static func move(_ items: [String], to target: SidebarDocTarget, key: String) -> SidebarMirrorIntent {
-        SidebarMirrorIntent(op: "move", items: items, to: target, ops: nil, idempotencyKey: key)
+        op(Op(op: "move", items: items, to: target), key: key)
     }
 
-    public static func apply(_ ops: Data, key: String) -> SidebarMirrorIntent {
-        SidebarMirrorIntent(op: "apply", items: nil, to: nil, ops: ops, idempotencyKey: key)
+    public static func pin(_ items: [String], key: String) -> SidebarMirrorIntent { op(Op(op: "pin", items: items), key: key) }
+    public static func unpin(_ items: [String], key: String) -> SidebarMirrorIntent { op(Op(op: "unpin", items: items), key: key) }
+
+    public static func apply(_ ops: Data, key: String) -> SidebarMirrorIntent { SidebarMirrorIntent(ops: ops, idempotencyKey: key) }
+
+    private static func op(_ op: Op, key: String) -> SidebarMirrorIntent {
+        SidebarMirrorIntent(ops: (try? JSONEncoder().encode([op])) ?? Data("[]".utf8), idempotencyKey: key)
+    }
+
+    private struct Op: Encodable {
+        var op: String
+        var items: [String]
+        var to: SidebarDocTarget?
     }
 
     enum CodingKeys: String, CodingKey {
-        case op, items, to, ops
+        case ops
         case idempotencyKey = "idempotency_key"
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(op, forKey: .op)
-        try c.encodeIfPresent(items, forKey: .items)
-        try c.encodeIfPresent(to, forKey: .to)
-        if let ops, let value = try? JSONDecoder().decode(SidebarDocWire.AnyJSONValue.self, from: ops) { try c.encode(value, forKey: .ops) }
+        try c.encode(try JSONDecoder().decode(SidebarDocWire.AnyJSONValue.self, from: ops), forKey: .ops)
         try c.encode(idempotencyKey, forKey: .idempotencyKey)
     }
 }
 
 /// `view`'s input: the live workspaces (the doc keeps closed ones only
-/// where its section keeps them), the window's workspaces (nil: all), the
-/// filter text and the collapsed groups.
+/// where its section keeps them), the filter text and the collapsed groups
+/// (empty: every group lists its members; the list folds them itself). The
+/// window's own membership stays the App's (`SidebarMembership.filter`).
 public nonisolated struct SidebarViewRequest: Hashable, Sendable, Encodable {
     public var live: [SidebarDocWorkspaceRef]
-    public var window: [SidebarDocWorkspaceRef]?
     public var filter: String?
     public var collapsed: [String]
 
-    public init(live: [SidebarDocWorkspaceRef], window: [SidebarDocWorkspaceRef]? = nil, filter: String? = nil, collapsed: [String] = []) {
+    public init(live: [SidebarDocWorkspaceRef], filter: String? = nil, collapsed: [String] = []) {
         self.live = live
-        self.window = window
         self.filter = filter
         self.collapsed = collapsed
     }
