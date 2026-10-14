@@ -73,7 +73,7 @@ export function Composer({
 }: ComposerProps) {
   const { t } = strings;
   const [value, setValue] = useState(initialValue);
-  const [showFormats, setShowFormats] = useState(true);
+  const [showFormats, setShowFormats] = useState(false);
   const [active, setActive] = useState("");
   const [pop, setPop] = useState<Pop | undefined>();
   const [emoji, setEmoji] = useState<EmojiTable | undefined>();

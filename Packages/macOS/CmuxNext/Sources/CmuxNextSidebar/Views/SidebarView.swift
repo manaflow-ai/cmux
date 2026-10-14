@@ -62,7 +62,7 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
-    let updateCardView = SidebarUpdateCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
+    let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
         didSet { if spacesPosition != oldValue { needsLayout = true } }
@@ -237,14 +237,16 @@ public final class SidebarView: NSView {
         let y = titlebarHeight
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
+        // Every control in the row centers on the traffic lights' line (the
+        // tabs and the toolbar band do too); the row's middle without them.
         let button = SidebarStyle.toolbarButtonSize
-        let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
-        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
+        let rowMidY = window.flatMap(WindowTitlebar.trafficLightsFrame(in:)).map { convert($0, from: nil).midY } ?? titlebarHeight / 2
+        newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: (rowMidY - button / 2).rounded(), width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
             let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
-            accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
+            accessory.frame = NSRect(x: x, y: (rowMidY - size.height / 2).rounded(), width: width, height: size.height)
             accessory.isHidden = width < size.height
         }
 
@@ -353,7 +355,7 @@ public final class SidebarView: NSView {
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight,
-                    cards: SidebarBottomCards(update: model.updateCard, updated: model.updatedCard, notice: model.noticeCard)
+                    cards: SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
                 )
             }) {
                 self?.render(state)

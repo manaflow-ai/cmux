@@ -45,12 +45,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
 
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
+    private let creatingInput: CreatingTerminalInput?
 
     /// - Parameter policyBlocked: true while an administrator turned off the
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil,
+    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
          policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -86,6 +87,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
+        self.creatingInput = creatingInput
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
@@ -112,6 +114,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     var answersTerminalQueries: Bool { true }
 
     func write(_ data: Data) async {
+        if let creatingInput, await creatingInput.write(data) { return }
         driver.input(data)
     }
 

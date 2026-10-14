@@ -1187,13 +1187,15 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. */
+/* Copy under an answer; the row's height is reserved. One quiet line at the column's right edge,
+   as a prompt's actions under its bubble (2px in, .cv-user__actions). */
 .cv-turn-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   min-height: 28px;
-  margin-left: -4.5px;
+  padding-right: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
@@ -1259,8 +1261,22 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
-.cv-turn-summary {
-  margin-left: 4.5px;
+/* Hidden, its space kept, but for the last turn, a failed one, the turn the reader points at
+   (data-turn-revealed, VirtualTranscript) or keyboard focus. */
+.acpmux-turnSummary .cv-turn-actions {
+  opacity: 0;
+}
+.acpmux-turnSummary[data-last-turn] .cv-turn-actions,
+.acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+.acpmux-turnSummary:hover .cv-turn-actions,
+.acpmux-turnSummary .cv-turn-actions:focus-within,
+.acpmux-turnSummary .cv-turn-actions--failed {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-turnSummary .cv-turn-actions {
+    transition: opacity 120ms ease-out;
+  }
 }
 .cv-turn-summary,
 .cv-turn-time {

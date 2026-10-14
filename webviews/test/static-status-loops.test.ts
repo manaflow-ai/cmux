@@ -139,7 +139,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
       ["running", "done", "failed"]
         .map((state) => `<span class="acpmux-summary-dot" data-state="${state}"></span>`)
         .join("") +
-      ["running", "completed", "failed", "cancelled"]
+      ["running", "waiting", "completed", "failed", "cancelled"]
         .map((state) => `<span class="acpmux-lineage__icon" data-state="${state}"></span>`)
         .join("");
     // The theme the pane always gets (applyAgentTheme), so state colors resolve as in the app.
@@ -166,6 +166,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     await p.close();
     expect(new Set(shapes.floating).size).toBe(2);
     expect(new Set(shapes.summary).size).toBe(3);
-    expect(new Set(shapes.lineage).size).toBe(4);
+    expect(new Set(shapes.lineage).size).toBe(5);
   });
 });

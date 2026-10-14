@@ -180,6 +180,9 @@ class GeneratedClientMixin:
     def conversation_import(self, conversation: str, messages: List[ConversationImportMessage]) -> ConversationImportResult:
         return self._invoke_command('conversation-import', ConversationImportRequest(conversation=conversation, messages=messages))
 
+    def conversation_link_resolve(self, url: str) -> ConversationLinkResolveResult:
+        return self._invoke_command('conversation-link-resolve', ConversationLinkResolveRequest(url=url))
+
     def conversation_list(self) -> ConversationListResult:
         return self._invoke_command('conversation-list', ConversationListRequest())
 
@@ -507,8 +510,8 @@ class GeneratedClientMixin:
     def reattach_view(self, surface: Id, *, counts: Union[bool, None, MissingType] = MISSING) -> ReattachViewResult:
         return self._invoke_command('reattach-view', ReattachViewRequest(surface=surface, counts=counts))
 
-    def register_browser_provider(self, authentication: BrowserProviderAuthentication, endpoint: str, provider_id: str, targets: List[BrowserProviderTarget], *, bearer_token: Union[str, None, MissingType] = MISSING) -> BrowserProviderSnapshot:
-        return self._invoke_command('register-browser-provider', RegisterBrowserProviderRequest(authentication=authentication, endpoint=endpoint, provider_id=provider_id, targets=targets, bearer_token=bearer_token))
+    def register_browser_provider(self, authentication: BrowserProviderAuthentication, endpoint: str, provider_id: str, targets: List[BrowserProviderTarget], *, bearer_token: Union[str, None, MissingType] = MISSING, hosting: Union[BrowserProviderHosting, None, MissingType] = MISSING) -> BrowserProviderSnapshot:
+        return self._invoke_command('register-browser-provider', RegisterBrowserProviderRequest(authentication=authentication, endpoint=endpoint, provider_id=provider_id, targets=targets, bearer_token=bearer_token, hosting=hosting))
 
     def release_attached_view_size(self, surface: Id, *, lease: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> AttachedViewOutcomeResult:
         return self._invoke_command('release-attached-view-size', ReleaseAttachedViewSizeRequest(surface=surface, lease=lease, view=view))
@@ -837,6 +840,7 @@ GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversati
 GeneratedClientMixin.conversation_draft.__cmux_command__ = COMMANDS['conversation-draft']
 GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
 GeneratedClientMixin.conversation_import.__cmux_command__ = COMMANDS['conversation-import']
+GeneratedClientMixin.conversation_link_resolve.__cmux_command__ = COMMANDS['conversation-link-resolve']
 GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']

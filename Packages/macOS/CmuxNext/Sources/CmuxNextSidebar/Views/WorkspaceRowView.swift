@@ -111,6 +111,15 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
+    override var debugIcon: String? {
+        switch iconKind {
+        case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
+        case .symbol?: "symbol"
+        case .swatch?: "swatch"
+        case .emoji?: "emoji"
+        case .favicon?: "favicon"
+        }
+    }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? {
         disclosure == nil ? nil : (disclosureButton.icon.rawValue, disclosureButton.frame, !disclosureButton.isHidden)
     }
@@ -173,7 +182,7 @@ final class WorkspaceRowView: SidebarRowView {
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         title.stringValue = ws.title
-        title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
+        title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
         subtitle.stringValue = row.detail ?? ""
         hasSubtitle = row.detail != nil

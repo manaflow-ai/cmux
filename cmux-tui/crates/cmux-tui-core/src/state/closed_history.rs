@@ -554,8 +554,8 @@ impl Mux {
                     None => {
                         // ARCHIVE-1: the archived screen and the stopped
                         // program come back above the new shell.
-                        let (spawn, _seed) = self.reopen_terminal_spawn(tab);
-                        self.new_tab_with_options_as(actor, Some(pane), spawn, None)?.id
+                        let (spawn, _seed, size) = self.reopen_terminal_spawn(tab);
+                        self.new_tab_with_options_as(actor, Some(pane), spawn, size)?.id
                     }
                 }
             }
@@ -702,16 +702,16 @@ impl Mux {
     fn first_terminal_spawn(
         &self,
         screen: &Value,
-    ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>) {
+    ) -> (TerminalSpawnOptions, Option<terminal_archive::SeedGuard<'_>>, Option<(u16, u16)>) {
         match screen["tabs"]
             .as_array()
             .and_then(|tabs| tabs.iter().find(|tab| tab["kind"] == "terminal"))
         {
             Some(tab) => {
-                let (spawn, guard) = self.reopen_terminal_spawn(tab);
-                (spawn, Some(guard))
+                let (spawn, guard, size) = self.reopen_terminal_spawn(tab);
+                (spawn, Some(guard), size)
             }
-            None => (TerminalSpawnOptions::new(None, Vec::new()), None),
+            None => (TerminalSpawnOptions::new(None, Vec::new()), None, None),
         }
     }
 
@@ -731,12 +731,12 @@ impl Mux {
                     .map(|candidate| candidate.id)
             })
         });
-        let (spawn, _seed) = self.first_terminal_spawn(screen);
+        let (spawn, _seed, size) = self.first_terminal_spawn(screen);
         let first = match workspace {
             Some(workspace) => {
-                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, size)?
             }
-            None => self.new_workspace_with_spawn_as(actor, None, spawn, None)?,
+            None => self.new_workspace_with_spawn_as(actor, None, spawn, size)?,
         };
         self.fill_screen(actor, first.id, screen, reopened)
     }
@@ -749,14 +749,15 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let screens = record["screens"].as_array().cloned().unwrap_or_default();
         let name = record["name"].as_str().map(str::to_string);
-        let (spawn, _seed) =
-            screens.first().map_or((TerminalSpawnOptions::new(None, Vec::new()), None), |screen| {
+        let (spawn, _seed, size) = screens
+            .first()
+            .map_or((TerminalSpawnOptions::new(None, Vec::new()), None, None), |screen| {
                 self.first_terminal_spawn(screen)
             });
         // Created last, so the row `restore_placement` drops in the reopen
         // commit moves no other row; the closed row's place comes back.
         let first = NewWorkspacePlacement::Bottom
-            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, None))?;
+            .scoped(|| self.new_workspace_with_spawn_as(actor, name, spawn, size))?;
         let (workspace, key) = self
             .with_state(|state| {
                 let (index, _) = state.screen_of(state.pane_of(first.id)?)?;
@@ -770,8 +771,8 @@ impl Mux {
             let surface = if index == 0 {
                 first.clone()
             } else {
-                let (spawn, _seed) = self.first_terminal_spawn(screen);
-                self.new_screen_named_as(actor, Some(workspace), None, spawn, None)?
+                let (spawn, _seed, size) = self.first_terminal_spawn(screen);
+                self.new_screen_named_as(actor, Some(workspace), None, spawn, size)?
             };
             self.fill_screen(actor, surface.id, screen, reopened)?;
         }
