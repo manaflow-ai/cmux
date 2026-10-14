@@ -12,7 +12,6 @@ extension AppActions {
         static let newChief = "/new/chief"
         static let newInvite = "/new/invite"
         static func conversation(_ id: String) -> String { "/conversation/\(id)" }
-        static func invite(_ id: String) -> String { "/conversation/\(id)/invite" }
     }
 
     /// `home.show`: the home workspace in the active window (the window that has it comes

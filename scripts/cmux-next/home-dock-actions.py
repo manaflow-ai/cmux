@@ -69,7 +69,7 @@ def run(action, arguments=None):
 
 def refused(reply):
     text = json.dumps(reply)
-    return "not ready" in text or '"refused"' in text or reply.get("ok") is False
+    return "error" in reply or "not ready" in text or '"refused"' in text or reply.get("ok") is False
 
 
 def page():

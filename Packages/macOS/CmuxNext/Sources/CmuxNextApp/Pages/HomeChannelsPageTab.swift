@@ -8,8 +8,9 @@ import CmuxNextPages
 final class HomeChannelsPageTab: InternalPageProvider {
     private weak var services: AppServices?
     private var pages: [String: PageWebView] = [:]
-    /// A route for the page view made next (the docked Home's tab before its first show).
-    private var pendingRoute: String?
+    /// Routes for store tabs whose view is not made yet (the docked Home's tab before its first
+    /// show), by tab id; `makeView` applies the one of its own tab.
+    private var pendingRoutes: [String: String] = [:]
 
     init(services: AppServices) { self.services = services }
 
@@ -21,9 +22,11 @@ final class HomeChannelsPageTab: InternalPageProvider {
         guard let services, let view = PageFactory(services: services).homeChannelsWebPage() else { return NSView() }
         // A web link the person clicks opens on the Home workspace's right side (cx-ebm.59.6).
         view.onOpenExternal = { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) }
-        if let route = pendingRoute {
-            pendingRoute = nil
-            view.open(route: route)
+        if let pending = pendingRoutes.first(where: { services.pages.storeKey(of: $0.key) == key }) {
+            pendingRoutes[pending.key] = nil
+            view.open(route: pending.value)
+            // The person asked for this page: it takes the keyboard once it draws in its window.
+            view.whenPainted { [weak view] in view?.focusPage() }
         }
         pages[key] = view
         return view
@@ -36,12 +39,12 @@ final class HomeChannelsPageTab: InternalPageProvider {
     /// route again ("#/" first) opens it again after the person moved on (hq-ec's contract).
     func open(route: String, tabID: String, services: AppServices) {
         guard let key = services.pages.storeKey(of: tabID), let view = pages[key] else {
-            pendingRoute = route
+            pendingRoutes[tabID] = route
             return
         }
         if view.route == "#" + route { view.open(route: "/") }
         view.open(route: route)
-        view.focusPage()
+        if view.window != nil { view.focusPage() } else { view.whenPainted { [weak view] in view?.focusPage() } }
     }
 
     /// Opens (or selects) the channels tab in the active window.
