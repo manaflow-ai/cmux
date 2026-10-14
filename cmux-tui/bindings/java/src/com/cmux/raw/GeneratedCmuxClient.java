@@ -268,6 +268,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudParticipantAvatarGet(CloudParticipantAvatarGetRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_PARTICIPANT_AVATAR_GET, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
