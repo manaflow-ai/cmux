@@ -155,13 +155,17 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
       const row = actions.closest(".acpmux-row")!.getBoundingClientRect();
       const box = (selector: string) => actions.querySelector(selector)!.getBoundingClientRect();
-      const prompt = [...document.querySelectorAll<HTMLElement>(".cv-user__actions")].at(-1)!.getBoundingClientRect();
+      // The last button of each row of actions: a prompt's (Copy, Edit) and the reply's.
+      const prompt = [...document.querySelectorAll<HTMLElement>(".cv-user__actions button")]
+        .at(-1)!
+        .getBoundingClientRect();
       const summary = box(".cv-turn-summary");
       const time = box(".cv-turn-time");
       const group = box(".cv-turn-action-group");
+      const last = [...actions.querySelectorAll("button")].at(-1)!.getBoundingClientRect();
       return {
         // The actions end where a prompt's do, at the column's right edge.
-        actionsRight: Math.round(row.right - group.right),
+        actionsRight: Math.round(row.right - last.right),
         promptRight: Math.round(row.right - prompt.right),
         order: summary.right <= time.left && time.right <= group.left,
         oneRow: Math.abs(summary.top + summary.height / 2 - (group.top + group.height / 2)) <= 2,
