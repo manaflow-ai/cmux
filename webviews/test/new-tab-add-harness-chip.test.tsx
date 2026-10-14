@@ -30,6 +30,7 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
 let host: HTMLElement;
 let root: Root | undefined;
+let unregister = () => {};
 
 beforeAll(() => {
   window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "http://localhost/" })
@@ -71,6 +72,7 @@ beforeAll(() => {
 
 afterAll(() => {
   act(() => root?.unmount());
+  unregister();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -93,9 +95,11 @@ async function page(catalog: AcpmuxSnapshot["catalog"]) {
   client.setQueryData(["acpmux", "harnesses", "listed-by-test"], catalog);
   const opened = { count: 0 };
   act(() => root?.unmount());
+  unregister();
   root = createRoot(host);
   await act(async () => {
-    registerHarnessesPage(() => opened.count++);
+    // As a mounted pane does; unregistered with the page, so no opener outlives this file.
+    unregister = registerHarnessesPage(() => opened.count++);
     root!.render(
       <QueryClientProvider client={client}>
         <NewTabScreen
