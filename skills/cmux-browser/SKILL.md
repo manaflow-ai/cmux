@@ -157,8 +157,8 @@ shows); the CLI never writes the browser tab record.
 
 Agents cannot delete browser profiles, not even the ones they made. Only a
 person deletes one (Settings, the palette or the menu, then the confirmation
-sheet). `cmux browser-profile delete` and the daemon's `delete-browser-profile`
-refuse every agent, script and CLI call.
+sheet). The CLI and MCP have no delete command, and the daemon's
+`delete-browser-profile` refuses every agent, script and CLI call.
 
 ## Troubleshooting
 

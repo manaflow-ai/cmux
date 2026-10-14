@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1ef4072e86baf7f2617fa3740c5d13334050c3ca1209cb2b7ef3c8942673c222. */
+/* cmux-tui mux protocol 12, IR c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1ef4072e86baf7f2617fa3740c5d13334050c3ca1209cb2b7ef3c8942673c222" as const;
+export const SDK_IR_SHA256 = "c842ad11f27faa7d78f863aefba0d7a2fa454a4fc57830b94cc24a3e5c9e140d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -483,6 +483,10 @@ export const COMMAND_METADATA = {
       "expected_revision": {
         "since": 7,
         "capability": null
+      },
+      "if_empty": {
+        "since": null,
+        "capability": "close-workspace-if-empty-v1"
       },
       "key": {
         "since": 7,
@@ -13934,6 +13938,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "if_empty": {
+          "capability": "close-workspace-if-empty-v1",
+          "default": false,
+          "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
           }
         },
         "key": {
