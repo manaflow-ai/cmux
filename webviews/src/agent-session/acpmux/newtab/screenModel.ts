@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { sessionMark } from "../sessionList";
+import { sessionEntry, sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -297,12 +297,16 @@ export type ChatCard = {
   harness?: string;
   age: string;
   message?: string;
-  state: "idle" | "input" | "running" | "error" | "unread";
+  /// `failed`: its last turn failed (the chat itself is fine); `error`: it lost its agent.
+  state: "idle" | "input" | "running" | "failed" | "error" | "unread";
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card. acpmux's
-/// own sessions come first (they carry live state); the device chat index (the sidebar's All
-/// chats source) fills the rest, newest first, without a chat whose title a session card shows.
+/// own sessions come first (they carry live state, and the name the user gave); the device chat
+/// index (the sidebar's All chats source) fills the rest, newest first, without a chat a session
+/// card shows: the same harness chat (its `harness:id` key holds the session's agent session id,
+/// Leo 2026-10-13: each lane showed twice, once by name and once by its first prompt), or the
+/// same title.
 export function recentChatCards(
   sessions: AcpmuxSnapshot["sessions"],
   now = Date.now(),
@@ -312,8 +316,16 @@ export function recentChatCards(
 ): ChatCard[] {
   const live = liveChatCards(sessions, now, t, count);
   const shown = new Set(live.map((card) => card.title.trim().toLowerCase()));
+  // Every session's, an archived one's too: its transcript must not come back as a device chat.
+  const agents = new Set(
+    sessions.flatMap((session) => {
+      const id = sessionEntry(session as Parameters<typeof sessionEntry>[0]).agentSessionId;
+      return id ? [id] : [];
+    }),
+  );
   const fill = [...device]
     .sort((a, b) => b.updatedAt - a.updatedAt)
+    .filter((chat) => !agents.has(chat.key.slice(chat.key.indexOf(":") + 1)))
     .filter((chat) => !shown.has((chat.title ?? "").trim().toLowerCase()))
     .slice(0, Math.max(0, count - live.length))
     .map((chat): ChatCard => ({
@@ -334,6 +346,6 @@ function liveChatCards(sessions: AcpmuxSnapshot["sessions"], now: number, t: Tra
     ...(session.harness ? { harness: session.harness } : {}),
     age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
-    state: sessionMark(session, false) ?? "idle",
+    state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
   }));
 }
