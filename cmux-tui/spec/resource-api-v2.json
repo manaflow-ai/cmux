@@ -51,6 +51,7 @@
         "agent.list",
         "agent.message.list",
         "agent.message.mark",
+        "agent.message.release",
         "agent.message.send",
         "agent.report",
         "browser.activate",
@@ -433,6 +434,7 @@
         ],
         "mutation": [
           "agent.message.mark",
+          "agent.message.release",
           "agent.message.send",
           "agent.report",
           "browser.activate",
@@ -667,6 +669,7 @@
               "operation": {
                 "enum": [
                   "agent.message.mark",
+                  "agent.message.release",
                   "agent.message.send",
                   "agent.report",
                   "browser.activate",

@@ -1002,17 +1002,18 @@ export function Composer({
           />,
           form.current.parentElement,
         )}
+      {/* The bottom stack's queue slot (bottomStack.css): above the strip, in the layout flow. */}
+      <ComposerQueue
+        queue={snapshot.queue}
+        paused={snapshot.summary?.queuePaused === true}
+        t={t}
+        onRemove={onQueueRemove}
+        onChange={onQueueChange}
+        onLost={onQueueLost}
+        onLeave={() => field.current?.focus()}
+      />
       {context}
       <div className="acpmux-composer-box">
-        <ComposerQueue
-          queue={snapshot.queue}
-          paused={snapshot.summary?.queuePaused === true}
-          t={t}
-          onRemove={onQueueRemove}
-          onChange={onQueueChange}
-          onLost={onQueueLost}
-          onLeave={() => field.current?.focus()}
-        />
         <input
           ref={importInput}
           className="acpmux-import-input"

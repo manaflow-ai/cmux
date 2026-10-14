@@ -103,6 +103,9 @@ public final class ChiefConversationOwner {
                 await connection.close()
                 return
             }
+            // Before anything uses the connection: an owner without this home's key (DEV only) restarts once while idle.
+            await Self.restartIfUnverified(home: self.home, launcher: launcher, connection: connection,
+                                           identity: identity, logger: logger)
             if let prepare = self.prepare { await prepare(connection) }
             self.attach(connection, identity: identity)
             do {
