@@ -669,7 +669,7 @@ function AccessMenu({
             ))}
           </MenuRadioGroup>
           {grants.length > 0 && (
-            <div className="acpmux-access-grants" role="group" aria-label={t("permission.allowChat")}>
+            <fieldset className="acpmux-access-grants" aria-label={t("permission.allowChat")}>
               <div className="acpmux-access-grants-heading">{t("permission.allowChat")}</div>
               {grants.map((grant) => (
                 <div className="acpmux-access-grant" key={grant.id}>
@@ -684,7 +684,7 @@ function AccessMenu({
                   </button>
                 </div>
               ))}
-            </div>
+            </fieldset>
           )}
         </MenuPopup>
       </Menu>

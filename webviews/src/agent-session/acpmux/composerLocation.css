@@ -181,6 +181,8 @@
   font-variant-numeric: tabular-nums;
 }
 .acpmux-access-grants {
+  min-inline-size: 0;
+  border: 0;
   margin: 8px 4px 2px;
   padding-top: 8px;
   border-top: .5px solid var(--acpmux-composer-edge);
