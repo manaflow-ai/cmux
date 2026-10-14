@@ -66,6 +66,7 @@ extension MachinesPanelViewModel {
         let scope = machinePinStore?.scopeIdentifier
         // The New Machine sheet's cache reuses this read for its plan and count.
         let sheetCacheScope = NewMachineSheetDataCache.shared?.scopeForIngest
+        beginRestReadStreamCapture()
         refreshTask = Task { [weak self] in
             // Only the last read in flight ends loading; a retired or chained one must not.
             defer { self?.clearListLoadingIfIdle() }
@@ -77,6 +78,8 @@ extension MachinesPanelViewModel {
                 NewMachineSheetDataCache.shared?.ingest(page: page, scope: sheetCacheScope)
             }
             self.applyRefreshResult(result, generation: generation, scope: scope)
+            // A failed read applied nothing, so there is nothing to replay onto.
+            self.streamChangesDuringRestRead = nil
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 let isRecovery = self.refreshRequestedWhileLoadingIsRecovery

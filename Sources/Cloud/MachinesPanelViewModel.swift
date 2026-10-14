@@ -637,6 +637,7 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshRequestedWhileLoading = false
         refreshRequestedWhileLoadingIsRecovery = false
         refreshGeneration &+= 1
+        streamChangesDuringRestRead = nil
         isLoading = false
         isRenamingMachine = false
         optimisticLabels.removeAll()
@@ -688,6 +689,14 @@ final class MachinesPanelViewModel: ObservableObject {
             machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
             lastLimits = page.limits
+            // The page was read before any stream change recorded since it
+            // started; replay those so a newer change is never undone.
+            let streamed = streamChangesDuringRestRead ?? []
+            streamChangesDuringRestRead = nil
+            for change in streamed {
+                applyVMChanges(upserts: change.upserts, deletions: change.deletions, authoritative: change.authoritative)
+            }
+            snapshots = machines
             scheduleFreeAccessTransition()
             refreshStats()
             refreshUsage()
