@@ -11,6 +11,7 @@
 //! (plans/cmux-next/mcp.md).
 
 mod action_tools;
+mod agent_tools;
 mod browser_tools;
 mod config;
 mod keybinding_tools;
@@ -31,7 +32,8 @@ use serde_json::{Map, Value, json};
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
-use transport::{CallFailure, FailureKind, Prefix};
+use transport::Prefix;
+pub(super) use transport::{CallFailure, FailureKind};
 
 /// Runs one daemon request for the agent composite surface. The composite
 /// surface uses the same socket discovery, routing, idempotency and deadline
@@ -54,8 +56,16 @@ pub(super) fn agent_app(
         .map_err(agent_failure_value)
 }
 
+/// The CLI's transport as a `Backend`, so the agent composite surface runs
+/// one code path for the CLI and for MCP tools.
+pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
+    LiveBackend { global }
+}
+
+/// A failed owner call as the CLI prints it: the owner's error with its
+/// `state` and idempotency key in `details`.
 #[cfg(unix)]
-fn agent_failure_value(failure: CallFailure) -> Value {
+pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     let mut error = failure.error;
     if let Some(object) = error.as_object_mut() {
         let details = object.entry("details").or_insert_with(|| Value::Object(Map::new()));
@@ -386,6 +396,7 @@ impl<B: Backend> Server<B> {
             .extend(browser_tools::tools().iter().map(browser_tools::BrowserTool::descriptor_json));
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
+        tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -496,6 +507,9 @@ impl<B: Backend> Server<B> {
                 return Ok(tool_error(envelope(error, "not_run", None)));
             }
             return Ok(success(super::agents::snapshot_page(snapshot, offset, limit), false));
+        }
+        if let Some(tool) = agent_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {

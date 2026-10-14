@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 use super::app::{self, ActionName};
 use super::app_focus;
 use super::command::{CommandPlan, RequestPlan, ResponseView, WireOperation};
-use super::mcp;
+use super::mcp::{self, Backend, CallFailure, FailureKind};
 use super::{GlobalArgs, OutputMode, Surface, UsageError, parse_globals, wire};
 
 pub(super) const SNAPSHOT_TOOL: &str = "agents_snapshot";
@@ -45,7 +45,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(run(global, &command_args[1..]))
 }
 
-fn normalize_qualified_targets(
+/// Routes a `<session>:<id>` target to its session (`global.session`) and
+/// leaves the bare id in `args`.
+pub(super) fn normalize_qualified_targets(
     global: &mut GlobalArgs,
     args: &mut [String],
 ) -> Result<(), UsageError> {
@@ -92,30 +94,38 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         println!("{HELP}");
         return 0;
     }
-    match command(args) {
-        Ok(AgentCommand::Snapshot) => run_snapshot(&global),
-        Ok(AgentCommand::Resource { action, args }) => run_resource(&global, &action, &args),
-        Ok(AgentCommand::App { action, args }) => run_app(&global, &action, &args),
-        Err(error) => wire::print_local_error(
-            &json!({
-                "code": "usage.invalid",
-                "message": format!("cmux: {error}"),
-                "details": {},
-                "retryable": false,
-            }),
-            global.output,
-            2,
-        ),
+    let command = match command(args) {
+        Ok(AgentCommand::Snapshot) => return run_snapshot(&global),
+        Ok(command) => command,
+        Err(error) => return print_usage(&global, &error.0),
+    };
+    let backend = mcp::cli_backend(global.clone());
+    match execute(&backend, None, &command, global.idempotency_key.as_deref()) {
+        Ok(value) => wire::print_local_success(&value, global.output),
+        Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
+        Err(AgentFailure::Owner(failure)) => {
+            wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
+        }
     }
 }
 
-enum AgentCommand {
+pub(super) enum AgentCommand {
     Snapshot,
     Resource { action: String, args: Vec<String> },
     App { action: String, args: Vec<String> },
 }
 
-fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
+/// Why an agent action answered without a receipt.
+pub(super) enum AgentFailure {
+    /// The arguments name no request; nothing reached an owner.
+    Usage(String),
+    /// An owner refused the call or did not answer.
+    Owner(CallFailure),
+}
+
+/// Parses `cmux agents` words (after `agents`) into a command. The MCP
+/// `agents_<verb>` tools build the same words, so both run this grammar.
+pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
         [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
@@ -220,40 +230,90 @@ fn run_snapshot(global: &GlobalArgs) -> i32 {
     wire::print_local_success(&value, global.output)
 }
 
-fn run_resource(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
+/// Runs one agent action for `cmux agents` and the `agents_<verb>` MCP
+/// tools alike: the owner's request, the app focus a select implies, then a
+/// receipt with a fresh composed snapshot. `session` routes daemon requests;
+/// the CLI routes with its global options and passes `None`.
+pub(super) fn execute<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    command: &AgentCommand,
+    idempotency_key: Option<&str>,
+) -> Result<Value, AgentFailure> {
+    let (action, result) = match command {
+        AgentCommand::Snapshot => {
+            return Err(AgentFailure::Usage("snapshot is a read, not an action".into()));
+        }
+        AgentCommand::Resource { action, args } => {
+            (action, run_resource(backend, session, action, args, idempotency_key)?)
+        }
+        AgentCommand::App { action, args } => {
+            (action, run_app(backend, action, args, idempotency_key)?)
+        }
+    };
+    Ok(receipt(backend, session, action, result))
+}
+
+fn run_resource<B: Backend>(
+    backend: &B,
+    session: Option<&str>,
+    action: &str,
+    args: &[String],
+    idempotency_key: Option<&str>,
+) -> Result<Value, AgentFailure> {
     let mut plan = match super::command::parse(args, Surface::CmuxTui) {
         Ok(CommandPlan::Protocol(plan)) => *plan,
         Ok(_) => {
-            return print_usage(global, "agents resource command did not produce a daemon request");
+            return Err(AgentFailure::Usage(
+                "agents resource command did not produce a daemon request".into(),
+            ));
         }
-        Err(error) => return print_usage(global, &error.0),
+        Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
     if plan.operation.class() == OperationClass::Mutation {
-        plan.idempotency_key = global.idempotency_key.clone();
+        plan.idempotency_key = idempotency_key.map(str::to_owned);
     }
-    let result = match mcp::agent_resource(global, plan) {
-        Ok(result) => result,
-        Err(error) => return wire::print_local_error(&error, global.output, 3),
-    };
-    let result = match follow_app_focus(global, action, result) {
-        Ok(result) => result,
-        Err(code) => return code,
-    };
-    let value = receipt(global, action, result);
-    wire::print_local_success(&value, global.output)
+    let result = backend.resource(session, plan, &[]).map_err(AgentFailure::Owner)?;
+    follow_app_focus(backend, action, result)
 }
 
-fn follow_app_focus(global: &GlobalArgs, action: &str, result: Value) -> Result<Value, i32> {
+/// A select or focus also shows its object in the app's window, as
+/// `cmux workspace <id> focus` does (app_focus.rs). With no app, or an app
+/// that does not know the object, the daemon's answer stands.
+fn follow_app_focus<B: Backend>(
+    backend: &B,
+    action: &str,
+    result: Value,
+) -> Result<Value, AgentFailure> {
     let operation = match action {
         "workspace.select" => ResourceOperation::WorkspaceFocus,
         "tab.select" | "terminal.focus" => ResourceOperation::TabFocus,
         _ => return Ok(result),
     };
-    app_focus::after_daemon(global, operation, result)
-        .map_err(|error| wire::print_local_error(&error, global.output, 3))
+    let app_focus::Follow::Focus(focus) = app_focus::follow_for(operation) else {
+        return Ok(result);
+    };
+    let Some(id) = app_focus::reply_id(&result) else { return Ok(result) };
+    let params = app_focus::focus_params(&focus, &id);
+    match backend.app("action.run", params, app::WAITING_RUN_TIMEOUT, None) {
+        Ok(_) => Ok(result),
+        Err(failure) if app_focus::is_not_found(&failure.error) || no_app(&failure) => Ok(result),
+        Err(failure) => Err(AgentFailure::Owner(failure)),
+    }
 }
 
-fn run_app(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
+/// No app answers on its control socket, so no window follows.
+fn no_app(failure: &CallFailure) -> bool {
+    failure.kind == FailureKind::NotRun
+        && matches!(failure.error["code"].as_str(), Some("app.not_found" | "app.unreachable"))
+}
+
+fn run_app<B: Backend>(
+    backend: &B,
+    action: &str,
+    args: &[String],
+    idempotency_key: Option<&str>,
+) -> Result<Value, AgentFailure> {
     let (method, params, timeout) = match action {
         "palette.open" => {
             let mut params = app::action_run_params("palette.open", ActionName::Any, "agents");
@@ -264,19 +324,10 @@ fn run_app(global: &GlobalArgs, action: &str, args: &[String]) -> i32 {
             let pending_only = !args.iter().any(|arg| arg == "--all");
             ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
         }
-        "dialog.answer" => match dialog_answer(args) {
-            Ok(value) => value,
-            Err(error) => return print_usage(global, &error.0),
-        },
-        _ => return print_usage(global, "unknown app action"),
+        "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
+        _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
-    let result =
-        match mcp::agent_app(global, method, params, timeout, global.idempotency_key.as_deref()) {
-            Ok(result) => result,
-            Err(error) => return wire::print_local_error(&error, global.output, 3),
-        };
-    let value = receipt(global, action, result);
-    wire::print_local_success(&value, global.output)
+    backend.app(method, params, timeout, idempotency_key).map_err(AgentFailure::Owner)
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -333,10 +384,12 @@ fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), Usa
     Ok((method, Value::Object(params), app::WAITING_RUN_TIMEOUT))
 }
 
-fn receipt(global: &GlobalArgs, action: &str, result: Value) -> Value {
+fn receipt<B: Backend>(backend: &B, session: Option<&str>, action: &str, result: Value) -> Value {
     let state = compose_snapshot(
-        mcp::agent_resource(global, snapshot_plan()),
-        mcp::agent_app(global, "snapshot.get", json!({}), app::READ_TIMEOUT, None),
+        backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
+        backend
+            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None)
+            .map_err(mcp::agent_failure_value),
     );
     json!({"schema_version": 1, "action": action, "result": result, "state": state})
 }

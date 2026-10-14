@@ -748,3 +748,206 @@ fn keybinding_read_tools_call_the_app_and_refuse_bad_arguments() {
     );
     assert_eq!(call(&mut server, "context_keys", json!({"nope": "x"}))["isError"], true);
 }
+
+const AGENT_ACTION_TOOLS: [&str; 8] = [
+    "agents_workspace_select",
+    "agents_workspace_create",
+    "agents_tab_select",
+    "agents_terminal_focus",
+    "agents_terminal_split",
+    "agents_palette_open",
+    "agents_dialog_list",
+    "agents_dialog_answer",
+];
+
+fn sent_of(server: &Server<Fake>, kind: &str) -> Vec<Value> {
+    server.backend.sent.borrow().iter().filter(|sent| sent["kind"] == kind).cloned().collect()
+}
+
+#[test]
+fn agents_action_tools_are_listed_with_strict_schemas() {
+    let mut server = Server::new(Fake::with_actions(), None);
+    let listed =
+        server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
+    let tools = listed["result"]["tools"].as_array().cloned().unwrap();
+    let names = tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<BTreeSet<_>>();
+    assert_eq!(names.len(), tools.len(), "tool names are unique");
+    for name in AGENT_ACTION_TOOLS {
+        let tool = tools
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("missing {name}"));
+        let schema = &tool["inputSchema"];
+        assert_eq!(schema["type"], "object", "{name}");
+        assert_eq!(schema["additionalProperties"], false, "{name}");
+        let keyed = !matches!(name, "agents_dialog_list" | "agents_dialog_answer");
+        assert_eq!(schema["properties"].get("idempotency_key").is_some(), keyed, "{name}");
+        assert_eq!(
+            tool["annotations"]["readOnlyHint"],
+            name == "agents_dialog_list",
+            "{name} annotations"
+        );
+    }
+    let find = |name: &str| tools.iter().find(|tool| tool["name"] == name).unwrap().clone();
+    assert_eq!(find("agents_workspace_select")["inputSchema"]["required"], json!(["workspace"]));
+    assert_eq!(find("agents_tab_select")["inputSchema"]["required"], json!(["tab"]));
+    assert_eq!(find("agents_dialog_answer")["inputSchema"]["required"], json!(["request_id"]));
+    assert_eq!(
+        find("agents_terminal_split")["inputSchema"]["properties"]["direction"]["enum"],
+        json!(["left", "right", "up", "down"])
+    );
+}
+
+#[test]
+fn agents_workspace_select_focuses_through_the_owners_and_returns_a_receipt() {
+    let mut server = Server::new(
+        Fake {
+            daemon_snapshot: Some(json!({
+                "id": WORKSPACE,
+                "workspaces": [{"id": WORKSPACE, "focused": true}],
+            })),
+            ..Fake::default()
+        },
+        None,
+    );
+    let result = call(
+        &mut server,
+        "agents_workspace_select",
+        json!({"workspace": WORKSPACE, "idempotency_key": "select-1"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let resources = sent_of(&server, "resource");
+    let request = &resources[0]["request"];
+    assert_eq!(request["operation"], "workspace.focus");
+    assert_eq!(request["params"]["workspace"], WORKSPACE);
+    assert_eq!(request["idempotency_key"], "select-1");
+    let apps = sent_of(&server, "app");
+    assert_eq!(apps[0]["method"], "action.run", "the app shows the workspace: {apps:?}");
+    assert_eq!(apps[0]["params"]["action"], "goToWorkspace");
+    assert_eq!(apps[0]["params"]["args"]["workspace"], WORKSPACE);
+    assert_eq!(apps[0]["params"]["focus"], true);
+    // The receipt: the owner's result and a fresh composed snapshot.
+    let receipt = &result["structuredContent"];
+    assert_eq!(receipt["action"], "workspace.select");
+    assert_eq!(receipt["result"]["id"], WORKSPACE);
+    assert_eq!(receipt["state"]["workspaces"][0]["id"], WORKSPACE);
+    assert_eq!(receipt["state"]["windows"][0]["id"], "win_a");
+    assert_eq!(receipt["state"]["sources"]["daemon"]["available"], true);
+    assert_eq!(receipt["state"]["sources"]["app"]["available"], true);
+    assert_eq!(resources.last().unwrap()["request"]["operation"], "session.snapshot");
+    assert_eq!(apps.last().unwrap()["method"], "snapshot.get");
+}
+
+#[test]
+fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
+    let tab = "tab_0123456789abcdef0123456789abcdef";
+    let pane = "pane_0123456789abcdef0123456789abcdef";
+    let mut server = Server::new(Fake::default(), None);
+
+    let result = call(&mut server, "agents_tab_select", json!({"tab": format!("build-box:{tab}")}));
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = &sent_of(&server, "resource")[0];
+    assert_eq!(sent["session"], "build-box", "a qualified id routes to its session");
+    assert_eq!(sent["request"]["operation"], "tab.focus");
+    assert_eq!(sent["request"]["params"]["tab"], tab);
+    assert!(
+        sent["request"]["idempotency_key"].as_str().unwrap().starts_with("mutation_"),
+        "a mutation without a key gets one: {sent}"
+    );
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(
+        &mut server,
+        "agents_workspace_create",
+        json!({"name": "--Build", "empty": true, "idempotency_key": "create-1"}),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["action"], "workspace.create");
+    let request = &sent_of(&server, "resource")[0]["request"];
+    assert_eq!(request["operation"], "workspace.create");
+    assert_eq!(request["params"]["name"], "--Build");
+    assert_eq!(request["params"]["initial_content"], "empty");
+    assert_eq!(request["idempotency_key"], "create-1");
+    assert!(
+        sent_of(&server, "app").iter().all(|sent| sent["method"] != "action.run"),
+        "creating a workspace leaves the user's focus alone"
+    );
+
+    server.backend.sent.borrow_mut().clear();
+    let result =
+        call(&mut server, "agents_terminal_split", json!({"direction": "right", "pane": pane}));
+    assert_eq!(result["isError"], false, "{result}");
+    let request = &sent_of(&server, "resource")[0]["request"];
+    assert_eq!(request["operation"], "pane.split");
+    assert_eq!(request["params"]["pane"], pane);
+    assert!(sent_of(&server, "app").iter().all(|sent| sent["method"] != "action.run"));
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(&mut server, "agents_palette_open", json!({"idempotency_key": "palette-1"}));
+    assert_eq!(result["isError"], false, "{result}");
+    let run = &sent_of(&server, "app")[0];
+    assert_eq!(run["method"], "action.run");
+    assert_eq!(run["params"]["action"], "palette.open");
+    assert_eq!(run["key"], "palette-1");
+
+    server.backend.sent.borrow_mut().clear();
+    call(&mut server, "agents_dialog_list", json!({"all": true}));
+    let list = &sent_of(&server, "app")[0];
+    assert_eq!(list["method"], "feed.list");
+    assert_eq!(list["params"]["pending_only"], false);
+
+    server.backend.sent.borrow_mut().clear();
+    let result = call(
+        &mut server,
+        "agents_dialog_answer",
+        json!({"request_id": "request_a", "selections": ["one", "two"]}),
+    );
+    assert_eq!(result["structuredContent"]["action"], "dialog.answer", "{result}");
+    let reply = &sent_of(&server, "app")[0];
+    assert_eq!(reply["method"], "feed.question.reply");
+    assert_eq!(reply["params"], json!({"request_id": "request_a", "selections": ["one", "two"]}));
+}
+
+#[test]
+fn agents_action_tools_refuse_invalid_arguments_before_reaching_an_owner() {
+    for (name, arguments) in [
+        ("agents_workspace_select", json!({})),
+        ("agents_workspace_select", json!({"workspace": WORKSPACE, "bogus": 1})),
+        ("agents_workspace_select", json!({"workspace": "--all"})),
+        ("agents_workspace_select", json!({"workspace": 7})),
+        ("agents_workspace_create", json!({"empty": "yes"})),
+        ("agents_tab_select", json!({"tab": "a:tab_x", "session": "b"})),
+        ("agents_terminal_split", json!({"direction": "diagonal"})),
+        ("agents_dialog_list", json!({"idempotency_key": "k"})),
+        ("agents_dialog_answer", json!({"request_id": "r"})),
+        ("agents_dialog_answer", json!({"request_id": "r", "mode": "allow", "selections": ["a"]})),
+        ("agents_dialog_answer", json!({"request_id": "r", "selections": []})),
+    ] {
+        let mut server = Server::new(Fake::default(), None);
+        let result = call(&mut server, name, arguments.clone());
+        assert_eq!(result["isError"], true, "{name} {arguments}: {result}");
+        assert_eq!(result["structuredContent"]["state"], "not_run", "{name} {arguments}");
+        assert!(server.backend.sent.borrow().is_empty(), "{name} {arguments} reached an owner");
+    }
+}
+
+#[test]
+fn agents_action_tools_report_a_failing_owner_with_its_state_and_key() {
+    let mut server = Server::new(Fake { fail_resources: true, ..Fake::default() }, None);
+    let result = call(
+        &mut server,
+        "agents_workspace_select",
+        json!({"workspace": WORKSPACE, "idempotency_key": "select-1"}),
+    );
+    assert_eq!(result["isError"], true);
+    let envelope = &result["structuredContent"];
+    assert_eq!(envelope["state"], "in_progress");
+    assert_eq!(envelope["idempotency_key"], "select-1");
+    assert_eq!(envelope["error"]["code"], "transport.failed", "the error passes through");
+
+    let mut server = Server::new(Fake { fail_apps: true, ..Fake::default() }, None);
+    let result = call(&mut server, "agents_palette_open", json!({}));
+    assert_eq!(result["isError"], true);
+    assert_eq!(result["structuredContent"]["state"], "not_run");
+    assert_eq!(result["structuredContent"]["error"]["code"], "transport.unavailable");
+}
