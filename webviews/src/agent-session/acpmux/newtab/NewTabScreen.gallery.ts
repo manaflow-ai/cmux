@@ -97,6 +97,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
+    "agent-session/acpmux/newtab/LabsList.tsx#LabsList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
@@ -114,6 +115,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         if (ctx.document.querySelector(".nt-no-agent, .acpmux-add-harness"))
           throw new Error("Add harness shows on the page with a harness installed");
+      },
+    },
+    labs: {
+      note: "A nightly or dev build (data-labs-team): Labs lists every flag with its one-line intent and a toggle, and All Labs… for Settings > Labs. Release builds show no Labs section.",
+      ready: newTab(),
+      snapshot: noChat(),
+      play: async (ctx) => {
+        ctx.document.documentElement.setAttribute("data-labs-team", "1");
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-labs [data-lab] input[type=checkbox]") !== null);
       },
     },
     // The chip's model picker opens whole: the card does not clip it to its search field

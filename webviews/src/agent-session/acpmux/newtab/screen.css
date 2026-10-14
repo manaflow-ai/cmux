@@ -198,6 +198,10 @@
 .nt-open-tab:not(:disabled):hover,.nt-open-tab:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-open-tab:focus-visible .nt-row-action{opacity:1}
 .nt-card-host,.nt-row-host{display:contents}
+/* Labs (hq#1980, team builds): a flag's intent with its toggle at the right; All Labs… in the head, styled as All Chats. */
+.nt-labs .nt-open-tabs-head{justify-content:space-between;padding-right:4px}
+.nt-lab{height:28px;padding:0 10px;font-size:var(--text-detail);cursor:default}
+.nt-lab input{flex:none;margin:0 0 0 auto}
 /* The create actions' buttons. Geometry and type: the shared ghost button (ui/ghost.css, cx-s6zvc). */
 .nt-tool{border:0;background:none;color:var(--acpmux-composer-dim);font-family:inherit;cursor:default}
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
